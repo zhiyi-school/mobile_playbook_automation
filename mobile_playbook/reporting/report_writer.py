@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from mobile_playbook.reporting.dashboard_export import write_dashboard_results
-from mobile_playbook.reporting.serialization import serialize
+from mobile_playbook.reporting.messages import clean_message
 
 
 class ReportWriter:
@@ -45,14 +45,6 @@ class ReportWriter:
     def write_summary(self) -> None:
         self.completed_at = datetime.now().astimezone()
         duration_seconds = (self.completed_at - self.started_at).total_seconds()
-        data: dict[str, Any] = {
-            "run_timestamp": self.run_timestamp,
-            "run_started_at": self.started_at.isoformat(),
-            "run_completed_at": self.completed_at.isoformat(),
-            "duration_seconds": round(duration_seconds, 3),
-            "results": [r.to_dict() for r in self.results],
-        }
-        (self.run_dir / "summary.json").write_text(json.dumps(serialize(data), indent=2, sort_keys=True))
         if self.result_adapter is not None:
             normalized = [self.result_adapter(result) for result in self.results]
             write_dashboard_results(self.run_dir, normalized)
@@ -64,15 +56,16 @@ class ReportWriter:
             f"- Completed: {self.completed_at.isoformat()}",
             f"- Duration: {duration_seconds:.2f} seconds",
             "",
-            "| App | Risk | Test Case | Artifact Source | Status | Notes |",
-            "| --- | --- | --- | --- | --- | --- |",
+            "| App | Risk | Test Case | Artifact Source | Status | Notes | Report |",
+            "| --- | --- | --- | --- | --- | --- | --- |",
         ]
         for result in self.results:
-            notes = "; ".join(result.errors[:2])
+            notes = "; ".join(clean_message(e) for e in result.errors[:2])
             if not notes and result.artifact_result and result.artifact_result.errors:
-                notes = "; ".join(result.artifact_result.errors[:2])
+                notes = "; ".join(clean_message(e) for e in result.artifact_result.errors[:2])
+            report_path = f"{self.platform}/{result.app_id}/{result.risk_id}/{result.test_case_id}"
             lines.append(
                 f"| {result.app_id} | {result.risk_id} | {result.test_case_id} | "
-                f"{result.artifact_source} | {result.final_status} | {notes} |"
+                f"{result.artifact_source} | {result.final_status} | {notes} | [{report_path}/]({report_path}/) |"
             )
         (self.run_dir / "summary.md").write_text("\n".join(lines) + "\n")

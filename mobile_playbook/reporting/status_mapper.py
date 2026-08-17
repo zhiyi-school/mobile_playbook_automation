@@ -30,4 +30,5 @@ class TestResult(SerializableDataclass):
     started_at: str | None = None
     completed_at: str | None = None
     duration_seconds: float | None = None
+    report_path: str | None = None
     raw: dict[str, Any] = field(default_factory=dict)

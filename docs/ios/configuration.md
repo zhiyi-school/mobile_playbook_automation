@@ -94,7 +94,22 @@ include:
   apps: apps.yaml
 ```
 
-Included paths are resolved relative to the entry-point file. Each included file may contain either the raw section value or a mapping wrapped under the section name. Inline values in the entry point override included values. See `configs/split/ios.example.yaml`.
+Included paths are resolved relative to the entry-point file. Each included file may contain either the raw section value or a mapping wrapped under the section name. Inline values in the entry point override included values. See `configs/split/ios/ios.example.yaml`.
+
+### Splitting Out Shared Risk Templates
+
+A section's include value can also be a **list** of paths instead of one path:
+
+```yaml
+include:
+  apps:
+    - templates.yaml
+    - apps.yaml
+```
+
+Listed files are read and concatenated as raw text, in that order, then parsed as a single YAML document — not loaded and merged separately. This matters because YAML anchors (`&name`/`*name`) only resolve within one parsed document: if `templates.yaml` and `apps.yaml` were parsed independently, `apps.yaml`'s `<<: *ipa_static_analysis` aliases would fail with an undefined-anchor error. Concatenating the raw text first is what lets `templates.yaml` define reusable `x-*` blocks (analyzer defaults, keystroke-collection settings, and so on) that `apps.yaml`'s app entries reference, while still keeping the two concerns — reusable templates vs. the actual app roster — in separate files.
+
+`configs/ios.yaml` in this project uses exactly this: it is just an `include:` map, with `device`/`runner` each split into one file, and `apps` split across two — `configs/split/ios/templates.yaml` (the `x-*` anchors) and `configs/split/ios/apps.yaml` (the 11 app entries, referencing those anchors). All of `configs/split/ios/device.yaml`, `runner.yaml`, `templates.yaml`, and `apps.yaml` are git-ignored, since they contain a real device UDID and app roster — only the `*.example.yaml` files under `configs/split/ios/` are tracked. Android's equivalent split lives in `configs/split/android/`; see [Android Configuration](../android/configuration.md#split-android-configs).
 
 ## Environment Files
 

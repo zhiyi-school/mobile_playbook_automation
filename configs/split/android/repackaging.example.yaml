@@ -1,0 +1,9 @@
+repackaging:
+  work_dir: "work/android/repackaging"
+  keystore_alias: "mobileplaybook"
+  keystore_pass: "password"
+  restore_original_after_test: true
+  record_lead_in: 2
+  launch_wait: 8
+  post_click_wait: 5
+  record_tail: 3

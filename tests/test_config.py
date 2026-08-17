@@ -101,6 +101,58 @@ def test_config_loads_split_section_includes(tmp_path, fake_ipa):
     assert loaded.apps[0].id == "a"
 
 
+def test_config_loads_split_section_include_list_with_shared_anchors(tmp_path, fake_ipa):
+    (tmp_path / "device.yaml").write_text(yaml.safe_dump({
+        "device": {"udid": "u", "team_id": "t", "appium_server_url": "http://127.0.0.1:4723"}
+    }))
+    (tmp_path / "templates.yaml").write_text(
+        "x-local-ipa-artifact: &local_ipa_artifact\n"
+        "  source: \"local_ipa\"\n"
+        "  expected_bundle_id: \"\"\n"
+    )
+    (tmp_path / "apps.yaml").write_text(
+        "apps:\n"
+        "  - id: \"a\"\n"
+        "    name: \"A\"\n"
+        "    bundle_id: \"com.example.app\"\n"
+        f"    artifact:\n"
+        f"      <<: *local_ipa_artifact\n"
+        f"      ipa: \"{fake_ipa}\"\n"
+        "    expected_behavior: {}\n"
+        "    risks:\n"
+        "      ios-feature1-risk1:\n"
+        "        enabled: true\n"
+    )
+    entry = {
+        "include": {
+            "device": "device.yaml",
+            "apps": ["templates.yaml", "apps.yaml"],
+        },
+    }
+    path = tmp_path / "ios.yaml"
+    path.write_text(yaml.safe_dump(entry))
+
+    loaded = load_config(path)
+
+    assert loaded.apps[0].id == "a"
+    # "source" came only from the templates.yaml anchor merged via `<<: *local_ipa_artifact`,
+    # proving the cross-file alias in apps.yaml resolved against the earlier file's anchor.
+    assert loaded.apps[0].artifact["source"] == "local_ipa"
+    assert loaded.apps[0].artifact["ipa"] == str(fake_ipa)
+
+
+def test_config_include_list_rejects_empty_list(tmp_path):
+    entry = {
+        "device": {"udid": "u", "team_id": "t", "appium_server_url": "http://127.0.0.1:4723"},
+        "include": {"apps": []},
+    }
+    path = tmp_path / "ios.yaml"
+    path.write_text(yaml.safe_dump(entry))
+
+    with pytest.raises(ConfigError, match="apps"):
+        load_config(path)
+
+
 def test_config_allows_feature1_risk1_without_extra_cases(global_config):
     app = global_config.apps[0]
     app.risks = {"ios-feature1-risk1": {"enabled": True}}

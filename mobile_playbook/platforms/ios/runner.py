@@ -5,6 +5,7 @@ from pathlib import Path
 from mobile_playbook.platforms.ios.artifacts.registry import get_provider
 from mobile_playbook.orchestration.artifact_intake import app_matches_selector
 from mobile_playbook.platforms.ios.device import AppiumDeviceClient
+from mobile_playbook.platforms.ios.preflight import check_ios_preflight
 from mobile_playbook.platforms.ios.risks import get_risk
 
 
@@ -22,6 +23,9 @@ class IosPlatformRunner:
         return False
 
     def connect_device(self, config):
+        preflight = check_ios_preflight(config)
+        if not preflight.ok:
+            raise RuntimeError("; ".join(preflight.errors))
         return AppiumDeviceClient(config.device).connect()
 
     def close_device(self, device_client) -> None:

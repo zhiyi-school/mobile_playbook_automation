@@ -5,8 +5,8 @@
 configs/ios.yaml
 configs/android.yaml
 configs/*.local.yaml
-configs/split/*.yaml
-!configs/split/*.example.yaml
+configs/split/**/*.yaml
+!configs/split/**/*.example.yaml
 profiles/
 *.mobileprovision
 *.p12

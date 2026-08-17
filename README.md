@@ -103,7 +103,7 @@ Run both platforms in one command:
 python -m mobile_playbook run-all --ios-config configs/ios.yaml --android-config configs/android.yaml --apps parking,lifesg --out reports
 ```
 
-`run-all` runs the iOS and Android `run` flows concurrently in one process (Appium/adb/network calls are I/O-bound, so a thread per platform is enough). It is additive on top of `run` — nothing about single-platform `run` changes. `--apps`/`--risks` are applied to both configs, and each platform still writes its own `reports/<run_timestamp>/ios/...` or `.../android/...` tree exactly as it would from a standalone `run`, so results are never merged. If both platforms happen to start in the same second, they may share one `<run_timestamp>` folder (their per-app/per-risk reports still land in separate `ios/`/`android/` subfolders either way); the only thing that can then race is which platform's top-level `summary.json`/`dashboard_results.json` is written last.
+`run-all` runs the iOS and Android `run` flows concurrently in one process (Appium/adb/network calls are I/O-bound, so a thread per platform is enough). It is additive on top of `run` — nothing about single-platform `run` changes. `--apps`/`--risks` are applied to both configs, and each platform still writes its own `reports/<run_timestamp>/ios/...` or `.../android/...` tree exactly as it would from a standalone `run`, so results are never merged. If both platforms happen to start in the same second, they may share one `<run_timestamp>` folder (their per-app/per-risk reports still land in separate `ios/`/`android/` subfolders either way); the only thing that can then race is which platform's top-level `dashboard_results.json` is written last.
 
 Acquire iOS artifacts only:
 

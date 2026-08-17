@@ -14,7 +14,9 @@ iOS per-app risk outputs are written under:
 reports/<run_timestamp>/ios/<app_id>/<risk_id>/<test_case_id>/
 ```
 
-The top-level `reports/<run_timestamp>/summary.md`, `summary.json`, and `dashboard_results.json` cover all platforms in a single run; see [docs/android/reports-and-troubleshooting.md](../android/reports-and-troubleshooting.md) for the Android side.
+The top-level `reports/<run_timestamp>/summary.md` and `dashboard_results.json` cover all platforms in a single run; see [docs/android/reports-and-troubleshooting.md](../android/reports-and-troubleshooting.md) for the Android side.
+
+`summary.md`'s table and each `dashboard_results.json` record carry a short, cleaned one-line message rather than a raw error dump (a failed Appium call's full "Message: ...\nStacktrace:\n..." text is reduced to just its first line) — the complete untouched error still lives in that test's `logs.txt`/`report.json`. For iOS, each `dashboard_results.json` record also carries a `report_path` field (e.g. `ios/parking/ios-feature5-risk1/collection_server`) pointing at that per-test folder, and `summary.md` links to it directly from a `Report` column.
 
 ## Common Risk Files
 
@@ -60,6 +62,10 @@ Check `bundle_id`, `test_bundle_id`, `artifact.expected_bundle_id`, and the IPA'
 Appium connection failure:
 
 Confirm Appium is running and the XCUITest driver is installed, and that the iPhone is trusted and unlocked.
+
+`device.udid '...' is not a connected iOS device`:
+
+Before opening an Appium session, the framework checks `xcrun xctrace list devices` and fails fast with this one-line message if the configured `device.udid` isn't currently connected — for example if a different iPhone is plugged in, or the configured one shows under "Devices Offline" (unplugged, locked, or not yet trusted). Run `xcrun xctrace list devices` yourself, then either reconnect/unlock/trust the configured device or update `device.udid` to the one that's actually attached. Without this check, the same situation used to surface as a raw multi-line Appium/XCUITest stack trace (`Unknown device or simulator UDID: '...'`).
 
 WebDriverAgent signing failure:
 

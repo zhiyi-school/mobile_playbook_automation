@@ -41,7 +41,7 @@ CLI (argparse)
        -> per-risk preflight check (Android only; checks adb/appium/apktool/etc.)
        -> risk.run(app, config, device_client, report_writer)
        -> risk writes its own report.json/evidence into the report writer's tree
-  -> write run summary.json, summary.md, dashboard_results.json
+  -> write run summary.md, dashboard_results.json
   -> close device session
 ```
 
@@ -91,7 +91,9 @@ There is no standalone MobSF client module; the REST client is embedded directly
 
 All result objects are `SerializableDataclass` subclasses (`mobile_playbook/reporting/serialization.py`; `mobile_playbook/core/serialization.py` re-exports it), whose `to_dict()` recursively converts `Path → str` and nested dataclasses/lists/dicts into plain JSON-safe structures. The platform-agnostic result schema — `TestResult` and `Evidence` — lives in `mobile_playbook/reporting/status_mapper.py`; iOS and Android each normalize their own richer result objects (`RiskRunResult`, `AndroidRiskRunResult`) into this common shape for the dashboard feed.
 
-`ReportWriter` (`mobile_playbook/reporting/report_writer.py`) owns a single run's directory: it creates `reports/<run_timestamp>/`, an `evidence/` folder, and a `<platform>/` folder; `test_report_dir(app_id, risk_id, case_id)` creates and returns the per-test folder each risk writes `report.json`/`logs.txt`/evidence into; `write_summary()` writes `summary.json`, `summary.md`, and (via `dashboard_export.write_dashboard_results`) `dashboard_results.json`. `run_timestamp` itself comes from `orchestration/scheduler.py`'s `new_run_timestamp`, a local, second-resolution, sortable timestamp string that appends a numeric suffix if a run folder with that name already exists.
+`ReportWriter` (`mobile_playbook/reporting/report_writer.py`) owns a single run's directory: it creates `reports/<run_timestamp>/`, an `evidence/` folder, and a `<platform>/` folder; `test_report_dir(app_id, risk_id, case_id)` creates and returns the per-test folder each risk writes `report.json`/`logs.txt`/evidence into; `write_summary()` writes `summary.md` and (via `dashboard_export.write_dashboard_results`) `dashboard_results.json`. `run_timestamp` itself comes from `orchestration/scheduler.py`'s `new_run_timestamp`, a local, second-resolution, sortable timestamp string that appends a numeric suffix if a run folder with that name already exists.
+
+Both outputs are deliberately kept human/dashboard-facing rather than a raw dump of every field: `mobile_playbook/reporting/messages.py`'s `clean_message()` reduces a raw error (which for a failed Appium/Selenium call is a multi-line "Message: ...\nStacktrace:\n..." block) down to its first meaningful line before it goes into `summary.md`'s Notes column or a `TestResult.summary`. The full untouched error text is never lost — it still lives in each per-test `logs.txt` and `report.json`, which `TestResult.report_path` (iOS only, currently) points back to.
 
 ### Concurrency
 

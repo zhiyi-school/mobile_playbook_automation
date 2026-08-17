@@ -1,0 +1,9 @@
+apps:
+  - id: "example_app"
+    name: "Example App"
+    package_name: "com.example.app"
+    risks:
+      android-feature1-risk2:
+        enabled: true
+      android-feature6-risk1:
+        enabled: true

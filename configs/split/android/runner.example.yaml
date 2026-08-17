@@ -1,0 +1,3 @@
+runner:
+  work_dir: "work/android"
+  auto_grant_permissions: false

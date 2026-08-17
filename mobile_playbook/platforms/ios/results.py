@@ -4,6 +4,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from mobile_playbook.reporting.messages import clean_message
 from mobile_playbook.reporting.status_mapper import Evidence, TestResult
 from mobile_playbook.platforms.ios.models import RiskRunResult
 
@@ -47,23 +48,23 @@ def normalize_ios_result(result: RiskRunResult) -> TestResult:
         started_at=result.timestamp_start,
         completed_at=result.timestamp_end,
         duration_seconds=_duration_seconds(result.timestamp_start, result.timestamp_end),
+        report_path=f"ios/{result.app_id}/{result.risk_id}/{result.test_case_id}",
         raw={
             "feature_id": result.feature_id,
             "test_case_id": result.test_case_id,
             "test_case_type": result.test_case_type,
             "artifact_source": result.artifact_source,
-            "errors": result.errors,
         },
     )
 
 
 def _summary(result: RiskRunResult) -> str:
     if result.errors:
-        return "; ".join(result.errors[:2])
+        return "; ".join(clean_message(e) for e in result.errors[:2])
     if result.behavior_result and result.behavior_result.errors:
-        return "; ".join(result.behavior_result.errors[:2])
+        return "; ".join(clean_message(e) for e in result.behavior_result.errors[:2])
     if result.artifact_result and result.artifact_result.errors:
-        return "; ".join(result.artifact_result.errors[:2])
+        return "; ".join(clean_message(e) for e in result.artifact_result.errors[:2])
     return result.final_status
 
 

@@ -14,7 +14,9 @@ Android per-app risk outputs are written under:
 reports/<run_timestamp>/android/<app_id>/<risk_id>/<test_case_id>/
 ```
 
-The top-level `reports/<run_timestamp>/summary.md`, `summary.json`, and `dashboard_results.json` cover all platforms in a single run; see [docs/ios/reports-and-troubleshooting.md](../ios/reports-and-troubleshooting.md) for the iOS side.
+The top-level `reports/<run_timestamp>/summary.md` and `dashboard_results.json` cover all platforms in a single run; see [docs/ios/reports-and-troubleshooting.md](../ios/reports-and-troubleshooting.md) for the iOS side.
+
+`summary.md`'s Notes column carries a cleaned, single-line message rather than a raw error dump, and links to each test's report folder from a `Report` column — the complete untouched error still lives in that test's `logs.txt`/`report.json`. This cleanup currently only extends to `dashboard_results.json` for iOS; Android's `dashboard_results.json` records still carry the raw, uncleaned message and no `report_path` field pending a similar pass for `android/results.py`.
 
 ## Common Risk Files
 

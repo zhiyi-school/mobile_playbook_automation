@@ -116,6 +116,24 @@ screen_capture:
 
 Full risk behavior and status meanings are documented in [Risks](risks.md).
 
+## Split Android Configs
+
+The same `include:` mechanism [iOS uses](../ios/configuration.md#split-ios-configs) is generic — it's implemented once and shared by both platforms — so Android configs can be split into smaller YAML files too:
+
+```yaml
+include:
+  device: device.yaml
+  runner: runner.yaml
+  tools: tools.yaml
+  repackaging: repackaging.yaml
+  screen_capture: screen_capture.yaml
+  apps: apps.yaml
+```
+
+Included paths are resolved relative to the entry-point file. See `configs/split/android/android.example.yaml`.
+
+`configs/android.yaml` in this project actually uses this split: it is just an `include:` map, with the real device/runner/tools/repackaging/screen_capture/app-roster content living in `configs/split/android/*.yaml` (all git-ignored, since they contain real device and app config — only the `*.example.yaml` files under `configs/split/android/` are tracked). iOS's equivalent split lives in `configs/split/ios/`.
+
 ## Environment Files
 
 The CLI loads `.env` from the project root and from the directory containing the selected config file, the same as for iOS. Existing shell environment variables are not overwritten. Android risks do not currently require any environment variables.
