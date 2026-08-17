@@ -1,0 +1,9 @@
+# Mirrors the [project.dependencies] in pyproject.toml, which is the source
+# of truth for this project's dependencies. Update both together.
+#
+# `pip install -e .` (see README.md) is still the primary install path; this
+# file is here for tools/workflows that expect a requirements.txt.
+Appium-Python-Client>=4.0.0
+selenium>=4.0.0
+PyYAML>=6.0.0
+pytest>=8.0.0
