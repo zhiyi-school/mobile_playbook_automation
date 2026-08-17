@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mobile-playbook-automation"
+version = "0.1.0"
+description = "Mobile Playbook Automation framework for IPA acquisition, static analysis, installation, keyboard testing, and behavior validation"
+requires-python = ">=3.11"
+dependencies = [
+  "Appium-Python-Client>=4.0.0",
+  "selenium>=4.0.0",
+  "PyYAML>=6.0.0",
+  "pytest>=8.0.0",
+]
+
+[tool.setuptools.packages.find]
+include = ["mobile_playbook*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

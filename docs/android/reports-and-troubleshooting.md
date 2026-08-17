@@ -1,0 +1,67 @@
+# Android Reports And Troubleshooting
+
+Each run creates a timestamped report directory:
+
+```text
+reports/<run_timestamp>/
+```
+
+The timestamp format is `YYYY-MM-DD_HH-MM-SS` in the workstation's local timezone. If a timestamp already exists, the next run gets a suffix such as `-2`.
+
+Android per-app risk outputs are written under:
+
+```text
+reports/<run_timestamp>/android/<app_id>/<risk_id>/<test_case_id>/
+```
+
+The top-level `reports/<run_timestamp>/summary.md`, `summary.json`, and `dashboard_results.json` cover all platforms in a single run; see [docs/ios/reports-and-troubleshooting.md](../ios/reports-and-troubleshooting.md) for the iOS side.
+
+## Common Risk Files
+
+`android-feature6-risk1`:
+
+- `report.json`
+- `logs.txt`
+- `recordings/<package>.mp4` when Appium recording succeeds
+
+`android-feature1-risk2`:
+
+- `report.json`
+- `logs.txt`
+- `recordings/<package>.mp4` when Appium validation recording succeeds
+- generated APK work files under `work/android/repackaging/`
+
+## Statuses
+
+- `SCREEN_CAPTURE_ALLOWED`: UI was visible and no secure-window signal was detected.
+- `SCREEN_CAPTURE_BLOCKED`: app redirected, warned, exited, or set `FLAG_SECURE`.
+- `REPACKAGING_SURVIVED`: repackaged app installed and passed basic launch validation.
+- `REPACKAGING_BLOCKED`: repackaged app installed but failed validation.
+- `REPACKAGING_FAILED`: backup, decode, patch, rebuild, sign, or install failed.
+- `FAILED`: unexpected Android automation failure.
+
+## Troubleshooting
+
+Android ADB failure:
+
+Run `adb devices`, unlock the device, approve debugging, and set `device.adb_serial` if multiple devices are attached.
+
+Appium connection failure:
+
+Confirm Appium is running and the UiAutomator2 driver is installed.
+
+Android repackaging tool failure:
+
+Confirm `apktool`, `apksigner`, and `keytool` are available on `PATH`. Repackaging work files are left under `work/android/repackaging/` for inspection.
+
+Android app redirects to Play Store after repackaging:
+
+This is treated as repackaging blocked. The app likely detected signature or package tampering and routed to Play Store recovery.
+
+Screen recording missing from a report:
+
+Screen recording is best-effort; if the Appium driver cannot start or stop recording (for example, unsupported device or driver version), the risk still runs and reports a verdict, just without a `recordings/<package>.mp4` file.
+
+Keystore or signing failure:
+
+Confirm `keytool`/`apksigner` are on `PATH` and that `repackaging.keystore_path` (if set) points to a valid, readable keystore with the configured alias and password.

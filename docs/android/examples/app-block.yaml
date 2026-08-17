@@ -1,0 +1,34 @@
+# Example app entry for the `apps:` list in configs/android.yaml.
+#
+# This is not a complete config file and should not be passed to --config.
+# Copy the item below into configs/android.yaml under:
+#
+# apps:
+#   - id: "example_app"
+#     ...
+#
+# Then adjust the app id, name, package name, and enabled risks.
+# Per-app blocks under `risks.<risk_id>` are optional and override the
+# matching top-level `screen_capture` / `repackaging` defaults for this app only.
+
+- id: "example_app"
+  name: "Example App"
+  package_name: "com.example.app"
+
+  risks:
+    android-feature1-risk2:
+      enabled: true
+      # Optional per-app overrides (defaults come from the top-level repackaging block):
+      work_dir: "work/android/repackaging"
+      keystore_alias: "mobileplaybook"
+      keystore_pass: "password"
+      restore_original_after_test: true
+      launch_wait: 8
+      post_click_wait: 5
+
+    android-feature6-risk1:
+      enabled: true
+      # Optional per-app overrides (defaults come from the top-level screen_capture block):
+      record_lead_in: 2
+      launch_wait: 4
+      record_tail: 5

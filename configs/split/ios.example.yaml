@@ -1,0 +1,6 @@
+# Split iOS config entry point. Pass this file to --config when you want
+# device, runner, and apps stored separately.
+include:
+  device: device.example.yaml
+  runner: runner.example.yaml
+  apps: apps.example.yaml

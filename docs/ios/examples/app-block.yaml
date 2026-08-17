@@ -1,0 +1,108 @@
+# Example app entry for the `apps:` list in configs/ios.yaml.
+#
+# This is not a complete config file and should not be passed to --config.
+# Copy the item below into configs/ios.yaml under:
+#
+# apps:
+#   - name: "Example App"
+#     ...
+#
+# Then adjust the app name, IPA path, behavior checks, and enabled risks.
+# `bundle_id` may be left blank for local IPA files; the framework will infer
+# it from Payload/*.app/Info.plist at runtime.
+
+- name: "Example App"
+  id: "example_app"
+  bundle_id: ""
+  test_bundle_id: ""
+
+  artifact:
+    source: "local_ipa"
+    ipa: "intake/ios/ipas/Example_App.ipa"
+    expected_bundle_id: ""
+    workspace_dir: "work/ios/acquired"
+
+  expected_behavior:
+    source_contains: []
+    source_not_contains: []
+
+  risks:
+    ios-feature1-risk1:
+      enabled: true
+      analyzer:
+        provider: "mobsf"
+        mobsf_url: "http://127.0.0.1:8000"
+        api_key_env: "MOBSF_API_KEY"
+        timeout_seconds: 120
+        auto_start:
+          enabled: false
+          command: []
+          wait_seconds: 90
+          stop_after_scan: false
+          generate_api_key: true
+        fallback_to_builtin: true
+      api_key_reuse_test:
+        enabled: false
+
+    ios-feature5-risk1:
+      enabled: false
+      keyboard_app:
+        bundle_id: "com.example.LocalKeyboard"
+        keyboard_extension_bundle_id: "com.example.LocalKeyboard.KeyboardExtension"
+        ipa: "intake/ios/ipas/LocalKeyboard.ipa"
+        install: true
+        launch: true
+        uninstall_after_test: false
+        server_setup:
+          server_url_input_accessibility_id: "server-url-input"
+          clear_first: true
+          save_button_accessibility_id: null
+      collection:
+        bind_host: "0.0.0.0"
+        # Mac LAN IP that the iPhone can reach.
+        advertised_host: "192.168.1.50"
+        port: 8765
+        pair_timeout_seconds: 120
+        keyboard_setup_wait_seconds: 10
+        evidence_source: "local_app_ui"
+        evidence_timeout_seconds: 30
+        probe_text: "hello"
+        expected_collected_text: "hello"
+        local_log:
+          wait_after_launch_seconds: 1
+          expected_items: ["h", "e", "l", "l", "o"]
+        input:
+          method: "keyboard_buttons"
+          key_accessibility_ids:
+            h: "H"
+            e: "E"
+            l: "L"
+            o: "O"
+        text_field:
+          accessibility_id: null
+        auto_navigation:
+          enabled: true
+          max_steps: 4
+          settle_seconds: 1
+          allow_any_button: false
+          button_label_contains:
+            - "Log in"
+            - "Login"
+            - "Use password"
+            - "Search"
+            - "Select Car Park"
+        keyboard_selection:
+          enabled: true
+          attempts: 6
+          settle_seconds: 0.5
+          expected_source_contains:
+            - "LocalKeyboard"
+            - "com.example.LocalKeyboard.KeyboardExtension"
+          switch_button_accessibility_ids:
+            - "Next keyboard"
+            - "Next Keyboard"
+            - "Globe"
+          switch_button_label_contains:
+            - "next keyboard"
+            - "globe"
+            - "keyboard"

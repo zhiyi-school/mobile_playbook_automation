@@ -1,0 +1,54 @@
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+configs/ios.yaml
+configs/android.yaml
+configs/*.local.yaml
+configs/split/*.yaml
+!configs/split/*.example.yaml
+profiles/
+*.mobileprovision
+*.p12
+*.cer
+
+# Generated run output
+reports/
+work/*
+!work/ios/
+!work/android/
+work/ios/*
+!work/ios/.gitkeep
+work/android/*
+!work/android/.gitkeep
+data/*.sqlite
+data/*.sqlite-*
+
+# IPA and APK artifacts
+*.ipa
+*.apk
+*.xcarchive
+*.xcresult
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+build/
+dist/
+
+# Virtual environments
+.venv/
+.venv_testing/
+venv/
+
+# Logs and local OS/editor files
+*.log
+.DS_Store
+.idea/
+.vscode/
