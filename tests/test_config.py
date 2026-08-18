@@ -3,7 +3,8 @@ from __future__ import annotations
 import yaml
 import pytest
 
-from mobile_playbook.platforms.ios.config import ConfigError, load_config, validate_config
+from mobile_playbook.platforms.ios.config import ConfigError, effective_risk_config, load_config, validate_config
+from tests.conftest import make_ipa
 
 
 def test_config_parsing_and_validation(tmp_path, fake_ipa):
@@ -141,6 +142,43 @@ def test_config_loads_split_section_include_list_with_shared_anchors(tmp_path, f
     assert loaded.apps[0].artifact["ipa"] == str(fake_ipa)
 
 
+def test_config_include_sections_can_share_one_file(tmp_path, fake_ipa):
+    (tmp_path / "device.yaml").write_text(yaml.safe_dump({
+        "device": {"udid": "u", "team_id": "t", "appium_server_url": "http://127.0.0.1:4723"}
+    }))
+    (tmp_path / "risk_settings.yaml").write_text(yaml.safe_dump({
+        "ipa_static_analysis": {"analyzer": {"provider": "mobsf"}},
+        "keystroke_collection": {"collection": {"probe_text": "hello123"}},
+    }))
+    (tmp_path / "apps.yaml").write_text(yaml.safe_dump({
+        "apps": [{
+            "id": "a",
+            "name": "A",
+            "bundle_id": "com.example.app",
+            "artifact": {"source": "local_ipa", "ipa": str(fake_ipa)},
+            "expected_behavior": {},
+            "risks": {"ios-feature1-risk1": {"enabled": True}},
+        }]
+    }))
+    entry = {
+        "include": {
+            "device": "device.yaml",
+            "ipa_static_analysis": "risk_settings.yaml",
+            "keystroke_collection": "risk_settings.yaml",
+            "apps": "apps.yaml",
+        },
+    }
+    path = tmp_path / "ios.yaml"
+    path.write_text(yaml.safe_dump(entry))
+
+    loaded = load_config(path)
+
+    # Two different include sections can point at the same combined file; each
+    # pulls out only the top-level key matching its own section name.
+    assert loaded.ipa_static_analysis == {"analyzer": {"provider": "mobsf"}}
+    assert loaded.keystroke_collection == {"collection": {"probe_text": "hello123"}}
+
+
 def test_config_include_list_rejects_empty_list(tmp_path):
     entry = {
         "device": {"udid": "u", "team_id": "t", "appium_server_url": "http://127.0.0.1:4723"},
@@ -182,5 +220,93 @@ def test_config_auto_fills_feature5_risk1_keyboard_bundle_id(global_config, fake
     }
     validate_config(global_config, dry_run=True)
     assert app.risks["ios-feature5-risk1"]["keyboard_app"]["bundle_id"] == "com.example.app"
+
+
+def test_effective_risk_config_merges_app_override_onto_global_defaults(tmp_path, fake_ipa):
+    cfg = {
+        "device": {"udid": "u", "team_id": "t", "appium_server_url": "http://127.0.0.1:4723"},
+        "ipa_static_analysis": {"analyzer": {"provider": "mobsf", "mobsf_url": "http://global:8000"}},
+        "apps": [{
+            "id": "a",
+            "name": "A",
+            "bundle_id": "com.example.app",
+            "artifact": {"source": "local_ipa", "ipa": str(fake_ipa)},
+            "expected_behavior": {},
+            "risks": {"ios-feature1-risk1": {"enabled": True, "analyzer": {"provider": "package_scanner"}}},
+        }],
+    }
+    path = tmp_path / "ios.yaml"
+    path.write_text(yaml.safe_dump(cfg))
+
+    loaded = load_config(path)
+
+    effective = effective_risk_config(loaded, "ios-feature1-risk1", loaded.apps[0].risks["ios-feature1-risk1"])
+    assert effective["analyzer"]["provider"] == "package_scanner"
+    assert effective["analyzer"]["mobsf_url"] == "http://global:8000"
+
+
+def test_effective_risk_config_deep_merges_nested_override_without_losing_siblings(tmp_path, fake_ipa):
+    cfg = {
+        "device": {"udid": "u", "team_id": "t", "appium_server_url": "http://127.0.0.1:4723"},
+        "keystroke_collection": {
+            "keyboard_app": {"bundle_id": "com.example.keyboard"},
+            "collection": {
+                "probe_text": "hello123",
+                "auto_navigation": {"accessibility_ids": [], "max_steps": 4},
+            },
+        },
+        "apps": [{
+            "id": "a",
+            "name": "A",
+            "bundle_id": "com.example.app",
+            "artifact": {"source": "local_ipa", "ipa": str(fake_ipa)},
+            "expected_behavior": {},
+            "risks": {
+                "ios-feature5-risk1": {
+                    "enabled": True,
+                    "collection": {"auto_navigation": {"accessibility_ids": ["btn_select_carpark"]}},
+                }
+            },
+        }],
+    }
+    path = tmp_path / "ios.yaml"
+    path.write_text(yaml.safe_dump(cfg))
+
+    loaded = load_config(path)
+
+    effective = effective_risk_config(loaded, "ios-feature5-risk1", loaded.apps[0].risks["ios-feature5-risk1"])
+    # per-app override applies at the exact nested field it targets...
+    assert effective["collection"]["auto_navigation"]["accessibility_ids"] == ["btn_select_carpark"]
+    # ...while sibling fields (not mentioned in the override) still fall back to the global default
+    assert effective["collection"]["auto_navigation"]["max_steps"] == 4
+    assert effective["collection"]["probe_text"] == "hello123"
+    assert effective["keyboard_app"]["bundle_id"] == "com.example.keyboard"
+
+
+def test_config_auto_fills_keyboard_bundle_id_from_global_keystroke_collection_section(tmp_path, fake_ipa):
+    keyboard_ipa = make_ipa(tmp_path / "keyboard.ipa", bundle_id="com.example.keyboard.inferred")
+    cfg = {
+        "device": {"udid": "u", "team_id": "t", "appium_server_url": "http://127.0.0.1:4723"},
+        "keystroke_collection": {
+            "keyboard_app": {"ipa": str(keyboard_ipa)},
+            "collection": {"probe_text": "hello123"},
+        },
+        "apps": [{
+            "id": "a",
+            "name": "A",
+            "bundle_id": "com.example.app",
+            "artifact": {"source": "local_ipa", "ipa": str(fake_ipa)},
+            "expected_behavior": {},
+            "risks": {"ios-feature5-risk1": {"enabled": True}},
+        }],
+    }
+    path = tmp_path / "ios.yaml"
+    path.write_text(yaml.safe_dump(cfg))
+
+    loaded = load_config(path)
+
+    # The keyboard host app is shared by every app under test, so its bundle ID is
+    # inferred once onto the global section rather than repeated per app.
+    assert loaded.keystroke_collection["keyboard_app"]["bundle_id"] == "com.example.keyboard.inferred"
 
 

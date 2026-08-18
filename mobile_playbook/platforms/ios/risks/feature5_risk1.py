@@ -5,6 +5,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+from mobile_playbook.core.config_files import merge_dicts
 from mobile_playbook.platforms.ios.control_server import CommandControlServer
 from mobile_playbook.platforms.ios.models import BehaviorResult, RiskRunResult
 from mobile_playbook.platforms.ios.risks.feature5_keyboard_base import Feature5KeyboardRiskBase
@@ -22,7 +23,7 @@ class Feature5Risk1(Feature5KeyboardRiskBase):
     def run(self, app_config, global_config, device_client, report_writer):
         result = self._base_result(report_writer.run_timestamp, app_config)
         report_dir = report_writer.test_report_dir(app_config.id, self.risk_id, "collection_server")
-        risk_config = app_config.risks.get(self.risk_id) or {}
+        risk_config = merge_dicts(global_config.keystroke_collection, app_config.risks.get(self.risk_id) or {})
         collection = risk_config.get("collection") or risk_config.get("control") or {}
         keyboard_config = risk_config.get("keyboard_app") or {}
         installed_target_by_risk = False

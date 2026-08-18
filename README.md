@@ -39,12 +39,19 @@ appium
 
 ## Configuration
 
-Create local configs from the examples:
+This project's own configs use the split layout — a small entry-point file plus per-section files under `configs/split/<platform>/` — since a large app roster and per-risk settings don't fit comfortably in one file. Set it up from the tracked examples:
 
 ```bash
 cp configs/ios.example.yaml configs/ios.yaml
+for f in device runner apps; do cp "configs/split/ios/$f.example.yaml" "configs/split/ios/$f.yaml"; done
+for f in ipa_static_analysis keystroke_collection; do cp configs/split/ios/risk_settings.example.yaml "configs/split/ios/$f.yaml"; done
+
 cp configs/android.example.yaml configs/android.yaml
+for f in device runner apps; do cp "configs/split/android/$f.example.yaml" "configs/split/android/$f.yaml"; done
+for f in tools repackaging screen_capture; do cp configs/split/android/risk_settings.example.yaml "configs/split/android/$f.yaml"; done
 ```
+
+Each `risk_settings.example.yaml` shows every risk's global settings together in one file for easier reading; trim each real copy above down to just its own top-level key (`ipa_static_analysis:`, `keystroke_collection:`, `tools:`, `repackaging:`, `screen_capture:`).
 
 Use `configs/ios.yaml` for iOS apps, IPA paths, signing, Appium, and enabled iOS risks. Put IPAs under `intake/ios/ipas/` or another local path.
 

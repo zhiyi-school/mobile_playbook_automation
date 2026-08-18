@@ -2,11 +2,7 @@
 
 Android support is integrated into the same CLI and report structure as iOS, driving a connected device over ADB and Appium.
 
-Create a working config:
-
-```bash
-cp configs/android.example.yaml configs/android.yaml
-```
+Create a working config: see [Configuration](configuration.md#quickstart) for the split-file setup steps.
 
 List Android risks:
 

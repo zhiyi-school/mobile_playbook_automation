@@ -4,7 +4,7 @@ from pathlib import Path
 import re
 from typing import Any
 
-from mobile_playbook.orchestration.preflight import load_yaml_config
+from mobile_playbook.orchestration.preflight import load_yaml_config, merge_dicts
 from mobile_playbook.platforms.ios.artifacts.registry import known_sources
 from mobile_playbook.platforms.ios.ipa.plist_utils import inspect_ipa_metadata
 from mobile_playbook.platforms.ios.models import (
@@ -17,6 +17,20 @@ from mobile_playbook.platforms.ios.models import (
 from mobile_playbook.platforms.ios.risks.registry import get_risk, known_risks
 
 LOCAL_IPA_SOURCES = {"local_ipa", "ci_artifact", "vendor_ipa", "xcode_archive_export"}
+
+# Maps a risk ID to the GlobalConfig field holding its shared, cross-app default
+# settings. A risk's effective config is that default merged with (and overridden
+# by) whatever the app's own `risks.<risk_id>` entry specifies.
+RISK_GLOBAL_SETTINGS_FIELD = {
+    "ios-feature1-risk1": "ipa_static_analysis",
+    "ios-feature5-risk1": "keystroke_collection",
+}
+
+
+def effective_risk_config(config: GlobalConfig, risk_id: str, risk_config: dict[str, Any] | None) -> dict[str, Any]:
+    field_name = RISK_GLOBAL_SETTINGS_FIELD.get(risk_id)
+    global_defaults = getattr(config, field_name, {}) if field_name else {}
+    return merge_dicts(global_defaults or {}, risk_config or {})
 
 
 class ConfigError(Exception):
@@ -95,6 +109,8 @@ def parse_config(raw: dict[str, Any], config_path: Path | None = None) -> Global
             permission_alerts=runner_raw.get("permission_alerts") or {},
         ),
         apps=apps,
+        ipa_static_analysis=raw.get("ipa_static_analysis") or {},
+        keystroke_collection=raw.get("keystroke_collection") or {},
         config_path=config_path,
     )
 
@@ -138,8 +154,9 @@ def validate_config(config: GlobalConfig, dry_run: bool = False) -> None:
             if not risk_config or not risk_config.get("enabled", False):
                 continue
             risk = get_risk(risk_id)
+            effective = effective_risk_config(config, risk_id, risk_config)
             if risk_id == "ios-feature5-risk1":
-                keyboard_app = risk_config.get("keyboard_app") or {}
+                keyboard_app = effective.get("keyboard_app") or {}
                 keyboard_ipa = keyboard_app.get("ipa")
                 keyboard_bundle_id = keyboard_app.get("bundle_id")
                 if not keyboard_ipa and not keyboard_bundle_id:
@@ -147,7 +164,7 @@ def validate_config(config: GlobalConfig, dry_run: bool = False) -> None:
                 if keyboard_ipa and not dry_run and not Path(keyboard_ipa).expanduser().exists():
                     errors.append(f"{label}.risks.{risk_id}.keyboard_app.ipa does not exist: {keyboard_ipa}")
             if risk_id == "ios-feature5-risk1":
-                collection = risk_config.get("collection") or risk_config.get("control") or {}
+                collection = effective.get("collection") or effective.get("control") or {}
                 if not str(collection.get("probe_text") or collection.get("expected_collected_text") or "").strip():
                     errors.append(f"{label}.risks.{risk_id}.collection.probe_text is required")
     if errors:
@@ -177,15 +194,21 @@ def _auto_fill_bundle_ids(config: GlobalConfig, errors: list[str]) -> None:
                 # validation below; this keeps the bundle-id error actionable.
                 pass
 
-        for risk_id, risk_config in app.risks.items():
-            if risk_id != "ios-feature5-risk1" or not risk_config or not risk_config.get("enabled", False):
-                continue
-            keyboard_app = risk_config.get("keyboard_app") or {}
-            if keyboard_app.get("bundle_id"):
-                continue
-            metadata = _inspect_metadata_if_available(keyboard_app.get("ipa"))
-            if metadata and metadata.get("bundle_id"):
-                keyboard_app["bundle_id"] = metadata["bundle_id"]
+        risk_config = app.risks.get("ios-feature5-risk1")
+        if risk_config and risk_config.get("enabled", False):
+            # The keyboard host app is normally the same for every app under test, so its
+            # settings usually live in the shared `keystroke_collection` global section rather
+            # than this app's own risk_config; only fall back to a per-app override when present.
+            _auto_fill_keyboard_bundle_id(risk_config.get("keyboard_app"))
+    _auto_fill_keyboard_bundle_id(config.keystroke_collection.get("keyboard_app"))
+
+
+def _auto_fill_keyboard_bundle_id(keyboard_app: dict[str, Any] | None) -> None:
+    if not keyboard_app or keyboard_app.get("bundle_id"):
+        return
+    metadata = _inspect_metadata_if_available(keyboard_app.get("ipa"))
+    if metadata and metadata.get("bundle_id"):
+        keyboard_app["bundle_id"] = metadata["bundle_id"]
 
 
 def _inspect_metadata_if_available(ipa: Any) -> dict[str, Any] | None:

@@ -1,0 +1,98 @@
+# Example of the global, risk-scoped default settings shared by every app that
+# enables a given risk. In the real (git-ignored) split config, each risk's
+# settings live in their own file — configs/split/ios/ipa_static_analysis.yaml,
+# configs/split/ios/keystroke_collection.yaml — but both are shown together here
+# in one file for easier reading.
+#
+# Each top-level key matches a GlobalConfig field (see RISK_GLOBAL_SETTINGS_FIELD
+# in mobile_playbook/platforms/ios/config.py). An app's own `risks.<risk_id>`
+# entry in apps.yaml can still override any nested field for that app alone;
+# anything it doesn't set falls back to the shared defaults below.
+#
+# To add a new risk's global settings: add a field to GlobalConfig and
+# RISK_GLOBAL_SETTINGS_FIELD, then create configs/split/ios/<field_name>.yaml
+# and add a matching `include:` entry in configs/ios.yaml.
+
+ipa_static_analysis:
+  analyzer:
+    provider: "mobsf"
+    mobsf_url: "http://127.0.0.1:8000"
+    api_key_env: "MOBSF_API_KEY"
+    timeout_seconds: 120
+    auto_start:
+      enabled: false
+      command: []
+      wait_seconds: 90
+      stop_after_scan: false
+      generate_api_key: true
+    fallback_to_builtin: true
+  sensitive_scan:
+    reveal_values: false
+  api_key_reuse_test:
+    enabled: true
+    provider: "google_geocode"
+    timeout_seconds: 5
+    max_keys: 5
+    test_address: "Singapore"
+
+keystroke_collection:
+  keyboard_app:
+    bundle_id: "com.example.LocalKeyboard"
+    keyboard_extension_bundle_id: "com.example.LocalKeyboard.KeyboardExtension"
+    ipa: "intake/ios/ipas/LocalKeyboard.ipa"
+    install: true
+    launch: true
+    uninstall_after_test: false
+    server_setup:
+      server_url_input_accessibility_id: "server-url-input"
+      clear_first: true
+      save_button_accessibility_id: null
+  collection:
+    bind_host: "0.0.0.0"
+    advertised_host: "REPLACE_WITH_MAC_LAN_IP"
+    port: 8765
+    pair_timeout_seconds: 120
+    keyboard_setup_wait_seconds: 0
+    evidence_source: "local_app_ui"
+    evidence_timeout_seconds: 30
+    probe_text: "hello"
+    expected_collected_text: "hello"
+    local_log:
+      wait_after_launch_seconds: 1
+      expected_items: ["h", "e", "l", "l", "o"]
+    input:
+      method: "keyboard_buttons"
+      key_accessibility_ids:
+        h: "H"
+        e: "E"
+        l: "L"
+        o: "O"
+    text_field:
+      accessibility_id: null
+    auto_navigation:
+      enabled: true
+      max_steps: 4
+      settle_seconds: 1
+      allow_any_button: false
+      accessibility_ids: []
+      button_label_contains:
+        - "Log in"
+        - "Login"
+        - "Use password"
+        - "Search"
+        - "Select Car Park"
+    keyboard_selection:
+      enabled: true
+      attempts: 6
+      settle_seconds: 0.5
+      expected_source_contains:
+        - "LocalKeyboard"
+        - "com.example.LocalKeyboard.KeyboardExtension"
+      switch_button_accessibility_ids:
+        - "Next keyboard"
+        - "Next Keyboard"
+        - "Globe"
+      switch_button_label_contains:
+        - "next keyboard"
+        - "globe"
+        - "keyboard"

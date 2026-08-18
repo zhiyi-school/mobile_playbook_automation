@@ -1,12 +1,20 @@
 # Android Configuration
 
-The Android config lives at `configs/android.yaml`. Create your local working copy from the example:
+The Android config lives at `configs/android.yaml`, using the split layout — a small entry-point file plus per-section files under `configs/split/android/` — since a real app roster and per-risk settings don't fit comfortably in one file.
+
+## Quickstart
+
+Set up the split config from the tracked examples:
 
 ```bash
 cp configs/android.example.yaml configs/android.yaml
+for f in device runner apps; do cp "configs/split/android/$f.example.yaml" "configs/split/android/$f.yaml"; done
+for f in tools repackaging screen_capture; do cp configs/split/android/risk_settings.example.yaml "configs/split/android/$f.yaml"; done
 ```
 
-It contains `device`, `runner`, `tools`, per-risk timing blocks, and `apps`.
+`risk_settings.example.yaml` shows `tools`, `repackaging`, and `screen_capture` together in one file for easier reading; trim each copy above down to just its own top-level key.
+
+The config contains `device`, `runner`, `tools`, per-risk timing blocks, and `apps`.
 
 ## Device
 
@@ -118,21 +126,21 @@ Full risk behavior and status meanings are documented in [Risks](risks.md).
 
 ## Split Android Configs
 
-The same `include:` mechanism [iOS uses](../ios/configuration.md#split-ios-configs) is generic — it's implemented once and shared by both platforms — so Android configs can be split into smaller YAML files too:
+`configs/android.yaml` is just an `include:` mapping (section name → file path), with the entry-point file at `configs/android.yaml` and its sections living under `configs/split/android/`:
 
 ```yaml
 include:
-  device: device.yaml
-  runner: runner.yaml
-  tools: tools.yaml
-  repackaging: repackaging.yaml
-  screen_capture: screen_capture.yaml
-  apps: apps.yaml
+  device: split/android/device.yaml
+  runner: split/android/runner.yaml
+  tools: split/android/tools.yaml
+  repackaging: split/android/repackaging.yaml
+  screen_capture: split/android/screen_capture.yaml
+  apps: split/android/apps.yaml
 ```
 
-Included paths are resolved relative to the entry-point file. See `configs/split/android/android.example.yaml`.
+Included paths are resolved relative to the entry-point file — here, that's `configs/`, so each path is prefixed `split/android/`. See `configs/android.example.yaml`, the tracked example of this entry-point file.
 
-`configs/android.yaml` in this project actually uses this split: it is just an `include:` map, with the real device/runner/tools/repackaging/screen_capture/app-roster content living in `configs/split/android/*.yaml` (all git-ignored, since they contain real device and app config — only the `*.example.yaml` files under `configs/split/android/` are tracked). iOS's equivalent split lives in `configs/split/ios/`.
+The real device/runner/tools/repackaging/screen_capture/app-roster content lives in `configs/split/android/*.yaml` (all git-ignored, since they contain real device and app config — only the `*.example.yaml` files under `configs/split/android/` are tracked).
 
 ## Environment Files
 

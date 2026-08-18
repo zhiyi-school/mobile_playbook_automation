@@ -1,49 +1,10 @@
-# Android Automation configuration
-
-device:
-  appium_server_url: "http://127.0.0.1:4723"
-  adb_path: "adb"
-  adb_serial: null
-
-runner:
-  work_dir: "work/android"
-  auto_grant_permissions: false
-
-tools:
-  mobsf_url: "http://localhost:8000"
-  mobsf_api_key: ""
-  burp_proxy: "http://127.0.0.1:8080"
-
-repackaging:
-  work_dir: "work/android/repackaging"
-  keystore_alias: "mobileplaybook"
-  keystore_pass: "password"
-  restore_original_after_test: true
-  record_lead_in: 2
-  launch_wait: 8
-  post_click_wait: 5
-  record_tail: 3
-
-screen_capture:
-  record_lead_in: 2
-  launch_wait: 4
-  record_tail: 5
-
-apps:
-  - id: "parking"
-    name: "Parking"
-    package_name: "sg.parking.streetsmart"
-    risks:
-      android-feature1-risk2:
-        enabled: true
-      android-feature6-risk1:
-        enabled: true
-
-  - id: "lifesg"
-    name: "LifeSG"
-    package_name: "sg.gov.app.mol"
-    risks:
-      android-feature1-risk2:
-        enabled: true
-      android-feature6-risk1:
-        enabled: true
+# Example Android config entry point. Copy this file to configs/android.yaml,
+# then populate configs/split/android/*.yaml from their own *.example.yaml
+# siblings (see docs/android/configuration.md#quickstart for the full setup).
+include:
+  device: split/android/device.yaml
+  runner: split/android/runner.yaml
+  tools: split/android/tools.yaml
+  repackaging: split/android/repackaging.yaml
+  screen_capture: split/android/screen_capture.yaml
+  apps: split/android/apps.yaml

@@ -1,0 +1,34 @@
+# Example of Android's global config sections. In the real (git-ignored) split
+# config these live in their own files — configs/split/android/tools.yaml,
+# configs/split/android/repackaging.yaml, configs/split/android/screen_capture.yaml
+# — but all three are shown together here in one file for easier reading.
+#
+# repackaging and screen_capture are each one risk's shared default settings,
+# used by every app that enables that risk (android-feature1-risk2 and
+# android-feature6-risk1 respectively; see AndroidPlatformRunner's risk
+# implementations for how they're merged with an app's own `risks.<risk_id>`
+# override). tools is not risk-specific — it holds shared external-tool
+# locations (MobSF, Burp) used by the Android preflight check.
+#
+# To add a new risk's global settings: create configs/split/android/<name>.yaml
+# and add a matching `include:` entry in configs/android.yaml.
+
+tools:
+  mobsf_url: "http://localhost:8000"
+  mobsf_api_key: ""
+  burp_proxy: "http://127.0.0.1:8080"
+
+repackaging:
+  work_dir: "work/android/repackaging"
+  keystore_alias: "mobileplaybook"
+  keystore_pass: "password"
+  restore_original_after_test: true
+  record_lead_in: 2
+  launch_wait: 8
+  post_click_wait: 5
+  record_tail: 3
+
+screen_capture:
+  record_lead_in: 2
+  launch_wait: 4
+  record_tail: 5

@@ -2,11 +2,7 @@
 
 iOS support drives a physical iPhone over Appium/XCUITest and analyzes IPA artifacts on the workstation.
 
-Create a working config:
-
-```bash
-cp configs/ios.example.yaml configs/ios.yaml
-```
+Create a working config: see [Configuration](configuration.md#quickstart) for the split-file setup steps.
 
 List iOS risks:
 

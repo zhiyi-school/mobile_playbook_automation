@@ -123,6 +123,8 @@ class GlobalConfig(SerializableDataclass):
     device: DeviceConfig
     runner: RunnerConfig
     apps: list[AppConfig]
+    ipa_static_analysis: dict[str, Any] = field(default_factory=dict)
+    keystroke_collection: dict[str, Any] = field(default_factory=dict)
     config_path: Path | None = None
 
 

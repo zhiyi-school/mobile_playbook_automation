@@ -61,7 +61,7 @@ def resolve_config_includes(raw: dict[str, Any], base_dir: Path) -> dict[str, An
         section_name = str(section)
         section_value = _load_include_section(Path(base_dir), section_name, include_path)
         if section_name in resolved:
-            resolved[section_name] = _merge_section(section_value, resolved[section_name])
+            resolved[section_name] = merge_dicts(section_value, resolved[section_name])
         else:
             resolved[section_name] = section_value
     return resolved
@@ -106,15 +106,21 @@ def _resolve_include_path(base_dir: Path, include_path: str) -> Path:
     return path
 
 
-def _merge_section(included: Any, inline: Any) -> Any:
-    if isinstance(included, dict) and isinstance(inline, dict):
-        merged = deepcopy(included)
-        for key, value in inline.items():
+def merge_dicts(base: Any, override: Any) -> Any:
+    """Recursively merge `override` onto `base`, without mutating either.
+
+    Dicts are merged key by key (recursing into nested dicts); any other
+    value in `override` replaces the corresponding value from `base`
+    entirely, unless it is empty/None, in which case `base`'s value wins.
+    """
+    if isinstance(base, dict) and isinstance(override, dict):
+        merged = deepcopy(base)
+        for key, value in override.items():
             if key in merged:
-                merged[key] = _merge_section(merged[key], value)
+                merged[key] = merge_dicts(merged[key], value)
             else:
                 merged[key] = deepcopy(value)
         return merged
-    if inline in (None, {}, []):
-        return deepcopy(included)
-    return deepcopy(inline)
+    if override in (None, {}, []):
+        return deepcopy(base)
+    return deepcopy(override)

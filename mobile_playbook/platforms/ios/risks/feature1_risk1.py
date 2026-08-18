@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from mobile_playbook.core.config_files import merge_dicts
 from mobile_playbook.platforms.ios.artifacts.registry import get_provider
 from mobile_playbook.platforms.ios.mutations.hashing import sha256_file
 from mobile_playbook.platforms.ios.mutations.mutability import inspect_main_executable
@@ -33,7 +34,7 @@ class Feature1Risk1(Risk):
     requires_device = False
 
     def run(self, app_config, global_config, device_client, report_writer):
-        risk_config = app_config.risks.get(self.risk_id) or {}
+        risk_config = merge_dicts(global_config.ipa_static_analysis, app_config.risks.get(self.risk_id) or {})
         result = self._base_result(report_writer.run_timestamp, app_config)
         report_dir = report_writer.test_report_dir(app_config.id, self.risk_id, "ipa_static_analysis")
         work_dir = Path(global_config.runner.work_dir) / report_writer.run_timestamp / app_config.id / self.risk_id / "ipa_static_analysis"

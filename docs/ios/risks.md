@@ -82,6 +82,8 @@ The framework reports this condition and does not try to bypass it.
 
 Risks are discovered automatically: `mobile_playbook/platforms/ios/risks/registry.py` scans the folder for concrete `Risk` subclasses and picks up any file that defines one, keyed by its `risk_id`. Adding the file is enough — nothing else needs editing.
 
+If the risk needs settings shared across every app (an analyzer endpoint, a companion app's IPA path, and so on) rather than repeated per app, give it a global settings field: add it to `GlobalConfig` in `platforms/ios/models.py`, map the risk ID to that field name in `RISK_GLOBAL_SETTINGS_FIELD` (`platforms/ios/config.py`), and read the risk's effective config in `run()` via `effective_risk_config(global_config, self.risk_id, app_config.risks.get(self.risk_id))` — this merges the shared defaults with whatever the app's own `risks.<risk_id>` entry overrides. See [Configuration](configuration.md#global-risk-settings) for the config-file side.
+
 ## Adding iOS Apps
 
 Add another object under `apps` in `configs/ios.yaml`. App identity, artifact source, expected behavior, and enabled risks all live in config, not in code.
