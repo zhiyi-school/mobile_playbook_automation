@@ -41,6 +41,7 @@ CLI (argparse)
        -> per-risk preflight check (Android only; checks adb/appium/apktool/etc.)
        -> risk.run(app, config, device_client, report_writer)
        -> risk writes its own report.json/evidence into the report writer's tree
+       -> an exception here is recorded as one FAILED result for that pair, not a run-aborting error
   -> write run summary.md, dashboard_results.json
   -> close device session
 ```
@@ -56,6 +57,12 @@ This is implemented generically once in [`mobile_playbook/orchestration/scan_run
 Config loading lives in `mobile_playbook/orchestration/preflight.py` (`load_yaml_config`, `resolve_config_includes`); `mobile_playbook/core/config_files.py` is just a re-export for a friendlier import path. YAML is parsed with `yaml.safe_load`. A config file may declare an `include:` mapping (section name → file path) to split `device`/`runner`/`apps` into separate files (see `configs/split/`); included values are deep-merged with the entry-point file's inline values always taking precedence over the included file's values when both are set.
 
 App/risk selection (`--apps`, `--risks`) is implemented in `mobile_playbook/core/selection.py` (`mobile_playbook/orchestration/artifact_intake.py` is the re-export shim used by the CLI). Selectors are normalized (lowercased, alphanumeric-only) and matched against an app's `id`, `name`, `package_name`, or `bundle_id`; an unmatched `--apps` value raises with the list of available app IDs rather than silently running nothing.
+
+### Registries auto-discover their plugins, they don't list them
+
+Risks (`mobile_playbook/platforms/ios/risks/registry.py`, `mobile_playbook/platforms/android/risks/registry.py`) and iOS artifact providers (`mobile_playbook/platforms/ios/artifacts/registry.py`) are all built the same way, through the shared `discover_plugins()` helper in `mobile_playbook/core/discovery.py`: it scans a package's folder on disk (`pkgutil.iter_modules`), imports each module independently inside its own `try`/`except`, and registers a class when it's a concrete subclass of the relevant base (`Risk`, `AndroidRisk`, `ArtifactProvider`) with its own `risk_id`/`source` set — which is what naturally excludes shared/abstract helper classes like `Feature5KeyboardRiskBase` without any filename-based exclusion list.
+
+A module that fails to import is skipped with a warning and the rest of the registry is unaffected; a module that simply isn't present on disk is invisible to the scan with no error at all. `known_risks()`/`known_sources()` reflect exactly what's importable at the moment they're called, so `validate`/`list-risks` never depend on every risk or artifact-provider file existing.
 
 ### Device / Appium layer
 

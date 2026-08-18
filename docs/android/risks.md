@@ -61,10 +61,11 @@ Generated work files (backed-up, decoded, and rebuilt APKs) are left under `work
 ## Adding An Android Risk
 
 1. Add a new class under `mobile_playbook/platforms/android/risks/`.
-2. Subclass `AndroidRisk`.
-3. Register the risk ID and class in `mobile_playbook/platforms/android/risks/registry.py`.
-4. Reuse the ADB/Appium device client and report writing where possible.
-5. Add mocked pytest coverage for device and external-tool behavior.
+2. Subclass `AndroidRisk` and set a unique `risk_id`.
+3. Reuse the ADB/Appium device client and report writing where possible.
+4. Add mocked pytest coverage for device and external-tool behavior.
+
+Risks are discovered automatically: `mobile_playbook/platforms/android/risks/registry.py` scans the folder for concrete `AndroidRisk` subclasses and picks up any file that defines one, keyed by its `risk_id`. Adding the file is enough — nothing else needs editing.
 
 ## Adding Android Apps
 

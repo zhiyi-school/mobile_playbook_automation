@@ -76,10 +76,11 @@ The framework reports this condition and does not try to bypass it.
 ## Adding An iOS Risk
 
 1. Add a new class under `mobile_playbook/platforms/ios/risks/`.
-2. Subclass `Risk`.
-3. Register the risk ID in `mobile_playbook/platforms/ios/risks/registry.py`.
-4. Reuse artifact providers, Appium operations, and report writing where possible.
-5. Add mocked pytest coverage for device and external-tool behavior.
+2. Subclass `Risk` and set a unique `risk_id`.
+3. Reuse artifact providers, Appium operations, and report writing where possible.
+4. Add mocked pytest coverage for device and external-tool behavior.
+
+Risks are discovered automatically: `mobile_playbook/platforms/ios/risks/registry.py` scans the folder for concrete `Risk` subclasses and picks up any file that defines one, keyed by its `risk_id`. Adding the file is enough — nothing else needs editing.
 
 ## Adding iOS Apps
 

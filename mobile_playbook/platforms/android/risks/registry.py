@@ -1,16 +1,21 @@
 from __future__ import annotations
 
+import os
+
+from mobile_playbook.core.discovery import discover_plugins
 from mobile_playbook.platforms.android.risks.base import AndroidRisk
+
+_PACKAGE_NAME = __name__.rsplit(".", 1)[0]
+_PACKAGE_PATH = [os.path.dirname(__file__)]
+
+_cache: dict[str, type[AndroidRisk]] | None = None
 
 
 def _registry() -> dict[str, type[AndroidRisk]]:
-    from mobile_playbook.platforms.android.risks.repackaging import AndroidRepackagingRisk
-    from mobile_playbook.platforms.android.risks.screen_capture import AndroidScreenCaptureRisk
-
-    return {
-        AndroidScreenCaptureRisk.risk_id: AndroidScreenCaptureRisk,
-        AndroidRepackagingRisk.risk_id: AndroidRepackagingRisk,
-    }
+    global _cache
+    if _cache is None:
+        _cache = discover_plugins(_PACKAGE_NAME, _PACKAGE_PATH, AndroidRisk, "risk_id")
+    return _cache
 
 
 def get_risk(risk_id: str) -> AndroidRisk | None:

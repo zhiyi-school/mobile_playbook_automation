@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+import json
+from types import SimpleNamespace
+
 from mobile_playbook.platforms.android.config import parse_config
-from mobile_playbook.platforms.android.risks import known_risks
+from mobile_playbook.platforms.android.results import normalize_android_result
+from mobile_playbook.platforms.android.risks import get_risk, known_risks
 from mobile_playbook.platforms.android.runner import AndroidPlatformRunner
+from mobile_playbook.reporting.report_writer import ReportWriter
 
 
 def test_android_config_accepts_legacy_package_list():
@@ -49,3 +54,28 @@ def test_android_dry_run_filters_selected_apps():
 
     assert any("sg.gov.app.mol" in line for line in lines)
     assert not any("sg.parking.streetsmart" in line for line in lines)
+
+
+def test_run_test_records_failure_without_raising(monkeypatch, tmp_path):
+    # Resolved dynamically via get_risk(), the same way AndroidPlatformRunner.run_test
+    # does — not a direct import of a specific risk module.
+    risk_class = type(get_risk("android-feature6-risk1"))
+
+    def flaky_run(self, app_config, global_config, device_client, report_writer):
+        raise RuntimeError("adb exploded")
+
+    monkeypatch.setattr(risk_class, "requires", [])
+    monkeypatch.setattr(risk_class, "run", flaky_run)
+
+    app = SimpleNamespace(id="parking", name="Parking", package_name="sg.parking.streetsmart")
+    config = SimpleNamespace(runner=SimpleNamespace(auto_grant_permissions=False))
+    device_client = SimpleNamespace(adb=None)
+    writer = ReportWriter(tmp_path, "run1", result_adapter=normalize_android_result, platform="android")
+
+    # must not raise — a single flaky risk cannot be allowed to abort the whole run
+    AndroidPlatformRunner().run_test(app, "android-feature6-risk1", config, device_client, writer)
+
+    report_dir = tmp_path / "run1" / "android" / "parking" / "android-feature6-risk1" / "screen_capture"
+    result = json.loads((report_dir / "report.json").read_text())
+    assert result["final_status"] == "FAILED"
+    assert "adb exploded" in result["errors"][0]

@@ -1,26 +1,29 @@
 from __future__ import annotations
 
-from mobile_playbook.platforms.ios.artifacts.ci_artifact import CiArtifactProvider
-from mobile_playbook.platforms.ios.artifacts.installed_app_reference import InstalledAppReferenceProvider
-from mobile_playbook.platforms.ios.artifacts.local_ipa import LocalIpaProvider
-from mobile_playbook.platforms.ios.artifacts.vendor_ipa import VendorIpaProvider
-from mobile_playbook.platforms.ios.artifacts.xcode_archive_export import XcodeArchiveExportProvider
+import os
 
-PROVIDERS = {
-    "local_ipa": LocalIpaProvider,
-    "ci_artifact": CiArtifactProvider,
-    "vendor_ipa": VendorIpaProvider,
-    "xcode_archive_export": XcodeArchiveExportProvider,
-    "installed_app_reference": InstalledAppReferenceProvider,
-}
+from mobile_playbook.core.discovery import discover_plugins
+from mobile_playbook.platforms.ios.artifacts.base import ArtifactProvider
+
+_PACKAGE_NAME = __name__.rsplit(".", 1)[0]
+_PACKAGE_PATH = [os.path.dirname(__file__)]
+
+_cache: dict[str, type[ArtifactProvider]] | None = None
+
+
+def _registry() -> dict[str, type[ArtifactProvider]]:
+    global _cache
+    if _cache is None:
+        _cache = discover_plugins(_PACKAGE_NAME, _PACKAGE_PATH, ArtifactProvider, "source")
+    return _cache
 
 
 def known_sources() -> set[str]:
-    return set(PROVIDERS)
+    return set(_registry())
 
 
-def get_provider(source: str):
-    provider_class = PROVIDERS.get(source)
+def get_provider(source: str) -> ArtifactProvider | None:
+    provider_class = _registry().get(source)
     if provider_class is None:
         return None
     return provider_class()

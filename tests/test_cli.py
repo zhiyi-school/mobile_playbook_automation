@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 from datetime import datetime, timezone
 
 from mobile_playbook import cli as cli_module
 from mobile_playbook.cli import _load_env_file, _new_run_timestamp, _run, _run_all
 from mobile_playbook.platforms.android.config import parse_config as parse_android_config
-from mobile_playbook.platforms.ios.risks import known_risks
+from mobile_playbook.platforms.ios.risks import get_risk, known_risks
 
 
 def _no_risk_android_config():
@@ -40,6 +41,44 @@ def test_run_feature1_risk1_does_not_connect_appium(monkeypatch, global_config, 
     monkeypatch.setattr("mobile_playbook.platforms.ios.runner.IosPlatformRunner.connect_device", fail_connect)
 
     assert _run(global_config, {"ios-feature1-risk1"}, None, tmp_path / "reports") == 0
+
+
+def test_run_isolates_one_apps_risk_failure_from_the_rest(monkeypatch, global_config, tmp_path):
+    # Resolved dynamically via get_risk(), the same way IosPlatformRunner.run_test does —
+    # not a direct `from ...feature1_risk1 import Feature1Risk1`, since the whole point of
+    # the registry auto-discovery is that nothing needs to hardcode which module a risk
+    # lives in.
+    risk_class = type(get_risk("ios-feature1-risk1"))
+    original_run = risk_class.run
+
+    def flaky_run(self, app_config, global_cfg, device_client, report_writer):
+        if app_config.id == "app_one":
+            raise RuntimeError("simulated failure for app_one")
+        return original_run(self, app_config, global_cfg, device_client, report_writer)
+
+    monkeypatch.setattr(risk_class, "run", flaky_run)
+
+    def fail_connect(*args, **kwargs):
+        raise AssertionError("ios-feature1-risk1 does not require a device")
+
+    monkeypatch.setattr("mobile_playbook.platforms.ios.runner.IosPlatformRunner.connect_device", fail_connect)
+
+    first = global_config.apps[0]
+    first.risks = {"ios-feature1-risk1": {"enabled": True}}
+    second = replace(first, id="app_two", name="App Two")
+    global_config.apps = [first, second]
+
+    assert _run(global_config, {"ios-feature1-risk1"}, None, tmp_path / "reports") == 0
+
+    run_dir = next((tmp_path / "reports").iterdir())
+    failed_report = json.loads(
+        (run_dir / "ios" / "app_one" / "ios-feature1-risk1" / "risk_execution_failed" / "report.json").read_text()
+    )
+    assert failed_report["final_status"] == "FAILED"
+    assert "simulated failure for app_one" in failed_report["errors"][0]
+
+    # app_two's own test still ran to completion despite app_one's failure aborting nothing
+    assert (run_dir / "ios" / "app_two" / "ios-feature1-risk1" / "ipa_static_analysis" / "report.json").exists()
 
 
 def test_run_filters_by_selected_app(monkeypatch, global_config, tmp_path):
