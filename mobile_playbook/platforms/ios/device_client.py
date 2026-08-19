@@ -66,11 +66,15 @@ class AppiumDeviceClient:
         return bool(self._execute("terminateApp", {"bundleId": bundle_id}))
 
     def install_app(self, ipa_path: Path, timeout_ms: int) -> InstallResult:
+        # Resolve to an absolute path before handing it to Appium: the Appium server is a
+        # separate process, and a relative path would be resolved against *its* working
+        # directory (whatever that happened to be when it was started), not ours.
+        ipa_path = Path(ipa_path).expanduser().resolve()
         try:
             self._execute("installApp", {"app": str(ipa_path), "timeout": timeout_ms})
-            return InstallResult(status="INSTALLED", ipa_path=Path(ipa_path))
+            return InstallResult(status="INSTALLED", ipa_path=ipa_path)
         except Exception as exc:
-            return InstallResult(status="INSTALL_FAILED", ipa_path=Path(ipa_path), errors=[str(exc)])
+            return InstallResult(status="INSTALL_FAILED", ipa_path=ipa_path, errors=[str(exc)])
 
     def launch_app(self, bundle_id: str) -> dict:
         return {"result": self._execute("launchApp", {"bundleId": bundle_id})}

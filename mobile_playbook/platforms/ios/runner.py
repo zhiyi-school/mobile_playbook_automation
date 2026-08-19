@@ -116,9 +116,9 @@ class IosPlatformRunner:
             lines.append(f"  artifact.source: {app.artifact.get('source')}")
             for risk_id in self.enabled_test_ids(app, selected_tests):
                 risk_config = app.risks.get(risk_id) or {}
-                if risk_id == "ios-feature5-risk1":
+                if risk_id == "ios-feature-04-risk-01":
                     collection = risk_config.get("collection") or risk_config.get("control") or {}
-                    lines.append("  planned: ios-feature5-risk1 / collection_server / keystroke_collection")
+                    lines.append("  planned: ios-feature-04-risk-01 / collection_server / keystroke_collection")
                     lines.append(f"    bind_host: {collection.get('bind_host', '0.0.0.0')}")
                     lines.append(f"    port: {collection.get('port', 8765)}")
                     lines.append(f"    pair_timeout_seconds: {collection.get('pair_timeout_seconds', 60)}")

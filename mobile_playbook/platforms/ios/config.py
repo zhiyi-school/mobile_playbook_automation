@@ -23,7 +23,7 @@ LOCAL_IPA_SOURCES = {"local_ipa", "ci_artifact", "vendor_ipa", "xcode_archive_ex
 # by) whatever the app's own `risks.<risk_id>` entry specifies.
 RISK_GLOBAL_SETTINGS_FIELD = {
     "ios-feature1-risk1": "ipa_static_analysis",
-    "ios-feature5-risk1": "keystroke_collection",
+    "ios-feature-04-risk-01": "keystroke_collection",
 }
 
 
@@ -155,7 +155,7 @@ def validate_config(config: GlobalConfig, dry_run: bool = False) -> None:
                 continue
             risk = get_risk(risk_id)
             effective = effective_risk_config(config, risk_id, risk_config)
-            if risk_id == "ios-feature5-risk1":
+            if risk_id == "ios-feature-04-risk-01":
                 keyboard_app = effective.get("keyboard_app") or {}
                 keyboard_ipa = keyboard_app.get("ipa")
                 keyboard_bundle_id = keyboard_app.get("bundle_id")
@@ -163,7 +163,7 @@ def validate_config(config: GlobalConfig, dry_run: bool = False) -> None:
                     errors.append(f"{label}.risks.{risk_id}.keyboard_app.bundle_id or ipa is required")
                 if keyboard_ipa and not dry_run and not Path(keyboard_ipa).expanduser().exists():
                     errors.append(f"{label}.risks.{risk_id}.keyboard_app.ipa does not exist: {keyboard_ipa}")
-            if risk_id == "ios-feature5-risk1":
+            if risk_id == "ios-feature-04-risk-01":
                 collection = effective.get("collection") or effective.get("control") or {}
                 if not str(collection.get("probe_text") or collection.get("expected_collected_text") or "").strip():
                     errors.append(f"{label}.risks.{risk_id}.collection.probe_text is required")
@@ -194,7 +194,7 @@ def _auto_fill_bundle_ids(config: GlobalConfig, errors: list[str]) -> None:
                 # validation below; this keeps the bundle-id error actionable.
                 pass
 
-        risk_config = app.risks.get("ios-feature5-risk1")
+        risk_config = app.risks.get("ios-feature-04-risk-01")
         if risk_config and risk_config.get("enabled", False):
             # The keyboard host app is normally the same for every app under test, so its
             # settings usually live in the shared `keystroke_collection` global section rather

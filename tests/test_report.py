@@ -38,10 +38,10 @@ def test_report_summary_cleans_multiline_errors(tmp_path):
     )
     result = RiskRunResult(
         "run1", "start", "end", "app", "App", "bid", "bid.test",
-        "ios-feature5-risk1", "feature5", "collection_server", "keystroke_collection", "local_ipa",
+        "ios-feature-04-risk-01", "feature-04", "collection_server", "keystroke_collection", "local_ipa",
         final_status="INSTALL_FAILED", errors=[raw_error],
     )
-    report_dir = writer.test_report_dir("app", "ios-feature5-risk1", "collection_server")
+    report_dir = writer.test_report_dir("app", "ios-feature-04-risk-01", "collection_server")
     writer.write_result(result, report_dir)
     writer.write_summary()
 
@@ -54,7 +54,7 @@ def test_report_summary_cleans_multiline_errors(tmp_path):
     assert record["summary"] == "The application at '/some/path/LocalKeyboard.ipa' does not exist or is not accessible"
     assert "Stacktrace" not in record["summary"]
     assert "errors" not in record["raw"]
-    assert record["report_path"] == "ios/app/ios-feature5-risk1/collection_server"
+    assert record["report_path"] == "ios/app/ios-feature-04-risk-01/collection_server"
 
     # the full untouched text still lives in logs.txt and report.json
     assert raw_error in (report_dir / "logs.txt").read_text()

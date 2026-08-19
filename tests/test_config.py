@@ -34,7 +34,7 @@ def test_config_auto_fills_bundle_id_from_local_ipa(tmp_path, fake_ipa):
             "bundle_id": "",
             "artifact": {"source": "local_ipa", "ipa": str(fake_ipa)},
             "expected_behavior": {},
-            "risks": {"ios-feature5-risk1": {"enabled": False}},
+            "risks": {"ios-feature-04-risk-01": {"enabled": False}},
         }],
     }
     path = tmp_path / "apps.yaml"
@@ -197,10 +197,10 @@ def test_config_allows_feature1_risk1_without_extra_cases(global_config):
     validate_config(global_config, dry_run=True)
 
 
-def test_config_allows_feature5_risk1_without_extra_cases(global_config):
+def test_config_allows_feature_04_risk_01_without_extra_cases(global_config):
     app = global_config.apps[0]
     app.risks = {
-        "ios-feature5-risk1": {
+        "ios-feature-04-risk-01": {
             "enabled": True,
             "keyboard_app": {"bundle_id": "com.example.keyboard"},
             "collection": {"port": 0, "probe_text": "hello123"},
@@ -209,17 +209,17 @@ def test_config_allows_feature5_risk1_without_extra_cases(global_config):
     validate_config(global_config, dry_run=True)
 
 
-def test_config_auto_fills_feature5_risk1_keyboard_bundle_id(global_config, fake_ipa):
+def test_config_auto_fills_feature_04_risk_01_keyboard_bundle_id(global_config, fake_ipa):
     app = global_config.apps[0]
     app.risks = {
-        "ios-feature5-risk1": {
+        "ios-feature-04-risk-01": {
             "enabled": True,
             "keyboard_app": {"ipa": str(fake_ipa)},
             "collection": {"port": 0, "probe_text": "hello123"},
         }
     }
     validate_config(global_config, dry_run=True)
-    assert app.risks["ios-feature5-risk1"]["keyboard_app"]["bundle_id"] == "com.example.app"
+    assert app.risks["ios-feature-04-risk-01"]["keyboard_app"]["bundle_id"] == "com.example.app"
 
 
 def test_effective_risk_config_merges_app_override_onto_global_defaults(tmp_path, fake_ipa):
@@ -262,7 +262,7 @@ def test_effective_risk_config_deep_merges_nested_override_without_losing_siblin
             "artifact": {"source": "local_ipa", "ipa": str(fake_ipa)},
             "expected_behavior": {},
             "risks": {
-                "ios-feature5-risk1": {
+                "ios-feature-04-risk-01": {
                     "enabled": True,
                     "collection": {"auto_navigation": {"accessibility_ids": ["btn_select_carpark"]}},
                 }
@@ -274,7 +274,7 @@ def test_effective_risk_config_deep_merges_nested_override_without_losing_siblin
 
     loaded = load_config(path)
 
-    effective = effective_risk_config(loaded, "ios-feature5-risk1", loaded.apps[0].risks["ios-feature5-risk1"])
+    effective = effective_risk_config(loaded, "ios-feature-04-risk-01", loaded.apps[0].risks["ios-feature-04-risk-01"])
     # per-app override applies at the exact nested field it targets...
     assert effective["collection"]["auto_navigation"]["accessibility_ids"] == ["btn_select_carpark"]
     # ...while sibling fields (not mentioned in the override) still fall back to the global default
@@ -297,7 +297,7 @@ def test_config_auto_fills_keyboard_bundle_id_from_global_keystroke_collection_s
             "bundle_id": "com.example.app",
             "artifact": {"source": "local_ipa", "ipa": str(fake_ipa)},
             "expected_behavior": {},
-            "risks": {"ios-feature5-risk1": {"enabled": True}},
+            "risks": {"ios-feature-04-risk-01": {"enabled": True}},
         }],
     }
     path = tmp_path / "ios.yaml"

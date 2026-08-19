@@ -84,7 +84,7 @@ Both platforms connect through the same Appium Python client, just with differen
 
 ### iOS custom-keyboard control server
 
-Used by `ios-feature5-risk1` (see `docs/ios/manual-local-keyboard-server.md`). Implemented in `platforms/ios/control_server.py` on pure stdlib `http.server.ThreadingHTTPServer`, run on a background daemon thread — no Flask/FastAPI, no external web dependency. State is an in-memory `ControlServerState`: a bearer token (`secrets.token_urlsafe(24)` by default), a FIFO queue of pending keystrokes, a delivered list, an events log, and a rolling audit log of the last 500 requests.
+Used by `ios-feature-04-risk-01` (see `docs/ios/manual-local-keyboard-server.md`). Implemented in `platforms/ios/control_server.py` on pure stdlib `http.server.ThreadingHTTPServer`, run on a background daemon thread — no Flask/FastAPI, no external web dependency. State is an in-memory `ControlServerState`: a bearer token (`secrets.token_urlsafe(24)` by default), a FIFO queue of pending keystrokes, a delivered list, an events log, and a rolling audit log of the last 500 requests.
 
 Endpoints: `GET /health`, `GET /next` (token-gated; the phone-side keyboard extension polls this for the next keystroke to "type"), `GET /events` / `GET /queue` / `GET /snapshot` (introspection), `POST /pair` (keyboard app registers and receives the token), `POST /enqueue` (test harness queues a probe string/keystroke), `POST /events` (token-gated; keyboard extension reports what it captured). The whole protocol is deliberately simple polling over plain HTTP on the LAN/USB-tethered network — there is no push channel or websocket.
 

@@ -16,7 +16,7 @@ reports/<run_timestamp>/ios/<app_id>/<risk_id>/<test_case_id>/
 
 The top-level `reports/<run_timestamp>/summary.md` and `dashboard_results.json` cover all platforms in a single run; see [docs/android/reports-and-troubleshooting.md](../android/reports-and-troubleshooting.md) for the Android side.
 
-`summary.md`'s table and each `dashboard_results.json` record carry a short, cleaned one-line message rather than a raw error dump (a failed Appium call's full "Message: ...\nStacktrace:\n..." text is reduced to just its first line) — the complete untouched error still lives in that test's `logs.txt`/`report.json`. For iOS, each `dashboard_results.json` record also carries a `report_path` field (e.g. `ios/parking/ios-feature5-risk1/collection_server`) pointing at that per-test folder, and `summary.md` links to it directly from a `Report` column.
+`summary.md`'s table and each `dashboard_results.json` record carry a short, cleaned one-line message rather than a raw error dump (a failed Appium call's full "Message: ...\nStacktrace:\n..." text is reduced to just its first line) — the complete untouched error still lives in that test's `logs.txt`/`report.json`. For iOS, each `dashboard_results.json` record also carries a `report_path` field (e.g. `ios/parking/ios-feature-04-risk-01/collection_server`) pointing at that per-test folder, and `summary.md` links to it directly from a `Report` column.
 
 ## Common Risk Files
 
@@ -29,7 +29,7 @@ The top-level `reports/<run_timestamp>/summary.md` and `dashboard_results.json` 
 - `critical_findings.md`
 - `mobsf_report.json` when MobSF analysis succeeds
 
-`ios-feature5-risk1`:
+`ios-feature-04-risk-01`:
 
 - `report.json`
 - `logs.txt`

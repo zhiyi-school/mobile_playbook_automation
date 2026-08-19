@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -83,6 +84,23 @@ def test_connect_wraps_a_failed_appium_session_in_a_clean_runtime_error(monkeypa
 
     with pytest.raises(RuntimeError, match="failed to start Appium session at http://127.0.0.1:4723"):
         client.connect()
+
+
+def test_install_app_resolves_a_relative_ipa_path_to_absolute(tmp_path, monkeypatch):
+    # A relative IPA path must never reach Appium as-is: the Appium server is a separate
+    # process and would resolve it against its own working directory, not ours, which can
+    # silently point at the wrong file if that process started somewhere else.
+    monkeypatch.chdir(tmp_path)
+    driver = FakeDriver({})
+    client = _client(driver)
+
+    result = client.install_app(Path("intake/ios/ipas/LocalKeyboard.ipa"), timeout_ms=1000)
+
+    assert result.status == "INSTALLED"
+    command, args = driver.executed[0]
+    assert command == "mobile: installApp"
+    assert Path(args["app"]).is_absolute()
+    assert args["app"] == str(tmp_path / "intake/ios/ipas/LocalKeyboard.ipa")
 
 
 def test_tap_text_field_prefers_visible_enabled_field():

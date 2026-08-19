@@ -56,7 +56,7 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Manual LocalKeyboard collection server for ios-feature5-risk1 testing.")
+    parser = argparse.ArgumentParser(description="Manual LocalKeyboard collection server for ios-feature-04-risk-01 testing.")
     parser.add_argument("--host", default="0.0.0.0", help="Bind host. Use 0.0.0.0 so the iPhone can reach the Mac.")
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--advertised-host", default=None, help="Mac LAN IP to show for the phone. Auto-detected if omitted.")

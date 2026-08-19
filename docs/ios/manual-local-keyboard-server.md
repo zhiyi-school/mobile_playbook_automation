@@ -1,6 +1,6 @@
 # Manual LocalKeyboard Server
 
-Use this helper when manually testing the server side of `ios-feature5-risk1` without running the full Appium workflow.
+Use this helper when manually testing the server side of `ios-feature-04-risk-01` without running the full Appium workflow.
 
 Start the server:
 

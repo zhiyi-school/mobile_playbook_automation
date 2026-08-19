@@ -11,9 +11,9 @@ from mobile_playbook.platforms.ios.models import BehaviorResult, RiskRunResult
 from mobile_playbook.platforms.ios.risks.feature5_keyboard_base import Feature5KeyboardRiskBase
 
 
-class Feature5Risk1(Feature5KeyboardRiskBase):
-    risk_id = "ios-feature5-risk1"
-    feature_id = "feature5"
+class Feature04Risk01(Feature5KeyboardRiskBase):
+    risk_id = "ios-feature-04-risk-01"
+    feature_id = "feature-04"
     name = "Custom keyboard keystroke collection"
     requires_ipa_artifact = False
 
@@ -30,7 +30,7 @@ class Feature5Risk1(Feature5KeyboardRiskBase):
         installed_keyboard_by_risk = False
         server = None
         try:
-            print(f"ios-feature5-risk1[{app_config.id}]: installing/verifying keyboard app")
+            print(f"ios-feature-04-risk-01[{app_config.id}]: installing/verifying keyboard app")
             keyboard_setup = self._install_or_verify_keyboard_app(keyboard_config, global_config, device_client)
             result.launch_result = {"keyboard_app": keyboard_setup}
             if keyboard_setup.get("status") not in {"INSTALLED", "INSTALLED_APP_VERIFIED", "SKIPPED"}:
@@ -80,7 +80,7 @@ class Feature5Risk1(Feature5KeyboardRiskBase):
                 time.sleep(setup_wait)
 
             pair_timeout = float(collection.get("pair_timeout_seconds", 60))
-            print(f"ios-feature5-risk1[{app_config.id}]: waiting for /pair for up to {pair_timeout:g}s")
+            print(f"ios-feature-04-risk-01[{app_config.id}]: waiting for /pair for up to {pair_timeout:g}s")
             if not server.wait_for_pair(pair_timeout):
                 result.final_status = "PAIRING_TIMEOUT"
                 result.errors.append(f"The keyboard app did not call /pair within {pair_timeout:g} seconds")
@@ -155,7 +155,7 @@ class Feature5Risk1(Feature5KeyboardRiskBase):
             else:
                 behavior = BehaviorResult(
                     status="FAIL",
-                    errors=[f"Unsupported ios-feature5-risk1 collection.evidence_source: {evidence_source}"],
+                    errors=[f"Unsupported ios-feature-04-risk-01 collection.evidence_source: {evidence_source}"],
                     metadata={"evidence_source": evidence_source},
                 )
             result.behavior_result = behavior
@@ -270,7 +270,7 @@ class Feature5Risk1(Feature5KeyboardRiskBase):
         if not bundle_id:
             return BehaviorResult(
                 status="FAIL",
-                errors=["ios-feature5-risk1 local_app_ui evidence requires keyboard_app.bundle_id or collection.local_log.bundle_id"],
+                errors=["ios-feature-04-risk-01 local_app_ui evidence requires keyboard_app.bundle_id or collection.local_log.bundle_id"],
                 metadata={"evidence_source": "local_app_ui", "expected_collected_text": expected},
             )
 

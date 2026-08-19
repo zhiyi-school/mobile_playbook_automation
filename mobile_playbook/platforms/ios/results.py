@@ -10,12 +10,12 @@ from mobile_playbook.platforms.ios.models import RiskRunResult
 
 CATEGORY_BY_RISK = {
     "ios-feature1-risk1": "static_analysis",
-    "ios-feature5-risk1": "keyboard_security",
+    "ios-feature-04-risk-01": "keyboard_security",
 }
 
 TEST_NAME_BY_RISK = {
     "ios-feature1-risk1": "IPA Static Analysis Exposure",
-    "ios-feature5-risk1": "Custom Keyboard Keystroke Collection",
+    "ios-feature-04-risk-01": "Custom Keyboard Keystroke Collection",
 }
 
 SEVERITY_BY_STATUS = {

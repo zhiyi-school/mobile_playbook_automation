@@ -136,7 +136,7 @@ def test_run_all_isolates_one_platform_failure_from_the_other(monkeypatch, globa
 
 
 def test_ios_registry_only_exposes_current_risks():
-    assert known_risks() == {"ios-feature1-risk1", "ios-feature5-risk1"}
+    assert known_risks() == {"ios-feature1-risk1", "ios-feature-04-risk-01"}
 
 
 def test_new_run_timestamp_is_sortable_and_collision_safe(tmp_path):

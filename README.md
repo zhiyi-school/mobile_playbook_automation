@@ -7,7 +7,7 @@ It uses platform-prefixed risk IDs:
 | Risk ID | Platform | Purpose |
 | --- | --- | --- |
 | `ios-feature1-risk1` | iOS | IPA acquisition and static-analysis exposure |
-| `ios-feature5-risk1` | iOS | Custom keyboard keystroke collection |
+| `ios-feature-04-risk-01` | iOS | Custom keyboard keystroke collection |
 | `android-feature1-risk2` | Android | APK repackaging, resigning, reinstall, and launch validation |
 | `android-feature6-risk1` | Android | Screen recording / `FLAG_SECURE` capture blocking |
 
@@ -81,7 +81,7 @@ Run iOS risks:
 
 ```bash
 python -m mobile_playbook run --platform ios --config configs/ios.yaml --risks ios-feature1-risk1 --out reports
-python -m mobile_playbook run --platform ios --config configs/ios.yaml --risks ios-feature5-risk1 --out reports
+python -m mobile_playbook run --platform ios --config configs/ios.yaml --risks ios-feature-04-risk-01 --out reports
 ```
 
 Run one iOS app:

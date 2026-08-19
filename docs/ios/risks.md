@@ -30,9 +30,9 @@ Reports include:
 
 `IPA_ANALYSIS_COMPLETE` means the IPA was acquired, unpacked, and inventoried for static-analysis exposure.
 
-## ios-feature5-risk1
+## ios-feature-04-risk-01
 
-`ios-feature5-risk1` tests whether a third-party custom keyboard can collect text typed into a target app field.
+`ios-feature-04-risk-01` tests whether a third-party custom keyboard can collect text typed into a target app field.
 
 Workflow:
 

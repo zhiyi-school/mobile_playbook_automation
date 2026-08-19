@@ -3,7 +3,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from mobile_playbook.report import ReportWriter
-from mobile_playbook.platforms.ios.risks.feature5_risk1 import Feature5Risk1
+from mobile_playbook.platforms.ios.risks.feature_04_risk_01 import Feature04Risk01
 from tests.conftest import MockDevice
 
 
@@ -56,10 +56,10 @@ class SplitLocalLogDevice(MockDevice):
         return {"ok": True, "bundle_id": bundle_id}
 
 
-def test_feature5_risk1_reports_risk_when_keyboard_local_log_contains_probe_text(global_config, tmp_path):
+def test_feature_04_risk_01_reports_risk_when_keyboard_local_log_contains_probe_text(global_config, tmp_path):
     app = global_config.apps[0]
     app.risks = {
-        "ios-feature5-risk1": {
+        "ios-feature-04-risk-01": {
             "enabled": True,
             "keyboard_app": {
                 "bundle_id": "com.example.keyboard",
@@ -81,7 +81,7 @@ def test_feature5_risk1_reports_risk_when_keyboard_local_log_contains_probe_text
     writer = ReportWriter(tmp_path / "reports", "run1")
     device = LocalLogDevice()
 
-    result = Feature5Risk1(CollectionServer).run(app, global_config, device, writer)
+    result = Feature04Risk01(CollectionServer).run(app, global_config, device, writer)
 
     assert result.final_status == "RISK_EXISTS"
     assert result.behavior_result.status == "PASS"
@@ -90,10 +90,10 @@ def test_feature5_risk1_reports_risk_when_keyboard_local_log_contains_probe_text
     assert result.behavior_result.metadata["evidence_source"] == "local_app_ui"
 
 
-def test_feature5_risk1_matches_split_local_keystroke_log(global_config, tmp_path):
+def test_feature_04_risk_01_matches_split_local_keystroke_log(global_config, tmp_path):
     app = global_config.apps[0]
     app.risks = {
-        "ios-feature5-risk1": {
+        "ios-feature-04-risk-01": {
             "enabled": True,
             "keyboard_app": {"bundle_id": "com.example.keyboard", "ipa": str(tmp_path / "Keyboard.ipa")},
             "collection": {
@@ -109,16 +109,16 @@ def test_feature5_risk1_matches_split_local_keystroke_log(global_config, tmp_pat
     }
     writer = ReportWriter(tmp_path / "reports", "run1")
 
-    result = Feature5Risk1(CollectionServer).run(app, global_config, SplitLocalLogDevice(), writer)
+    result = Feature04Risk01(CollectionServer).run(app, global_config, SplitLocalLogDevice(), writer)
 
     assert result.final_status == "RISK_EXISTS"
     assert result.behavior_result.metadata["match"]["mode"] == "ordered_items"
 
 
-def test_feature5_risk1_reports_when_local_log_is_missing_probe_text(global_config, tmp_path):
+def test_feature_04_risk_01_reports_when_local_log_is_missing_probe_text(global_config, tmp_path):
     app = global_config.apps[0]
     app.risks = {
-        "ios-feature5-risk1": {
+        "ios-feature-04-risk-01": {
             "enabled": True,
             "keyboard_app": {"bundle_id": "com.example.keyboard", "ipa": str(tmp_path / "Keyboard.ipa")},
             "collection": {
@@ -132,16 +132,16 @@ def test_feature5_risk1_reports_when_local_log_is_missing_probe_text(global_conf
     }
     writer = ReportWriter(tmp_path / "reports", "run1")
 
-    result = Feature5Risk1(EmptyCollectionServer).run(app, global_config, MockDevice(), writer)
+    result = Feature04Risk01(EmptyCollectionServer).run(app, global_config, MockDevice(), writer)
 
     assert result.final_status == "KEYSTROKE_COLLECTION_NOT_OBSERVED"
     assert "local log UI" in result.errors[0]
 
 
-def test_feature5_risk1_can_still_use_server_events_as_collection_evidence(global_config, tmp_path):
+def test_feature_04_risk_01_can_still_use_server_events_as_collection_evidence(global_config, tmp_path):
     app = global_config.apps[0]
     app.risks = {
-        "ios-feature5-risk1": {
+        "ios-feature-04-risk-01": {
             "enabled": True,
             "keyboard_app": {"bundle_id": "com.example.keyboard", "ipa": str(tmp_path / "Keyboard.ipa")},
             "collection": {
@@ -155,13 +155,13 @@ def test_feature5_risk1_can_still_use_server_events_as_collection_evidence(globa
     }
     writer = ReportWriter(tmp_path / "reports", "run1")
 
-    result = Feature5Risk1(CollectionServer).run(app, global_config, MockDevice(), writer)
+    result = Feature04Risk01(CollectionServer).run(app, global_config, MockDevice(), writer)
 
     assert result.final_status == "RISK_EXISTS"
     assert result.behavior_result.metadata["evidence_source"] == "server_events"
 
 
-def test_feature5_risk1_reports_secure_text_field_as_custom_keyboard_unavailable(global_config, tmp_path):
+def test_feature_04_risk_01_reports_secure_text_field_as_custom_keyboard_unavailable(global_config, tmp_path):
     class SecureFieldDevice(MockDevice):
         def tap_text_field(self, selector=None):
             return {
@@ -172,7 +172,7 @@ def test_feature5_risk1_reports_secure_text_field_as_custom_keyboard_unavailable
 
     app = global_config.apps[0]
     app.risks = {
-        "ios-feature5-risk1": {
+        "ios-feature-04-risk-01": {
             "enabled": True,
             "keyboard_app": {"bundle_id": "com.example.keyboard", "ipa": str(tmp_path / "Keyboard.ipa")},
             "collection": {"port": 0, "pair_timeout_seconds": 1, "probe_text": "hello123"},
@@ -180,7 +180,7 @@ def test_feature5_risk1_reports_secure_text_field_as_custom_keyboard_unavailable
     }
     writer = ReportWriter(tmp_path / "reports", "run1")
 
-    result = Feature5Risk1(CollectionServer).run(app, global_config, SecureFieldDevice(), writer)
+    result = Feature04Risk01(CollectionServer).run(app, global_config, SecureFieldDevice(), writer)
 
     assert result.final_status == "CUSTOM_KEYBOARD_NOT_AVAILABLE"
     assert "secure text field" in result.errors[0]

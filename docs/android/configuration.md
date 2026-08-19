@@ -74,13 +74,29 @@ See the one app entry under `apps:` in [configs/split/android/apps.example.yaml]
 
 ## Risk Blocks
 
-Android risk IDs are prefixed `android-feature...`. Enable a risk by adding it under an app's `risks` mapping:
+Android risk IDs are prefixed `android-feature...`. To configure a risk for an app:
 
-```yaml
-risks:
-  android-feature1-risk2:
-    enabled: true
-```
+1. Add it under the app's `risks` mapping with `enabled: true` (or leave it `false`/omitted to skip it):
+
+   ```yaml
+   risks:
+     android-feature1-risk2:
+       enabled: true
+   ```
+
+2. Its actual settings come from that risk's global settings file, shared by every app that enables it — here's the start of `repackaging.yaml`, taken directly from `configs/split/android/risk_settings.example.yaml`:
+
+   ```yaml
+   repackaging:
+     work_dir: "work/android/repackaging"
+     # If unset, a keystore is generated at <work_dir>/<app>/../release.keystore on first use.
+     keystore_path: null
+     keystore_alias: "mobileplaybook"
+     keystore_pass: "password"
+   ```
+
+   See `configs/split/android/risk_settings.example.yaml` for the rest of this and `screen_capture`'s fields, and the field references below for what each controls.
+3. Only add more fields under the app's own `risks.<risk_id>` entry when this one app needs to differ from those shared defaults — nest just the field being changed. Anything left unset there falls back to the global file.
 
 Risks run in the order they're listed under an app's `risks` mapping, not sorted by ID — keep that in mind if the order of your own `risks:` blocks matters to you.
 

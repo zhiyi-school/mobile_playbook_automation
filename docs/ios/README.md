@@ -26,7 +26,7 @@ reports/<run_timestamp>/ios/<app_id>/<risk_id>/
 
 - [Configuration](configuration.md): device, runner, and app config shape; split configs; environment files.
 - [Risks](risks.md): what each iOS risk tests, artifact sources, binary mutability inspection, and how to add new iOS risks.
-- [Manual LocalKeyboard Server](manual-local-keyboard-server.md): run the `ios-feature5-risk1` collection server by itself for phone-side manual testing.
+- [Manual LocalKeyboard Server](manual-local-keyboard-server.md): run the `ios-feature-04-risk-01` collection server by itself for phone-side manual testing.
 - [Reports And Troubleshooting](reports-and-troubleshooting.md): iOS report files, statuses, and common failure causes.
 - [configs/split/ios/apps.example.yaml](../../configs/split/ios/apps.example.yaml): a focused, copyable app entry for `configs/ios.yaml`.
 
@@ -41,5 +41,5 @@ reports/<run_timestamp>/ios/<app_id>/<risk_id>/
 
 - The framework no longer automates IPA retrieval from the App Store. Obtain each IPA yourself and point the config at the local file.
 - `ios-feature1-risk1` does not require Appium or a connected phone.
-- `ios-feature5-risk1` requires a working Appium/XCUITest real-device setup, and the user must add the custom keyboard in iOS Settings with Full Access enabled.
+- `ios-feature-04-risk-01` requires a working Appium/XCUITest real-device setup, and the user must add the custom keyboard in iOS Settings with Full Access enabled.
 - The runner is sequential by default and can uninstall test bundles after each app test to reduce device state drift.
