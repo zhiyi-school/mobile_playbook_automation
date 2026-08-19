@@ -1,6 +1,6 @@
 # Android Configuration
 
-The Android config lives at `configs/android.yaml`, using the split layout — a small entry-point file plus per-section files under `configs/split/android/` — since a real app roster and per-risk settings don't fit comfortably in one file.
+The Android config lives at `configs/android.yaml`. `device` and `runner` are written inline in that entry-point file — there's only ever one device and one runner profile per project — while the app roster and per-risk settings, which don't fit comfortably in one file, live in their own files under `configs/split/android/` and are pulled in via `include:`.
 
 ## Quickstart
 
@@ -8,13 +8,13 @@ Set up the split config from the tracked examples:
 
 ```bash
 cp configs/android.example.yaml configs/android.yaml
-for f in device runner apps; do cp "configs/split/android/$f.example.yaml" "configs/split/android/$f.yaml"; done
+cp configs/split/android/apps.example.yaml configs/split/android/apps.yaml
 for f in tools repackaging screen_capture; do cp configs/split/android/risk_settings.example.yaml "configs/split/android/$f.yaml"; done
 ```
 
 `risk_settings.example.yaml` shows `tools`, `repackaging`, and `screen_capture` together in one file for easier reading; trim each copy above down to just its own top-level key.
 
-The config contains `device`, `runner`, `tools`, per-risk timing blocks, and `apps`.
+The config contains `device`, `runner`, `tools`, per-risk timing blocks, and `apps` — the first two inline, the rest via `include:`.
 
 ## Device
 
@@ -142,21 +142,27 @@ Full risk behavior and status meanings are documented in [Risks](risks.md).
 
 ## Split Android Configs
 
-`configs/android.yaml` is just an `include:` mapping (section name → file path), with the entry-point file at `configs/android.yaml` and its sections living under `configs/split/android/`:
+`configs/android.yaml` has `device` and `runner` written inline, plus an `include:` mapping (section name → file path) for the sections that live under `configs/split/android/`:
 
 ```yaml
+device:
+  appium_server_url: "http://127.0.0.1:4723"
+  # ...
+
+runner:
+  work_dir: "work/android"
+  # ...
+
 include:
-  device: split/android/device.yaml
-  runner: split/android/runner.yaml
   tools: split/android/tools.yaml
   repackaging: split/android/repackaging.yaml
   screen_capture: split/android/screen_capture.yaml
   apps: split/android/apps.yaml
 ```
 
-Included paths are resolved relative to the entry-point file — here, that's `configs/`, so each path is prefixed `split/android/`. See `configs/android.example.yaml`, the tracked example of this entry-point file.
+Included paths are resolved relative to the entry-point file — here, that's `configs/`, so each path is prefixed `split/android/`. Inline values and included sections can coexist in the same file — nothing requires every section to go through `include:`, which is how `device`/`runner` stay inline while the rest are pulled in. See `configs/android.example.yaml`, the tracked example of this entry-point file.
 
-The real device/runner/tools/repackaging/screen_capture/app-roster content lives in `configs/split/android/*.yaml` (all git-ignored, since they contain real device and app config — only the `*.example.yaml` files under `configs/split/android/` are tracked).
+The real tools/repackaging/screen_capture/app-roster content lives in `configs/split/android/*.yaml` (all git-ignored, since they contain real app config — only the `*.example.yaml` files under `configs/split/android/` are tracked). `configs/android.yaml` itself is also git-ignored, since it holds the real device config.
 
 ## Environment Files
 

@@ -1,9 +1,20 @@
 # Example Android config entry point. Copy this file to configs/android.yaml,
 # then populate configs/split/android/*.yaml from their own *.example.yaml
 # siblings (see docs/android/configuration.md#quickstart for the full setup).
+#
+# device/runner are inlined here directly rather than split into their own
+# files: there's only ever one device and one runner profile per project, so
+# a separate file for each would just be indirection.
+device:
+  appium_server_url: "http://127.0.0.1:4723"
+  adb_path: "adb"
+  adb_serial: null
+
+runner:
+  work_dir: "work/android"
+  auto_grant_permissions: false
+
 include:
-  device: split/android/device.yaml
-  runner: split/android/runner.yaml
   tools: split/android/tools.yaml
   repackaging: split/android/repackaging.yaml
   screen_capture: split/android/screen_capture.yaml

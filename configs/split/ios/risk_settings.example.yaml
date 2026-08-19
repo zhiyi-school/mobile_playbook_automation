@@ -1,8 +1,8 @@
-# Example of the global, risk-scoped default settings shared by every app that
-# enables a given risk. In the real (git-ignored) split config, each risk's
-# settings live in their own file — configs/split/ios/ipa_static_analysis.yaml,
-# configs/split/ios/keystroke_collection.yaml — but both are shown together here
-# in one file for easier reading.
+# Example of the global, per-risk default settings shared by every app that
+# enables a given risk — shown together here for easier reading, though the
+# real split config keeps each risk's settings in its own file. An app's own
+# risks.<risk_id> entry in apps.yaml can override any field here for that
+# app alone.
 #
 # Each top-level key matches a GlobalConfig field (see RISK_GLOBAL_SETTINGS_FIELD
 # in mobile_playbook/platforms/ios/config.py). An app's own `risks.<risk_id>`

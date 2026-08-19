@@ -1,6 +1,0 @@
-device:
-  udid: "REPLACE_WITH_DEVICE_UDID"
-  team_id: "REPLACE_WITH_APPLE_TEAM_ID"
-  appium_server_url: "http://127.0.0.1:4723"
-  xcode_signing_id: "Apple Development"
-  keep_wda: true

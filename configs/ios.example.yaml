@@ -1,9 +1,31 @@
 # Example iOS config entry point. Copy this file to configs/ios.yaml, then
 # populate configs/split/ios/*.yaml from their own *.example.yaml siblings
 # (see docs/ios/configuration.md#quickstart for the full setup).
+#
+# device/runner are inlined here directly rather than split into their own
+# files: there's only ever one device and one runner profile per project, so
+# a separate file for each would just be indirection.
+device:
+  udid: "REPLACE_WITH_DEVICE_UDID"
+  team_id: "REPLACE_WITH_APPLE_TEAM_ID"
+  appium_server_url: "http://127.0.0.1:4723"
+  xcode_signing_id: "Apple Development"
+  keep_wda: true
+
+runner:
+  sequential: true
+  uninstall_after_each_test: true
+  stop_on_first_failure: false
+  app_install_timeout_ms: 480000
+  launch_wait_seconds: 5
+  work_dir: "work/ios"
+  permission_alerts:
+    enabled: true
+    action: "dismiss"
+    wait_seconds: 2
+    max_alerts: 3
+
 include:
-  device: split/ios/device.yaml
-  runner: split/ios/runner.yaml
   ipa_static_analysis: split/ios/ipa_static_analysis.yaml
   keystroke_collection: split/ios/keystroke_collection.yaml
   apps: split/ios/apps.yaml

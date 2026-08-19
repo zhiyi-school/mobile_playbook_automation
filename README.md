@@ -39,15 +39,15 @@ appium
 
 ## Configuration
 
-This project's own configs use the split layout — a small entry-point file plus per-section files under `configs/split/<platform>/` — since a large app roster and per-risk settings don't fit comfortably in one file. Set it up from the tracked examples:
+This project's own configs write `device`/`runner` inline in each platform's entry-point file (there's only ever one device and one runner profile per project), and split the app roster and per-risk settings — which don't fit comfortably in one file — into their own files under `configs/split/<platform>/`. Set it up from the tracked examples:
 
 ```bash
 cp configs/ios.example.yaml configs/ios.yaml
-for f in device runner apps; do cp "configs/split/ios/$f.example.yaml" "configs/split/ios/$f.yaml"; done
+cp configs/split/ios/apps.example.yaml configs/split/ios/apps.yaml
 for f in ipa_static_analysis keystroke_collection; do cp configs/split/ios/risk_settings.example.yaml "configs/split/ios/$f.yaml"; done
 
 cp configs/android.example.yaml configs/android.yaml
-for f in device runner apps; do cp "configs/split/android/$f.example.yaml" "configs/split/android/$f.yaml"; done
+cp configs/split/android/apps.example.yaml configs/split/android/apps.yaml
 for f in tools repackaging screen_capture; do cp configs/split/android/risk_settings.example.yaml "configs/split/android/$f.yaml"; done
 ```
 

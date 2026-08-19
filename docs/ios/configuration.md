@@ -1,6 +1,6 @@
 # iOS Configuration
 
-The iOS config lives at `configs/ios.yaml`, using the split layout — a small entry-point file plus per-section files under `configs/split/ios/` — since a real app roster and per-risk settings don't fit comfortably in one file.
+The iOS config lives at `configs/ios.yaml`. `device` and `runner` are written inline in that entry-point file — there's only ever one device and one runner profile per project — while the app roster and per-risk settings, which don't fit comfortably in one file, live in their own files under `configs/split/ios/` and are pulled in via `include:`.
 
 ## Quickstart
 
@@ -8,13 +8,13 @@ Set up the split config from the tracked examples:
 
 ```bash
 cp configs/ios.example.yaml configs/ios.yaml
-for f in device runner apps; do cp "configs/split/ios/$f.example.yaml" "configs/split/ios/$f.yaml"; done
+cp configs/split/ios/apps.example.yaml configs/split/ios/apps.yaml
 for f in ipa_static_analysis keystroke_collection; do cp configs/split/ios/risk_settings.example.yaml "configs/split/ios/$f.yaml"; done
 ```
 
 `risk_settings.example.yaml` shows both risks' settings together in one file for easier reading; trim each copy above down to just its own top-level key (`ipa_static_analysis:` in one, `keystroke_collection:` in the other) — see [Global Risk Settings](#global-risk-settings).
 
-The config contains `device`, `runner`, `ipa_static_analysis`, `keystroke_collection`, and `apps` sections.
+The config contains `device`, `runner`, `ipa_static_analysis`, `keystroke_collection`, and `apps` sections — the first two inline, the rest via `include:`.
 
 ## Device
 
@@ -114,18 +114,24 @@ iOS risk IDs are prefixed `ios-feature...`. To configure a risk for an app:
 
 ## Split iOS Configs
 
-`configs/ios.yaml` is just an `include:` mapping (section name → file path), with the entry-point file at `configs/ios.yaml` and its sections living under `configs/split/ios/`:
+`configs/ios.yaml` has `device` and `runner` written inline, plus an `include:` mapping (section name → file path) for the sections that live under `configs/split/ios/`:
 
 ```yaml
+device:
+  udid: "..."
+  # ...
+
+runner:
+  sequential: true
+  # ...
+
 include:
-  device: split/ios/device.yaml
-  runner: split/ios/runner.yaml
   ipa_static_analysis: split/ios/ipa_static_analysis.yaml
   keystroke_collection: split/ios/keystroke_collection.yaml
   apps: split/ios/apps.yaml
 ```
 
-Included paths are resolved relative to the entry-point file — here, that's `configs/`, so each path is prefixed `split/ios/`. Each included file may contain either the raw section value or a mapping wrapped under the section name. Inline values in the entry point override included values. See `configs/ios.example.yaml`, the tracked example of this entry-point file.
+Included paths are resolved relative to the entry-point file — here, that's `configs/`, so each path is prefixed `split/ios/`. Each included file may contain either the raw section value or a mapping wrapped under the section name. Inline values in the entry point override included values (this is also how `device`/`runner` can stay inline while other sections are included — nothing requires every section to go through `include:`). See `configs/ios.example.yaml`, the tracked example of this entry-point file.
 
 ### Global Risk Settings
 
@@ -146,7 +152,7 @@ include:
 
 Listed files are read and concatenated as raw text, in that order, then parsed as a single YAML document — not loaded and merged separately. This matters because YAML anchors (`&name`/`*name`) only resolve within one parsed document: if `templates.yaml` and `apps.yaml` were parsed independently, `apps.yaml`'s `<<: *local_ipa_artifact` aliases would fail with an undefined-anchor error. Concatenating the raw text first is what lets `templates.yaml` define reusable `x-*` blocks (artifact source, expected-behavior checks) that `apps.yaml`'s app entries reference, while still keeping the two concerns — reusable templates vs. the actual app roster — in separate files.
 
-`configs/ios.yaml` in this project uses exactly this: it is just an `include:` map, with `device`/`runner`/`ipa_static_analysis`/`keystroke_collection` each split into one file, and `apps` split across two — `configs/split/ios/templates.yaml` (the `x-*` anchors) and `configs/split/ios/apps.yaml` (the 11 app entries, referencing those anchors). All of `configs/split/ios/device.yaml`, `runner.yaml`, `ipa_static_analysis.yaml`, `keystroke_collection.yaml`, `templates.yaml`, and `apps.yaml` are git-ignored, since they contain a real device UDID and app roster — only the `*.example.yaml` files under `configs/split/ios/` are tracked.
+`configs/ios.yaml` in this project uses exactly this: `device`/`runner` are inline, `ipa_static_analysis`/`keystroke_collection` are each split into one file, and `apps` is split across two — `configs/split/ios/templates.yaml` (the `x-*` anchors) and `configs/split/ios/apps.yaml` (the 11 app entries, referencing those anchors). All of `configs/split/ios/ipa_static_analysis.yaml`, `keystroke_collection.yaml`, `templates.yaml`, and `apps.yaml` are git-ignored, since they contain a real app roster — only the `*.example.yaml` files under `configs/split/ios/` are tracked (`configs/ios.yaml` itself is also git-ignored, since it holds the real device UDID).
 
 ## Environment Files
 

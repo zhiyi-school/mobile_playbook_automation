@@ -1,4 +1,0 @@
-device:
-  appium_server_url: "http://127.0.0.1:4723"
-  adb_path: "adb"
-  adb_serial: null

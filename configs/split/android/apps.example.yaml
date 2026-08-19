@@ -1,3 +1,9 @@
+# Example Android app roster: one entry per app under test, with its
+# identity, package name, and enabled risks. Each app's `risks:` map only
+# needs `enabled: true` per risk_id — the actual settings come from that
+# risk's own global settings file, and any field nested under a risk here
+# overrides that shared default for this app alone.
+
 apps:
   - id: "example_app"
     name: "Example App"
