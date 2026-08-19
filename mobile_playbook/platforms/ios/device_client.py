@@ -38,7 +38,12 @@ class AppiumDeviceClient:
             self.device_config.allow_provisioning_device_registration,
         )
         options.set_capability("appium:newCommandTimeout", 300)
-        self.driver = webdriver.Remote(self.device_config.appium_server_url, options=options)
+        try:
+            self.driver = webdriver.Remote(self.device_config.appium_server_url, options=options)
+        except Exception as exc:
+            raise RuntimeError(
+                f"failed to start Appium session at {self.device_config.appium_server_url}: {exc}"
+            ) from exc
         return self
 
     def quit(self) -> None:

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import re
+import socket
 import subprocess
 from dataclasses import dataclass, field
+from urllib.parse import urlparse
 
 DEVICES_SECTION = "Devices"
 
@@ -24,7 +26,25 @@ def check_ios_preflight(config) -> IosPreflightResult:
         errors.append("device.appium_server_url is required")
     if not errors:
         _check_device_connected(config.device.udid, errors)
+    if not errors:
+        _check_appium_reachable(config.device.appium_server_url, errors)
     return IosPreflightResult(ok=not errors, errors=errors)
+
+
+def _check_appium_reachable(appium_server_url: str, errors: list[str]) -> None:
+    if not _tcp_reachable(appium_server_url):
+        errors.append(f"appium: Appium server not reachable at {appium_server_url}. Start it with 'appium'.")
+
+
+def _tcp_reachable(url_or_hostport: str, timeout: float = 3.0) -> bool:
+    parsed = urlparse(url_or_hostport if "//" in url_or_hostport else f"//{url_or_hostport}")
+    host = parsed.hostname or "127.0.0.1"
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
 
 
 def _check_device_connected(udid: str, errors: list[str]) -> None:

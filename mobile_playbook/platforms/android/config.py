@@ -37,7 +37,7 @@ def parse_config(raw: dict[str, Any], config_path: Path | None = None) -> Androi
     permissions_raw = raw.get("permissions") or {}
     paths_raw = raw.get("paths") or {}
     repackaging_raw = dict(raw.get("repackaging") or {})
-    if "repackaging_work_dir" not in repackaging_raw:
+    if "work_dir" not in repackaging_raw:
         repackaging_raw["work_dir"] = paths_raw.get("repackaging_work_dir", "work/android/repackaging")
 
     apps = [_parse_app(item) for item in (raw.get("apps") or [])]

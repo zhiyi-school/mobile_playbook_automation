@@ -33,7 +33,7 @@ reports/<run_timestamp>/android/<app_id>/<risk_id>/
 - [Configuration](configuration.md): device, runner, tool, and per-risk config shape, including the legacy package-list app shape.
 - [Risks](risks.md): what each Android risk tests, stages, statuses, and how to add new Android risks.
 - [Reports And Troubleshooting](reports-and-troubleshooting.md): Android report files, statuses, and common failure causes.
-- [Example app block](examples/app-block.yaml): a focused, copyable app entry for `configs/android.yaml`.
+- [configs/split/android/apps.example.yaml](../../configs/split/android/apps.example.yaml): a focused, copyable app entry for `configs/android.yaml`.
 
 ## Requirements
 

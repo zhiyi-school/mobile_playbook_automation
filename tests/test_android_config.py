@@ -24,6 +24,18 @@ def test_android_config_accepts_legacy_package_list():
     assert config.apps[0].risks["android-feature1-risk2"]["enabled"] is True
 
 
+def test_android_config_respects_an_explicit_repackaging_work_dir():
+    config = parse_config({"repackaging": {"work_dir": "custom/repackaging/dir"}})
+
+    assert config.repackaging["work_dir"] == "custom/repackaging/dir"
+
+
+def test_android_config_falls_back_to_default_repackaging_work_dir_when_unset():
+    config = parse_config({})
+
+    assert config.repackaging["work_dir"] == "work/android/repackaging"
+
+
 def test_android_config_accepts_structured_apps():
     config = parse_config(
         {

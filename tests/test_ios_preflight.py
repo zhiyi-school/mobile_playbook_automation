@@ -34,6 +34,7 @@ def test_check_ios_preflight_passes_when_udid_is_connected(monkeypatch):
         "mobile_playbook.platforms.ios.preflight.connected_device_udids",
         lambda: {"00008120-0001110834E1A01E"},
     )
+    monkeypatch.setattr("mobile_playbook.platforms.ios.preflight._tcp_reachable", lambda url: True)
 
     result = check_ios_preflight(_config())
 
@@ -59,10 +60,25 @@ def test_check_ios_preflight_skips_connectivity_check_when_xctrace_is_unusable(m
     # An empty set means we couldn't determine connected devices at all (xcrun missing,
     # timed out, etc.) — this must not be treated as "zero devices connected".
     monkeypatch.setattr("mobile_playbook.platforms.ios.preflight.connected_device_udids", lambda: set())
+    monkeypatch.setattr("mobile_playbook.platforms.ios.preflight._tcp_reachable", lambda url: True)
 
     result = check_ios_preflight(_config())
 
     assert result.ok
+
+
+def test_check_ios_preflight_gives_a_one_line_error_when_appium_is_unreachable(monkeypatch):
+    monkeypatch.setattr(
+        "mobile_playbook.platforms.ios.preflight.connected_device_udids",
+        lambda: {"00008120-0001110834E1A01E"},
+    )
+    monkeypatch.setattr("mobile_playbook.platforms.ios.preflight._tcp_reachable", lambda url: False)
+
+    result = check_ios_preflight(_config())
+
+    assert not result.ok
+    assert len(result.errors) == 1
+    assert result.errors[0] == "appium: Appium server not reachable at http://127.0.0.1:4723. Start it with 'appium'."
 
 
 def test_connect_device_raises_a_clean_error_without_opening_an_appium_session(monkeypatch):

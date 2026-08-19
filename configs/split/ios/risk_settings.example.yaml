@@ -79,8 +79,26 @@ keystroke_collection:
         - "Log in"
         - "Login"
         - "Use password"
+        - "Log in with password"
+        - "Login with password"
+        - "Sign in with password"
+        - "Sign in"
+        - "Continue"
+        - "Next"
+        - "Get started"
+        - "Start"
         - "Search"
         - "Select Car Park"
+        - "Enter Vehicle Details"
+      exclude_button_label_contains:
+        - "Delete"
+        - "Remove"
+        - "Cancel"
+        - "Log out"
+        - "Sign out"
+        - "Forgot"
+        - "Pay"
+        - "Purchase"
     keyboard_selection:
       enabled: true
       attempts: 6

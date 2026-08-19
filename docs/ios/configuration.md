@@ -77,7 +77,7 @@ For `local_ipa`, `bundle_id`, `test_bundle_id`, and `artifact.expected_bundle_id
 
 The framework no longer retrieves IPAs from the App Store. Obtain each IPA yourself and point `artifact.ipa` at the local file.
 
-See [docs/ios/examples/app-block.yaml](examples/app-block.yaml) for a full, copyable app entry including both risk blocks.
+See the one app entry under `apps:` in [configs/split/ios/apps.example.yaml](../../configs/split/ios/apps.example.yaml) for a full, copyable app block including both risk blocks.
 
 ## Risk Blocks
 

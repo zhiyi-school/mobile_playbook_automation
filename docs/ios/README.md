@@ -28,7 +28,7 @@ reports/<run_timestamp>/ios/<app_id>/<risk_id>/
 - [Risks](risks.md): what each iOS risk tests, artifact sources, binary mutability inspection, and how to add new iOS risks.
 - [Manual LocalKeyboard Server](manual-local-keyboard-server.md): run the `ios-feature5-risk1` collection server by itself for phone-side manual testing.
 - [Reports And Troubleshooting](reports-and-troubleshooting.md): iOS report files, statuses, and common failure causes.
-- [Example app block](examples/app-block.yaml): a focused, copyable app entry for `configs/ios.yaml`.
+- [configs/split/ios/apps.example.yaml](../../configs/split/ios/apps.example.yaml): a focused, copyable app entry for `configs/ios.yaml`.
 
 ## Requirements
 

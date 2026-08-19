@@ -20,6 +20,8 @@ tools:
 
 repackaging:
   work_dir: "work/android/repackaging"
+  # If unset, a keystore is generated at <work_dir>/<app>/../release.keystore on first use.
+  keystore_path: null
   keystore_alias: "mobileplaybook"
   keystore_pass: "password"
   restore_original_after_test: true

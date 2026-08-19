@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
+
 from mobile_playbook.platforms.ios.device_client import AppiumDeviceClient
 
 
@@ -56,6 +58,31 @@ def _client(driver: FakeDriver) -> AppiumDeviceClient:
     client = AppiumDeviceClient(SimpleNamespace())
     client.driver = driver
     return client
+
+
+def test_connect_wraps_a_failed_appium_session_in_a_clean_runtime_error(monkeypatch):
+    import appium.webdriver as appium_webdriver
+
+    def fail_to_connect(*args, **kwargs):
+        raise ConnectionError("Connection refused")
+
+    monkeypatch.setattr(appium_webdriver, "Remote", fail_to_connect)
+
+    device_config = SimpleNamespace(
+        udid="udid",
+        team_id="TEAM",
+        appium_server_url="http://127.0.0.1:4723",
+        platform_version=None,
+        xcode_signing_id="Apple Development",
+        keep_wda=True,
+        show_xcode_log=False,
+        updated_wda_bundle_id=None,
+        allow_provisioning_device_registration=False,
+    )
+    client = AppiumDeviceClient(device_config)
+
+    with pytest.raises(RuntimeError, match="failed to start Appium session at http://127.0.0.1:4723"):
+        client.connect()
 
 
 def test_tap_text_field_prefers_visible_enabled_field():

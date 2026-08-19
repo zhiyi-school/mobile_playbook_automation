@@ -70,7 +70,7 @@ apps:
 
 When using the legacy shape, both Android risks are enabled for each package.
 
-See [docs/android/examples/app-block.yaml](examples/app-block.yaml) for a full, copyable app entry including per-app risk overrides.
+See the one app entry under `apps:` in [configs/split/android/apps.example.yaml](../../configs/split/android/apps.example.yaml) for a full, copyable app block including per-app risk overrides.
 
 ## Risk Blocks
 
