@@ -35,12 +35,16 @@ The top-level `reports/<run_timestamp>/summary.md` and `dashboard_results.json` 
 
 ## Statuses
 
+Each test's `report.json` (and `logs.txt`) carries one of these precise statuses in its `final_status` field:
+
 - `SCREEN_CAPTURE_ALLOWED`: UI was visible and no secure-window signal was detected.
 - `SCREEN_CAPTURE_BLOCKED`: app redirected, warned, exited, or set `FLAG_SECURE`.
 - `REPACKAGING_SURVIVED`: repackaged app installed and passed basic launch validation.
 - `REPACKAGING_BLOCKED`: repackaged app installed but failed validation.
 - `REPACKAGING_FAILED`: backup, decode, patch, rebuild, sign, or install failed.
 - `FAILED`: unexpected Android automation failure.
+
+`summary.md`'s `Status` column doesn't show these directly — it shows a 3-way security verdict (`AndroidRiskRunResult.verdict`) that each risk sets itself, alongside `final_status`, at the point it decides the outcome: **At Risk** (the risk was demonstrated, e.g. `SCREEN_CAPTURE_ALLOWED`/`REPACKAGING_SURVIVED`), **Reduced Risk** (the app mitigated it, e.g. `SCREEN_CAPTURE_BLOCKED`/`REPACKAGING_BLOCKED`), or **Inconclusive** — the field's default, and what `REPACKAGING_FAILED`/`FAILED` leave it as. The precise underlying status is always still in that test's `report.json`.
 
 ## Troubleshooting
 

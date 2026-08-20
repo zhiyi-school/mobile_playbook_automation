@@ -98,6 +98,9 @@ class Feature1Risk1(Risk):
                 mobsf_report_path = report_dir / "mobsf_report.json"
                 mobsf_report_path.write_text(json.dumps(analysis["mobsf_raw_report"], indent=2, sort_keys=True))
             result.final_status = "IPA_ANALYSIS_COMPLETE"
+            # A completed static analysis is itself the finding — an acquired IPA
+            # can always be unpacked and inventoried for exposure once analysis runs.
+            result.verdict = "At Risk"
             result.errors.extend(item["title"] for item in analysis["critical_findings"]["flags"][:3])
             result.launch_result = {
                 "analysis_provider": analysis["summary"].get("analysis_provider", "builtin"),

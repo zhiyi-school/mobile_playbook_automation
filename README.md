@@ -124,6 +124,14 @@ Inspect IPA mutability:
 python -m mobile_playbook inspect-ipa --ipa work/ios/acquired/<run_timestamp>/<app_id>/<timestamp>-original.ipa
 ```
 
+Serve the same run/report flows over HTTP:
+
+```bash
+python -m mobile_playbook.api --port 8000
+```
+
+See [docs/api.md](docs/api.md) for the endpoint list and how to explore it at `/docs` without writing any client code.
+
 ## Repository Layout
 
 ```text
@@ -137,7 +145,7 @@ reports/               timestamped run reports
 data/                  future dashboard database location
 ```
 
-Dashboard code is not implemented yet. Reports already include `dashboard_results.json` as a future dashboard feed.
+This repository's own dashboard UI is not implemented, but its results are reachable over HTTP: `python -m mobile_playbook.api` exposes run-triggering and report reading (including `dashboard_results.json`) as an API a separate dashboard can call. See [docs/api.md](docs/api.md).
 
 ## Documentation
 
@@ -146,3 +154,4 @@ Docs are split by platform under [docs/](docs/README.md):
 - **iOS** ([docs/ios/](docs/ios/README.md)): [Configuration](docs/ios/configuration.md), [Risk Catalog](docs/ios/risks.md), [Manual LocalKeyboard Server](docs/ios/manual-local-keyboard-server.md), [Reports And Troubleshooting](docs/ios/reports-and-troubleshooting.md).
 - **Android** ([docs/android/](docs/android/README.md)): [Configuration](docs/android/configuration.md), [Risk Catalog](docs/android/risks.md), [Reports And Troubleshooting](docs/android/reports-and-troubleshooting.md).
 - **Architecture** ([docs/architecture.md](docs/architecture.md)): how a run is executed end-to-end and what libraries/tools each part of the framework depends on, across both platforms.
+- **HTTP API** ([docs/api.md](docs/api.md)): running `python -m mobile_playbook.api` to trigger runs and read reports over HTTP, without a dashboard.

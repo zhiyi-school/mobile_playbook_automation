@@ -29,6 +29,7 @@ def test_feature1_risk1_static_ipa_analysis(monkeypatch, global_config, tmp_path
     writer.write_summary()
 
     assert result.final_status == "IPA_ANALYSIS_COMPLETE"
+    assert result.verdict == "At Risk"
     report_dir = tmp_path / "reports" / "run1" / "ios" / "app_one" / "ios-feature1-risk1" / "ipa_static_analysis"
     analysis = json.loads((report_dir / "ipa_analysis.json").read_text())
     inventory = json.loads((report_dir / "package_inventory.json").read_text())
@@ -338,3 +339,4 @@ def test_feature1_risk1_requires_ipa_artifact(global_config, tmp_path):
     result = Feature1Risk1().run(app, global_config, None, writer)[0]
 
     assert result.final_status == "ARTIFACT_REQUIRED"
+    assert result.verdict == "Inconclusive"

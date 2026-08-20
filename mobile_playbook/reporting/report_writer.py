@@ -66,6 +66,6 @@ class ReportWriter:
             report_path = f"{self.platform}/{result.app_id}/{result.risk_id}/{result.test_case_id}"
             lines.append(
                 f"| {result.app_id} | {result.risk_id} | {result.test_case_id} | "
-                f"{result.artifact_source} | {result.final_status} | {notes} | [{report_path}/]({report_path}/) |"
+                f"{result.artifact_source} | {result.verdict} | {notes} | [{report_path}/]({report_path}/) |"
             )
         (self.run_dir / "summary.md").write_text("\n".join(lines) + "\n")

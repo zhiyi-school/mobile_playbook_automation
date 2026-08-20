@@ -84,6 +84,7 @@ def test_feature_04_risk_01_reports_risk_when_keyboard_local_log_contains_probe_
     result = Feature04Risk01(CollectionServer).run(app, global_config, device, writer)
 
     assert result.final_status == "RISK_EXISTS"
+    assert result.verdict == "At Risk"
     assert result.behavior_result.status == "PASS"
     assert device.typed_text[0]["text"] == "hello"
     assert device.text_entries[0]["text"] == "http://192.168.1.9:12345"
@@ -135,6 +136,7 @@ def test_feature_04_risk_01_reports_when_local_log_is_missing_probe_text(global_
     result = Feature04Risk01(EmptyCollectionServer).run(app, global_config, MockDevice(), writer)
 
     assert result.final_status == "KEYSTROKE_COLLECTION_NOT_OBSERVED"
+    assert result.verdict == "Reduced Risk"
     assert "local log UI" in result.errors[0]
 
 
@@ -183,4 +185,5 @@ def test_feature_04_risk_01_reports_secure_text_field_as_custom_keyboard_unavail
     result = Feature04Risk01(CollectionServer).run(app, global_config, SecureFieldDevice(), writer)
 
     assert result.final_status == "CUSTOM_KEYBOARD_NOT_AVAILABLE"
+    assert result.verdict == "Reduced Risk"
     assert "secure text field" in result.errors[0]

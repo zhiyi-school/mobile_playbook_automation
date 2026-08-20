@@ -9,7 +9,7 @@ from mobile_playbook.platforms.ios.results import normalize_ios_result
 
 def test_report_generation(tmp_path):
     writer = ReportWriter(tmp_path, "run1", result_adapter=normalize_ios_result)
-    result = RiskRunResult("run1", "start", "end", "app", "App", "bid", "bid.test", "ios-feature1-risk1", "feature1", "ipa_static_analysis", "mobsf_or_package_analysis", "local_ipa", final_status="IPA_ANALYSIS_COMPLETE")
+    result = RiskRunResult("run1", "start", "end", "app", "App", "bid", "bid.test", "ios-feature1-risk1", "feature1", "ipa_static_analysis", "mobsf_or_package_analysis", "local_ipa", final_status="IPA_ANALYSIS_COMPLETE", verdict="At Risk")
     report_dir = writer.test_report_dir("app", "ios-feature1-risk1", "ipa_static_analysis")
     writer.write_result(result, report_dir)
     writer.write_summary()
@@ -26,6 +26,11 @@ def test_report_generation(tmp_path):
     assert "- Completed:" in summary_md
     assert "| App | Risk | Test Case | Artifact Source | Status | Notes | Report |" in summary_md
     assert "ios/app/ios-feature1-risk1/ipa_static_analysis/" in summary_md
+    # the summary table shows the 3-way verdict, not the raw final_status —
+    # the raw status is still preserved untouched in report.json
+    assert "| At Risk |" in summary_md
+    assert "IPA_ANALYSIS_COMPLETE" not in summary_md
+    assert json.loads((report_dir / "report.json").read_text())["final_status"] == "IPA_ANALYSIS_COMPLETE"
 
 
 def test_report_summary_cleans_multiline_errors(tmp_path):
@@ -48,6 +53,8 @@ def test_report_summary_cleans_multiline_errors(tmp_path):
     summary_md = (tmp_path / "run1" / "summary.md").read_text()
     assert "Stacktrace" not in summary_md
     assert "The application at '/some/path/LocalKeyboard.ipa' does not exist or is not accessible" in summary_md
+    assert "| Inconclusive |" in summary_md
+    assert "INSTALL_FAILED" not in summary_md
 
     dashboard = json.loads((tmp_path / "run1" / "dashboard_results.json").read_text())
     record = dashboard[0]

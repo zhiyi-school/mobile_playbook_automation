@@ -121,6 +121,7 @@ class Feature04Risk01(Feature5KeyboardRiskBase):
                 field_block = self._focused_field_custom_keyboard_blocker(focus_result["focus"])
                 if field_block:
                     result.final_status = "CUSTOM_KEYBOARD_NOT_AVAILABLE"
+                    result.verdict = "Reduced Risk"
                     result.errors.append(field_block)
                     self._capture_target_debug(device_client, report_dir, suffix="-custom-keyboard-unavailable")
                     return result
@@ -161,11 +162,13 @@ class Feature04Risk01(Feature5KeyboardRiskBase):
             result.behavior_result = behavior
             if behavior.status != "PASS":
                 result.final_status = "KEYSTROKE_COLLECTION_NOT_OBSERVED"
+                result.verdict = "Reduced Risk"
                 result.errors.extend(behavior.errors)
                 self._capture_target_debug(device_client, report_dir, suffix="-collection-not-observed")
                 return result
 
             result.final_status = "RISK_EXISTS"
+            result.verdict = "At Risk"
             return result
         except Exception as exc:
             result.final_status = "FAILED"

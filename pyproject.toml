@@ -12,6 +12,8 @@ dependencies = [
   "selenium>=4.0.0",
   "PyYAML>=6.0.0",
   "pytest>=8.0.0",
+  "fastapi>=0.110.0",
+  "uvicorn[standard]>=0.29.0",
 ]
 
 [tool.setuptools.packages.find]

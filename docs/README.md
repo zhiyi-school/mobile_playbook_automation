@@ -5,6 +5,7 @@ Documentation is split by platform, since iOS and Android use different tooling,
 - [iOS](ios/README.md): device/Appium/XCUITest setup, IPA configuration, iOS risks, the manual LocalKeyboard server, and iOS reports/troubleshooting.
 - [Android](android/README.md): ADB/Appium setup, Android configuration, Android risks, and Android reports/troubleshooting.
 - [Architecture And Technology](architecture.md): how a run is executed end-to-end, and what libraries/tools each part of the framework depends on, across both platforms.
+- [HTTP API](api.md): running `python -m mobile_playbook.api` to trigger runs and read reports over HTTP, for a dashboard or any other external caller.
 
 Both platforms share the same CLI (`python -m mobile_playbook ...`), the same run orchestration, and the same top-level report layout under `reports/<run_timestamp>/`. See the platform-specific "Reports And Troubleshooting" pages for the parts that differ.
 

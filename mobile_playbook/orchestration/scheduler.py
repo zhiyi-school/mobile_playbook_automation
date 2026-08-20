@@ -25,3 +25,25 @@ def _timestamp_exists(root: Path, timestamp: str, extra_files: tuple[str, ...]) 
     if (root / timestamp).exists():
         return True
     return any((root / pattern.format(timestamp=timestamp)).exists() for pattern in extra_files)
+
+
+def reserve_run_timestamp(root: Path, now: datetime | None = None, extra_files: tuple[str, ...] = ()) -> str:
+    """Atomically claim a run_timestamp by creating its directory.
+
+    `new_run_timestamp` only checks-then-returns, which leaves a window
+    between two concurrent callers observing the same "does not exist"
+    state and both picking the same candidate — fine for the CLI, which
+    only ever allocates one run_timestamp per process, but not safe when
+    multiple requests can call this in overlapping threads (e.g. the HTTP
+    API). This instead creates the directory as part of picking it, so a
+    loser of the race retries against the winner's now-existing directory.
+    """
+    root = Path(root)
+    root.mkdir(parents=True, exist_ok=True)
+    while True:
+        candidate = new_run_timestamp(root, now=now, extra_files=extra_files)
+        try:
+            (root / candidate).mkdir(parents=True, exist_ok=False)
+            return candidate
+        except FileExistsError:
+            continue

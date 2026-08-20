@@ -203,5 +203,9 @@ class RiskRunResult(SerializableDataclass):
     launch_result: dict[str, Any] | None = None
     behavior_result: BehaviorResult | None = None
     final_status: str = "NOT_RUN"
+    # 3-way security verdict for the run summary: "At Risk", "Reduced Risk",
+    # or the default "Inconclusive". Each risk sets this directly alongside
+    # final_status, at the point it decides the outcome.
+    verdict: str = "Inconclusive"
     errors: list[str] = field(default_factory=list)
     cleanup_result: CleanupResult | None = None

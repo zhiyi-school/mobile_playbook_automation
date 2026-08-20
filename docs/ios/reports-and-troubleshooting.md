@@ -41,6 +41,8 @@ The top-level `reports/<run_timestamp>/summary.md` and `dashboard_results.json` 
 
 ## Statuses
 
+Each test's `report.json` (and `logs.txt`) carries one of these precise statuses in its `final_status` field:
+
 - `IPA_ANALYSIS_COMPLETE`: IPA was acquired, inspected, and analyzed.
 - `PROTECTED_OR_ENCRYPTED_BINARY`: executable appears protected or encrypted.
 - `RISK_EXISTS`: custom-keyboard collection evidence was observed.
@@ -48,6 +50,8 @@ The top-level `reports/<run_timestamp>/summary.md` and `dashboard_results.json` 
 - `CUSTOM_KEYBOARD_NOT_AVAILABLE`: the target field did not allow the custom keyboard.
 - `PAIRING_TIMEOUT`: keyboard app did not call `/pair`.
 - `INSTALL_FAILED`, `LAUNCH_FAILED`, `BEHAVIOR_FAILED`, `FAILED`: setup, launch, behavior, or unexpected failure.
+
+`summary.md`'s `Status` column doesn't show these directly — it shows a 3-way security verdict (`RiskRunResult.verdict`) that each risk sets itself, alongside `final_status`, at the point it decides the outcome: **At Risk** (the risk was demonstrated, e.g. `IPA_ANALYSIS_COMPLETE`/`RISK_EXISTS`), **Reduced Risk** (the app mitigated it, e.g. `KEYSTROKE_COLLECTION_NOT_OBSERVED`/`CUSTOM_KEYBOARD_NOT_AVAILABLE`), or **Inconclusive** — the field's default, and what any status not listed above leaves it as (install/launch/pairing/behavior failures included). The precise underlying status is always still in that test's `report.json`.
 
 ## Troubleshooting
 

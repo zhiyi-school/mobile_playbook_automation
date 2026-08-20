@@ -45,8 +45,9 @@ def run_platform(
     platform_runner: PlatformRunner,
     options: RunOptions,
     report_writer_factory: Callable[[Path, str], Any],
+    run_timestamp: str | None = None,
 ) -> RunOutcome:
-    run_timestamp = new_run_timestamp(options.out_dir, extra_files=("{timestamp}-acquire-results.json",))
+    run_timestamp = run_timestamp or new_run_timestamp(options.out_dir, extra_files=("{timestamp}-acquire-results.json",))
     writer = report_writer_factory(options.out_dir, run_timestamp)
     client = None
     try:

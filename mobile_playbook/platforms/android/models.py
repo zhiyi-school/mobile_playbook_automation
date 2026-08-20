@@ -54,6 +54,10 @@ class AndroidRiskRunResult(SerializableDataclass):
     test_case_type: str
     artifact_source: str = "installed_app"
     final_status: str = "NOT_RUN"
+    # 3-way security verdict for the run summary: "At Risk", "Reduced Risk",
+    # or the default "Inconclusive". Each risk sets this directly alongside
+    # final_status, at the point it decides the outcome.
+    verdict: str = "Inconclusive"
     errors: list[str] = field(default_factory=list)
     evidence: list[dict[str, Any]] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)

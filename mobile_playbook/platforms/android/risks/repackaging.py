@@ -67,6 +67,7 @@ class AndroidRepackagingRisk(AndroidRisk):
                 if recording_path is not None:
                     result.evidence.append({"kind": "screen_recording", "path": str(recording_path), "label": "Repackaged launch recording"})
                 result.final_status = "REPACKAGING_SURVIVED" if verdict.startswith("PASS") else "REPACKAGING_BLOCKED"
+                result.verdict = "At Risk" if verdict.startswith("PASS") else "Reduced Risk"
             else:
                 result.final_status = "REPACKAGING_FAILED"
                 result.errors.append(f"Failed at stage: {failed_stage}")

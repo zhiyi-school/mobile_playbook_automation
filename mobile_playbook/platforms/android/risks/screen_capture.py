@@ -54,6 +54,7 @@ class AndroidScreenCaptureRisk(AndroidRisk):
             verdict = self._test_app(driver, device_client, app_config.package_name, cfg)
             result.metadata["verdict"] = verdict
             result.final_status = _status_from_verdict(verdict)
+            result.verdict = _security_verdict_from_verdict(verdict)
             if recording_started:
                 time.sleep(float(cfg.get("record_tail", 5)))
                 recording_path = self._stop_recording(driver, app_config.package_name, recordings_dir)
@@ -156,3 +157,11 @@ def _status_from_verdict(verdict: str) -> str:
     if verdict.startswith("ERROR"):
         return "FAILED"
     return "UNKNOWN"
+
+
+def _security_verdict_from_verdict(verdict: str) -> str:
+    if verdict.startswith("ALLOWED"):
+        return "At Risk"
+    if verdict.startswith("BLOCKED"):
+        return "Reduced Risk"
+    return "Inconclusive"
