@@ -13,13 +13,13 @@ python -m mobile_playbook list-risks --platform android
 Run screen-capture testing:
 
 ```bash
-python -m mobile_playbook run --platform android --config configs/android.yaml --risks android-feature6-risk1 --out reports
+python -m mobile_playbook run --platform android --config configs/android.yaml --risks android-feature-06-risk-01 --out reports
 ```
 
 Run repackaging testing:
 
 ```bash
-python -m mobile_playbook run --platform android --config configs/android.yaml --risks android-feature1-risk2 --out reports
+python -m mobile_playbook run --platform android --config configs/android.yaml --risks android-feature-01-risk-02 --out reports
 ```
 
 Outputs are written under:
@@ -39,10 +39,10 @@ reports/<run_timestamp>/android/<app_id>/<risk_id>/
 
 - `adb` on `PATH`, with a connected/authorized Android device
 - Appium server (used by both risks)
-- `apktool`, `apksigner`, and `keytool` on `PATH` for `android-feature1-risk2`
+- `apktool`, `apksigner`, and `keytool` on `PATH` for `android-feature-01-risk-02`
 
 ## Quick Notes
 
-- `android-feature6-risk1` requires ADB, Appium, and a connected Android device.
-- `android-feature1-risk2` additionally requires `apktool`, `apksigner`, and `keytool`.
+- `android-feature-06-risk-01` requires ADB, Appium, and a connected Android device.
+- `android-feature-01-risk-02` additionally requires `apktool`, `apksigner`, and `keytool`.
 - Repackaging work files are left under `work/android/repackaging/` for inspection, and the original APK(s) are reinstalled afterward when `restore_original_after_test` is true.

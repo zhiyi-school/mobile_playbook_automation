@@ -38,7 +38,7 @@ apps:
         - "Integrity check failed"
       app_specific_check: null
     risks:
-      ios-feature1-risk1:
+      ios-feature-01-risk-01:
         enabled: true
       ios-feature-04-risk-01:
         enabled: false

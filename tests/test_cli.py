@@ -33,14 +33,14 @@ def _no_risk_android_config():
 
 def test_run_feature1_risk1_does_not_connect_appium(monkeypatch, global_config, tmp_path):
     app = global_config.apps[0]
-    app.risks = {"ios-feature1-risk1": {"enabled": True}}
+    app.risks = {"ios-feature-01-risk-01": {"enabled": True}}
 
     def fail_connect(*args, **kwargs):
-        raise AssertionError("Appium should not be used for ios-feature1-risk1")
+        raise AssertionError("Appium should not be used for ios-feature-01-risk-01")
 
     monkeypatch.setattr("mobile_playbook.platforms.ios.runner.IosPlatformRunner.connect_device", fail_connect)
 
-    assert _run(global_config, {"ios-feature1-risk1"}, None, tmp_path / "reports") == 0
+    assert _run(global_config, {"ios-feature-01-risk-01"}, None, tmp_path / "reports") == 0
 
 
 def test_run_isolates_one_apps_risk_failure_from_the_rest(monkeypatch, global_config, tmp_path):
@@ -48,7 +48,7 @@ def test_run_isolates_one_apps_risk_failure_from_the_rest(monkeypatch, global_co
     # not a direct `from ...feature1_risk1 import Feature1Risk1`, since the whole point of
     # the registry auto-discovery is that nothing needs to hardcode which module a risk
     # lives in.
-    risk_class = type(get_risk("ios-feature1-risk1"))
+    risk_class = type(get_risk("ios-feature-01-risk-01"))
     original_run = risk_class.run
 
     def flaky_run(self, app_config, global_cfg, device_client, report_writer):
@@ -59,40 +59,40 @@ def test_run_isolates_one_apps_risk_failure_from_the_rest(monkeypatch, global_co
     monkeypatch.setattr(risk_class, "run", flaky_run)
 
     def fail_connect(*args, **kwargs):
-        raise AssertionError("ios-feature1-risk1 does not require a device")
+        raise AssertionError("ios-feature-01-risk-01 does not require a device")
 
     monkeypatch.setattr("mobile_playbook.platforms.ios.runner.IosPlatformRunner.connect_device", fail_connect)
 
     first = global_config.apps[0]
-    first.risks = {"ios-feature1-risk1": {"enabled": True}}
+    first.risks = {"ios-feature-01-risk-01": {"enabled": True}}
     second = replace(first, id="app_two", name="App Two")
     global_config.apps = [first, second]
 
-    assert _run(global_config, {"ios-feature1-risk1"}, None, tmp_path / "reports") == 0
+    assert _run(global_config, {"ios-feature-01-risk-01"}, None, tmp_path / "reports") == 0
 
     run_dir = next((tmp_path / "reports").iterdir())
     failed_report = json.loads(
-        (run_dir / "ios" / "app_one" / "ios-feature1-risk1" / "risk_execution_failed" / "report.json").read_text()
+        (run_dir / "ios" / "app_one" / "ios-feature-01-risk-01" / "risk_execution_failed" / "report.json").read_text()
     )
     assert failed_report["final_status"] == "FAILED"
     assert "simulated failure for app_one" in failed_report["errors"][0]
 
     # app_two's own test still ran to completion despite app_one's failure aborting nothing
-    assert (run_dir / "ios" / "app_two" / "ios-feature1-risk1" / "ipa_static_analysis" / "report.json").exists()
+    assert (run_dir / "ios" / "app_two" / "ios-feature-01-risk-01" / "ipa_static_analysis" / "report.json").exists()
 
 
 def test_run_filters_by_selected_app(monkeypatch, global_config, tmp_path):
     first = global_config.apps[0]
-    first.risks = {"ios-feature1-risk1": {"enabled": True}}
+    first.risks = {"ios-feature-01-risk-01": {"enabled": True}}
     second = replace(first, id="app_two", name="App Two")
     global_config.apps = [first, second]
 
     def fail_connect(*args, **kwargs):
-        raise AssertionError("Appium should not be used for ios-feature1-risk1")
+        raise AssertionError("Appium should not be used for ios-feature-01-risk-01")
 
     monkeypatch.setattr("mobile_playbook.platforms.ios.runner.IosPlatformRunner.connect_device", fail_connect)
 
-    assert _run(global_config, {"ios-feature1-risk1"}, {"apptwo"}, tmp_path / "reports") == 0
+    assert _run(global_config, {"ios-feature-01-risk-01"}, {"apptwo"}, tmp_path / "reports") == 0
     run_dirs = list((tmp_path / "reports").iterdir())
     assert len(run_dirs) == 1
     assert run_dirs[0].name.count("_") == 1
@@ -136,7 +136,7 @@ def test_run_all_isolates_one_platform_failure_from_the_other(monkeypatch, globa
 
 
 def test_ios_registry_only_exposes_current_risks():
-    assert known_risks() == {"ios-feature1-risk1", "ios-feature-04-risk-01"}
+    assert known_risks() == {"ios-feature-01-risk-01", "ios-feature-04-risk-01"}
 
 
 def test_new_run_timestamp_is_sortable_and_collision_safe(tmp_path):

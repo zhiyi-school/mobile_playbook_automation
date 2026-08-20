@@ -7,7 +7,7 @@ Nothing about the CLI changes because of this — `python -m mobile_playbook ...
 ## Running the server
 
 ```bash
-python -m mobile_playbook.api --port 8000
+python -m mobile_playbook.api --port 8080
 ```
 
 Add `--reload` during development to restart on code changes, and `--host 0.0.0.0` to accept connections from other machines on the network (leave it on the default `127.0.0.1` for local-only use).
@@ -16,12 +16,12 @@ Run this from the repository root, the same way you'd run `python -m mobile_play
 
 ## Exploring it without a dashboard
 
-FastAPI serves interactive, browsable docs at **http://127.0.0.1:8000/docs** — every endpoint below can be called from there with a form, no client code required. `curl` also works, for example:
+FastAPI serves interactive, browsable docs at **http://127.0.0.1:8080/docs** — every endpoint below can be called from there with a form, no client code required. `curl` also works, for example:
 
 ```bash
-curl http://127.0.0.1:8000/reports
-curl http://127.0.0.1:8000/platforms/ios/risks
-curl -X POST http://127.0.0.1:8000/config/validate \
+curl http://127.0.0.1:8080/reports
+curl http://127.0.0.1:8080/platforms/ios/risks
+curl -X POST http://127.0.0.1:8080/config/validate \
   -H "Content-Type: application/json" \
   -d '{"platform": "ios", "config_path": "configs/ios.yaml"}'
 ```
@@ -31,13 +31,12 @@ curl -X POST http://127.0.0.1:8000/config/validate \
 `POST /runs` takes the same inputs as the CLI's `run` command (`--config`/`--platform`/`--apps`/`--risks`/`--out`) and starts it in a background thread, returning right away with a `run_id`:
 
 ```bash
-curl -X POST http://127.0.0.1:8000/runs \
+curl -X POST http://127.0.0.1:8080/runs \
   -H "Content-Type: application/json" \
   -d '{
     "platform": "ios",
     "config_path": "configs/ios.yaml",
-    "apps": "sp",
-    "risks": "ios-feature1-risk1"
+    "risks": "ios-feature-01-risk-01"
   }'
 ```
 
@@ -52,7 +51,7 @@ The `run_id` *is* the run's timestamp and its `reports/<run_id>/` directory name
 Poll it for status:
 
 ```bash
-curl http://127.0.0.1:8000/runs/2026-08-20_09-28-42
+curl http://127.0.0.1:8080/runs/2026-08-20_09-28-42
 ```
 
 ```json
@@ -62,13 +61,13 @@ curl http://127.0.0.1:8000/runs/2026-08-20_09-28-42
 Once `status` is `"completed"`, fetch the results:
 
 ```bash
-curl http://127.0.0.1:8000/runs/2026-08-20_09-28-42/summary
+curl http://127.0.0.1:8080/runs/2026-08-20_09-28-42/summary
 ```
 
 This returns the same `dashboard_results.json` content the run wrote to disk. The identical value also works under `/reports` (useful since that path works for CLI-started runs too, and survives an API server restart):
 
 ```bash
-curl http://127.0.0.1:8000/reports/2026-08-20_09-28-42/summary
+curl http://127.0.0.1:8080/reports/2026-08-20_09-28-42/summary
 ```
 
 A `POST /runs` call still needs everything a CLI `run` needs to actually succeed — Appium running, the device connected/unlocked/trusted, and for risks like keystroke collection, someone available to interact with the phone mid-run. The API doesn't remove those requirements, it just lets you kick the run off and check on it over HTTP instead of watching a terminal.
@@ -78,7 +77,7 @@ A `POST /runs` call still needs everything a CLI `run` needs to actually succeed
 Each platform's config identifies one physical device, and a run drives real Appium sessions against it. `POST /runs` rejects a second request for a platform that already has a run in progress:
 
 ```bash
-curl -w "\n%{http_code}\n" -X POST http://127.0.0.1:8000/runs \
+curl -w "\n%{http_code}\n" -X POST http://127.0.0.1:8080/runs \
   -H "Content-Type: application/json" \
   -d '{"platform": "ios", "config_path": "configs/ios.yaml"}'
 # {"detail": "A ios run is already in progress"}
@@ -92,11 +91,11 @@ This is per-platform, not global — an iOS run and an Android run are always fr
 `POST /artifacts/{platform}` accepts a multipart file upload and drops it straight into this repo's existing intake drop-zone (`intake/ios/ipas/` or `intake/android/apks/`), then inspects it for metadata to help fill in an app's config:
 
 ```bash
-curl -X POST http://127.0.0.1:8000/artifacts/ios -F "file=@LifeSG.ipa"
+curl -X POST http://127.0.0.1:8080/artifacts/ios -F "file=@app.ipa"
 ```
 
 ```json
-{"path": "intake/ios/ipas/LifeSG.ipa", "metadata": {"bundle_id": "sg.gov.tech.lifesg", "display_name": "LifeSG", "...": "..."}}
+{"path": "intake/ios/ipas/app.ipa", "metadata": {"bundle_id": "com.example.app", "display_name": "...", "...": "..."}}
 ```
 
 The file must match the platform's expected extension (`.ipa` for `ios`, `.apk` for `android`) or the request is rejected with `400`. Metadata comes from this repo's existing `inspect_ipa_metadata()`/`inspect_apk_metadata()` — for iOS that's the real bundle ID, display name, and full `Info.plist`; Android's APK inspector isn't implemented yet (`mobile_playbook/platforms/android/apk_tools.py`), so an Android upload still saves the file but its `metadata` comes back as `{"error": "..."}` instead of real fields. A file with the same name overwrites whatever was already in the intake folder, matching how that folder already works as a plain drop-zone.
@@ -106,29 +105,29 @@ The file must match the platform's expected extension (`.ipa` for `ios`, `.apk` 
 `/config/{platform}/apps`, `/config/{platform}/risk-settings/{risk_id}`, and `/config/{platform}/device` / `/config/{platform}/runner` read and write the same YAML files under `configs/` that the CLI reads — there's no separate copy of the config for the API. Every write re-runs the real config loader/validator against what's now on disk and reverts the file if that fails, so an edit can never leave the config in a state `python -m mobile_playbook validate` would reject:
 
 ```bash
-curl -X POST http://127.0.0.1:8000/config/ios/apps \
+curl -X POST http://127.0.0.1:8080/config/ios/apps \
   -H "Content-Type: application/json" \
-  -d '{"name": "New App", "artifact": {"source": "local_ipa", "ipa": "intake/ios/ipas/NewApp.ipa"}, "risks": {"ios-feature1-risk1": {"enabled": true}}}'
-# {"id": "new_app"}
+  -d '{"name": "REPLACE_WITH_APP_NAME", "bundle_id": "com.example.app", "test_bundle_id": "com.example.app", "artifact": {"source": "local_ipa", "ipa": "intake/ios/ipas/app.ipa"}, "risks": {"ios-feature-01-risk-01": {"enabled": true}}}'
+# {"id": "replace_with_app_name"}
 
-curl -X PUT http://127.0.0.1:8000/config/ios/apps/new_app \
+curl -X PUT http://127.0.0.1:8080/config/ios/apps/replace_with_app_name \
   -H "Content-Type: application/json" \
   -d '{"risks": {"ios-feature-04-risk-01": {"enabled": true}}}'
 
-curl -X DELETE http://127.0.0.1:8000/config/ios/apps/new_app
+curl -X DELETE http://127.0.0.1:8080/config/ios/apps/replace_with_app_name
 
-curl -X PUT http://127.0.0.1:8000/config/ios/risk-settings/ios-feature1-risk1 \
+curl -X PUT http://127.0.0.1:8080/config/ios/risk-settings/ios-feature-01-risk-01 \
   -H "Content-Type: application/json" \
   -d '{"sensitive_scan": {"reveal_values": false}}'
 
-curl -X PUT http://127.0.0.1:8000/config/ios/device -H "Content-Type: application/json" -d '{"platform_version": "18.0"}'
+curl -X PUT http://127.0.0.1:8080/config/ios/device -H "Content-Type: application/json" -d '{"platform_version": "18.0"}'
 ```
 
 `PUT` merges the given fields onto the current value rather than replacing it wholesale — a request that only sets one nested field leaves everything else in that app/risk/section untouched. Reads and writes go through `ruamel.yaml` in round-trip mode, so hand-written comments and formatting elsewhere in the file survive an edit intact.
 
 `configs/split/ios/apps.yaml` is the one exception to full comment/anchor preservation on the entries themselves: its app entries use `<<: *anchor` references to templates defined in the sibling `templates.yaml`, which can only be parsed together with that file, not on its own. Editing or adding an app there writes that one entry with fully explicit values instead of the anchor shorthand — every other untouched app entry, and all of the file's comments, are left byte-for-byte as they were. `configs/split/android/apps.yaml` has no such anchors, so Android app edits round-trip in full.
 
-`GET /config/{platform}/risk-settings/{risk_id}` only covers risks that have global settings shared across apps (`ios-feature1-risk1`, `ios-feature-04-risk-01`, `android-feature1-risk2`, `android-feature6-risk1`) — a per-app override still goes through that app's own `risks.<risk_id>` entry via the apps endpoints above.
+`GET /config/{platform}/risk-settings/{risk_id}` only covers risks that have global settings shared across apps (`ios-feature-01-risk-01`, `ios-feature-04-risk-01`, `android-feature-01-risk-02`, `android-feature-06-risk-01`) — a per-app override still goes through that app's own `risks.<risk_id>` entry via the apps endpoints above.
 
 ## Endpoints
 

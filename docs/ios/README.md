@@ -35,11 +35,11 @@ reports/<run_timestamp>/ios/<app_id>/<risk_id>/
 - Xcode
 - Appium server with the XCUITest driver installed
 - A physical iPhone connected to the Mac
-- MobSF if you want `ios-feature1-risk1` to use the primary analyzer path
+- MobSF if you want `ios-feature-01-risk-01` to use the primary analyzer path
 
 ## Quick Notes
 
 - The framework no longer automates IPA retrieval from the App Store. Obtain each IPA yourself and point the config at the local file.
-- `ios-feature1-risk1` does not require Appium or a connected phone.
+- `ios-feature-01-risk-01` does not require Appium or a connected phone.
 - `ios-feature-04-risk-01` requires a working Appium/XCUITest real-device setup, and the user must add the custom keyboard in iOS Settings with Full Access enabled.
 - The runner is sequential by default and can uninstall test bundles after each app test to reduce device state drift.

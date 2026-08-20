@@ -86,6 +86,11 @@ class DeviceConfig(SerializableDataclass):
     show_xcode_log: bool = False
     updated_wda_bundle_id: str | None = None
     allow_provisioning_device_registration: bool = False
+    # If set and appium_server_url isn't reachable, connect_device() launches
+    # appium_auto_start.command and waits for it to come up instead of
+    # failing preflight outright. Shape mirrors ipa_static_analysis.yaml's
+    # analyzer.auto_start: {enabled, command, wait_seconds, poll_interval_seconds}.
+    appium_auto_start: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass

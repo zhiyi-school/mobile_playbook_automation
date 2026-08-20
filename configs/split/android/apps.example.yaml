@@ -9,7 +9,7 @@ apps:
     name: "Example App"
     package_name: "com.example.app"
     risks:
-      android-feature1-risk2:
+      android-feature-01-risk-02:
         enabled: true
-      android-feature6-risk1:
+      android-feature-06-risk-01:
         enabled: true

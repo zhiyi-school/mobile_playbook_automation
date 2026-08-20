@@ -29,11 +29,11 @@ def config_root(tmp_path, monkeypatch):
         "      <<: *local_ipa_artifact\n"
         f"      ipa: \"{ipa.as_posix()}\"\n"
         "    risks:\n"
-        "      ios-feature1-risk1:\n"
+        "      ios-feature-01-risk-01:\n"
         "        enabled: true\n"
     )
     (tmp_path / "configs/split/ios/ipa_static_analysis.yaml").write_text(
-        "# Global settings for ios-feature1-risk1.\n"
+        "# Global settings for ios-feature-01-risk-01.\n"
         "ipa_static_analysis:\n"
         "  analyzer:\n"
         "    provider: \"mobsf\"\n"
@@ -68,7 +68,7 @@ def config_root(tmp_path, monkeypatch):
         "    name: \"One\"\n"
         "    package_name: \"com.example.one\"\n"
         "    risks:\n"
-        "      android-feature6-risk1:\n"
+        "      android-feature-06-risk-01:\n"
         "        enabled: true\n"
     )
     (tmp_path / "configs/split/android/repackaging.yaml").write_text("repackaging: {}\n")
@@ -136,11 +136,11 @@ def test_put_section_preserves_comments_and_untouched_keys(config_root):
 
 
 def test_put_risk_settings_preserves_comments_and_untouched_keys(config_root):
-    ce.put_risk_settings("ios", "ios-feature1-risk1", {"sensitive_scan": {"reveal_values": False}})
+    ce.put_risk_settings("ios", "ios-feature-01-risk-01", {"sensitive_scan": {"reveal_values": False}})
     text = (config_root / "configs/split/ios/ipa_static_analysis.yaml").read_text()
     assert "# comment on a nested field" in text
     assert 'provider: "mobsf"' in text
-    settings = ce.get_risk_settings("ios", "ios-feature1-risk1")
+    settings = ce.get_risk_settings("ios", "ios-feature-01-risk-01")
     assert settings["sensitive_scan"]["reveal_values"] is False
     assert settings["analyzer"]["provider"] == "mobsf"
 
@@ -155,8 +155,8 @@ def test_android_add_edit_delete_app(config_root):
     assert added["id"] == "com_example_two"
     assert len(ce.list_android_apps()) == 2
 
-    edited = ce.edit_android_app(added["id"], {"risks": {"android-feature1-risk2": {"enabled": True}}})
-    assert edited["risks"]["android-feature1-risk2"]["enabled"] is True
+    edited = ce.edit_android_app(added["id"], {"risks": {"android-feature-01-risk-02": {"enabled": True}}})
+    assert edited["risks"]["android-feature-01-risk-02"]["enabled"] is True
     assert edited["package_name"] == "com.example.two"
 
     ce.delete_android_app(added["id"])
@@ -165,7 +165,7 @@ def test_android_add_edit_delete_app(config_root):
 
 def test_android_edit_preserves_other_untouched_entries(config_root):
     text_before = (config_root / "configs/split/android/apps.yaml").read_text()
-    ce.edit_android_app("one", {"risks": {"android-feature1-risk2": {"enabled": True}}})
+    ce.edit_android_app("one", {"risks": {"android-feature-01-risk-02": {"enabled": True}}})
     text_after = (config_root / "configs/split/android/apps.yaml").read_text()
     assert 'name: "One"' in text_after
     assert text_before != text_after

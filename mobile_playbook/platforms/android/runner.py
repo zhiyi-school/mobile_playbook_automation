@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from datetime import datetime
+from pathlib import Path
 
+from mobile_playbook.orchestration.appium_process import ensure_appium_running, tcp_reachable
 from mobile_playbook.orchestration.artifact_intake import app_matches_selector
 from mobile_playbook.platforms.android.adb import AdbClient
 from mobile_playbook.platforms.android.device_client import AndroidDeviceClient
@@ -24,12 +26,33 @@ class AndroidPlatformRunner:
                     return True
         return False
 
-    def connect_device(self, config):
+    def connect_device(self, config, run_dir: Path | None = None):
+        log_dir = run_dir or Path("work/android")
+        outcome = ensure_appium_running(config.device.appium_server_url, getattr(config.device, "appium_auto_start", None), log_dir / "appium.log")
+        if outcome.status == "ALREADY_RUNNING":
+            print(f"android: Appium already reachable at {config.device.appium_server_url}.")
+        elif outcome.status == "STARTED":
+            print(f"android: Appium was not running — started it (log: {outcome.log_path}).")
+        elif outcome.status == "DISABLED":
+            print(f"android: Appium not reachable at {config.device.appium_server_url} and appium_auto_start is disabled.")
+        elif outcome.status == "FAILED":
+            detail = f" Appium log tail:\n{outcome.log_tail}" if outcome.log_tail else ""
+            raise RuntimeError(f"android: {outcome.error}{detail}")
         adb = AdbClient(config.device.adb_path, config.device.adb_serial)
         return AndroidDeviceClient(config, adb).connect()
 
     def close_device(self, device_client) -> None:
         device_client.quit()
+
+    def ensure_device_healthy(self, config, device_client, run_dir: Path | None = None):
+        if tcp_reachable(config.device.appium_server_url, timeout=2):
+            return device_client
+        print(f"android: Appium server at {config.device.appium_server_url} is no longer reachable mid-run — attempting to recover and resume.")
+        try:
+            self.close_device(device_client)
+        except Exception as exc:
+            print(f"android: (ignoring failure while closing the broken session: {exc})")
+        return self.connect_device(config, run_dir)
 
     def iter_enabled_tests(self, config, selected_tests: set[str] | None, selected_apps: set[str] | None):
         for app in config.apps:

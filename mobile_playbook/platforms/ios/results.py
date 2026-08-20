@@ -9,12 +9,12 @@ from mobile_playbook.reporting.status_mapper import Evidence, TestResult
 from mobile_playbook.platforms.ios.models import RiskRunResult
 
 CATEGORY_BY_RISK = {
-    "ios-feature1-risk1": "static_analysis",
+    "ios-feature-01-risk-01": "static_analysis",
     "ios-feature-04-risk-01": "keyboard_security",
 }
 
 TEST_NAME_BY_RISK = {
-    "ios-feature1-risk1": "IPA Static Analysis Exposure",
+    "ios-feature-01-risk-01": "IPA Static Analysis Exposure",
     "ios-feature-04-risk-01": "Custom Keyboard Keystroke Collection",
 }
 

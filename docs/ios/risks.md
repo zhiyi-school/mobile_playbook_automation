@@ -1,8 +1,8 @@
 # iOS Risks
 
-## ios-feature1-risk1
+## ios-feature-01-risk-01
 
-`ios-feature1-risk1` demonstrates the risk that an acquired IPA can be analyzed on a workstation, leading to discovery of application metadata, bundled resources, frameworks, plugins, permissions, URL schemes, binary characteristics, API keys, credentials, and other embedded sensitive strings.
+`ios-feature-01-risk-01` demonstrates the risk that an acquired IPA can be analyzed on a workstation, leading to discovery of application metadata, bundled resources, frameworks, plugins, permissions, URL schemes, binary characteristics, API keys, credentials, and other embedded sensitive strings.
 
 The preferred analyzer is a local MobSF instance. The built-in package scanner remains available as a fallback when MobSF is not configured or cannot be reached.
 

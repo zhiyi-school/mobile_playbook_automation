@@ -1,8 +1,8 @@
 # Android Risks
 
-## android-feature6-risk1
+## android-feature-06-risk-01
 
-`android-feature6-risk1` demonstrates whether a sensitive screen can be screen-recorded or screen-shared, either because the app does not set `FLAG_SECURE` or because its own tamper/debugging checks fail to react to a recording session.
+`android-feature-06-risk-01` demonstrates whether a sensitive screen can be screen-recorded or screen-shared, either because the app does not set `FLAG_SECURE` or because its own tamper/debugging checks fail to react to a recording session.
 
 Requires: `adb`, `appium`.
 
@@ -27,9 +27,9 @@ Verdict-to-status mapping:
 
 Timing knobs (`record_lead_in`, `launch_wait`, `record_tail`) are documented in [Configuration](configuration.md).
 
-## android-feature1-risk2
+## android-feature-01-risk-02
 
-`android-feature1-risk2` demonstrates whether a repackaged (decompiled, patched, and re-signed) build of the app can still install and launch, which indicates the app lacks effective tamper/signature detection.
+`android-feature-01-risk-02` demonstrates whether a repackaged (decompiled, patched, and re-signed) build of the app can still install and launch, which indicates the app lacks effective tamper/signature detection.
 
 Requires: `adb`, `apktool`, `apksigner`, `keytool`, `appium`.
 

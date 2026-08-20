@@ -26,9 +26,9 @@ from mobile_playbook.platforms.ios.models import ArtifactAcquisitionResult, Risk
 from mobile_playbook.platforms.ios.risks.base import Risk
 
 
-class Feature1Risk1(Risk):
-    risk_id = "ios-feature1-risk1"
-    feature_id = "feature1"
+class Feature01Risk01(Risk):
+    risk_id = "ios-feature-01-risk-01"
+    feature_id = "feature-01"
     name = "IPA acquisition static analysis exposure"
     description = (
         "An acquired IPA can be unpacked and statically analyzed on a workstation, exposing metadata, "
@@ -50,7 +50,7 @@ class Feature1Risk1(Risk):
             artifact_source = app_config.artifact.get("source", "")
             if artifact_source == "installed_app_reference":
                 result.final_status = "ARTIFACT_REQUIRED"
-                result.errors.append("ios-feature1-risk1 requires an IPA artifact; installed_app_reference is black-box only")
+                result.errors.append("ios-feature-01-risk-01 requires an IPA artifact; installed_app_reference is black-box only")
                 return [result]
             provider = get_provider(artifact_source)
             if provider is None:
@@ -68,7 +68,7 @@ class Feature1Risk1(Risk):
             result.artifact_result = acquisition
             if acquisition.status == "INSTALLED_APP_VERIFIED":
                 result.final_status = "ARTIFACT_REQUIRED"
-                result.errors.append("ios-feature1-risk1 requires an IPA artifact; installed_app_reference is black-box only")
+                result.errors.append("ios-feature-01-risk-01 requires an IPA artifact; installed_app_reference is black-box only")
                 return [result]
             if acquisition.status != "ACQUIRED" or acquisition.ipa_path is None:
                 result.final_status = self._artifact_status_to_final(acquisition.status)
@@ -177,7 +177,7 @@ class Feature1Risk1(Risk):
                         "severity": "LOW",
                         "title": "MobSF analysis was unavailable, built-in package scanner was used",
                         "evidence": [str(exc)],
-                        "recommendation": "Start MobSF, verify the API key, and rerun ios-feature1-risk1 for a MobSF-backed report.",
+                        "recommendation": "Start MobSF, verify the API key, and rerun ios-feature-01-risk-01 for a MobSF-backed report.",
                     }
                 )
                 analysis["critical_findings"]["flags"] = self._sort_flags_by_severity(analysis["critical_findings"]["flags"])
@@ -189,7 +189,7 @@ class Feature1Risk1(Risk):
             analysis = self._analyze_package(app_dir, acquisition, binary_inspection, risk_config)
             analysis["summary"]["analyzer_warning"] = f"Unknown analyzer provider '{provider}', built-in package scanner was used."
             return analysis
-        raise ValueError(f"Unknown ios-feature1-risk1 analyzer provider: {provider}")
+        raise ValueError(f"Unknown ios-feature-01-risk-01 analyzer provider: {provider}")
 
     def _analyze_with_mobsf(
         self,
@@ -854,7 +854,7 @@ class Feature1Risk1(Risk):
     def _critical_markdown(self, report: dict[str, Any]) -> str:
         app = report["app"]
         lines = [
-            "# ios-feature1-risk1 Critical Findings",
+            "# ios-feature-01-risk-01 Critical Findings",
             "",
             f"- App: {app.get('display_name') or ''}",
             f"- Bundle ID: {app.get('bundle_id') or ''}",

@@ -9,10 +9,16 @@ import uuid
 from pathlib import Path
 
 from mobile_playbook.orchestration.scan_runner import RunOptions, run_platform
-from mobile_playbook.orchestration.artifact_intake import selected_app_csv, selected_csv, validate_app_selection
+from mobile_playbook.orchestration.artifact_intake import (
+    selected_app_csv,
+    selected_csv,
+    validate_app_selection,
+    validate_risk_selection,
+)
 from mobile_playbook.platforms.android.config import ConfigError as AndroidConfigError
 from mobile_playbook.platforms.android.config import load_config as load_android_config
 from mobile_playbook.platforms.android.results import normalize_android_result
+from mobile_playbook.platforms.android.risks import known_risks as known_android_risks
 from mobile_playbook.platforms.android.risks import list_risks as list_android_risks
 from mobile_playbook.platforms.android.runner import AndroidPlatformRunner
 from mobile_playbook.platforms.ios.config import ConfigError, load_config
@@ -22,8 +28,11 @@ from mobile_playbook.platforms.ios.ipa.unpacker import unpack_ipa
 from mobile_playbook.logging_setup import configure_logging
 from mobile_playbook.reporting.report_writer import ReportWriter
 from mobile_playbook.platforms.ios.results import normalize_ios_result
+from mobile_playbook.platforms.ios.risks import known_risks as known_ios_risks
 from mobile_playbook.platforms.ios.risks import list_risks
 from mobile_playbook.platforms.ios.runner import IosPlatformRunner
+
+_KNOWN_RISKS_BY_PLATFORM = {"ios": known_ios_risks, "android": known_android_risks}
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -102,6 +111,7 @@ def main(argv: list[str] | None = None) -> int:
             selected = selected_csv(args.risks)
             selected_apps = selected_app_csv(args.apps)
             validate_app_selection(config.apps, selected_apps)
+            validate_risk_selection(_KNOWN_RISKS_BY_PLATFORM[args.platform](), selected)
             if args.dry_run:
                 if args.platform == "android":
                     _print_android_dry_run(config, selected, selected_apps)
@@ -118,6 +128,7 @@ def main(argv: list[str] | None = None) -> int:
             selected_apps = selected_app_csv(args.apps)
             validate_app_selection(ios_config.apps, selected_apps)
             validate_app_selection(android_config.apps, selected_apps)
+            validate_risk_selection(known_ios_risks() | known_android_risks(), selected)
             if args.dry_run:
                 _print_dry_run(ios_config, selected, selected_apps)
                 _print_android_dry_run(android_config, selected, selected_apps)

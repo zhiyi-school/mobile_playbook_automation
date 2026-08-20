@@ -12,6 +12,11 @@ class AndroidDeviceConfig(SerializableDataclass):
     appium_server_url: str = "http://127.0.0.1:4723"
     adb_path: str = "adb"
     adb_serial: str | None = None
+    # If set and appium_server_url isn't reachable, connect_device() launches
+    # appium_auto_start.command and waits for it to come up instead of
+    # failing preflight outright. Shape mirrors ipa_static_analysis.yaml's
+    # analyzer.auto_start: {enabled, command, wait_seconds, poll_interval_seconds}.
+    appium_auto_start: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass

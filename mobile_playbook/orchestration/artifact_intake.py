@@ -31,5 +31,15 @@ def validate_app_selection(apps: list[Any], selected_apps: set[str] | None) -> N
     raise ValueError(f"No apps matched --apps {requested}. Available app IDs: {available}")
 
 
+def validate_risk_selection(known_risk_ids: set[str], selected_risks: set[str] | None) -> None:
+    if selected_risks is None:
+        return
+    unknown = selected_risks - known_risk_ids
+    if unknown:
+        requested = ", ".join(sorted(unknown))
+        available = ", ".join(sorted(known_risk_ids))
+        raise ValueError(f"Unknown risk ID(s): {requested}. Available risk IDs: {available}")
+
+
 def _normalize_selector(value: str) -> str:
     return "".join(ch.lower() for ch in value if ch.isalnum())

@@ -27,6 +27,21 @@ device:
 
 `adb_serial` is optional. Set it when more than one Android device is attached.
 
+### Appium auto-start
+
+If `appium_server_url` isn't reachable, the framework normally fails preflight with a one-line error asking you to run `appium` yourself. Set `device.appium_auto_start` to have it launch Appium instead and wait for it to come up:
+
+```yaml
+device:
+  appium_auto_start:
+    enabled: true
+    command: ["appium"]
+    wait_seconds: 60
+    poll_interval_seconds: 1
+```
+
+This is checked once when a run connects to the device, and again before every single test — if Appium was running fine but crashes partway through a run, the next test's check notices it's unreachable, restarts it, reconnects, and the run continues with the remaining apps/risks rather than every subsequent test failing the same way. Appium is started once and left running for the rest of the run (and afterward) — it is not stopped between tests. Every launch attempt (including restarts after a crash) is appended to `appium.log` in that run's report directory, so what happened and why is inspectable after the fact.
+
 ## Runner
 
 ```yaml
@@ -44,19 +59,19 @@ tools:
   burp_proxy: "http://127.0.0.1:8080"
 ```
 
-These are reserved settings for future Android static-analysis and proxy integrations; the current Android risks (`android-feature6-risk1`, `android-feature1-risk2`) do not read them.
+These are reserved settings for future Android static-analysis and proxy integrations; the current Android risks (`android-feature-06-risk-01`, `android-feature-01-risk-02`) do not read them.
 
 ## Apps
 
 ```yaml
 apps:
-  - id: "parking"
-    name: "Parking"
-    package_name: "sg.parking.streetsmart"
+  - id: "example_app"
+    name: "Example App"
+    package_name: "com.example.app"
     risks:
-      android-feature6-risk1:
+      android-feature-06-risk-01:
         enabled: true
-      android-feature1-risk2:
+      android-feature-01-risk-02:
         enabled: true
 ```
 
@@ -64,8 +79,8 @@ The legacy shape is also accepted:
 
 ```yaml
 apps:
-  - sg.parking.streetsmart
-  - sg.gov.app.mol
+  - com.example.app
+  - com.example.other_app
 ```
 
 When using the legacy shape, both Android risks are enabled for each package.
@@ -80,7 +95,7 @@ Android risk IDs are prefixed `android-feature...`. To configure a risk for an a
 
    ```yaml
    risks:
-     android-feature1-risk2:
+     android-feature-01-risk-02:
        enabled: true
    ```
 
@@ -100,9 +115,9 @@ Android risk IDs are prefixed `android-feature...`. To configure a risk for an a
 
 Risks run in the order they're listed under an app's `risks` mapping, not sorted by ID — keep that in mind if the order of your own `risks:` blocks matters to you.
 
-### Repackaging timing and signing (`android-feature1-risk2`)
+### Repackaging timing and signing (`android-feature-01-risk-02`)
 
-Global defaults live under a top-level `repackaging` block and can be overridden per app under `risks.android-feature1-risk2`:
+Global defaults live under a top-level `repackaging` block and can be overridden per app under `risks.android-feature-01-risk-02`:
 
 ```yaml
 repackaging:
@@ -123,9 +138,9 @@ repackaging:
 - `restore_original_after_test`: whether to reinstall the original, backed-up APK(s) after the repackaged build has been validated.
 - `launch_wait` / `post_click_wait` / `record_lead_in` / `record_tail`: pacing for the post-repackaging Appium launch validation and its screen recording.
 
-### Screen capture timing (`android-feature6-risk1`)
+### Screen capture timing (`android-feature-06-risk-01`)
 
-Global defaults live under a top-level `screen_capture` block and can be overridden per app under `risks.android-feature6-risk1`:
+Global defaults live under a top-level `screen_capture` block and can be overridden per app under `risks.android-feature-06-risk-01`:
 
 ```yaml
 screen_capture:

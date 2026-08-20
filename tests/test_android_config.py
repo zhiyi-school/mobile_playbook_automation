@@ -20,8 +20,8 @@ def test_android_config_accepts_legacy_package_list():
 
     assert config.device.appium_server_url == "http://127.0.0.1:4723"
     assert config.apps[0].package_name == "sg.parking.streetsmart"
-    assert config.apps[0].risks["android-feature6-risk1"]["enabled"] is True
-    assert config.apps[0].risks["android-feature1-risk2"]["enabled"] is True
+    assert config.apps[0].risks["android-feature-06-risk-01"]["enabled"] is True
+    assert config.apps[0].risks["android-feature-01-risk-02"]["enabled"] is True
 
 
 def test_android_config_respects_an_explicit_repackaging_work_dir():
@@ -44,7 +44,7 @@ def test_android_config_accepts_structured_apps():
                     "id": "parking",
                     "name": "Parking",
                     "package_name": "sg.parking.streetsmart",
-                    "risks": {"android-feature6-risk1": {"enabled": True}},
+                    "risks": {"android-feature-06-risk-01": {"enabled": True}},
                 }
             ]
         }
@@ -52,17 +52,17 @@ def test_android_config_accepts_structured_apps():
 
     assert config.apps[0].id == "parking"
     assert config.apps[0].name == "Parking"
-    assert config.apps[0].risks == {"android-feature6-risk1": {"enabled": True}}
+    assert config.apps[0].risks == {"android-feature-06-risk-01": {"enabled": True}}
 
 
 def test_android_registry_exposes_ported_risks():
-    assert known_risks() == {"android-feature1-risk2", "android-feature6-risk1"}
+    assert known_risks() == {"android-feature-01-risk-02", "android-feature-06-risk-01"}
 
 
 def test_android_dry_run_filters_selected_apps():
     config = parse_config({"apps": ["sg.parking.streetsmart", "sg.gov.app.mol"]})
 
-    lines = AndroidPlatformRunner().dry_run_lines(config, {"android-feature6-risk1"}, {"sggovappmol"})
+    lines = AndroidPlatformRunner().dry_run_lines(config, {"android-feature-06-risk-01"}, {"sggovappmol"})
 
     assert any("sg.gov.app.mol" in line for line in lines)
     assert not any("sg.parking.streetsmart" in line for line in lines)
@@ -71,7 +71,7 @@ def test_android_dry_run_filters_selected_apps():
 def test_run_test_records_failure_without_raising(monkeypatch, tmp_path):
     # Resolved dynamically via get_risk(), the same way AndroidPlatformRunner.run_test
     # does — not a direct import of a specific risk module.
-    risk_class = type(get_risk("android-feature6-risk1"))
+    risk_class = type(get_risk("android-feature-06-risk-01"))
 
     def flaky_run(self, app_config, global_config, device_client, report_writer):
         raise RuntimeError("adb exploded")
@@ -85,9 +85,9 @@ def test_run_test_records_failure_without_raising(monkeypatch, tmp_path):
     writer = ReportWriter(tmp_path, "run1", result_adapter=normalize_android_result, platform="android")
 
     # must not raise — a single flaky risk cannot be allowed to abort the whole run
-    AndroidPlatformRunner().run_test(app, "android-feature6-risk1", config, device_client, writer)
+    AndroidPlatformRunner().run_test(app, "android-feature-06-risk-01", config, device_client, writer)
 
-    report_dir = tmp_path / "run1" / "android" / "parking" / "android-feature6-risk1" / "screen_capture"
+    report_dir = tmp_path / "run1" / "android" / "parking" / "android-feature-06-risk-01" / "screen_capture"
     result = json.loads((report_dir / "report.json").read_text())
     assert result["final_status"] == "FAILED"
     assert "adb exploded" in result["errors"][0]

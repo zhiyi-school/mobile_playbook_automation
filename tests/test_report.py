@@ -9,23 +9,23 @@ from mobile_playbook.platforms.ios.results import normalize_ios_result
 
 def test_report_generation(tmp_path):
     writer = ReportWriter(tmp_path, "run1", result_adapter=normalize_ios_result)
-    result = RiskRunResult("run1", "start", "end", "app", "App", "bid", "bid.test", "ios-feature1-risk1", "feature1", "ipa_static_analysis", "mobsf_or_package_analysis", "local_ipa", final_status="IPA_ANALYSIS_COMPLETE", verdict="At Risk")
-    report_dir = writer.test_report_dir("app", "ios-feature1-risk1", "ipa_static_analysis")
+    result = RiskRunResult("run1", "start", "end", "app", "App", "bid", "bid.test", "ios-feature-01-risk-01", "feature1", "ipa_static_analysis", "mobsf_or_package_analysis", "local_ipa", final_status="IPA_ANALYSIS_COMPLETE", verdict="At Risk")
+    report_dir = writer.test_report_dir("app", "ios-feature-01-risk-01", "ipa_static_analysis")
     writer.write_result(result, report_dir)
     writer.write_summary()
     assert (report_dir / "report.json").exists()
     assert not (tmp_path / "run1" / "summary.json").exists()
     normalized_json = json.loads((tmp_path / "run1" / "dashboard_results.json").read_text())
     assert normalized_json[0]["platform"] == "ios"
-    assert normalized_json[0]["test_id"] == "ios-feature1-risk1"
-    assert normalized_json[0]["report_path"] == "ios/app/ios-feature1-risk1/ipa_static_analysis"
-    assert (tmp_path / "run1" / "ios" / "app" / "ios-feature1-risk1" / "ipa_static_analysis").exists()
+    assert normalized_json[0]["test_id"] == "ios-feature-01-risk-01"
+    assert normalized_json[0]["report_path"] == "ios/app/ios-feature-01-risk-01/ipa_static_analysis"
+    assert (tmp_path / "run1" / "ios" / "app" / "ios-feature-01-risk-01" / "ipa_static_analysis").exists()
     assert (tmp_path / "run1" / "evidence").exists()
     summary_md = (tmp_path / "run1" / "summary.md").read_text()
     assert "# Run Summary" in summary_md
     assert "- Completed:" in summary_md
     assert "| App | Risk | Test Case | Artifact Source | Status | Notes | Report |" in summary_md
-    assert "ios/app/ios-feature1-risk1/ipa_static_analysis/" in summary_md
+    assert "ios/app/ios-feature-01-risk-01/ipa_static_analysis/" in summary_md
     # the summary table shows the 3-way verdict, not the raw final_status —
     # the raw status is still preserved untouched in report.json
     assert "| At Risk |" in summary_md

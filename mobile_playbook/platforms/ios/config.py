@@ -22,7 +22,7 @@ LOCAL_IPA_SOURCES = {"local_ipa", "ci_artifact", "vendor_ipa", "xcode_archive_ex
 # settings. A risk's effective config is that default merged with (and overridden
 # by) whatever the app's own `risks.<risk_id>` entry specifies.
 RISK_GLOBAL_SETTINGS_FIELD = {
-    "ios-feature1-risk1": "ipa_static_analysis",
+    "ios-feature-01-risk-01": "ipa_static_analysis",
     "ios-feature-04-risk-01": "keystroke_collection",
 }
 
@@ -98,6 +98,7 @@ def parse_config(raw: dict[str, Any], config_path: Path | None = None) -> Global
             show_xcode_log=bool(device_raw.get("show_xcode_log", False)),
             updated_wda_bundle_id=device_raw.get("updated_wda_bundle_id"),
             allow_provisioning_device_registration=bool(device_raw.get("allow_provisioning_device_registration", False)),
+            appium_auto_start=device_raw.get("appium_auto_start") or {},
         ),
         runner=RunnerConfig(
             sequential=bool(runner_raw.get("sequential", True)),

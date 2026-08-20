@@ -21,7 +21,7 @@ CAPTURE_KEYWORDS = ["screen recording", "screen sharing", "screen recording/shar
 
 
 class AndroidScreenCaptureRisk(AndroidRisk):
-    risk_id = "android-feature6-risk1"
+    risk_id = "android-feature-06-risk-01"
     name = "Android Screen Capture Test"
     description = (
         "A sensitive screen may be screen-recorded or screen-shared because the app does not set "

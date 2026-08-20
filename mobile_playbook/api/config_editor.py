@@ -32,8 +32,8 @@ RISK_SETTINGS = {
         for risk_id, field in RISK_GLOBAL_SETTINGS_FIELD.items()
     },
     "android": {
-        "android-feature1-risk2": ("repackaging", Path("configs/split/android/repackaging.yaml")),
-        "android-feature6-risk1": ("screen_capture", Path("configs/split/android/screen_capture.yaml")),
+        "android-feature-01-risk-02": ("repackaging", Path("configs/split/android/repackaging.yaml")),
+        "android-feature-06-risk-01": ("screen_capture", Path("configs/split/android/screen_capture.yaml")),
     },
 }
 

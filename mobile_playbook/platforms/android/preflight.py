@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import shutil
-import socket
 from dataclasses import dataclass, field
-from urllib.parse import urlparse
 
+from mobile_playbook.orchestration.appium_process import tcp_reachable as _tcp_reachable
 from mobile_playbook.platforms.android.adb import AdbClient
 from mobile_playbook.platforms.android.appium_driver import appium_available
 
@@ -70,14 +69,3 @@ def _check_tcp_tool(label: str, url: str) -> tuple[bool, str]:
     if not _tcp_reachable(url):
         return False, f"{label} not reachable at {url}."
     return True, f"{label} reachable"
-
-
-def _tcp_reachable(url_or_hostport: str, timeout: float = 3.0) -> bool:
-    parsed = urlparse(url_or_hostport if "//" in url_or_hostport else f"//{url_or_hostport}")
-    host = parsed.hostname or "127.0.0.1"
-    port = parsed.port or (443 if parsed.scheme == "https" else 80)
-    try:
-        with socket.create_connection((host, port), timeout=timeout):
-            return True
-    except OSError:
-        return False

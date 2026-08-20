@@ -27,10 +27,13 @@ class PlatformRunner(Protocol):
     def requires_device(self, config: Any, selected_tests: set[str] | None, selected_apps: set[str] | None) -> bool:
         ...
 
-    def connect_device(self, config: Any) -> Any:
+    def connect_device(self, config: Any, run_dir: Path | None = None) -> Any:
         ...
 
     def close_device(self, device_client: Any) -> None:
+        ...
+
+    def ensure_device_healthy(self, config: Any, device_client: Any, run_dir: Path | None = None) -> Any:
         ...
 
     def iter_enabled_tests(self, config: Any, selected_tests: set[str] | None, selected_apps: set[str] | None):
@@ -52,8 +55,15 @@ def run_platform(
     client = None
     try:
         if platform_runner.requires_device(config, options.selected_tests, options.selected_apps):
-            client = platform_runner.connect_device(config)
+            client = platform_runner.connect_device(config, writer.run_dir)
         for app, test_id in platform_runner.iter_enabled_tests(config, options.selected_tests, options.selected_apps):
+            if client is not None:
+                # Re-checked before every test: if Appium died since the last
+                # test, this restarts it and reconnects so the remaining
+                # tests in this run still get a chance to pass, instead of
+                # every one of them failing the same way for the rest of
+                # the run.
+                client = platform_runner.ensure_device_healthy(config, client, writer.run_dir)
             platform_runner.run_test(app, test_id, config, client, writer)
     finally:
         writer.write_summary()

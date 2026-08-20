@@ -16,7 +16,7 @@ def test_config_parsing_and_validation(tmp_path, fake_ipa):
             "bundle_id": "com.example.app",
             "artifact": {"source": "local_ipa", "ipa": str(fake_ipa)},
             "expected_behavior": {},
-            "risks": {"ios-feature1-risk1": {"enabled": True}},
+            "risks": {"ios-feature-01-risk-01": {"enabled": True}},
         }],
     }
     path = tmp_path / "apps.yaml"
@@ -54,7 +54,7 @@ def test_config_parses_current_risks_without_signing_section(tmp_path, fake_ipa)
             "bundle_id": "com.example.app",
             "artifact": {"source": "local_ipa", "ipa": str(fake_ipa)},
             "expected_behavior": {},
-            "risks": {"ios-feature1-risk1": {"enabled": True}},
+            "risks": {"ios-feature-01-risk-01": {"enabled": True}},
         }],
     }
     path = tmp_path / "apps.yaml"
@@ -79,7 +79,7 @@ def test_config_loads_split_section_includes(tmp_path, fake_ipa):
             "bundle_id": "com.example.app",
             "artifact": {"source": "local_ipa", "ipa": str(fake_ipa)},
             "expected_behavior": {},
-            "risks": {"ios-feature1-risk1": {"enabled": True}},
+            "risks": {"ios-feature-01-risk-01": {"enabled": True}},
         }]
     }))
     entry = {
@@ -121,7 +121,7 @@ def test_config_loads_split_section_include_list_with_shared_anchors(tmp_path, f
         f"      ipa: \"{fake_ipa}\"\n"
         "    expected_behavior: {}\n"
         "    risks:\n"
-        "      ios-feature1-risk1:\n"
+        "      ios-feature-01-risk-01:\n"
         "        enabled: true\n"
     )
     entry = {
@@ -157,7 +157,7 @@ def test_config_include_sections_can_share_one_file(tmp_path, fake_ipa):
             "bundle_id": "com.example.app",
             "artifact": {"source": "local_ipa", "ipa": str(fake_ipa)},
             "expected_behavior": {},
-            "risks": {"ios-feature1-risk1": {"enabled": True}},
+            "risks": {"ios-feature-01-risk-01": {"enabled": True}},
         }]
     }))
     entry = {
@@ -193,7 +193,7 @@ def test_config_include_list_rejects_empty_list(tmp_path):
 
 def test_config_allows_feature1_risk1_without_extra_cases(global_config):
     app = global_config.apps[0]
-    app.risks = {"ios-feature1-risk1": {"enabled": True}}
+    app.risks = {"ios-feature-01-risk-01": {"enabled": True}}
     validate_config(global_config, dry_run=True)
 
 
@@ -232,7 +232,7 @@ def test_effective_risk_config_merges_app_override_onto_global_defaults(tmp_path
             "bundle_id": "com.example.app",
             "artifact": {"source": "local_ipa", "ipa": str(fake_ipa)},
             "expected_behavior": {},
-            "risks": {"ios-feature1-risk1": {"enabled": True, "analyzer": {"provider": "package_scanner"}}},
+            "risks": {"ios-feature-01-risk-01": {"enabled": True, "analyzer": {"provider": "package_scanner"}}},
         }],
     }
     path = tmp_path / "ios.yaml"
@@ -240,7 +240,7 @@ def test_effective_risk_config_merges_app_override_onto_global_defaults(tmp_path
 
     loaded = load_config(path)
 
-    effective = effective_risk_config(loaded, "ios-feature1-risk1", loaded.apps[0].risks["ios-feature1-risk1"])
+    effective = effective_risk_config(loaded, "ios-feature-01-risk-01", loaded.apps[0].risks["ios-feature-01-risk-01"])
     assert effective["analyzer"]["provider"] == "package_scanner"
     assert effective["analyzer"]["mobsf_url"] == "http://global:8000"
 

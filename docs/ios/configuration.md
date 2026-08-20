@@ -29,6 +29,21 @@ device:
   keep_wda: true
 ```
 
+### Appium auto-start
+
+If `appium_server_url` isn't reachable, the framework normally fails preflight with a one-line error asking you to run `appium` yourself. Set `device.appium_auto_start` to have it launch Appium instead and wait for it to come up:
+
+```yaml
+device:
+  appium_auto_start:
+    enabled: true
+    command: ["appium"]
+    wait_seconds: 60
+    poll_interval_seconds: 1
+```
+
+This is checked once when a run connects to the device, and again before every single test — if Appium was running fine but crashes partway through a run, the next test's check notices it's unreachable, restarts it, reconnects, and the run continues with the remaining apps/risks rather than every subsequent test failing the same way. Appium is started once and left running for the rest of the run (and afterward) — it is not stopped between tests. Every launch attempt (including restarts after a crash) is appended to `appium.log` in that run's report directory, so what happened and why is inspectable after the fact.
+
 ## Runner
 
 The `runner` section controls install timing, run order, workspace location, and permission prompts:
@@ -67,7 +82,7 @@ apps:
       source_contains: []
       source_not_contains: []
     risks:
-      ios-feature1-risk1:
+      ios-feature-01-risk-01:
         enabled: true
       ios-feature-04-risk-01:
         enabled: false
@@ -87,7 +102,7 @@ iOS risk IDs are prefixed `ios-feature...`. To configure a risk for an app:
 
    ```yaml
    risks:
-     ios-feature1-risk1:
+     ios-feature-01-risk-01:
        enabled: true
    ```
 
@@ -135,7 +150,7 @@ Included paths are resolved relative to the entry-point file — here, that's `c
 
 ### Global Risk Settings
 
-`ipa_static_analysis` and `keystroke_collection` each hold one risk's shared default settings — the analyzer config for `ios-feature1-risk1`, the keyboard-collection config for `ios-feature-04-risk-01` — used by every app that enables that risk. An app's own `risks.<risk_id>` entry in `apps.yaml` only needs `enabled: true`; any field nested under it there overrides the shared default for that app alone, merged recursively (so, for example, an app can override just `collection.auto_navigation.accessibility_ids` without repeating the rest of `collection`). See [Risks](risks.md) for what each field controls.
+`ipa_static_analysis` and `keystroke_collection` each hold one risk's shared default settings — the analyzer config for `ios-feature-01-risk-01`, the keyboard-collection config for `ios-feature-04-risk-01` — used by every app that enables that risk. An app's own `risks.<risk_id>` entry in `apps.yaml` only needs `enabled: true`; any field nested under it there overrides the shared default for that app alone, merged recursively (so, for example, an app can override just `collection.auto_navigation.accessibility_ids` without repeating the rest of `collection`). See [Risks](risks.md) for what each field controls.
 
 `configs/split/ios/risk_settings.example.yaml` shows both risks' settings together in one file for easier reading, but the real (git-ignored) config keeps them as separate files, one per risk, matching the `include:` map above.
 
@@ -168,4 +183,4 @@ cp .env.example .env
 MOBSF_API_KEY="REPLACE_WITH_MOBSF_API_KEY"
 ```
 
-`MOBSF_API_KEY` is used by `ios-feature1-risk1` when `analyzer.provider: mobsf` and MobSF auto-start is not generating its own temporary key.
+`MOBSF_API_KEY` is used by `ios-feature-01-risk-01` when `analyzer.provider: mobsf` and MobSF auto-start is not generating its own temporary key.

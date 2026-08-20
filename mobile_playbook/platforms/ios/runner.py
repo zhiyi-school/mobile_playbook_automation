@@ -4,6 +4,7 @@ from datetime import datetime
 from pathlib import Path
 
 from mobile_playbook.platforms.ios.artifacts.registry import get_provider
+from mobile_playbook.orchestration.appium_process import ensure_appium_running, tcp_reachable
 from mobile_playbook.orchestration.artifact_intake import app_matches_selector
 from mobile_playbook.platforms.ios.device import AppiumDeviceClient
 from mobile_playbook.platforms.ios.models import RiskRunResult
@@ -24,7 +25,18 @@ class IosPlatformRunner:
                     return True
         return False
 
-    def connect_device(self, config):
+    def connect_device(self, config, run_dir: Path | None = None):
+        log_dir = run_dir or Path("work/ios")
+        outcome = ensure_appium_running(config.device.appium_server_url, getattr(config.device, "appium_auto_start", None), log_dir / "appium.log")
+        if outcome.status == "ALREADY_RUNNING":
+            print(f"ios: Appium already reachable at {config.device.appium_server_url}.")
+        elif outcome.status == "STARTED":
+            print(f"ios: Appium was not running — started it (log: {outcome.log_path}).")
+        elif outcome.status == "DISABLED":
+            print(f"ios: Appium not reachable at {config.device.appium_server_url} and appium_auto_start is disabled.")
+        elif outcome.status == "FAILED":
+            detail = f" Appium log tail:\n{outcome.log_tail}" if outcome.log_tail else ""
+            raise RuntimeError(f"ios: {outcome.error}{detail}")
         preflight = check_ios_preflight(config)
         if not preflight.ok:
             raise RuntimeError("; ".join(preflight.errors))
@@ -32,6 +44,16 @@ class IosPlatformRunner:
 
     def close_device(self, device_client) -> None:
         device_client.quit()
+
+    def ensure_device_healthy(self, config, device_client, run_dir: Path | None = None):
+        if tcp_reachable(config.device.appium_server_url, timeout=2):
+            return device_client
+        print(f"ios: Appium server at {config.device.appium_server_url} is no longer reachable mid-run — attempting to recover and resume.")
+        try:
+            self.close_device(device_client)
+        except Exception as exc:
+            print(f"ios: (ignoring failure while closing the broken session: {exc})")
+        return self.connect_device(config, run_dir)
 
     def iter_enabled_tests(self, config, selected_tests: set[str] | None, selected_apps: set[str] | None):
         for app in config.apps:
@@ -91,7 +113,7 @@ class IosPlatformRunner:
                 and (app.artifact.get("source") == "installed_app_reference" or app.artifact.get("require_original_app_installed"))
                 for app in config.apps
             ):
-                client = self.connect_device(config)
+                client = self.connect_device(config, out_dir / run_timestamp)
             for app in config.apps:
                 if not app_matches_selector(app, selected_apps):
                     continue
@@ -128,8 +150,8 @@ class IosPlatformRunner:
                         f"{collection.get('evidence_timeout_seconds', collection.get('event_timeout_seconds', 30))}"
                     )
                     lines.append(f"    probe_text: {collection.get('probe_text', 'hello123')}")
-                elif risk_id == "ios-feature1-risk1":
-                    lines.append("  planned: ios-feature1-risk1 / ipa_static_analysis / package_inventory")
+                elif risk_id == "ios-feature-01-risk-01":
+                    lines.append("  planned: ios-feature-01-risk-01 / ipa_static_analysis / package_inventory")
                 else:
                     lines.append(f"  planned: {risk_id}")
         return lines

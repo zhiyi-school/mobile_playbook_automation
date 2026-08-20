@@ -51,7 +51,7 @@ def global_config(tmp_path, fake_ipa):
         test_bundle_id="com.example.app.test",
         artifact={"source": "local_ipa", "ipa": str(fake_ipa), "expected_bundle_id": "com.example.app"},
         expected_behavior=ExpectedBehaviorConfig(source_contains=["Login"], source_not_contains=["Tamper detected"]),
-        risks={"ios-feature1-risk1": {"enabled": True}},
+        risks={"ios-feature-01-risk-01": {"enabled": True}},
     )
     return GlobalConfig(
         device=DeviceConfig("udid", "TEAM", "http://127.0.0.1:4723"),

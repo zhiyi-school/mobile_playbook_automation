@@ -5,32 +5,32 @@ import plistlib
 
 from mobile_playbook.platforms.ios.models import BinaryInspectionResult
 from mobile_playbook.report import ReportWriter
-from mobile_playbook.platforms.ios.risks.feature1_risk1 import Feature1Risk1
+from mobile_playbook.platforms.ios.risks.feature_01_risk_01 import Feature01Risk01
 from mobile_playbook.platforms.ios.risks.registry import get_risk, list_risks
 from tests.conftest import make_ipa
 
 
-def test_feature1_risk1_registry():
-    assert get_risk("ios-feature1-risk1").risk_id == "ios-feature1-risk1"
-    assert any(risk["risk_id"] == "ios-feature1-risk1" for risk in list_risks())
+def test_feature_01_risk_01_registry():
+    assert get_risk("ios-feature-01-risk-01").risk_id == "ios-feature-01-risk-01"
+    assert any(risk["risk_id"] == "ios-feature-01-risk-01" for risk in list_risks())
 
 
-def test_feature1_risk1_static_ipa_analysis(monkeypatch, global_config, tmp_path):
+def test_feature_01_risk_01_static_ipa_analysis(monkeypatch, global_config, tmp_path):
     monkeypatch.setattr(
-        "mobile_playbook.platforms.ios.risks.feature1_risk1.inspect_main_executable",
+        "mobile_playbook.platforms.ios.risks.feature_01_risk_01.inspect_main_executable",
         lambda app_dir: BinaryInspectionResult("MUTABLE_AS_PROVIDED", executable_path=app_dir / "AppExec"),
     )
     app = global_config.apps[0]
-    app.risks = {"ios-feature1-risk1": {"enabled": True}}
+    app.risks = {"ios-feature-01-risk-01": {"enabled": True}}
     app.artifact["workspace_dir"] = str(tmp_path / "acquired")
     writer = ReportWriter(tmp_path / "reports", "run1")
 
-    result = Feature1Risk1().run(app, global_config, None, writer)[0]
+    result = Feature01Risk01().run(app, global_config, None, writer)[0]
     writer.write_summary()
 
     assert result.final_status == "IPA_ANALYSIS_COMPLETE"
     assert result.verdict == "At Risk"
-    report_dir = tmp_path / "reports" / "run1" / "ios" / "app_one" / "ios-feature1-risk1" / "ipa_static_analysis"
+    report_dir = tmp_path / "reports" / "run1" / "ios" / "app_one" / "ios-feature-01-risk-01" / "ipa_static_analysis"
     analysis = json.loads((report_dir / "ipa_analysis.json").read_text())
     inventory = json.loads((report_dir / "package_inventory.json").read_text())
     critical = json.loads((report_dir / "critical_findings.json").read_text())
@@ -42,9 +42,9 @@ def test_feature1_risk1_static_ipa_analysis(monkeypatch, global_config, tmp_path
     assert "IPA package can be acquired" in result.errors[0]
 
 
-def test_feature1_risk1_flags_masked_sensitive_information(monkeypatch, global_config, tmp_path):
+def test_feature_01_risk_01_flags_masked_sensitive_information(monkeypatch, global_config, tmp_path):
     monkeypatch.setattr(
-        "mobile_playbook.platforms.ios.risks.feature1_risk1.inspect_main_executable",
+        "mobile_playbook.platforms.ios.risks.feature_01_risk_01.inspect_main_executable",
         lambda app_dir: BinaryInspectionResult("MUTABLE_AS_PROVIDED", executable_path=app_dir / "AppExec"),
     )
     ipa = make_ipa(
@@ -55,13 +55,13 @@ def test_feature1_risk1_flags_masked_sensitive_information(monkeypatch, global_c
         },
     )
     app = global_config.apps[0]
-    app.risks = {"ios-feature1-risk1": {"enabled": True}}
+    app.risks = {"ios-feature-01-risk-01": {"enabled": True}}
     app.artifact = {"source": "local_ipa", "ipa": str(ipa), "expected_bundle_id": "com.example.app", "workspace_dir": str(tmp_path / "acquired")}
     writer = ReportWriter(tmp_path / "reports", "run1")
 
-    result = Feature1Risk1().run(app, global_config, None, writer)[0]
+    result = Feature01Risk01().run(app, global_config, None, writer)[0]
 
-    report_dir = tmp_path / "reports" / "run1" / "ios" / "app_one" / "ios-feature1-risk1" / "ipa_static_analysis"
+    report_dir = tmp_path / "reports" / "run1" / "ios" / "app_one" / "ios-feature-01-risk-01" / "ipa_static_analysis"
     critical = json.loads((report_dir / "critical_findings.json").read_text())
     sensitive = next(flag for flag in critical["flags"] if flag["id"] == "SENSITIVE_INFORMATION_EXPOSURE")
     assert result.final_status == "IPA_ANALYSIS_COMPLETE"
@@ -70,9 +70,9 @@ def test_feature1_risk1_flags_masked_sensitive_information(monkeypatch, global_c
     assert "super-secret-password-value" not in json.dumps(critical)
 
 
-def test_feature1_risk1_treats_api_keys_and_credentials_as_high(monkeypatch, global_config, tmp_path):
+def test_feature_01_risk_01_treats_api_keys_and_credentials_as_high(monkeypatch, global_config, tmp_path):
     monkeypatch.setattr(
-        "mobile_playbook.platforms.ios.risks.feature1_risk1.inspect_main_executable",
+        "mobile_playbook.platforms.ios.risks.feature_01_risk_01.inspect_main_executable",
         lambda app_dir: BinaryInspectionResult("MUTABLE_AS_PROVIDED", executable_path=app_dir / "AppExec"),
     )
     ipa = make_ipa(
@@ -83,13 +83,13 @@ def test_feature1_risk1_treats_api_keys_and_credentials_as_high(monkeypatch, glo
         },
     )
     app = global_config.apps[0]
-    app.risks = {"ios-feature1-risk1": {"enabled": True, "sensitive_scan": {"reveal_values": True}}}
+    app.risks = {"ios-feature-01-risk-01": {"enabled": True, "sensitive_scan": {"reveal_values": True}}}
     app.artifact = {"source": "local_ipa", "ipa": str(ipa), "expected_bundle_id": "com.example.app", "workspace_dir": str(tmp_path / "acquired")}
     writer = ReportWriter(tmp_path / "reports", "run1")
 
-    result = Feature1Risk1().run(app, global_config, None, writer)[0]
+    result = Feature01Risk01().run(app, global_config, None, writer)[0]
 
-    report_dir = tmp_path / "reports" / "run1" / "ios" / "app_one" / "ios-feature1-risk1" / "ipa_static_analysis"
+    report_dir = tmp_path / "reports" / "run1" / "ios" / "app_one" / "ios-feature-01-risk-01" / "ipa_static_analysis"
     analysis = json.loads((report_dir / "ipa_analysis.json").read_text())
     sensitive_findings = analysis["sensitive_information_findings"]
     google_key = next(item for item in sensitive_findings if item["match_type"] == "GOOGLE_API_KEY")
@@ -99,9 +99,9 @@ def test_feature1_risk1_treats_api_keys_and_credentials_as_high(monkeypatch, glo
     assert credential["severity"] == "HIGH"
 
 
-def test_feature1_risk1_can_test_google_api_key_external_reuse(monkeypatch, global_config, tmp_path):
+def test_feature_01_risk_01_can_test_google_api_key_external_reuse(monkeypatch, global_config, tmp_path):
     monkeypatch.setattr(
-        "mobile_playbook.platforms.ios.risks.feature1_risk1.inspect_main_executable",
+        "mobile_playbook.platforms.ios.risks.feature_01_risk_01.inspect_main_executable",
         lambda app_dir: BinaryInspectionResult("MUTABLE_AS_PROVIDED", executable_path=app_dir / "AppExec"),
     )
 
@@ -117,14 +117,14 @@ def test_feature1_risk1_can_test_google_api_key_external_reuse(monkeypatch, glob
         def read(self, size=-1):
             return b'{"status":"OK","results":[{"formatted_address":"Singapore"}]}'
 
-    monkeypatch.setattr("mobile_playbook.platforms.ios.risks.feature1_risk1.urllib.request.urlopen", lambda request, timeout: FakeResponse())
+    monkeypatch.setattr("mobile_playbook.platforms.ios.risks.feature_01_risk_01.urllib.request.urlopen", lambda request, timeout: FakeResponse())
     ipa = make_ipa(
         tmp_path / "sensitive.ipa",
         extra_files={"GoogleService-Info.plist": plistlib.dumps({"API_KEY": "AIzaSyABCDEFGHIJKLMNOPQRSTUVWXY123456789"})},
     )
     app = global_config.apps[0]
     app.risks = {
-        "ios-feature1-risk1": {
+        "ios-feature-01-risk-01": {
             "enabled": True,
             "sensitive_scan": {"reveal_values": True},
             "api_key_reuse_test": {"enabled": True, "timeout_seconds": 1},
@@ -133,9 +133,9 @@ def test_feature1_risk1_can_test_google_api_key_external_reuse(monkeypatch, glob
     app.artifact = {"source": "local_ipa", "ipa": str(ipa), "expected_bundle_id": "com.example.app", "workspace_dir": str(tmp_path / "acquired")}
     writer = ReportWriter(tmp_path / "reports", "run1")
 
-    result = Feature1Risk1().run(app, global_config, None, writer)[0]
+    result = Feature01Risk01().run(app, global_config, None, writer)[0]
 
-    report_dir = tmp_path / "reports" / "run1" / "ios" / "app_one" / "ios-feature1-risk1" / "ipa_static_analysis"
+    report_dir = tmp_path / "reports" / "run1" / "ios" / "app_one" / "ios-feature-01-risk-01" / "ipa_static_analysis"
     analysis = json.loads((report_dir / "ipa_analysis.json").read_text())
     critical = json.loads((report_dir / "critical_findings.json").read_text())
     reuse = next(flag for flag in critical["flags"] if flag["id"] == "GOOGLE_API_KEY_REUSE_TEST")
@@ -145,9 +145,9 @@ def test_feature1_risk1_can_test_google_api_key_external_reuse(monkeypatch, glob
     assert "REUSABLE_FROM_WORKSTATION" in reuse["evidence"][0]
 
 
-def test_feature1_risk1_can_reveal_sensitive_information_when_configured(monkeypatch, global_config, tmp_path):
+def test_feature_01_risk_01_can_reveal_sensitive_information_when_configured(monkeypatch, global_config, tmp_path):
     monkeypatch.setattr(
-        "mobile_playbook.platforms.ios.risks.feature1_risk1.inspect_main_executable",
+        "mobile_playbook.platforms.ios.risks.feature_01_risk_01.inspect_main_executable",
         lambda app_dir: BinaryInspectionResult("MUTABLE_AS_PROVIDED", executable_path=app_dir / "AppExec"),
     )
     ipa = make_ipa(
@@ -155,13 +155,13 @@ def test_feature1_risk1_can_reveal_sensitive_information_when_configured(monkeyp
         extra_files={"Config.json": b'{"password":"super-secret-password-value"}'},
     )
     app = global_config.apps[0]
-    app.risks = {"ios-feature1-risk1": {"enabled": True, "sensitive_scan": {"reveal_values": True}}}
+    app.risks = {"ios-feature-01-risk-01": {"enabled": True, "sensitive_scan": {"reveal_values": True}}}
     app.artifact = {"source": "local_ipa", "ipa": str(ipa), "expected_bundle_id": "com.example.app", "workspace_dir": str(tmp_path / "acquired")}
     writer = ReportWriter(tmp_path / "reports", "run1")
 
-    result = Feature1Risk1().run(app, global_config, None, writer)[0]
+    result = Feature01Risk01().run(app, global_config, None, writer)[0]
 
-    report_dir = tmp_path / "reports" / "run1" / "ios" / "app_one" / "ios-feature1-risk1" / "ipa_static_analysis"
+    report_dir = tmp_path / "reports" / "run1" / "ios" / "app_one" / "ios-feature-01-risk-01" / "ipa_static_analysis"
     critical_text = (report_dir / "critical_findings.json").read_text()
     markdown_text = (report_dir / "critical_findings.md").read_text()
     assert result.final_status == "IPA_ANALYSIS_COMPLETE"
@@ -169,9 +169,9 @@ def test_feature1_risk1_can_reveal_sensitive_information_when_configured(monkeyp
     assert "super-secret-password-value" in markdown_text
 
 
-def test_feature1_risk1_uses_mobsf_when_configured(monkeypatch, global_config, tmp_path):
+def test_feature_01_risk_01_uses_mobsf_when_configured(monkeypatch, global_config, tmp_path):
     monkeypatch.setattr(
-        "mobile_playbook.platforms.ios.risks.feature1_risk1.inspect_main_executable",
+        "mobile_playbook.platforms.ios.risks.feature_01_risk_01.inspect_main_executable",
         lambda app_dir: BinaryInspectionResult("PROTECTED_OR_ENCRYPTED_BINARY", cryptid=1, executable_path=app_dir / "AppExec"),
     )
 
@@ -196,15 +196,15 @@ def test_feature1_risk1_uses_mobsf_when_configured(monkeypatch, global_config, t
             },
         }
 
-    monkeypatch.setattr(Feature1Risk1, "_mobsf_scan", fake_mobsf_scan)
+    monkeypatch.setattr(Feature01Risk01, "_mobsf_scan", fake_mobsf_scan)
     app = global_config.apps[0]
-    app.risks = {"ios-feature1-risk1": {"enabled": True, "analyzer": {"provider": "mobsf", "api_key": "test-key"}}}
+    app.risks = {"ios-feature-01-risk-01": {"enabled": True, "analyzer": {"provider": "mobsf", "api_key": "test-key"}}}
     app.artifact["workspace_dir"] = str(tmp_path / "acquired")
     writer = ReportWriter(tmp_path / "reports", "run1")
 
-    result = Feature1Risk1().run(app, global_config, None, writer)[0]
+    result = Feature01Risk01().run(app, global_config, None, writer)[0]
 
-    report_dir = tmp_path / "reports" / "run1" / "ios" / "app_one" / "ios-feature1-risk1" / "ipa_static_analysis"
+    report_dir = tmp_path / "reports" / "run1" / "ios" / "app_one" / "ios-feature-01-risk-01" / "ipa_static_analysis"
     analysis = json.loads((report_dir / "ipa_analysis.json").read_text())
     critical = json.loads((report_dir / "critical_findings.json").read_text())
     raw_mobsf = json.loads((report_dir / "mobsf_report.json").read_text())
@@ -216,24 +216,24 @@ def test_feature1_risk1_uses_mobsf_when_configured(monkeypatch, global_config, t
     assert any(flag["id"] == "MOBSF_STATIC_ANALYSIS_FINDINGS" for flag in critical["flags"])
 
 
-def test_feature1_risk1_falls_back_to_builtin_when_mobsf_fails(monkeypatch, global_config, tmp_path):
+def test_feature_01_risk_01_falls_back_to_builtin_when_mobsf_fails(monkeypatch, global_config, tmp_path):
     monkeypatch.setattr(
-        "mobile_playbook.platforms.ios.risks.feature1_risk1.inspect_main_executable",
+        "mobile_playbook.platforms.ios.risks.feature_01_risk_01.inspect_main_executable",
         lambda app_dir: BinaryInspectionResult("MUTABLE_AS_PROVIDED", executable_path=app_dir / "AppExec"),
     )
 
     def fake_mobsf_scan(self, ipa_path, analyzer_config):
         raise RuntimeError("MobSF is not reachable")
 
-    monkeypatch.setattr(Feature1Risk1, "_mobsf_scan", fake_mobsf_scan)
+    monkeypatch.setattr(Feature01Risk01, "_mobsf_scan", fake_mobsf_scan)
     app = global_config.apps[0]
-    app.risks = {"ios-feature1-risk1": {"enabled": True, "analyzer": {"provider": "mobsf", "api_key": "test-key", "fallback_to_builtin": True}}}
+    app.risks = {"ios-feature-01-risk-01": {"enabled": True, "analyzer": {"provider": "mobsf", "api_key": "test-key", "fallback_to_builtin": True}}}
     app.artifact["workspace_dir"] = str(tmp_path / "acquired")
     writer = ReportWriter(tmp_path / "reports", "run1")
 
-    result = Feature1Risk1().run(app, global_config, None, writer)[0]
+    result = Feature01Risk01().run(app, global_config, None, writer)[0]
 
-    report_dir = tmp_path / "reports" / "run1" / "ios" / "app_one" / "ios-feature1-risk1" / "ipa_static_analysis"
+    report_dir = tmp_path / "reports" / "run1" / "ios" / "app_one" / "ios-feature-01-risk-01" / "ipa_static_analysis"
     analysis = json.loads((report_dir / "ipa_analysis.json").read_text())
     critical = json.loads((report_dir / "critical_findings.json").read_text())
     assert result.final_status == "IPA_ANALYSIS_COMPLETE"
@@ -244,7 +244,7 @@ def test_feature1_risk1_falls_back_to_builtin_when_mobsf_fails(monkeypatch, glob
     assert any(flag["id"] == "MOBSF_FALLBACK_USED" for flag in critical["flags"])
 
 
-def test_feature1_risk1_can_auto_start_mobsf_with_generated_api_key(monkeypatch, tmp_path):
+def test_feature_01_risk_01_can_auto_start_mobsf_with_generated_api_key(monkeypatch, tmp_path):
     ipa = make_ipa(tmp_path / "app.ipa")
     reachability = iter([False, True])
     popen_calls = []
@@ -280,11 +280,11 @@ def test_feature1_risk1_can_auto_start_mobsf_with_generated_api_key(monkeypatch,
         return {"ok": True}
 
     monkeypatch.delenv("MOBSF_API_KEY", raising=False)
-    monkeypatch.setattr(Feature1Risk1, "_mobsf_is_reachable", lambda self, base_url, timeout: next(reachability))
-    monkeypatch.setattr("mobile_playbook.platforms.ios.risks.feature1_risk1.subprocess.Popen", fake_popen)
-    monkeypatch.setattr(Feature1Risk1, "_mobsf_post", fake_post)
+    monkeypatch.setattr(Feature01Risk01, "_mobsf_is_reachable", lambda self, base_url, timeout: next(reachability))
+    monkeypatch.setattr("mobile_playbook.platforms.ios.risks.feature_01_risk_01.subprocess.Popen", fake_popen)
+    monkeypatch.setattr(Feature01Risk01, "_mobsf_post", fake_post)
 
-    result = Feature1Risk1()._mobsf_scan(
+    result = Feature01Risk01()._mobsf_scan(
         ipa,
         {
             "mobsf_url": "http://127.0.0.1:8000",
@@ -307,7 +307,7 @@ def test_feature1_risk1_can_auto_start_mobsf_with_generated_api_key(monkeypatch,
     assert fake_process.terminated is True
 
 
-def test_feature1_risk1_critical_markdown_orders_findings_and_evidence_by_severity():
+def test_feature_01_risk_01_critical_markdown_orders_findings_and_evidence_by_severity():
     report = {
         "app": {"display_name": "Demo", "bundle_id": "com.example.demo", "version": "1.0", "build": "1"},
         "highest_severity": "HIGH",
@@ -323,7 +323,7 @@ def test_feature1_risk1_critical_markdown_orders_findings_and_evidence_by_severi
         ],
     }
 
-    markdown = Feature1Risk1()._critical_markdown(report)
+    markdown = Feature01Risk01()._critical_markdown(report)
 
     assert markdown.index("| HIGH | High finding") < markdown.index("| MEDIUM | Medium finding")
     assert markdown.index("| MEDIUM | Medium finding") < markdown.index("| LOW | Low finding")
@@ -331,12 +331,12 @@ def test_feature1_risk1_critical_markdown_orders_findings_and_evidence_by_severi
     assert markdown.index("MEDIUM medium evidence") < markdown.index("LOW low evidence")
 
 
-def test_feature1_risk1_requires_ipa_artifact(global_config, tmp_path):
+def test_feature_01_risk_01_requires_ipa_artifact(global_config, tmp_path):
     app = global_config.apps[0]
     app.artifact = {"source": "installed_app_reference"}
     writer = ReportWriter(tmp_path / "reports", "run1")
 
-    result = Feature1Risk1().run(app, global_config, None, writer)[0]
+    result = Feature01Risk01().run(app, global_config, None, writer)[0]
 
     assert result.final_status == "ARTIFACT_REQUIRED"
     assert result.verdict == "Inconclusive"

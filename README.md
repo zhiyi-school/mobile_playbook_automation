@@ -6,10 +6,10 @@ It uses platform-prefixed risk IDs:
 
 | Risk ID | Platform | Purpose |
 | --- | --- | --- |
-| `ios-feature1-risk1` | iOS | IPA acquisition and static-analysis exposure |
+| `ios-feature-01-risk-01` | iOS | IPA acquisition and static-analysis exposure |
 | `ios-feature-04-risk-01` | iOS | Custom keyboard keystroke collection |
-| `android-feature1-risk2` | Android | APK repackaging, resigning, reinstall, and launch validation |
-| `android-feature6-risk1` | Android | Screen recording / `FLAG_SECURE` capture blocking |
+| `android-feature-01-risk-02` | Android | APK repackaging, resigning, reinstall, and launch validation |
+| `android-feature-06-risk-01` | Android | Screen recording / `FLAG_SECURE` capture blocking |
 
 ## Scope
 
@@ -80,34 +80,34 @@ python -m mobile_playbook list-risks --platform android
 Run iOS risks:
 
 ```bash
-python -m mobile_playbook run --platform ios --config configs/ios.yaml --risks ios-feature1-risk1 --out reports
+python -m mobile_playbook run --platform ios --config configs/ios.yaml --risks ios-feature-01-risk-01 --out reports
 python -m mobile_playbook run --platform ios --config configs/ios.yaml --risks ios-feature-04-risk-01 --out reports
 ```
 
 Run one iOS app:
 
 ```bash
-python -m mobile_playbook run --platform ios --config configs/ios.yaml --apps sp --risks ios-feature1-risk1 --out reports
+python -m mobile_playbook run --platform ios --config configs/ios.yaml --apps app_one --risks ios-feature-01-risk-01 --out reports
 ```
 
 Run Android risks:
 
 ```bash
-python -m mobile_playbook run --platform android --config configs/android.yaml --risks android-feature6-risk1 --out reports
-python -m mobile_playbook run --platform android --config configs/android.yaml --risks android-feature1-risk2 --out reports
+python -m mobile_playbook run --platform android --config configs/android.yaml --risks android-feature-06-risk-01 --out reports
+python -m mobile_playbook run --platform android --config configs/android.yaml --risks android-feature-01-risk-02 --out reports
 ```
 
 Dry run:
 
 ```bash
-python -m mobile_playbook run --platform ios --config configs/ios.yaml --risks ios-feature1-risk1 --dry-run --out reports
-python -m mobile_playbook run --platform android --config configs/android.yaml --risks android-feature6-risk1 --dry-run --out reports
+python -m mobile_playbook run --platform ios --config configs/ios.yaml --risks ios-feature-01-risk-01 --dry-run --out reports
+python -m mobile_playbook run --platform android --config configs/android.yaml --risks android-feature-06-risk-01 --dry-run --out reports
 ```
 
 Run both platforms in one command:
 
 ```bash
-python -m mobile_playbook run-all --ios-config configs/ios.yaml --android-config configs/android.yaml --apps parking,lifesg --out reports
+python -m mobile_playbook run-all --ios-config configs/ios.yaml --android-config configs/android.yaml --apps app_one,app_two --out reports
 ```
 
 `run-all` runs the iOS and Android `run` flows concurrently in one process (Appium/adb/network calls are I/O-bound, so a thread per platform is enough). It is additive on top of `run` — nothing about single-platform `run` changes. `--apps`/`--risks` are applied to both configs, and each platform still writes its own `reports/<run_timestamp>/ios/...` or `.../android/...` tree exactly as it would from a standalone `run`, so results are never merged. If both platforms happen to start in the same second, they may share one `<run_timestamp>` folder (their per-app/per-risk reports still land in separate `ios/`/`android/` subfolders either way); the only thing that can then race is which platform's top-level `dashboard_results.json` is written last.
@@ -115,7 +115,7 @@ python -m mobile_playbook run-all --ios-config configs/ios.yaml --android-config
 Acquire iOS artifacts only:
 
 ```bash
-python -m mobile_playbook acquire --config configs/ios.yaml --apps sp --out work/ios/acquired
+python -m mobile_playbook acquire --config configs/ios.yaml --apps app_one --out work/ios/acquired
 ```
 
 Inspect IPA mutability:
@@ -127,7 +127,7 @@ python -m mobile_playbook inspect-ipa --ipa work/ios/acquired/<run_timestamp>/<a
 Serve the same run/report flows over HTTP:
 
 ```bash
-python -m mobile_playbook.api --port 8000
+python -m mobile_playbook.api --port 8080
 ```
 
 See [docs/api.md](docs/api.md) for the endpoint list and how to explore it at `/docs` without writing any client code.

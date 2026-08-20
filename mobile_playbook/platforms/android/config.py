@@ -46,6 +46,7 @@ def parse_config(raw: dict[str, Any], config_path: Path | None = None) -> Androi
             appium_server_url=device_raw.get("appium_server_url") or device_raw.get("appium_server", "http://127.0.0.1:4723"),
             adb_path=device_raw.get("adb_path", "adb"),
             adb_serial=device_raw.get("adb_serial") or device_raw.get("serial"),
+            appium_auto_start=device_raw.get("appium_auto_start") or {},
         ),
         runner=AndroidRunnerConfig(
             work_dir=Path(runner_raw.get("work_dir") or paths_raw.get("work_dir", "work/android")),

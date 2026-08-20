@@ -9,18 +9,25 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from mobile_playbook.orchestration.artifact_intake import selected_app_csv, selected_csv, validate_app_selection
+from mobile_playbook.orchestration.artifact_intake import (
+    selected_app_csv,
+    selected_csv,
+    validate_app_selection,
+    validate_risk_selection,
+)
 from mobile_playbook.orchestration.scan_runner import RunOptions, run_platform
 from mobile_playbook.orchestration.scheduler import reserve_run_timestamp
 from mobile_playbook.platforms.android.apk_tools import inspect_apk_metadata
 from mobile_playbook.platforms.android.config import ConfigError as AndroidConfigError
 from mobile_playbook.platforms.android.config import load_config as load_android_config
 from mobile_playbook.platforms.android.results import normalize_android_result
+from mobile_playbook.platforms.android.risks import known_risks as known_android_risks
 from mobile_playbook.platforms.android.risks import list_risks as list_android_risks
 from mobile_playbook.platforms.android.runner import AndroidPlatformRunner
 from mobile_playbook.platforms.ios.config import ConfigError, load_config
 from mobile_playbook.platforms.ios.ipa.plist_utils import inspect_ipa_metadata
 from mobile_playbook.platforms.ios.results import normalize_ios_result
+from mobile_playbook.platforms.ios.risks import known_risks as known_ios_risks
 from mobile_playbook.platforms.ios.risks import list_risks as list_ios_risks
 from mobile_playbook.platforms.ios.runner import IosPlatformRunner
 from mobile_playbook.reporting.report_writer import ReportWriter
@@ -97,6 +104,8 @@ _PLATFORM_RUNNERS = {
     "android": (AndroidPlatformRunner, normalize_android_result),
 }
 
+_KNOWN_RISKS_BY_PLATFORM = {"ios": known_ios_risks, "android": known_android_risks}
+
 
 def _report_writer_factory(platform: Platform):
     runner_cls, result_adapter = _PLATFORM_RUNNERS[platform]
@@ -129,6 +138,7 @@ def create_run(body: RunRequest) -> dict:
     selected_apps = selected_app_csv(body.apps)
     try:
         validate_app_selection(config.apps, selected_apps)
+        validate_risk_selection(_KNOWN_RISKS_BY_PLATFORM[body.platform](), selected_risks)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 

@@ -14,7 +14,7 @@ Both platforms share the same CLI (`python -m mobile_playbook ...`), the same ru
 `run` always targets one platform (`--platform ios` or `--platform android`) and one config file. To run both in a single command, use `run-all`, which takes both config paths and runs the two platforms concurrently in one process:
 
 ```bash
-python -m mobile_playbook run-all --ios-config configs/ios.yaml --android-config configs/android.yaml --apps parking,lifesg --out reports
+python -m mobile_playbook run-all --ios-config configs/ios.yaml --android-config configs/android.yaml --apps app_one,app_two --out reports
 ```
 
 `run-all` is built entirely on top of the existing `run` flow for each platform — it does not change how either platform runs or reports on its own. Each platform still writes its own `reports/<run_timestamp>/ios/...` or `.../android/...` tree, so reports stay separate. See the [top-level README](../README.md#common-commands) for the full caveat on same-second run-timestamp collisions.

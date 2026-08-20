@@ -9,6 +9,14 @@ device:
   appium_server_url: "http://127.0.0.1:4723"
   adb_path: "adb"
   adb_serial: null
+  # If appium_server_url isn't reachable, start it instead of failing preflight —
+  # checked again before every test too, so a mid-run crash is restarted and the
+  # run resumes rather than every remaining test failing. See docs/android/configuration.md#appium-auto-start.
+  appium_auto_start:
+    enabled: false
+    command: ["appium"]
+    wait_seconds: 60
+    poll_interval_seconds: 1
 
 runner:
   work_dir: "work/android"
