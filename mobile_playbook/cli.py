@@ -26,6 +26,7 @@ from mobile_playbook.platforms.ios.mutations.mutability import inspect_main_exec
 from mobile_playbook.platforms.ios.ipa.plist_utils import inspect_ipa_metadata
 from mobile_playbook.platforms.ios.ipa.unpacker import unpack_ipa
 from mobile_playbook.logging_setup import configure_logging
+from mobile_playbook.reporting.messages import clean_message
 from mobile_playbook.reporting.report_writer import ReportWriter
 from mobile_playbook.platforms.ios.results import normalize_ios_result
 from mobile_playbook.platforms.ios.risks import known_risks as known_ios_risks
@@ -146,7 +147,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"CONFIG_INVALID: {error}", file=sys.stderr)
         return 2
     except Exception as exc:
-        print(f"FAILED: {exc}", file=sys.stderr)
+        print(f"FAILED: {clean_message(str(exc))}", file=sys.stderr)
         return 1
     return 1
 
@@ -273,7 +274,7 @@ def _run_all(
     for name in ("ios", "android"):
         code, exc = outcomes[name]
         if exc is not None:
-            print(f"FAILED ({name}): {exc}", file=sys.stderr)
+            print(f"FAILED ({name}): {clean_message(str(exc))}", file=sys.stderr)
             exit_code = 1
         elif code != 0:
             exit_code = code

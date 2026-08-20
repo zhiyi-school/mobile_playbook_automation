@@ -30,6 +30,7 @@ from mobile_playbook.platforms.ios.results import normalize_ios_result
 from mobile_playbook.platforms.ios.risks import known_risks as known_ios_risks
 from mobile_playbook.platforms.ios.risks import list_risks as list_ios_risks
 from mobile_playbook.platforms.ios.runner import IosPlatformRunner
+from mobile_playbook.reporting.messages import clean_message
 from mobile_playbook.reporting.report_writer import ReportWriter
 
 from mobile_playbook.api import config_editor
@@ -123,7 +124,7 @@ def _execute_run(run_timestamp: str, platform: Platform, config, options: RunOpt
             config, runner_cls(), options, _report_writer_factory(platform), run_timestamp=run_timestamp
         )
     except Exception as exc:  # background thread: report failure via the registry, don't raise
-        registry.mark_failed(run_timestamp, str(exc))
+        registry.mark_failed(run_timestamp, clean_message(str(exc)))
         return
     finally:
         registry.release_platform(platform)
