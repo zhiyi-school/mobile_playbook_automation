@@ -15,6 +15,15 @@ class Feature04Risk01(Feature5KeyboardRiskBase):
     risk_id = "ios-feature-04-risk-01"
     feature_id = "feature-04"
     name = "Custom keyboard keystroke collection"
+    description = (
+        "A third-party custom keyboard with user-granted Full Access can observe and collect text typed "
+        "into the app's non-secure input fields."
+    )
+    goal = (
+        "Demonstrate whether the app's sensitive text fields block third-party keyboards (via secure text "
+        "entry) or allow their content to be observed by an installed custom keyboard."
+    )
+    mitre_attack_mobile_technique_id = "Collection"
     requires_ipa_artifact = False
 
     def __init__(self, server_factory=CommandControlServer):

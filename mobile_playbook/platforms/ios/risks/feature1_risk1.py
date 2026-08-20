@@ -30,6 +30,13 @@ class Feature1Risk1(Risk):
     risk_id = "ios-feature1-risk1"
     feature_id = "feature1"
     name = "IPA acquisition static analysis exposure"
+    description = (
+        "An acquired IPA can be unpacked and statically analyzed on a workstation, exposing metadata, "
+        "bundled resources, permissions, URL schemes, binary characteristics, and embedded sensitive "
+        "strings such as API keys or credentials."
+    )
+    goal = "Demonstrate what a workstation-side static analysis of an acquired IPA can reveal about the app."
+    mitre_attack_mobile_technique_id = "Discovery"
     requires_ipa_artifact = True
     requires_device = False
 

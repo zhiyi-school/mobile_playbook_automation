@@ -58,10 +58,14 @@ When `restore_original_after_test` is true (the default), the original, backed-u
 
 Generated work files (backed-up, decoded, and rebuilt APKs) are left under `work/android/repackaging/` for inspection.
 
+## Risk Metadata
+
+Each risk carries descriptive metadata as class attributes alongside `risk_id`/`name`: `description` (what the risk is), `goal` (what the test is trying to show), `is_blocking` (whether a positive finding should block a release/compliance sign-off), and `mitre_attack_mobile_technique_id` (the MITRE ATT&CK for Mobile tactic or technique this risk maps to, or `None` if not yet mapped — currently the tactic name, e.g. `"Discovery"`, since not every risk has a clean single-technique match). `list_risks()` and `GET /platforms/{platform}/risks` (see [HTTP API](../api.md)) return all of these alongside the existing fields.
+
 ## Adding An Android Risk
 
 1. Add a new class under `mobile_playbook/platforms/android/risks/`.
-2. Subclass `AndroidRisk` and set a unique `risk_id`.
+2. Subclass `AndroidRisk` and set a unique `risk_id`, plus `description`/`goal` describing the risk and what the test demonstrates.
 3. Reuse the ADB/Appium device client and report writing where possible.
 4. Add mocked pytest coverage for device and external-tool behavior.
 

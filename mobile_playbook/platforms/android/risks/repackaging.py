@@ -20,6 +20,11 @@ except ImportError:
 class AndroidRepackagingRisk(AndroidRisk):
     risk_id = "android-feature1-risk2"
     name = "Android Repackaging Test"
+    description = (
+        "A decompiled, patched, and re-signed build of the app may still install and launch normally, "
+        "indicating the app lacks effective tamper or signature-verification detection."
+    )
+    goal = "Demonstrate whether the app detects and reacts to being repackaged and re-signed with a different identity."
     test_case_id = "repackaging"
     test_case_type = "apk_decode_patch_resign_validate"
     requires = ["adb", "apktool", "apksigner", "keytool", "appium"]

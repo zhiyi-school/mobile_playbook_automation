@@ -5,24 +5,27 @@ import threading
 from pathlib import Path
 from typing import Literal
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from mobile_playbook.orchestration.artifact_intake import selected_app_csv, selected_csv, validate_app_selection
 from mobile_playbook.orchestration.scan_runner import RunOptions, run_platform
 from mobile_playbook.orchestration.scheduler import reserve_run_timestamp
+from mobile_playbook.platforms.android.apk_tools import inspect_apk_metadata
 from mobile_playbook.platforms.android.config import ConfigError as AndroidConfigError
 from mobile_playbook.platforms.android.config import load_config as load_android_config
 from mobile_playbook.platforms.android.results import normalize_android_result
 from mobile_playbook.platforms.android.risks import list_risks as list_android_risks
 from mobile_playbook.platforms.android.runner import AndroidPlatformRunner
 from mobile_playbook.platforms.ios.config import ConfigError, load_config
+from mobile_playbook.platforms.ios.ipa.plist_utils import inspect_ipa_metadata
 from mobile_playbook.platforms.ios.results import normalize_ios_result
 from mobile_playbook.platforms.ios.risks import list_risks as list_ios_risks
 from mobile_playbook.platforms.ios.runner import IosPlatformRunner
 from mobile_playbook.reporting.report_writer import ReportWriter
 
+from mobile_playbook.api import config_editor
 from mobile_playbook.api.job_registry import registry
 
 Platform = Literal["ios", "android"]
@@ -113,6 +116,8 @@ def _execute_run(run_timestamp: str, platform: Platform, config, options: RunOpt
     except Exception as exc:  # background thread: report failure via the registry, don't raise
         registry.mark_failed(run_timestamp, str(exc))
         return
+    finally:
+        registry.release_platform(platform)
     registry.mark_completed(run_timestamp, outcome.run_dir)
 
 
@@ -127,19 +132,29 @@ def create_run(body: RunRequest) -> dict:
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    out_dir = Path(body.out_dir)
-    # run_id *is* the run_timestamp (and the reports/<run_timestamp>/ dir name) —
-    # reserved atomically here so it can be handed back in the response
-    # immediately, and so two POST /runs in the same second can't be handed
-    # the same run_id/directory (see reserve_run_timestamp's docstring).
-    run_timestamp = reserve_run_timestamp(out_dir)
+    # One physical device per platform — a second concurrent run for the same
+    # platform would fight the first over that device, so claim it before
+    # reserving anything. iOS and Android are separate devices and can run
+    # concurrently, same as the CLI's run-all already assumes.
+    if not registry.try_claim_platform(body.platform):
+        raise HTTPException(status_code=409, detail=f"A {body.platform} run is already in progress")
 
-    record = registry.create(run_timestamp, body.platform, body.config_path)
-    options = RunOptions(out_dir=out_dir, selected_tests=selected_risks, selected_apps=selected_apps)
-    thread = threading.Thread(
-        target=_execute_run, args=(run_timestamp, body.platform, config, options), daemon=True
-    )
-    thread.start()
+    try:
+        out_dir = Path(body.out_dir)
+        # run_id *is* the run_timestamp (and the reports/<run_timestamp>/ dir name) —
+        # reserved atomically here so it can be handed back in the response
+        # immediately, and so two POST /runs in the same second can't be handed
+        # the same run_id/directory (see reserve_run_timestamp's docstring).
+        run_timestamp = reserve_run_timestamp(out_dir)
+        record = registry.create(run_timestamp, body.platform, body.config_path)
+        options = RunOptions(out_dir=out_dir, selected_tests=selected_risks, selected_apps=selected_apps)
+        thread = threading.Thread(
+            target=_execute_run, args=(run_timestamp, body.platform, config, options), daemon=True
+        )
+        thread.start()
+    except Exception:
+        registry.release_platform(body.platform)
+        raise
     return {"run_id": record.run_id, "platform": record.platform, "status": record.status}
 
 
@@ -207,3 +222,123 @@ def report_file(run_timestamp: str, file_path: str) -> FileResponse:
     if run_dir not in resolved.parents or not resolved.is_file():
         raise HTTPException(status_code=404, detail="File not found")
     return FileResponse(resolved)
+
+
+_INTAKE_DIRS: dict[Platform, Path] = {"ios": Path("intake/ios/ipas"), "android": Path("intake/android/apks")}
+_ARTIFACT_SUFFIXES: dict[Platform, str] = {"ios": ".ipa", "android": ".apk"}
+
+
+def _inspect_uploaded_artifact(platform: Platform, path: Path) -> dict:
+    try:
+        if platform == "android":
+            return inspect_apk_metadata(path)
+        return inspect_ipa_metadata(path)
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
+@app.post("/artifacts/{platform}", status_code=201)
+async def upload_artifact(platform: Platform, file: UploadFile = File(...)) -> dict:
+    filename = Path(file.filename or "").name
+    expected_suffix = _ARTIFACT_SUFFIXES[platform]
+    if not filename or Path(filename).suffix.lower() != expected_suffix:
+        raise HTTPException(
+            status_code=400, detail=f"Expected a {expected_suffix} file for platform {platform}, got {file.filename!r}"
+        )
+
+    dest_dir = _INTAKE_DIRS[platform]
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest_path = dest_dir / filename
+    contents = await file.read()
+    dest_path.write_bytes(contents)
+
+    return {"path": str(dest_path), "metadata": _inspect_uploaded_artifact(platform, dest_path)}
+
+
+# ---------------------------------------------------------------------------
+# Config editing — CRUD over apps.yaml / risk-settings / device / runner.
+#
+# Every write here re-runs the real config loader/validator against what's
+# now on disk and reverts the file if that fails, so an edit can never leave
+# the config in a state `python -m mobile_playbook validate` would reject.
+# See mobile_playbook/api/config_editor.py for why iOS apps.yaml (which
+# depends on templates.yaml's YAML anchors) is handled differently from
+# every other file here.
+# ---------------------------------------------------------------------------
+
+_APPS_BY_PLATFORM = {
+    "ios": (config_editor.list_ios_apps, config_editor.add_ios_app, config_editor.edit_ios_app, config_editor.delete_ios_app),
+    "android": (
+        config_editor.list_android_apps,
+        config_editor.add_android_app,
+        config_editor.edit_android_app,
+        config_editor.delete_android_app,
+    ),
+}
+
+
+def _apps_ops(platform: Platform):
+    return _APPS_BY_PLATFORM[platform]
+
+
+@app.get("/config/{platform}/apps")
+def list_config_apps(platform: Platform) -> list[dict]:
+    list_fn, _, _, _ = _apps_ops(platform)
+    return list_fn()
+
+
+@app.get("/config/{platform}/apps/{app_id}")
+def get_config_app(platform: Platform, app_id: str) -> dict:
+    list_fn, _, _, _ = _apps_ops(platform)
+    for app_entry in list_fn():
+        if app_entry.get("id") == app_id:
+            return app_entry
+    raise HTTPException(status_code=404, detail=f"Unknown app_id: {app_id}")
+
+
+@app.post("/config/{platform}/apps", status_code=201)
+def add_config_app(platform: Platform, body: dict) -> dict:
+    _, add_fn, _, _ = _apps_ops(platform)
+    return add_fn(body)
+
+
+@app.put("/config/{platform}/apps/{app_id}")
+def edit_config_app(platform: Platform, app_id: str, body: dict) -> dict:
+    _, _, edit_fn, _ = _apps_ops(platform)
+    return edit_fn(app_id, body)
+
+
+@app.delete("/config/{platform}/apps/{app_id}", status_code=204)
+def delete_config_app(platform: Platform, app_id: str) -> None:
+    _, _, _, delete_fn = _apps_ops(platform)
+    delete_fn(app_id)
+
+
+@app.get("/config/{platform}/risk-settings/{risk_id}")
+def get_config_risk_settings(platform: Platform, risk_id: str) -> dict:
+    return config_editor.get_risk_settings(platform, risk_id)
+
+
+@app.put("/config/{platform}/risk-settings/{risk_id}")
+def put_config_risk_settings(platform: Platform, risk_id: str, body: dict) -> dict:
+    return config_editor.put_risk_settings(platform, risk_id, body)
+
+
+@app.get("/config/{platform}/device")
+def get_config_device(platform: Platform) -> dict:
+    return config_editor.get_section(platform, "device")
+
+
+@app.put("/config/{platform}/device")
+def put_config_device(platform: Platform, body: dict) -> dict:
+    return config_editor.put_section(platform, "device", body)
+
+
+@app.get("/config/{platform}/runner")
+def get_config_runner(platform: Platform) -> dict:
+    return config_editor.get_section(platform, "runner")
+
+
+@app.put("/config/{platform}/runner")
+def put_config_runner(platform: Platform, body: dict) -> dict:
+    return config_editor.put_section(platform, "runner", body)
