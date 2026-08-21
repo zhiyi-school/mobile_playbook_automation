@@ -64,11 +64,33 @@ Once `status` is `"completed"`, fetch the results:
 curl http://127.0.0.1:8080/runs/2026-08-20_09-28-42/summary
 ```
 
-This returns the same `dashboard_results.json` content the run wrote to disk. The identical value also works under `/reports` (useful since that path works for CLI-started runs too, and survives an API server restart):
+This returns the same `dashboard_results.json` content the run wrote to disk. The identical value also works under `/reports` (useful since that path works for CLI-started runs too, not just ones started via `/runs`):
 
 ```bash
 curl http://127.0.0.1:8080/reports/2026-08-20_09-28-42/summary
 ```
+
+## Watching a run's progress live
+
+`GET /runs/{run_id}` only ever reports one of three coarse states (`running`/`completed`/`failed`) — enough to know when a run is done, but nothing about what it's doing while it runs, which can be minutes for a config with several apps and risks. `GET /runs/{run_id}/events` streams that in real time over Server-Sent Events instead of needing to poll:
+
+```bash
+curl -N http://127.0.0.1:8080/runs/2026-08-20_09-28-42/events
+```
+
+```text
+data: {"type": "risk_started", "timestamp": "...", "app_id": "app_one", "risk_id": "ios-feature-01-risk-01"}
+
+data: {"type": "risk_completed", "timestamp": "...", "app_id": "app_one", "risk_id": "ios-feature-01-risk-01", "verdict": "At Risk", "final_status": "IPA_ANALYSIS_COMPLETE"}
+
+data: {"type": "appium_recovery", "timestamp": "...", "message": "ios: Appium server at http://127.0.0.1:4723 is no longer reachable mid-run — attempting to recover and resume."}
+
+data: {"type": "done", "status": "completed", "error": null}
+```
+
+Every `risk_started`/`risk_completed` event comes from the same run loop that writes each test's `report.json`, and `appium_recovery` fires from the same mid-run health check that restarts Appium after a crash (see [Appium auto-start](ios/configuration.md#appium-auto-start)) — so this is the same information already available in `summary.md`/`appium.log` after the fact, just pushed live instead of read after the run finishes. The stream ends with a `"done"` event once `GET /runs/{run_id}` would report anything other than `"running"`, then closes; a browser can consume it directly with `new EventSource(url)`.
+
+These events are read from `reports/{run_id}/events.jsonl`, appended to as the run progresses — a client that connects late still gets every event from the start (each poll re-reads the whole file), and any number of clients can watch the same run independently.
 
 A `POST /runs` call still needs everything a CLI `run` needs to actually succeed — Appium running, the device connected/unlocked/trusted, and for risks like keystroke collection, someone available to interact with the phone mid-run. The API doesn't remove those requirements, it just lets you kick the run off and check on it over HTTP instead of watching a terminal.
 
@@ -139,6 +161,7 @@ curl -X PUT http://127.0.0.1:8080/config/ios/device -H "Content-Type: applicatio
 | `POST /runs` | Starts a run in a background thread and returns immediately (`202`) with a `run_id` — it does not wait for the run to finish. Body: `{"platform", "config_path", "apps"?, "risks"?, "out_dir"?}`, mirroring `run`'s `--apps`/`--risks`/`--out` flags. `409` if that platform already has a run in progress. |
 | `GET /runs` | Lists runs started through this API (this process's history only — see below). |
 | `GET /runs/{run_id}` | One run's status: `running`, `completed`, or `failed`, plus its `run_timestamp`/`run_dir` once known. |
+| `GET /runs/{run_id}/events` | Server-Sent Events stream of this run's progress — `risk_started`/`risk_completed`/`appium_recovery` events as they happen, ending with `done`. See [Watching a run's progress live](#watching-a-runs-progress-live). |
 | `GET /runs/{run_id}/summary` | The completed run's `dashboard_results.json`, by `run_id`. `409` while still running, `500` with the error if it failed. |
 | `GET /reports` | Lists every `reports/<run_timestamp>/` directory on disk, most recent first — including runs started from the CLI, not just from this API. |
 | `GET /reports/{run_timestamp}/summary` | The same `dashboard_results.json`, looked up directly by `run_timestamp` instead of `run_id`. Works for any run on disk regardless of how it was started. |
@@ -150,9 +173,9 @@ curl -X PUT http://127.0.0.1:8080/config/ios/device -H "Content-Type: applicatio
 | `GET/PUT /config/{platform}/device` | Read or partially update the `device:` block. |
 | `GET/PUT /config/{platform}/runner` | Read or partially update the `runner:` block. |
 
-A run is asynchronous because it isn't a quick request/response: it drives real Appium sessions against a physical device and can take several minutes, and some risks (for example the custom-keyboard keystroke-collection risk) need a person to unlock the phone and grant permissions mid-run. Poll `GET /runs/{run_id}` for status instead of expecting `POST /runs` to block until finished.
+A run is asynchronous because it isn't a quick request/response: it drives real Appium sessions against a physical device and can take several minutes, and some risks (for example the custom-keyboard keystroke-collection risk) need a person to unlock the phone and grant permissions mid-run. Use `GET /runs/{run_id}/events` for live progress, or poll `GET /runs/{run_id}` for just the coarse status, instead of expecting `POST /runs` to block until finished.
 
 ## What's tracked where
 
-`GET /runs`/`GET /runs/{run_id}` come from an in-memory registry scoped to the running server process — restarting the server loses that history. The `reports/{run_timestamp}/...` endpoints read straight off disk instead, so they see every run that ever wrote a `reports/<run_timestamp>/` folder, from the CLI or the API, past or present, regardless of whether the server was restarted since.
+`GET /runs`/`GET /runs/{run_id}` come from a registry that's persisted to `reports/.job_registry.json`, written on every status change and reloaded on startup — this history survives an API server restart. A run still `"running"` at the moment the server stops can never actually finish (the restart kills the thread driving it), so on reload it's rewritten to `"failed"` with an "Interrupted by API server restart" error instead of hanging a poller forever. The `reports/{run_timestamp}/...` endpoints read straight off disk instead, so they see every run that ever wrote a `reports/<run_timestamp>/` folder, from the CLI or the API, past or present, regardless of whether the server was restarted since.
 

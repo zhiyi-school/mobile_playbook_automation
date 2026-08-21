@@ -14,7 +14,7 @@ Android per-app risk outputs are written under:
 reports/<run_timestamp>/android/<app_id>/<risk_id>/<test_case_id>/
 ```
 
-The top-level `reports/<run_timestamp>/summary.md` and `dashboard_results.json` cover all platforms in a single run; see [docs/ios/reports-and-troubleshooting.md](../ios/reports-and-troubleshooting.md) for the iOS side. If `device.appium_auto_start` is enabled, that same top-level directory also gets an `appium.log` with every Appium launch attempt for the run, including any restarts after a mid-run crash.
+The top-level `reports/<run_timestamp>/summary.md` and `dashboard_results.json` cover all platforms in a single run; see [docs/ios/reports-and-troubleshooting.md](../ios/reports-and-troubleshooting.md) for the iOS side. If `device.appium_auto_start` is enabled, that same top-level directory also gets an `appium.log` with every Appium launch attempt for the run, including any restarts after a mid-run crash. That directory also gets an `events.jsonl`, one JSON line per `risk_started`/`risk_completed`/`appium_recovery` event as the run progresses — used by the API's `GET /runs/{run_id}/events` stream (see [docs/api.md](../api.md#watching-a-runs-progress-live)) but readable directly too.
 
 `summary.md`'s Notes column carries a cleaned, single-line message rather than a raw error dump, and links to each test's report folder from a `Report` column — the complete untouched error still lives in that test's `logs.txt`/`report.json`. This cleanup currently only extends to `dashboard_results.json` for iOS; Android's `dashboard_results.json` records still carry the raw, uncleaned message and no `report_path` field pending a similar pass for `android/results.py`.
 

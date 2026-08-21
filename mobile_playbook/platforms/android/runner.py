@@ -11,6 +11,7 @@ from mobile_playbook.platforms.android.models import AndroidRiskRunResult
 from mobile_playbook.platforms.android.permissions import grant_all
 from mobile_playbook.platforms.android.preflight import check_android_preflight
 from mobile_playbook.platforms.android.risks import get_risk
+from mobile_playbook.reporting.run_events import append_event
 
 
 class AndroidPlatformRunner:
@@ -47,7 +48,9 @@ class AndroidPlatformRunner:
     def ensure_device_healthy(self, config, device_client, run_dir: Path | None = None):
         if tcp_reachable(config.device.appium_server_url, timeout=2):
             return device_client
-        print(f"android: Appium server at {config.device.appium_server_url} is no longer reachable mid-run — attempting to recover and resume.")
+        message = f"android: Appium server at {config.device.appium_server_url} is no longer reachable mid-run — attempting to recover and resume."
+        print(message)
+        append_event(run_dir or Path("work/android"), "appium_recovery", message=message)
         try:
             self.close_device(device_client)
         except Exception as exc:

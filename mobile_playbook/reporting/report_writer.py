@@ -7,6 +7,7 @@ from typing import Any, Callable
 
 from mobile_playbook.reporting.dashboard_export import write_dashboard_results
 from mobile_playbook.reporting.messages import clean_message
+from mobile_playbook.reporting.run_events import append_event
 
 
 class ReportWriter:
@@ -41,6 +42,15 @@ class ReportWriter:
         if not logs_path.exists():
             logs_path.write_text("\n".join(result.errors))
         self.results.append(result)
+        append_event(
+            self.run_dir,
+            "risk_completed",
+            app_id=result.app_id,
+            risk_id=result.risk_id,
+            test_case_id=result.test_case_id,
+            verdict=result.verdict,
+            final_status=result.final_status,
+        )
 
     def write_summary(self) -> None:
         self.completed_at = datetime.now().astimezone()

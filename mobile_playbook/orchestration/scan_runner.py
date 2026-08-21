@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, Callable, Protocol
 
 from mobile_playbook.orchestration.scheduler import new_run_timestamp
+from mobile_playbook.reporting.run_events import append_event
 
 
 @dataclass(frozen=True)
@@ -64,6 +65,7 @@ def run_platform(
                 # every one of them failing the same way for the rest of
                 # the run.
                 client = platform_runner.ensure_device_healthy(config, client, writer.run_dir)
+            append_event(writer.run_dir, "risk_started", app_id=getattr(app, "id", app), risk_id=test_id)
             platform_runner.run_test(app, test_id, config, client, writer)
     finally:
         writer.write_summary()

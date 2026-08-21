@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import threading
 from pathlib import Path
 from typing import Literal
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 
 from mobile_playbook.orchestration.artifact_intake import (
@@ -32,6 +33,7 @@ from mobile_playbook.platforms.ios.risks import list_risks as list_ios_risks
 from mobile_playbook.platforms.ios.runner import IosPlatformRunner
 from mobile_playbook.reporting.messages import clean_message
 from mobile_playbook.reporting.report_writer import ReportWriter
+from mobile_playbook.reporting.run_events import read_events
 
 from mobile_playbook.api import config_editor
 from mobile_playbook.api.job_registry import registry
@@ -45,7 +47,8 @@ app = FastAPI(
     description=(
         "HTTP wrapper around this repo's existing CLI flows (validate, list-risks, run, "
         "reports). Runs are triggered asynchronously — POST /runs returns immediately with "
-        "a run_id, poll GET /runs/{run_id} for status. Browse interactively at /docs."
+        "a run_id; stream GET /runs/{run_id}/events for live progress, or poll GET /runs/{run_id} "
+        "for just the coarse status. Browse interactively at /docs."
     ),
     version="0.1.0",
 )
@@ -194,13 +197,61 @@ def get_run_summary(run_id: str) -> list[dict]:
     return _read_dashboard_results(record.run_timestamp)
 
 
-def _safe_run_dir(run_timestamp: str) -> Path:
+EVENT_POLL_SECONDS = 0.5
+
+
+@app.get("/runs/{run_id}/events")
+async def stream_run_events(run_id: str, request: Request) -> StreamingResponse:
+    """Server-Sent Events stream of this run's progress, in place of polling GET /runs/{run_id}.
+
+    Tails reports/<run_id>/events.jsonl — the same file a risk_started/
+    risk_completed/appium_recovery event is appended to as the run actually
+    progresses — rather than an in-memory queue, so this survives an API
+    server restart and any number of clients can read it independently.
+    A late-connecting client still gets every event from the start, since
+    each poll re-reads from `since` rather than only forwarding new writes.
+    """
+    if registry.get(run_id) is None:
+        raise HTTPException(status_code=404, detail=f"Unknown run_id: {run_id}")
+    run_dir = _resolved_run_dir(run_id)
+
+    async def event_stream():
+        since = 0
+        while True:
+            if await request.is_disconnected():
+                break
+            events, since = read_events(run_dir, since)
+            for event in events:
+                yield f"data: {json.dumps(event)}\n\n"
+            record = registry.get(run_id)
+            if record is not None and record.status != "running" and not events:
+                yield f"data: {json.dumps({'type': 'done', 'status': record.status, 'error': record.error})}\n\n"
+                break
+            yield ": keep-alive\n\n"
+            await asyncio.sleep(EVENT_POLL_SECONDS)
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+def _resolved_run_dir(run_timestamp: str) -> Path:
+    """Resolve run_timestamp to its reports/ directory, rejecting path traversal.
+
+    Does not require the directory to already exist — callers that need that
+    (reading a finished run's files) check `.is_dir()` themselves; the events
+    stream deliberately doesn't, since it may be polled before the run's
+    first file is written.
+    """
     if not run_timestamp or "/" in run_timestamp or "\\" in run_timestamp or run_timestamp in {".", ".."}:
         raise HTTPException(status_code=400, detail="Invalid run_timestamp")
     run_dir = (REPORTS_ROOT / run_timestamp).resolve()
     reports_root = REPORTS_ROOT.resolve()
     if reports_root not in run_dir.parents and run_dir != reports_root:
         raise HTTPException(status_code=400, detail="Invalid run_timestamp")
+    return run_dir
+
+
+def _safe_run_dir(run_timestamp: str) -> Path:
+    run_dir = _resolved_run_dir(run_timestamp)
     if not run_dir.is_dir():
         raise HTTPException(status_code=404, detail=f"No report directory for run_timestamp: {run_timestamp}")
     return run_dir
