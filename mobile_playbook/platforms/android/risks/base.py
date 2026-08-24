@@ -3,6 +3,7 @@ from __future__ import annotations
 
 class AndroidRisk:
     risk_id: str = ""
+    feature_id: str = ""
     name: str = ""
     description: str = ""
     goal: str = ""

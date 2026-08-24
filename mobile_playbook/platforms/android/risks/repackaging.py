@@ -19,6 +19,7 @@ except ImportError:
 
 class AndroidRepackagingRisk(AndroidRisk):
     risk_id = "android-feature-01-risk-02"
+    feature_id = "feature-01"
     name = "Android Repackaging Test"
     description = (
         "A decompiled, patched, and re-signed build of the app may still install and launch normally, "

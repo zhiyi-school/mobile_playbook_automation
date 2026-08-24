@@ -11,8 +11,8 @@ from mobile_playbook.platforms.ios.models import ArtifactAcquisitionResult, Clea
 from mobile_playbook.platforms.ios.risks.base import Risk
 
 
-class Feature5KeyboardRiskBase(Risk):
-    """Shared custom-keyboard workflow helpers for iOS feature5 risks."""
+class Feature04KeyboardRiskBase(Risk):
+    """Shared custom-keyboard workflow helpers for ios-feature-04 risks."""
 
     def __init__(self, server_factory=CommandControlServer):
         self.server_factory = server_factory

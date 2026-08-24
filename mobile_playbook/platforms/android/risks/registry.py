@@ -34,6 +34,7 @@ def list_risks() -> list[dict]:
         risks.append(
             {
                 "risk_id": risk_id,
+                "feature_id": risk.feature_id,
                 "name": risk.name,
                 "description": risk.description,
                 "goal": risk.goal,

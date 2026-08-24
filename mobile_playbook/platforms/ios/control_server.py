@@ -38,7 +38,7 @@ class ControlServerState:
 
 
 class CommandControlServer:
-    """Small local HTTP server used by feature5 custom-keyboard risks.
+    """Small local HTTP server used by ios-feature-04 custom-keyboard risks.
 
     The server deliberately keeps only the primitives needed by the test:
     pair, enqueue input, deliver the next queued input, and record app events.
@@ -71,7 +71,7 @@ class CommandControlServer:
         handler = self._make_handler()
         self._server = ThreadingHTTPServer((self.host, self.port), handler)
         self.port = int(self._server.server_address[1])
-        self._thread = threading.Thread(target=self._server.serve_forever, name="feature5-keyboard-test-server", daemon=True)
+        self._thread = threading.Thread(target=self._server.serve_forever, name="feature-04-keyboard-test-server", daemon=True)
         self._thread.start()
         return self
 
@@ -167,7 +167,7 @@ class CommandControlServer:
         outer = self
 
         class Handler(BaseHTTPRequestHandler):
-            server_version = "Feature5KeyboardTest/0.1"
+            server_version = "Feature04KeyboardTest/0.1"
 
             def do_GET(self) -> None:
                 parsed = urlparse(self.path)

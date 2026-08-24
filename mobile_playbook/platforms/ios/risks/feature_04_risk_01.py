@@ -8,10 +8,10 @@ from pathlib import Path
 from mobile_playbook.core.config_files import merge_dicts
 from mobile_playbook.platforms.ios.control_server import CommandControlServer
 from mobile_playbook.platforms.ios.models import BehaviorResult, RiskRunResult
-from mobile_playbook.platforms.ios.risks.feature5_keyboard_base import Feature5KeyboardRiskBase
+from mobile_playbook.platforms.ios.risks.feature_04_keyboard_base import Feature04KeyboardRiskBase
 
 
-class Feature04Risk01(Feature5KeyboardRiskBase):
+class Feature04Risk01(Feature04KeyboardRiskBase):
     risk_id = "ios-feature-04-risk-01"
     feature_id = "feature-04"
     name = "Custom keyboard keystroke collection"
