@@ -81,7 +81,31 @@ def health() -> dict:
 
 @app.get("/platforms/{platform}/risks")
 def platform_risks(platform: Platform) -> list[dict]:
-    return list_android_risks() if platform == "android" else list_ios_risks()
+    risks = list_android_risks() if platform == "android" else list_ios_risks()
+    for risk in risks:
+        risk["demonstration"] = config_editor.get_risk_demonstration(platform, risk["risk_id"])
+    return risks
+
+
+@app.put("/platforms/{platform}/risks/{risk_id}/demonstration")
+def put_platform_risk_demonstration(platform: Platform, risk_id: str, body: list[dict]) -> list[dict]:
+    return config_editor.put_risk_demonstration(platform, risk_id, body)
+
+
+@app.get("/platforms/{platform}/features")
+def platform_features(platform: Platform) -> list[dict]:
+    return config_editor.list_features(platform)
+
+
+class FeatureUpdateRequest(BaseModel):
+    name: str | None = None
+    description: str | None = None
+
+
+@app.put("/platforms/{platform}/features/{feature_id}")
+def put_platform_feature(platform: Platform, feature_id: str, body: FeatureUpdateRequest) -> dict:
+    updates = {k: v for k, v in body.model_dump().items() if v is not None}
+    return config_editor.put_feature(platform, feature_id, updates)
 
 
 class ValidateRequest(BaseModel):

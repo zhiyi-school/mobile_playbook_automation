@@ -65,7 +65,21 @@ def _summary(result: RiskRunResult) -> str:
         return "; ".join(clean_message(e) for e in result.behavior_result.errors[:2])
     if result.artifact_result and result.artifact_result.errors:
         return "; ".join(clean_message(e) for e in result.artifact_result.errors[:2])
+    if result.risk_id == "ios-feature-02-risk-01":
+        return _traffic_interception_summary(result)
     return result.final_status
+
+
+def _traffic_interception_summary(result: RiskRunResult) -> str:
+    capture_summary = (result.launch_result or {}).get("capture_summary") or {}
+    count = capture_summary.get("matched_count", 0)
+    if not count:
+        return result.final_status
+    hosts = capture_summary.get("hosts") or []
+    shown = ", ".join(hosts[:5])
+    if len(hosts) > 5:
+        shown += f", +{len(hosts) - 5} more"
+    return f"{count} decrypted request(s) captured through Burp ({shown})" if shown else f"{count} decrypted request(s) captured through Burp"
 
 
 def _evidence(result: RiskRunResult) -> list[Evidence]:
@@ -78,6 +92,11 @@ def _evidence(result: RiskRunResult) -> list[Evidence]:
             ("screenshot", result.behavior_result.screenshot_path, "Behavior screenshot"),
             ("page_source", result.behavior_result.page_source_path, "Behavior page source"),
         ])
+    if result.risk_id == "ios-feature-02-risk-01":
+        capture_summary = (result.launch_result or {}).get("capture_summary") or {}
+        evidence_path = capture_summary.get("evidence_path")
+        if evidence_path:
+            paths.append(("capture_log", Path(evidence_path), "Burp captured traffic"))
     evidence = []
     seen = set()
     for kind, path, label in paths:

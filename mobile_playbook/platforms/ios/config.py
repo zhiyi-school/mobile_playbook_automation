@@ -9,6 +9,7 @@ from mobile_playbook.platforms.ios.artifacts.registry import known_sources
 from mobile_playbook.platforms.ios.ipa.plist_utils import inspect_ipa_metadata
 from mobile_playbook.platforms.ios.models import (
     AppConfig,
+    CisoConfig,
     DeviceConfig,
     ExpectedBehaviorConfig,
     GlobalConfig,
@@ -23,6 +24,7 @@ LOCAL_IPA_SOURCES = {"local_ipa", "ci_artifact", "vendor_ipa", "xcode_archive_ex
 # by) whatever the app's own `risks.<risk_id>` entry specifies.
 RISK_GLOBAL_SETTINGS_FIELD = {
     "ios-feature-01-risk-01": "ipa_static_analysis",
+    "ios-feature-02-risk-01": "traffic_interception",
     "ios-feature-04-risk-01": "keystroke_collection",
 }
 
@@ -76,6 +78,10 @@ def parse_config(raw: dict[str, Any], config_path: Path | None = None) -> Global
         )
         bundle_id = app_raw.get("bundle_id", "")
         app_name = app_raw.get("name", "")
+        cisos = [
+            CisoConfig(name=c.get("name", ""), email=c.get("email", ""))
+            for c in (app_raw.get("cisos") or [])
+        ]
         apps.append(
             AppConfig(
                 id=app_raw.get("id") or _slugify(app_name),
@@ -85,6 +91,10 @@ def parse_config(raw: dict[str, Any], config_path: Path | None = None) -> Global
                 artifact=app_raw.get("artifact") or {},
                 expected_behavior=behavior,
                 risks=app_raw.get("risks") or {},
+                sector=app_raw.get("sector", ""),
+                agency=app_raw.get("agency", ""),
+                version=app_raw.get("version", ""),
+                cisos=cisos,
             )
         )
     return GlobalConfig(
@@ -112,6 +122,7 @@ def parse_config(raw: dict[str, Any], config_path: Path | None = None) -> Global
         apps=apps,
         ipa_static_analysis=raw.get("ipa_static_analysis") or {},
         keystroke_collection=raw.get("keystroke_collection") or {},
+        traffic_interception=raw.get("traffic_interception") or {},
         config_path=config_path,
     )
 
@@ -168,6 +179,10 @@ def validate_config(config: GlobalConfig, dry_run: bool = False) -> None:
                 collection = effective.get("collection") or effective.get("control") or {}
                 if not str(collection.get("probe_text") or collection.get("expected_collected_text") or "").strip():
                     errors.append(f"{label}.risks.{risk_id}.collection.probe_text is required")
+            if risk_id == "ios-feature-02-risk-01":
+                burp = effective.get("burp") or {}
+                if not str(burp.get("proxy_url") or "").strip():
+                    errors.append(f"{label}.risks.{risk_id}.burp.proxy_url is required")
     if errors:
         raise ConfigError(errors)
 

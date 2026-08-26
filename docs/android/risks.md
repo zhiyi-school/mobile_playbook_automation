@@ -62,6 +62,8 @@ Generated work files (backed-up, decoded, and rebuilt APKs) are left under `work
 
 Each risk carries descriptive metadata as class attributes alongside `risk_id`/`name`: `description` (what the risk is), `goal` (what the test is trying to show), `is_blocking` (whether a positive finding should block a release/compliance sign-off), and `mitre_attack_mobile_technique_id` (the MITRE ATT&CK for Mobile tactic or technique this risk maps to, or `None` if not yet mapped — currently the tactic name, e.g. `"Discovery"`, since not every risk has a clean single-technique match). `list_risks()` and `GET /platforms/{platform}/risks` (see [HTTP API](../api.md)) return all of these alongside the existing fields.
 
+`GET /platforms/{platform}/risks` also returns each risk's `demonstration` — the setup/steps content a dashboard shows for "how to demonstrate this risk". Unlike the fields above, this doesn't live on the `AndroidRisk` class itself: it's stored in `configs/split/android/risk_demonstrations.yaml`, editable via `PUT /platforms/android/risks/{risk_id}/demonstration` without a code change. Similarly, a feature_id's own `name`/`description` (there's no `Feature` class — `feature_id` is just a string tag on each risk) live in `configs/split/android/features.yaml`, exposed at `GET /platforms/android/features` and editable at `PUT /platforms/android/features/{feature_id}`.
+
 ## Adding An Android Risk
 
 1. Add a new class under `mobile_playbook/platforms/android/risks/`.

@@ -149,14 +149,19 @@ curl -X PUT http://127.0.0.1:8080/config/ios/device -H "Content-Type: applicatio
 
 `configs/split/ios/apps.yaml` is the one exception to full comment/anchor preservation on the entries themselves: its app entries use `<<: *anchor` references to templates defined in the sibling `templates.yaml`, which can only be parsed together with that file, not on its own. Editing or adding an app there writes that one entry with fully explicit values instead of the anchor shorthand — every other untouched app entry, and all of the file's comments, are left byte-for-byte as they were. `configs/split/android/apps.yaml` has no such anchors, so Android app edits round-trip in full.
 
-`GET /config/{platform}/risk-settings/{risk_id}` only covers risks that have global settings shared across apps (`ios-feature-01-risk-01`, `ios-feature-04-risk-01`, `android-feature-01-risk-02`, `android-feature-06-risk-01`) — a per-app override still goes through that app's own `risks.<risk_id>` entry via the apps endpoints above.
+`GET /config/{platform}/risk-settings/{risk_id}` only covers risks that have global settings shared across apps (`ios-feature-01-risk-01`, `ios-feature-02-risk-01`, `ios-feature-04-risk-01`, `android-feature-01-risk-02`, `android-feature-06-risk-01`) — a per-app override still goes through that app's own `risks.<risk_id>` entry via the apps endpoints above.
+
+Every app entry also carries `sector`, `agency`, `version`, and `cisos` (a list of `{"name", "email"}`) alongside its identity/artifact fields — organizational metadata a dashboard displays, not read by the automation run itself. All four are optional and default to blank/empty; `PUT /config/{platform}/apps/{app_id}` accepts any of them like any other field, including clearing `cisos` back to `[]` (unlike most other list-valued fields on this endpoint, an empty `cisos` in the request body does clear it rather than being treated as "no change").
 
 ## Endpoints
 
 | Method & Path | Purpose |
 | --- | --- |
 | `GET /health` | Liveness check. |
-| `GET /platforms/{platform}/risks` | Every risk's full metadata — `risk_id`, `name`, `description`, `goal`, `is_blocking`, `mitre_attack_mobile_technique_id`, and platform-specific requirement fields. `platform` is `ios` or `android`. See [Risk Metadata](ios/risks.md#risk-metadata). |
+| `GET /platforms/{platform}/risks` | Every risk's full metadata — `risk_id`, `name`, `description`, `goal`, `is_blocking`, `mitre_attack_mobile_technique_id`, `demonstration`, and platform-specific requirement fields. `platform` is `ios` or `android`. See [Risk Metadata](ios/risks.md#risk-metadata). |
+| `PUT /platforms/{platform}/risks/{risk_id}/demonstration` | Replace a risk's `demonstration` content — the "how to demonstrate this" setup/steps a dashboard shows, stored in `configs/split/{platform}/risk_demonstrations.yaml`. Body is the full `demonstration` array; it never affects what the automation run itself does. |
+| `GET /platforms/{platform}/features` | Every feature_id referenced by that platform's risks, with its `name`/`description` from `configs/split/{platform}/features.yaml`. `feature_id` here has no platform prefix (e.g. `"feature-01"`). |
+| `PUT /platforms/{platform}/features/{feature_id}` | Partially update a feature's `name`/`description`. |
 | `POST /config/validate` | Same check as `validate`. Body: `{"platform", "config_path"}`. Returns `422` with the config's error list if invalid. |
 | `POST /runs` | Starts a run in a background thread and returns immediately (`202`) with a `run_id` — it does not wait for the run to finish. Body: `{"platform", "config_path", "apps"?, "risks"?, "out_dir"?}`, mirroring `run`'s `--apps`/`--risks`/`--out` flags. `409` if that platform already has a run in progress. |
 | `GET /runs` | Lists runs started through this API (this process's history only — see below). |

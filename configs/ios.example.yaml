@@ -35,5 +35,6 @@ runner:
 
 include:
   ipa_static_analysis: split/ios/ipa_static_analysis.yaml
+  traffic_interception: split/ios/traffic_interception.yaml
   keystroke_collection: split/ios/keystroke_collection.yaml
   apps: split/ios/apps.yaml

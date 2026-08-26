@@ -27,12 +27,22 @@ class AndroidRunnerConfig(SerializableDataclass):
 
 
 @dataclass
+class CisoConfig(SerializableDataclass):
+    name: str = ""
+    email: str = ""
+
+
+@dataclass
 class AndroidAppConfig(SerializableDataclass):
     id: str
     name: str
     package_name: str
     artifact: dict[str, Any] = field(default_factory=dict)
     risks: dict[str, Any] = field(default_factory=dict)
+    sector: str = ""
+    agency: str = ""
+    version: str = ""
+    cisos: list[CisoConfig] = field(default_factory=list)
 
 
 @dataclass

@@ -39,16 +39,24 @@ The top-level `reports/<run_timestamp>/summary.md` and `dashboard_results.json` 
 - `target_page_source*.xml`
 - `target_text_field_candidates*.json`
 
+`ios-feature-02-risk-01`:
+
+- `report.json`
+- `logs.txt`
+- `burp_capture.json`
+
 ## Statuses
 
 Each test's `report.json` (and `logs.txt`) carries one of these precise statuses in its `final_status` field:
 
 - `IPA_ANALYSIS_COMPLETE`: IPA was acquired, inspected, and analyzed.
 - `PROTECTED_OR_ENCRYPTED_BINARY`: executable appears protected or encrypted.
-- `RISK_EXISTS`: custom-keyboard collection evidence was observed.
+- `RISK_EXISTS`: custom-keyboard collection evidence was observed, or (`ios-feature-02-risk-01`) decrypted traffic matching the app was captured through Burp.
 - `KEYSTROKE_COLLECTION_NOT_OBSERVED`: probe text was typed but not observed in evidence.
 - `CUSTOM_KEYBOARD_NOT_AVAILABLE`: the target field did not allow the custom keyboard.
 - `PAIRING_TIMEOUT`: keyboard app did not call `/pair`.
+- `PROXY_NOT_CONFIGURED`, `PROXY_UNREACHABLE`: (`ios-feature-02-risk-01`) Burp's proxy isn't configured or isn't reachable.
+- `TRAFFIC_INTERCEPTION_NOT_OBSERVED`: (`ios-feature-02-risk-01`) no traffic matching the app was captured through Burp during the exercise window.
 - `INSTALL_FAILED`, `LAUNCH_FAILED`, `BEHAVIOR_FAILED`, `FAILED`: setup, launch, behavior, or unexpected failure.
 
 `summary.md`'s `Status` column doesn't show these directly — it shows a 3-way security verdict (`RiskRunResult.verdict`) that each risk sets itself, alongside `final_status`, at the point it decides the outcome: **At Risk** (the risk was demonstrated, e.g. `IPA_ANALYSIS_COMPLETE`/`RISK_EXISTS`), **Reduced Risk** (the app mitigated it, e.g. `KEYSTROKE_COLLECTION_NOT_OBSERVED`/`CUSTOM_KEYBOARD_NOT_AVAILABLE`), or **Inconclusive** — the field's default, and what any status not listed above leaves it as (install/launch/pairing/behavior failures included). The precise underlying status is always still in that test's `report.json`.

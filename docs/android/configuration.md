@@ -85,6 +85,8 @@ apps:
 
 When using the legacy shape, both Android risks are enabled for each package.
 
+Each app can also carry `sector`, `agency`, `version`, and `cisos` (a list of `{name, email}`) — organizational metadata a dashboard displays alongside an app's findings. None of this is read by the automation run itself; all four are optional and default to blank/empty, and can be set here directly or through `GET`/`PUT /config/android/apps/{app_id}` (see [HTTP API](../api.md#editing-config)).
+
 See the one app entry under `apps:` in [configs/split/android/apps.example.yaml](../../configs/split/android/apps.example.yaml) for a full, copyable app block including per-app risk overrides.
 
 ## Risk Blocks

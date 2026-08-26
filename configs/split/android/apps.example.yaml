@@ -13,3 +13,12 @@ apps:
         enabled: true
       android-feature-06-risk-01:
         enabled: true
+    # Organizational metadata only — not read by the automation run itself.
+    # A dashboard (e.g. litmus-v2) reads/writes these through
+    # GET/PUT /config/android/apps/{id}; all are optional and default to blank/empty.
+    sector: "Government"
+    agency: "Example Agency"
+    version: "1.0.0"
+    cisos:
+      - name: "Jane Doe"
+        email: "jane.doe@example.gov"

@@ -43,6 +43,9 @@ FINAL_STATUSES = {
     "RISK_EXISTS",
     "CUSTOM_KEYBOARD_NOT_AVAILABLE",
     "CONTROL_SERVER_FAILED",
+    "PROXY_NOT_CONFIGURED",
+    "PROXY_UNREACHABLE",
+    "TRAFFIC_INTERCEPTION_NOT_OBSERVED",
     "CLEANUP_FAILED",
     "FAILED",
 }
@@ -113,6 +116,12 @@ class ExpectedBehaviorConfig(SerializableDataclass):
 
 
 @dataclass
+class CisoConfig(SerializableDataclass):
+    name: str = ""
+    email: str = ""
+
+
+@dataclass
 class AppConfig(SerializableDataclass):
     id: str
     name: str
@@ -121,6 +130,10 @@ class AppConfig(SerializableDataclass):
     artifact: dict[str, Any]
     expected_behavior: ExpectedBehaviorConfig
     risks: dict[str, Any]
+    sector: str = ""
+    agency: str = ""
+    version: str = ""
+    cisos: list[CisoConfig] = field(default_factory=list)
 
 
 @dataclass
@@ -130,6 +143,7 @@ class GlobalConfig(SerializableDataclass):
     apps: list[AppConfig]
     ipa_static_analysis: dict[str, Any] = field(default_factory=dict)
     keystroke_collection: dict[str, Any] = field(default_factory=dict)
+    traffic_interception: dict[str, Any] = field(default_factory=dict)
     config_path: Path | None = None
 
 

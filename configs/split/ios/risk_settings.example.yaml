@@ -35,6 +35,18 @@ ipa_static_analysis:
     max_keys: 5
     test_address: "Singapore"
 
+traffic_interception:
+  burp:
+    proxy_url: "http://127.0.0.1:8080"
+    capture_path: "work/ios/traffic_interception/capture.jsonl"
+  expected_hosts:
+    - "REPLACE_WITH_APP_API_HOSTNAME"
+  capture_timeout_seconds: 30
+  exercise:
+    exercise_wait_seconds: 20
+    settle_seconds: 1
+    accessibility_ids: []
+
 keystroke_collection:
   keyboard_app:
     bundle_id: "com.example.LocalKeyboard"

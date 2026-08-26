@@ -9,6 +9,7 @@ from mobile_playbook.platforms.android.models import (
     AndroidDeviceConfig,
     AndroidGlobalConfig,
     AndroidRunnerConfig,
+    CisoConfig,
 )
 from mobile_playbook.platforms.android.risks.registry import known_risks
 
@@ -112,12 +113,20 @@ def _parse_app(item: Any) -> AndroidAppConfig:
     if not isinstance(item, dict):
         return AndroidAppConfig(id="", name="", package_name="", risks={})
     package_name = item.get("package_name") or item.get("package") or item.get("bundle_id") or ""
+    cisos = [
+        CisoConfig(name=c.get("name", ""), email=c.get("email", ""))
+        for c in (item.get("cisos") or [])
+    ]
     return AndroidAppConfig(
         id=item.get("id") or _slugify(package_name or item.get("name", "")),
         name=item.get("name") or package_name,
         package_name=package_name,
         artifact=item.get("artifact") or {},
         risks=item.get("risks") or {risk_id: {"enabled": True} for risk_id in known_risks()},
+        sector=item.get("sector", ""),
+        agency=item.get("agency", ""),
+        version=item.get("version", ""),
+        cisos=cisos,
     )
 
 

@@ -36,10 +36,12 @@ reports/<run_timestamp>/ios/<app_id>/<risk_id>/
 - Appium server with the XCUITest driver installed
 - A physical iPhone connected to the Mac
 - MobSF if you want `ios-feature-01-risk-01` to use the primary analyzer path
+- Burp Suite, plus a device already configured to proxy through it with Burp's CA trusted, if you want `ios-feature-02-risk-01`
 
 ## Quick Notes
 
 - The framework no longer automates IPA retrieval from the App Store. Obtain each IPA yourself and point the config at the local file.
 - `ios-feature-01-risk-01` does not require Appium or a connected phone.
+- `ios-feature-02-risk-01` requires a working Appium/XCUITest real-device setup, the device already proxying through Burp with its CA trusted (one-time manual setup, not automated — see [Risks](risks.md#ios-feature-02-risk-01)), and a companion Burp extension writing captured traffic to the configured `capture_path`.
 - `ios-feature-04-risk-01` requires a working Appium/XCUITest real-device setup, and the user must add the custom keyboard in iOS Settings with Full Access enabled.
 - The runner is sequential by default and can uninstall test bundles after each app test to reduce device state drift.

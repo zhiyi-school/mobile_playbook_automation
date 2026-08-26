@@ -9,12 +9,12 @@ Set up the split config from the tracked examples:
 ```bash
 cp configs/ios.example.yaml configs/ios.yaml
 cp configs/split/ios/apps.example.yaml configs/split/ios/apps.yaml
-for f in ipa_static_analysis keystroke_collection; do cp configs/split/ios/risk_settings.example.yaml "configs/split/ios/$f.yaml"; done
+for f in ipa_static_analysis traffic_interception keystroke_collection; do cp configs/split/ios/risk_settings.example.yaml "configs/split/ios/$f.yaml"; done
 ```
 
-`risk_settings.example.yaml` shows both risks' settings together in one file for easier reading; trim each copy above down to just its own top-level key (`ipa_static_analysis:` in one, `keystroke_collection:` in the other) — see [Global Risk Settings](#global-risk-settings).
+`risk_settings.example.yaml` shows all three risks' settings together in one file for easier reading; trim each copy above down to just its own top-level key (`ipa_static_analysis:` in one, `traffic_interception:` in another, `keystroke_collection:` in the third) — see [Global Risk Settings](#global-risk-settings).
 
-The config contains `device`, `runner`, `ipa_static_analysis`, `keystroke_collection`, and `apps` sections — the first two inline, the rest via `include:`.
+The config contains `device`, `runner`, `ipa_static_analysis`, `traffic_interception`, `keystroke_collection`, and `apps` sections — the first two inline, the rest via `include:`.
 
 ## Device
 
@@ -92,6 +92,8 @@ For `local_ipa`, `bundle_id`, `test_bundle_id`, and `artifact.expected_bundle_id
 
 The framework no longer retrieves IPAs from the App Store. Obtain each IPA yourself and point `artifact.ipa` at the local file.
 
+Each app can also carry `sector`, `agency`, `version`, and `cisos` (a list of `{name, email}`) — organizational metadata a dashboard displays alongside an app's findings. None of this is read by the automation run itself; all four are optional and default to blank/empty, and can be set here directly or through `GET`/`PUT /config/ios/apps/{app_id}` (see [HTTP API](../api.md#editing-config)).
+
 See the one app entry under `apps:` in [configs/split/ios/apps.example.yaml](../../configs/split/ios/apps.example.yaml) for a full, copyable app block including both risk blocks.
 
 ## Risk Blocks
@@ -124,8 +126,27 @@ iOS risk IDs are prefixed `ios-feature...`. To configure a risk for an app:
        fallback_to_builtin: true
    ```
 
-   See `configs/split/ios/risk_settings.example.yaml` for the rest of this and `keystroke_collection`'s fields, and [Risks](risks.md) for what each field controls.
+   See `configs/split/ios/risk_settings.example.yaml` for the rest of this and `traffic_interception`/`keystroke_collection`'s fields, and [Risks](risks.md) for what each field controls.
 3. Only add more fields under the app's own `risks.<risk_id>` entry when this one app needs to differ from those shared defaults — nest just the field being changed. Anything left unset there falls back to the global file; see [Global Risk Settings](#global-risk-settings) for how the two are merged.
+
+### Traffic interception
+
+`ios-feature-02-risk-01` needs a device already configured to proxy through Burp Suite with Burp's CA trusted — that's a one-time, manual, per-device setup this framework doesn't automate (see [Risks](risks.md#ios-feature-02-risk-01) for why, and what it needs from a companion Burp extension). Once that's done:
+
+```yaml
+traffic_interception:
+  burp:
+    proxy_url: "http://127.0.0.1:8080"
+    capture_path: "work/ios/traffic_interception/capture.jsonl"
+  expected_hosts:
+    - "api.example.com"
+  capture_timeout_seconds: 30
+  exercise:
+    exercise_wait_seconds: 20
+    accessibility_ids: []
+```
+
+`burp.proxy_url` is checked for reachability before the risk runs. `expected_hosts` filters `capture_path`'s entries down to this app's own traffic; leave it empty to accept any newly-captured entry (useful for a first test, but noisier if anything else is also proxied through the same Burp instance at the time).
 
 ## Split iOS Configs
 
@@ -142,6 +163,7 @@ runner:
 
 include:
   ipa_static_analysis: split/ios/ipa_static_analysis.yaml
+  traffic_interception: split/ios/traffic_interception.yaml
   keystroke_collection: split/ios/keystroke_collection.yaml
   apps: split/ios/apps.yaml
 ```
@@ -150,9 +172,9 @@ Included paths are resolved relative to the entry-point file — here, that's `c
 
 ### Global Risk Settings
 
-`ipa_static_analysis` and `keystroke_collection` each hold one risk's shared default settings — the analyzer config for `ios-feature-01-risk-01`, the keyboard-collection config for `ios-feature-04-risk-01` — used by every app that enables that risk. An app's own `risks.<risk_id>` entry in `apps.yaml` only needs `enabled: true`; any field nested under it there overrides the shared default for that app alone, merged recursively (so, for example, an app can override just `collection.auto_navigation.accessibility_ids` without repeating the rest of `collection`). See [Risks](risks.md) for what each field controls.
+`ipa_static_analysis`, `traffic_interception`, and `keystroke_collection` each hold one risk's shared default settings — the analyzer config for `ios-feature-01-risk-01`, the Burp proxy config for `ios-feature-02-risk-01`, the keyboard-collection config for `ios-feature-04-risk-01` — used by every app that enables that risk. An app's own `risks.<risk_id>` entry in `apps.yaml` only needs `enabled: true`; any field nested under it there overrides the shared default for that app alone, merged recursively (so, for example, an app can override just `collection.auto_navigation.accessibility_ids` without repeating the rest of `collection`). See [Risks](risks.md) for what each field controls.
 
-`configs/split/ios/risk_settings.example.yaml` shows both risks' settings together in one file for easier reading, but the real (git-ignored) config keeps them as separate files, one per risk, matching the `include:` map above.
+`configs/split/ios/risk_settings.example.yaml` shows all three risks' settings together in one file for easier reading, but the real (git-ignored) config keeps them as separate files, one per risk, matching the `include:` map above.
 
 ### Splitting Out Shared Templates
 

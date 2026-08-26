@@ -79,6 +79,10 @@ class AppiumDeviceClient:
     def launch_app(self, bundle_id: str) -> dict:
         return {"result": self._execute("launchApp", {"bundleId": bundle_id})}
 
+    def open_url(self, url: str, bundle_id: str = "com.apple.mobilesafari") -> dict:
+        # mobile: deepLink avoids driving Safari's own address-bar UI directly.
+        return {"result": self._execute("deepLink", {"url": url, "bundleId": bundle_id})}
+
     def handle_permission_alerts(self, config: dict | None = None) -> list[dict]:
         if self.driver is None:
             raise RuntimeError("Appium session is not connected")

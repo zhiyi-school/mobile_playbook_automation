@@ -75,6 +75,7 @@ class MockDevice:
         self.keyboard_selection_results: dict[str, object] = {"status": "SELECTED"}
         self.keyboard_selection_calls: list[dict[str, object]] = []
         self.typed_text: list[dict[str, object]] = []
+        self.opened_urls: list[dict[str, object]] = []
 
     def is_installed(self, bundle_id: str) -> bool:
         return bundle_id in self.installed
@@ -91,6 +92,10 @@ class MockDevice:
         return InstallResult(status="INSTALL_FAILED", ipa_path=ipa_path, errors=["install failed"])
 
     def launch_app(self, bundle_id: str) -> dict:
+        return {"ok": True}
+
+    def open_url(self, url: str, bundle_id: str = "com.apple.mobilesafari") -> dict:
+        self.opened_urls.append({"url": url, "bundle_id": bundle_id})
         return {"ok": True}
 
     def handle_permission_alerts(self, config: dict | None = None) -> list[dict]:

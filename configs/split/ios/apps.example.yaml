@@ -40,5 +40,18 @@ apps:
     risks:
       ios-feature-01-risk-01:
         enabled: true
+      ios-feature-02-risk-01:
+        enabled: false
+        expected_hosts:
+          - "api.example.com"
       ios-feature-04-risk-01:
         enabled: false
+    # Organizational metadata only — not read by the automation run itself.
+    # A dashboard (e.g. litmus-v2) reads/writes these through
+    # GET/PUT /config/ios/apps/{id}; all are optional and default to blank/empty.
+    sector: "Government"
+    agency: "Example Agency"
+    version: "1.0.0"
+    cisos:
+      - name: "Jane Doe"
+        email: "jane.doe@example.gov"
