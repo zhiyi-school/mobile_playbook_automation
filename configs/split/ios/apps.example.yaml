@@ -1,26 +1,5 @@
-# Example iOS app roster: one entry per app under test, with its identity,
-# IPA location, expected launch behavior, and enabled risks. Each app's
-# `risks:` map only needs `enabled: true` per risk_id — the actual settings
-# come from that risk's own global settings file, and any field nested under
-# a risk here overrides that shared default for this app alone.
-
+# Example iOS app roster. Copy to apps.yaml and add only authorized test apps; see docs/ios/configuration.md.
 apps:
-  # To add another app:
-  # - copy one app block
-  # - change name/id and artifact.ipa
-  # - leave bundle_id blank to infer it from the IPA
-  #
-  # Each risk's shared settings (analyzer config, keyboard/collection config) come
-  # from the global ipa_static_analysis.yaml / keystroke_collection.yaml files —
-  # `enabled: true` here is what turns the risk on for this app. Nest a field under
-  # a risk to override just that field for this app alone, e.g.:
-  #
-  #   ios-feature-04-risk-01:
-  #     enabled: true
-  #     collection:
-  #       auto_navigation:
-  #         accessibility_ids:
-  #           - "btn_some_button"
   - id: "app_one"
     name: "App One"
     bundle_id: "com.example.appone"
@@ -46,9 +25,6 @@ apps:
           - "api.example.com"
       ios-feature-04-risk-01:
         enabled: false
-    # Organizational metadata only — not read by the automation run itself.
-    # A dashboard (e.g. litmus-v2) reads/writes these through
-    # GET/PUT /config/ios/apps/{id}; all are optional and default to blank/empty.
     sector: "Government"
     agency: "Example Agency"
     version: "1.0.0"

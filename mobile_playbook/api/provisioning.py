@@ -1,9 +1,4 @@
-"""Whether a configured app is ready to be tested. See docs/api.md#is-an-app-ready-to-test.
-
-Stage text is deliberately free of paths, filenames, config field names and
-identifiers: it is rendered directly in a dashboard. Specifics go to this
-module's logger instead.
-"""
+"""Poll-safe readiness checks for configured apps."""
 
 from __future__ import annotations
 
@@ -106,7 +101,6 @@ def _android_configuration(app: dict) -> tuple[str, str | None, str | None]:
     if not adb.is_available():
         return "unknown", "The test device could not be reached.", package_name
 
-    # A missing device and a missing app both just exit non-zero.
     state_code, state_out, _ = adb.run(["get-state"])
     if state_code != 0 or state_out.strip() != "device":
         return "unknown", "No test device is currently connected.", package_name
@@ -181,8 +175,6 @@ def describe(platform: str, app_id: str) -> dict:
         logger.error("Config for platform %s could not be read: %s", platform, exc)
         return _config_failure(platform, app_id, detail)
 
-    # Only this app's own problems stop it being reported on; another app's
-    # broken entry must not make every app look unusable.
     errors = config_editor.app_config_errors(platform)
     if errors.get(app_id) or errors.get(""):
         logger.error(

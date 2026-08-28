@@ -77,7 +77,7 @@ def _register_by_name(name: str) -> str:
 
 
 def test_reports_three_setup_stages(config_root):
-    report = provisioning.describe("ios", _register_by_name("CPF Mobile"))
+    report = provisioning.describe("ios", _register_by_name("Example Wallet"))
 
     assert [stage["id"] for stage in report["stages"]] == [
         "app_registered",
@@ -97,7 +97,7 @@ def test_app_not_registered_shows_environment_being_prepared(config_root):
 
 
 def test_registered_app_waits_on_configuration_until_its_build_arrives(config_root):
-    app_id = _register_by_name("CPF Mobile")
+    app_id = _register_by_name("Example Wallet")
 
     report = provisioning.describe("ios", app_id)
     assert report["status"] == "pending"
@@ -107,15 +107,15 @@ def test_registered_app_waits_on_configuration_until_its_build_arrives(config_ro
     _assert_discloses_nothing(report)
 
     make_ipa(
-        config_root / "intake/ios/ipas/CPF_Mobile_6.28.1.ipa",
-        bundle_id="gov.sg.cpf.mycpf",
-        display_name="CPF Mobile",
+        config_root / "intake/ios/ipas/Example_Wallet_6.28.1.ipa",
+        bundle_id="com.example.wallet",
+        display_name="Example Wallet",
     )
 
     report = provisioning.describe("ios", app_id)
     assert report["status"] == "ready"
     assert _stage(report, "configuration_applied")["state"] == "done"
-    assert report["bundle_id"] == "gov.sg.cpf.mycpf"
+    assert report["bundle_id"] == "com.example.wallet"
     _assert_discloses_nothing(report)
 
 
@@ -132,11 +132,11 @@ def test_ambiguous_builds_fail_without_naming_them(config_root):
 
 
 def test_another_apps_broken_entry_does_not_affect_this_one(config_root):
-    app_id = _register_by_name("CPF Mobile")
+    app_id = _register_by_name("Example Wallet")
     make_ipa(
-        config_root / "intake/ios/ipas/CPF_Mobile.ipa",
-        bundle_id="gov.sg.cpf.mycpf",
-        display_name="CPF Mobile",
+        config_root / "intake/ios/ipas/Example_Wallet.ipa",
+        bundle_id="com.example.wallet",
+        display_name="Example Wallet",
     )
     broken_id = _append_broken_app(config_root)
 

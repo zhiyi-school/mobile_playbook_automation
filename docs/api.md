@@ -120,7 +120,7 @@ curl -X POST http://127.0.0.1:8080/artifacts/ios -F "file=@app.ipa"
 {"path": "intake/ios/ipas/app.ipa", "metadata": {"bundle_id": "com.example.app", "display_name": "...", "...": "..."}}
 ```
 
-The file must match the platform's expected extension (`.ipa` for `ios`, `.apk` for `android`) or the request is rejected with `400`. Metadata comes from this repo's existing `inspect_ipa_metadata()`/`inspect_apk_metadata()` — for iOS that's the real bundle ID, display name, and full `Info.plist`; Android's APK inspector isn't implemented yet (`mobile_playbook/platforms/android/apk_tools.py`), so an Android upload still saves the file but its `metadata` comes back as `{"error": "..."}` instead of real fields. A file with the same name overwrites whatever was already in the intake folder, matching how that folder already works as a plain drop-zone.
+The file must match the platform's expected extension (`.ipa` for `ios`, `.apk` for `android`) or the request is rejected with `400`. Metadata comes from `inspect_ipa_metadata()` or `inspect_apk_metadata()`: iOS reads bundle ID, display name, version and `Info.plist`; Android reads package name, display name and version through `aapt`, `aapt2` or `apkanalyzer`. A file with the same name overwrites whatever was already in the intake folder, matching how that folder already works as a plain drop-zone.
 
 ## Editing config
 
@@ -189,8 +189,8 @@ Adding an app to config is only half of making it testable. `GET /config/{platfo
 | `configuration_applied` | The app's entry is complete enough to run — identity resolvable, a build available (iOS) or the app installed on the device (Android), and at least one risk enabled. |
 
 ```bash
-curl http://127.0.0.1:8080/config/ios/apps/cpf_mobile/provisioning
-# {"app_id": "cpf_mobile", "platform": "ios", "bundle_id": "gov.sg.cpf.mycpf", "status": "ready",
+curl http://127.0.0.1:8080/config/ios/apps/example_app/provisioning
+# {"app_id": "example_app", "platform": "ios", "bundle_id": "com.example.app", "status": "ready",
 #  "stages": [
 #    {"id": "app_registered",        "label": "Server environment prepared",  "state": "done", "detail": "The app has been set up for testing."},
 #    {"id": "service_online",        "label": "Assessment service is running","state": "done", "detail": "The testing service is online."},
@@ -232,7 +232,9 @@ It is designed to be polled: config read + filesystem check + at most one `adb` 
 | `GET /reports` | Lists every `reports/<run_timestamp>/` directory on disk, most recent first — including runs started from the CLI, not just from this API. |
 | `GET /reports/{run_timestamp}/summary` | The same `dashboard_results.json`, looked up directly by `run_timestamp` instead of `run_id`. Works for any run on disk regardless of how it was started. |
 | `GET /reports/{run_timestamp}/files/{file_path}` | Serves any file inside that run's report directory — screenshots, recordings, `report.json`, `logs.txt`, `critical_findings.md`, etc. |
-| `GET /artifacts/{platform}` | Builds sitting in `intake/{ios,android}/{ipas,apks}/`, newest first — `{"file", "path", "bundle_id", "display_name", "version", "modified_at"}` each. iOS identity fields are read from each IPA's `Info.plist`, so a dashboard can offer "which app?" as a pick-list rather than asking for a bundle ID someone would need the IPA to know. Android returns filenames with null metadata (`inspect_apk_metadata` is still a stub). Unreadable files are skipped. |
+| `GET /reports/{run_timestamp}/evidence-file?path=...` | Serves report evidence stored under either `reports/` or `work/`, while rejecting paths outside those roots. |
+| `GET /apps/{app_id}/risks/{risk_id}/history?limit=20` | Returns the latest matching summary rows for one app/risk without forcing clients to scan all report folders. |
+| `GET /artifacts/{platform}` | Builds sitting in `intake/{ios,android}/{ipas,apks}/`, newest first. iOS identity fields are read from each IPA; Android APK identity fields are read with Android SDK tooling when available. Unreadable files are skipped. |
 | `POST /artifacts/{platform}` | Multipart file upload (`file`) into `intake/{ios,android}/{ipas,apks}/`. Returns `{"path", "metadata"}`; `400` if the file extension doesn't match the platform. |
 | `GET/POST /config/{platform}/apps` | List every configured app, or add a new one. |
 | `GET/PUT/DELETE /config/{platform}/apps/{app_id}` | Read, partially update, or remove one app. |
@@ -247,3 +249,7 @@ A run is asynchronous because it isn't a quick request/response: it drives real 
 
 `GET /runs`/`GET /runs/{run_id}` come from a registry that's persisted to `reports/.job_registry.json`, written on every status change and reloaded on startup — this history survives an API server restart. A run still `"running"` at the moment the server stops can never actually finish (the restart kills the thread driving it), so on reload it's rewritten to `"failed"` with an "Interrupted by API server restart" error instead of hanging a poller forever. The `reports/{run_timestamp}/...` endpoints read straight off disk instead, so they see every run that ever wrote a `reports/<run_timestamp>/` folder, from the CLI or the API, past or present, regardless of whether the server was restarted since.
 
+
+## Known gaps / recommended backend additions
+
+1. **No authentication on the automation API.** Fine for local/trusted-network use, but anything beyond that needs a reverse proxy or backend change.

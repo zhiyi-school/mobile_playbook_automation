@@ -42,6 +42,7 @@ def normalize_ios_result(result: RiskRunResult) -> TestResult:
         test_name=TEST_NAME_BY_RISK.get(result.risk_id, result.risk_id),
         category=CATEGORY_BY_RISK.get(result.risk_id, "ios"),
         status=result.final_status,
+        verdict=result.verdict,
         severity=SEVERITY_BY_STATUS.get(result.final_status, "info"),
         summary=_summary(result),
         evidence=_evidence(result),

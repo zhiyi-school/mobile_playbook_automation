@@ -59,11 +59,6 @@ def run_platform(
             client = platform_runner.connect_device(config, writer.run_dir)
         for app, test_id in platform_runner.iter_enabled_tests(config, options.selected_tests, options.selected_apps):
             if client is not None:
-                # Re-checked before every test: if Appium died since the last
-                # test, this restarts it and reconnects so the remaining
-                # tests in this run still get a chance to pass, instead of
-                # every one of them failing the same way for the rest of
-                # the run.
                 client = platform_runner.ensure_device_healthy(config, client, writer.run_dir)
             append_event(writer.run_dir, "risk_started", app_id=getattr(app, "id", app), risk_id=test_id)
             platform_runner.run_test(app, test_id, config, client, writer)

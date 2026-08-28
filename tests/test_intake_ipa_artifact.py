@@ -73,24 +73,24 @@ def test_missing_intake_directory_is_not_an_error(tmp_path):
 
 def test_resolves_by_app_name_when_no_bundle_id_is_known(intake):
     make_ipa(intake / "Other.ipa", bundle_id="com.other.app", display_name="Other App")
-    wanted = make_ipa(intake / "CPF_Mobile_6.28.1.ipa", bundle_id="gov.sg.cpf.mycpf", display_name="CPF Mobile")
+    wanted = make_ipa(intake / "Example_Wallet_6.28.1.ipa", bundle_id="com.example.wallet", display_name="Example Wallet")
 
-    resolution = resolve_intake_ipa(app_name="CPF Mobile", intake_dir=intake)
+    resolution = resolve_intake_ipa(app_name="Example Wallet", intake_dir=intake)
 
     assert resolution.match.path == wanted
-    assert resolution.match.bundle_id == "gov.sg.cpf.mycpf"
+    assert resolution.match.bundle_id == "com.example.wallet"
     assert resolution.matched_on == "name"
 
 
 def test_name_matching_ignores_case_spacing_and_punctuation(intake):
-    make_ipa(intake / "App.ipa", bundle_id="gov.sg.cpf.mycpf", display_name="CPF Mobile")
+    make_ipa(intake / "App.ipa", bundle_id="com.example.wallet", display_name="Example Wallet")
 
-    for typed in ["cpf mobile", "CPF-Mobile", "  CPF   Mobile "]:
+    for typed in ["example wallet", "Example-Wallet", "  Example   Wallet "]:
         assert resolve_intake_ipa(app_name=typed, intake_dir=intake).match is not None
 
 
 def test_a_different_name_does_not_match(intake):
-    make_ipa(intake / "App.ipa", bundle_id="gov.sg.cpf.mycpf", display_name="CPF Mobile")
+    make_ipa(intake / "App.ipa", bundle_id="com.example.wallet", display_name="Example Wallet")
 
     resolution = resolve_intake_ipa(app_name="CPF", intake_dir=intake)
 
@@ -110,11 +110,11 @@ def test_two_different_apps_sharing_a_name_are_ambiguous_not_guessed(intake):
 
 
 def test_two_versions_of_the_same_app_are_not_ambiguous(intake):
-    old = make_ipa(intake / "HealthHub_6.0.12.ipa", bundle_id="sg.gov.hpb.healthhub", display_name="HealthHub")
-    new = make_ipa(intake / "HealthHub_6.0.13.ipa", bundle_id="sg.gov.hpb.healthhub", display_name="HealthHub")
+    old = make_ipa(intake / "ExampleHealth_6.0.12.ipa", bundle_id="com.example.health", display_name="ExampleHealth")
+    new = make_ipa(intake / "ExampleHealth_6.0.13.ipa", bundle_id="com.example.health", display_name="ExampleHealth")
     _age(old, 3600)
 
-    resolution = resolve_intake_ipa(app_name="HealthHub", intake_dir=intake)
+    resolution = resolve_intake_ipa(app_name="ExampleHealth", intake_dir=intake)
 
     assert resolution.ambiguous is False
     assert resolution.match.path == new

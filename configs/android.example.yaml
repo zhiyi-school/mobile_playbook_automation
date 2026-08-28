@@ -1,17 +1,8 @@
-# Example Android config entry point. Copy this file to configs/android.yaml,
-# then populate configs/split/android/*.yaml from their own *.example.yaml
-# siblings (see docs/android/configuration.md#quickstart for the full setup).
-#
-# device/runner are inlined here directly rather than split into their own
-# files: there's only ever one device and one runner profile per project, so
-# a separate file for each would just be indirection.
+# Example Android entry config. Copy to configs/android.yaml and fill local values; see docs/android/configuration.md.
 device:
   appium_server_url: "http://127.0.0.1:4723"
   adb_path: "adb"
   adb_serial: null
-  # If appium_server_url isn't reachable, start it instead of failing preflight —
-  # checked again before every test too, so a mid-run crash is restarted and the
-  # run resumes rather than every remaining test failing. See docs/android/configuration.md#appium-auto-start.
   appium_auto_start:
     enabled: false
     command: ["appium"]

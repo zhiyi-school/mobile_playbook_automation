@@ -14,12 +14,12 @@ def test_android_config_accepts_legacy_package_list():
     config = parse_config(
         {
             "device": {"appium_server": "http://127.0.0.1:4723"},
-            "apps": ["sg.parking.streetsmart"],
+            "apps": ["com.example.parking"],
         }
     )
 
     assert config.device.appium_server_url == "http://127.0.0.1:4723"
-    assert config.apps[0].package_name == "sg.parking.streetsmart"
+    assert config.apps[0].package_name == "com.example.parking"
     assert config.apps[0].risks["android-feature-06-risk-01"]["enabled"] is True
     assert config.apps[0].risks["android-feature-01-risk-02"]["enabled"] is True
 
@@ -43,7 +43,7 @@ def test_android_config_accepts_structured_apps():
                 {
                     "id": "parking",
                     "name": "Parking",
-                    "package_name": "sg.parking.streetsmart",
+                    "package_name": "com.example.parking",
                     "risks": {"android-feature-06-risk-01": {"enabled": True}},
                 }
             ]
@@ -60,12 +60,12 @@ def test_android_registry_exposes_ported_risks():
 
 
 def test_android_dry_run_filters_selected_apps():
-    config = parse_config({"apps": ["sg.parking.streetsmart", "sg.gov.app.mol"]})
+    config = parse_config({"apps": ["com.example.parking", "com.example.services"]})
 
-    lines = AndroidPlatformRunner().dry_run_lines(config, {"android-feature-06-risk-01"}, {"sggovappmol"})
+    lines = AndroidPlatformRunner().dry_run_lines(config, {"android-feature-06-risk-01"}, {"comexampleservices"})
 
-    assert any("sg.gov.app.mol" in line for line in lines)
-    assert not any("sg.parking.streetsmart" in line for line in lines)
+    assert any("com.example.services" in line for line in lines)
+    assert not any("com.example.parking" in line for line in lines)
 
 
 def test_run_test_records_failure_without_raising(monkeypatch, tmp_path):
@@ -79,7 +79,7 @@ def test_run_test_records_failure_without_raising(monkeypatch, tmp_path):
     monkeypatch.setattr(risk_class, "requires", [])
     monkeypatch.setattr(risk_class, "run", flaky_run)
 
-    app = SimpleNamespace(id="parking", name="Parking", package_name="sg.parking.streetsmart")
+    app = SimpleNamespace(id="parking", name="Parking", package_name="com.example.parking")
     config = SimpleNamespace(runner=SimpleNamespace(auto_grant_permissions=False))
     device_client = SimpleNamespace(adb=None)
     writer = ReportWriter(tmp_path, "run1", result_adapter=normalize_android_result, platform="android")

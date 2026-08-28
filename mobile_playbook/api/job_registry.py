@@ -18,7 +18,7 @@ class RunRecord:
     run_id: str
     platform: str
     config_path: str
-    status: str = "running"  # "running" | "completed" | "failed"
+    status: str = "running"
     run_timestamp: str | None = None
     run_dir: str | None = None
     error: str | None = None
@@ -27,21 +27,7 @@ class RunRecord:
 
 
 class JobRegistry:
-    """Tracker for runs triggered through the API, persisted to disk.
-
-    `run_id` is always the run's `run_timestamp` (also its
-    `reports/<run_timestamp>/` directory name), reserved up front by the
-    caller before the record is created — there is no separate ID scheme
-    to look up.
-
-    Records are written to `persist_path` on every change and reloaded from
-    there on startup, so `GET /runs`/`GET /runs/{run_id}` history survives an
-    API server restart. Platform-claim state (`_busy_platforms`) is *not*
-    persisted: it only ever reflects a run actually in progress in this
-    process's threads, and a restart kills those threads regardless, so any
-    record still `"running"` at load time is rewritten to `"failed"` — it can
-    never actually finish and polling it would hang forever otherwise.
-    """
+    """Persisted tracker for runs triggered through the API."""
 
     def __init__(self, persist_path: Path | None = DEFAULT_PERSIST_PATH) -> None:
         self._lock = threading.Lock()
@@ -91,15 +77,7 @@ class JobRegistry:
             raise
 
     def try_claim_platform(self, platform: str) -> bool:
-        """Claim `platform` for an in-progress run, or return False if one's already running.
-
-        Each platform's config identifies one physical device, and a run
-        drives real Appium sessions against it — a second concurrent run for
-        the same platform would fight the first over that same device. This
-        is per-platform (not global) because iOS and Android runs already
-        target separate devices and are meant to run concurrently, the same
-        way the CLI's `run-all` already does.
-        """
+        """Claim one physical device platform for the current process."""
         with self._lock:
             if platform in self._busy_platforms:
                 return False

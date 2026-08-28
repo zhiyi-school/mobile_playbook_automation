@@ -6,10 +6,10 @@ import os
 import socket
 import threading
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 from urllib.parse import urlparse
 
-from fastapi import FastAPI, File, HTTPException, Request, UploadFile
+from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
 from pydantic import BaseModel
@@ -124,9 +124,7 @@ def playbook_image(platform: Platform, image_path: str) -> FileResponse:
     return FileResponse(resolved)
 
 
-# Domains iOS itself needs for Developer App certificate verification — these
-# must bypass Burp or WebDriverAgent can fail to launch with the device
-# reporting it can't verify/trust the app. See docs/ios/configuration.md#traffic-interception.
+# Keep Apple certificate/app-verification traffic off Burp; see docs/ios/configuration.md.
 _PAC_DIRECT_HOST_PATTERNS = ["*.apple.com", "*.icloud.com", "ocsp.apple.com", "*.push.apple.com"]
 
 _TRAFFIC_INTERCEPTION_RISK_ID = {"ios": "ios-feature-02-risk-01"}
@@ -154,9 +152,6 @@ def traffic_interception_pac(platform: Platform, proxy_host: str | None = None) 
     parsed = urlparse(proxy_url)
     host = proxy_host or parsed.hostname or "127.0.0.1"
     if not proxy_host and host in {"127.0.0.1", "localhost", "0.0.0.0"}:
-        # burp.proxy_url is written from this server's own point of view, but a PAC
-        # file is evaluated on the phone — "127.0.0.1" there means the phone itself,
-        # not this Mac, so swap in this machine's LAN-facing IP instead.
         host = _detect_lan_ip()
     port = parsed.port or 8080
 
@@ -230,7 +225,7 @@ def _execute_run(run_timestamp: str, platform: Platform, config, options: RunOpt
         outcome = run_platform(
             config, runner_cls(), options, _report_writer_factory(platform), run_timestamp=run_timestamp
         )
-    except Exception as exc:  # background thread: report failure via the registry, don't raise
+    except Exception as exc:
         registry.mark_failed(run_timestamp, clean_message(str(exc)))
         return
     finally:
@@ -250,19 +245,11 @@ def create_run(body: RunRequest) -> dict:
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    # One physical device per platform — a second concurrent run for the same
-    # platform would fight the first over that device, so claim it before
-    # reserving anything. iOS and Android are separate devices and can run
-    # concurrently, same as the CLI's run-all already assumes.
     if not registry.try_claim_platform(body.platform):
         raise HTTPException(status_code=409, detail=f"A {body.platform} run is already in progress")
 
     try:
         out_dir = Path(body.out_dir)
-        # run_id *is* the run_timestamp (and the reports/<run_timestamp>/ dir name) —
-        # reserved atomically here so it can be handed back in the response
-        # immediately, and so two POST /runs in the same second can't be handed
-        # the same run_id/directory (see reserve_run_timestamp's docstring).
         run_timestamp = reserve_run_timestamp(out_dir)
         record = registry.create(run_timestamp, body.platform, body.config_path)
         options = RunOptions(out_dir=out_dir, selected_tests=selected_risks, selected_apps=selected_apps)
@@ -306,15 +293,7 @@ EVENT_POLL_SECONDS = 0.5
 
 @app.get("/runs/{run_id}/events")
 async def stream_run_events(run_id: str, request: Request) -> StreamingResponse:
-    """Server-Sent Events stream of this run's progress, in place of polling GET /runs/{run_id}.
-
-    Tails reports/<run_id>/events.jsonl — the same file a risk_started/
-    risk_completed/appium_recovery event is appended to as the run actually
-    progresses — rather than an in-memory queue, so this survives an API
-    server restart and any number of clients can read it independently.
-    A late-connecting client still gets every event from the start, since
-    each poll re-reads from `since` rather than only forwarding new writes.
-    """
+    """Server-Sent Events from reports/<run_id>/events.jsonl."""
     if registry.get(run_id) is None:
         raise HTTPException(status_code=404, detail=f"Unknown run_id: {run_id}")
     run_dir = _resolved_run_dir(run_id)
@@ -338,13 +317,7 @@ async def stream_run_events(run_id: str, request: Request) -> StreamingResponse:
 
 
 def _resolved_run_dir(run_timestamp: str) -> Path:
-    """Resolve run_timestamp to its reports/ directory, rejecting path traversal.
-
-    Does not require the directory to already exist — callers that need that
-    (reading a finished run's files) check `.is_dir()` themselves; the events
-    stream deliberately doesn't, since it may be polled before the run's
-    first file is written.
-    """
+    """Resolve run_timestamp to its reports/ directory, rejecting traversal."""
     if not run_timestamp or "/" in run_timestamp or "\\" in run_timestamp or run_timestamp in {".", ".."}:
         raise HTTPException(status_code=400, detail="Invalid run_timestamp")
     run_dir = (REPORTS_ROOT / run_timestamp).resolve()
@@ -390,6 +363,51 @@ def report_file(run_timestamp: str, file_path: str) -> FileResponse:
     return FileResponse(resolved)
 
 
+def _safe_evidence_path(run_timestamp: str, file_path: str) -> Path:
+    _safe_run_dir(run_timestamp)
+    candidate = Path(file_path).expanduser()
+    resolved = candidate.resolve() if candidate.is_absolute() else (Path.cwd() / candidate).resolve()
+    allowed_roots = [REPORTS_ROOT.resolve(), Path("work").resolve()]
+    if not resolved.is_file() or not any(resolved == root or root in resolved.parents for root in allowed_roots):
+        raise HTTPException(status_code=404, detail="Evidence file not found")
+    return resolved
+
+
+@app.get("/reports/{run_timestamp}/evidence-file")
+def evidence_file(run_timestamp: str, path: str) -> FileResponse:
+    return FileResponse(str(_safe_evidence_path(run_timestamp, path)))
+
+
+def _detail_verdict(row: dict) -> str:
+    if row.get("verdict"):
+        return str(row["verdict"])
+    report_path = row.get("report_path")
+    if not report_path:
+        return "Inconclusive"
+    try:
+        detail_path = _safe_run_dir(row["run_timestamp"]) / report_path / "report.json"
+        return str(json.loads(detail_path.read_text()).get("verdict") or "Inconclusive")
+    except Exception:
+        return "Inconclusive"
+
+
+@app.get("/apps/{app_id}/risks/{risk_id}/history")
+def app_risk_history(app_id: str, risk_id: str, limit: Annotated[int, Query(ge=1, le=100)] = 20) -> list[dict]:
+    history = []
+    for run_timestamp in list_reports():
+        try:
+            rows = _read_dashboard_results(run_timestamp)
+        except HTTPException:
+            continue
+        match = next((row for row in rows if row.get("app_id") == app_id and row.get("test_id") == risk_id), None)
+        if match is None:
+            continue
+        history.append({**match, "verdict": _detail_verdict(match)})
+        if len(history) >= limit:
+            break
+    return history
+
+
 _INTAKE_DIRS: dict[Platform, Path] = {"ios": Path("intake/ios/ipas"), "android": Path("intake/android/apks")}
 _ARTIFACT_SUFFIXES: dict[Platform, str] = {"ios": ".ipa", "android": ".apk"}
 
@@ -405,17 +423,7 @@ def _inspect_uploaded_artifact(platform: Platform, path: Path) -> dict:
 
 @app.get("/artifacts/{platform}")
 def list_artifacts(platform: Platform) -> list[dict]:
-    """Builds sitting in the intake directory, newest first.
-
-    Lets a dashboard offer "which app are you assessing?" as a pick-list read
-    out of the builds themselves, instead of asking someone to type a bundle
-    ID they'd need the IPA (or to be the developer) to know.
-
-    iOS entries carry `bundle_id`/`display_name`/`version` read from each
-    IPA's Info.plist. Android returns filenames only — `inspect_apk_metadata`
-    is still a stub, and Android identifies apps by package name off the
-    device rather than from a stored APK.
-    """
+    """Builds in the platform intake directory, newest first."""
     directory = _INTAKE_DIRS[platform]
     if platform == "ios":
         return [build.as_dict() for build in list_intake_ipas(directory)]
@@ -453,16 +461,7 @@ async def upload_artifact(platform: Platform, file: UploadFile = File(...)) -> d
     return {"path": str(dest_path), "metadata": _inspect_uploaded_artifact(platform, dest_path)}
 
 
-# ---------------------------------------------------------------------------
-# Config editing — CRUD over apps.yaml / risk-settings / device / runner.
-#
-# Every write here re-runs the real config loader/validator against what's
-# now on disk and reverts the file if that fails, so an edit can never leave
-# the config in a state `python -m mobile_playbook validate` would reject.
-# See mobile_playbook/api/config_editor.py for why iOS apps.yaml (which
-# depends on templates.yaml's YAML anchors) is handled differently from
-# every other file here.
-# ---------------------------------------------------------------------------
+# Config editing: CRUD over apps.yaml, risk settings, device and runner.
 
 _APPS_BY_PLATFORM = {
     "ios": (config_editor.list_ios_apps, config_editor.add_ios_app, config_editor.edit_ios_app, config_editor.delete_ios_app),
@@ -514,13 +513,7 @@ def delete_config_app(platform: Platform, app_id: str) -> None:
 
 @app.get("/config/{platform}/apps/{app_id}/provisioning")
 def get_app_provisioning(platform: Platform, app_id: str) -> dict:
-    """Whether this app is actually ready to be tested, stage by stage.
-
-    Cheap enough to poll: config + filesystem + at most one `adb` call, never
-    an Appium session. See mobile_playbook/api/provisioning.py for what each
-    stage means, and why an unregistered app comes back as a 200 with
-    status="failed" rather than a 404.
-    """
+    """Poll-safe test readiness for one configured app."""
     return provisioning.describe(platform, app_id)
 
 

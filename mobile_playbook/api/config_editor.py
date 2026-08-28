@@ -36,14 +36,9 @@ RISK_FILES = {
     "android": Path("configs/split/android/risks.yaml"),
 }
 
-#: Displayed fields a risk's YAML entry overrides on its Python class. Behavioural
-#: flags (is_blocking, automation_available, ...) are deliberately absent.
 RISK_METADATA_FIELDS = ("name", "description", "goal", "tactic")
 
-# risk_id -> (field name under the risk-settings file, that file's path).
-# Android has no RISK_GLOBAL_SETTINGS_FIELD equivalent to reuse (tools/repackaging/
-# screen_capture are read by fixed field name in android/config.py), so this is
-# spelled out directly for both platforms rather than only being derivable for iOS.
+# risk_id -> (settings field, settings file path)
 RISK_SETTINGS = {
     "ios": {
         risk_id: (field, Path(f"configs/split/ios/{field}.yaml"))
@@ -57,8 +52,8 @@ RISK_SETTINGS = {
 
 _rt_yaml = YAML(typ="rt")
 _rt_yaml.preserve_quotes = True
-_rt_yaml.width = 100_000  # avoid re-wrapping long lines back into the file
-_rt_yaml.indent(mapping=2, sequence=4, offset=2)  # matches this repo's nested-list style (key:\n  - item)
+_rt_yaml.width = 100_000
+_rt_yaml.indent(mapping=2, sequence=4, offset=2)
 
 _locks_guard = threading.Lock()
 _locks: dict[Path, threading.Lock] = {}
@@ -75,11 +70,7 @@ _APP_ERROR_PREFIX = re.compile(r"^apps\[([^\]]+)\]")
 
 
 def load_with_errors(platform: str):
-    """The parsed config plus its problems, instead of raising on the first one.
-
-    Error collection also auto-fills bundle ids, so it runs even when the
-    caller only wants the config.
-    """
+    """Return the parsed config and all current validation errors."""
     entry_path = ENTRY_FILES[platform]
     try:
         raw = load_yaml_config(entry_path)
@@ -105,23 +96,14 @@ def app_config_errors(platform: str) -> dict[str, list[str]]:
 
 
 def _load_and_validate(platform: str, baseline: list[str] | None = None) -> None:
-    """Reject a write only for problems it actually introduced.
-
-    Config that was already broken elsewhere — an app whose build hasn't been
-    provided yet, say — must not block an unrelated edit, but an edit that
-    breaks something still reverts.
-    """
+    """Reject a write only for errors introduced by that write."""
     introduced = [error for error in config_errors(platform) if error not in (baseline or [])]
     if introduced:
         raise HTTPException(status_code=422, detail=introduced)
 
 
 def _plain(value: Any) -> Any:
-    """Convert ruamel's CommentedMap/CommentedSeq into plain, JSON-safe dict/list.
-
-    Scalars are coerced too: round-trip mode returns quoted strings as
-    ScalarString subclasses, which `yaml.safe_dump` refuses to represent.
-    """
+    """Convert ruamel values into JSON-safe Python values."""
     if isinstance(value, dict):
         return {key: _plain(item) for key, item in value.items()}
     if isinstance(value, list):
@@ -138,14 +120,7 @@ def _rt_dump(data: Any) -> str:
 
 
 def _merge_into_commented(node: Any, updates: dict) -> None:
-    """Apply `updates` onto a live ruamel node in place, key by key.
-
-    `merge_dicts` builds a brand new plain structure, which would replace an
-    existing CommentedMap wholesale and drop every comment attached to its
-    untouched keys. Mutating the same node object instead means keys nobody
-    asked to change keep their original formatting and comments; only the
-    keys actually present in `updates` are touched.
-    """
+    """Merge updates while preserving comments on untouched keys."""
     for key, value in updates.items():
         current = node.get(key) if hasattr(node, "get") else None
         if isinstance(value, dict) and isinstance(current, dict):
@@ -157,13 +132,7 @@ def _merge_into_commented(node: Any, updates: dict) -> None:
 
 
 def _write_whole_file_validated(path: Path, mutate: "callable[[Any], None]", platform: str) -> Any:
-    """Round-trip load `path`, apply `mutate` to the parsed document, write it back,
-    validate the platform's config, and revert on failure.
-
-    Only safe for files with no cross-file YAML anchors (everything except
-    configs/split/ios/apps.yaml — see `_edit_ios_apps_file` for why that one
-    is handled differently).
-    """
+    """Write a round-tripped YAML file, then validate and revert on failure."""
     lock = _lock_for(path)
     with lock:
         original_text = path.read_text()
@@ -179,9 +148,7 @@ def _write_whole_file_validated(path: Path, mutate: "callable[[Any], None]", pla
         return data
 
 
-# ---------------------------------------------------------------------------
-# Device / runner — inlined directly in configs/{platform}.yaml, no anchors.
-# ---------------------------------------------------------------------------
+# Device / runner
 
 
 def get_section(platform: str, section: str) -> dict:
@@ -202,9 +169,7 @@ def put_section(platform: str, section: str, updates: dict) -> dict:
     return _plain(data.get(section) or {})
 
 
-# ---------------------------------------------------------------------------
-# Risk settings — one risk's global defaults, one file each, no anchors.
-# ---------------------------------------------------------------------------
+# Risk settings
 
 
 def _risk_settings_target(platform: str, risk_id: str) -> tuple[str, Path]:
@@ -232,9 +197,7 @@ def put_risk_settings(platform: str, risk_id: str, updates: dict) -> dict:
     return _plain(data.get(field_name) or {})
 
 
-# ---------------------------------------------------------------------------
-# Android apps — one file, no anchors: full round-trip works cleanly.
-# ---------------------------------------------------------------------------
+# Android apps
 
 
 def list_android_apps() -> list[dict]:
@@ -293,7 +256,7 @@ def edit_android_app(app_id: str, updates: dict) -> dict:
     for item in data.get("apps") or []:
         if _android_app_id(_plain(item)) == app_id:
             return _plain(item)
-    raise HTTPException(status_code=404, detail=f"Unknown app_id: {app_id}")  # pragma: no cover — validated above
+    raise HTTPException(status_code=404, detail=f"Unknown app_id: {app_id}")  # pragma: no cover
 
 
 def delete_android_app(app_id: str) -> None:
@@ -309,32 +272,12 @@ def delete_android_app(app_id: str) -> None:
     _write_whole_file_validated(path, mutate, "android")
 
 
-# ---------------------------------------------------------------------------
-# iOS apps — configs/split/ios/apps.yaml cannot be parsed on its own: its
-# `<<: *anchor` entries reference anchors defined in the sibling
-# templates.yaml, only resolvable when the two files are concatenated and
-# parsed together (see orchestration/preflight.py's include-list handling).
-# Re-serializing that combined, multi-file document back into two physical
-# files while preserving the original hand-authored anchors reliably isn't
-# solvable in general, so writes here operate on apps.yaml's own raw text
-# directly: each top-level app entry is a text block starting at a `  - `
-# line at 2-space indent (the YAML block-sequence marker; nothing else in
-# this file's structure starts a line at that exact indent), located by
-# regex rather than by parsing. Blocks that are untouched are left as
-# byte-identical text — comments and anchor usage on every OTHER app are
-# never at risk. A block being added or edited is rendered with fully
-# explicit values (no anchor usage) via a plain YAML dump — consistent with
-# accepting that API-written entries come out expanded rather than
-# templated.
-# ---------------------------------------------------------------------------
+# iOS apps. apps.yaml uses anchors from templates.yaml, so app entries are edited as text blocks.
 
 _APP_ITEM_START_RE = re.compile(r"^  - ", re.MULTILINE)
 
 
 def _field_value_re(field: str) -> re.Pattern:
-    # A block's first field sits inline after the "  - " list marker (e.g.
-    # `  - name: "SP"`); every field after that starts its own line at
-    # 4-space indent. Match either position.
     return re.compile(rf"^(?:  - |    ){re.escape(field)}:[ \t]*(.*)$", re.MULTILINE)
 
 
@@ -377,7 +320,6 @@ def _render_ios_app_block(app: dict) -> str:
 
 TEMPLATE_FILES = {"ios": Path("configs/split/ios/templates.yaml")}
 
-#: Key order the hand-written entries in apps.yaml use.
 IOS_APP_FIELD_ORDER = (
     "id",
     "name",
@@ -401,13 +343,7 @@ def _ios_templates() -> dict:
 
 
 def apply_ios_app_defaults(app: dict) -> dict:
-    """Fill an app entry out to match the roster's existing shape.
-
-    A caller that only knows the app's name and artifact source still gets an
-    entry equivalent to the hand-written ones — the shared launch check from
-    templates.yaml, and the WebDriverAgent bundle id from device config, which
-    every app has to carry identically. Anything explicitly supplied wins.
-    """
+    """Fill a minimal iOS app entry with roster defaults."""
     filled = dict(app)
 
     if not filled.get("expected_behavior"):

@@ -1,10 +1,4 @@
-"""Serving playbook screenshots referenced by risk demonstrations.
-
-Demonstration steps cite images by a path relative to the playbook's own
-directory (`playbook_dir` in that platform's risks.yaml), never
-by an absolute one, so moving the playbook only means changing that single
-value. See docs/api.md#playbook-images.
-"""
+"""Resolve and decorate playbook screenshots for risk demonstrations."""
 
 from __future__ import annotations
 
@@ -13,12 +7,7 @@ from typing import Any
 
 from mobile_playbook.api import config_editor
 
-#: Only these are servable. The playbook directory is a whole vault — notes,
-#: source code, editor state — and this endpoint has no authentication.
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"}
-
-#: Fields added to an image entry on read. Stripped before a write so a client
-#: that GETs a demonstration and PUTs it straight back can't persist them.
 DERIVED_IMAGE_KEYS = ("url", "exists")
 
 
@@ -32,7 +21,6 @@ def playbook_dir(platform: str) -> Path | None:
 
 
 def resolve_image(platform: str, image_path: str) -> Path | None:
-    """The on-disk file for a playbook-relative image path, if it is servable."""
     root = playbook_dir(platform)
     if root is None:
         return None
@@ -50,11 +38,7 @@ def image_url(platform: str, image_path: str) -> str:
 
 
 def decorate_demonstration(platform: str, demonstration: list) -> list:
-    """Add `url`/`exists` to every image in a demonstration, for a dashboard.
-
-    `exists` is what turns a moved playbook into a visible problem rather than
-    a silently broken image, since the path is only resolved at request time.
-    """
+    """Add derived image fields to a demonstration."""
     for item in demonstration:
         if not isinstance(item, dict) or item.get("type") != "steps":
             continue
@@ -68,12 +52,7 @@ def decorate_demonstration(platform: str, demonstration: list) -> list:
 
 
 def strip_derived(demonstration: Any) -> Any:
-    """Drop the read-only image fields so they never get written into the YAML.
-
-    Scoped to image entries specifically rather than stripping the keys
-    anywhere they appear, so a table cell that happens to be named `url`
-    survives a round-trip.
-    """
+    """Drop derived image fields before writing YAML."""
     if not isinstance(demonstration, list):
         return demonstration
     for item in demonstration:
