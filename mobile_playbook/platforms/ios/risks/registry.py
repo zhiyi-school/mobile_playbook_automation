@@ -37,8 +37,9 @@ def list_risks() -> list[dict[str, object]]:
             "description": risk.description,
             "goal": risk.goal,
             "is_blocking": risk.is_blocking,
-            "mitre_attack_mobile_technique_id": risk.mitre_attack_mobile_technique_id,
+            "tactic": risk.tactic,
             "requires_ipa_artifact": risk.requires_ipa_artifact,
+            "automation_available": risk.automation_available,
         }
         for risk in risks
     ]

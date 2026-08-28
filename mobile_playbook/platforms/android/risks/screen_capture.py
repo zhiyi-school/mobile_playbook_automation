@@ -24,11 +24,6 @@ class AndroidScreenCaptureRisk(AndroidRisk):
     risk_id = "android-feature-06-risk-01"
     feature_id = "feature-06"
     name = "Android Screen Capture Test"
-    description = (
-        "A sensitive screen may be screen-recorded or screen-shared because the app does not set "
-        "FLAG_SECURE or does not otherwise react to an active recording/debugging session."
-    )
-    goal = "Demonstrate whether the app protects sensitive screens from being captured by screen recording or screen sharing."
     test_case_id = "screen_capture"
     test_case_type = "appium_screen_recording"
     requires = ["adb", "appium"]

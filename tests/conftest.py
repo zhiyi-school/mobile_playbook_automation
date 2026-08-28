@@ -17,12 +17,12 @@ from mobile_playbook.platforms.ios.models import (
 )
 
 
-def make_ipa(path: Path, bundle_id: str = "com.example.app", executable: bytes = b"HELLO TEST_PATTERN_000 WORLD", extra_files: dict[str, bytes] | None = None) -> Path:
+def make_ipa(path: Path, bundle_id: str = "com.example.app", executable: bytes = b"HELLO TEST_PATTERN_000 WORLD", extra_files: dict[str, bytes] | None = None, display_name: str = "Example") -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     info = {
         "CFBundleIdentifier": bundle_id,
         "CFBundleExecutable": "AppExec",
-        "CFBundleDisplayName": "Example",
+        "CFBundleDisplayName": display_name,
     }
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.writestr("Payload/Example.app/Info.plist", plistlib.dumps(info))

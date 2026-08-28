@@ -17,13 +17,6 @@ class Feature02Risk01(Risk):
     risk_id = "ios-feature-02-risk-01"
     feature_id = "feature-02"
     name = "TLS traffic interception exposure"
-    description = (
-        "App traffic proxied through a workstation MITM proxy (Burp Suite) with its CA trusted on the "
-        "device may still be readable in cleartext, indicating the app does not enforce certificate or "
-        "public-key pinning."
-    )
-    goal = "Demonstrate whether the app's network traffic can be intercepted and read in cleartext through an operator-controlled proxy."
-    mitre_attack_mobile_technique_id = "Collection"
     requires_ipa_artifact = False
 
     def run(self, app_config, global_config, device_client, report_writer):

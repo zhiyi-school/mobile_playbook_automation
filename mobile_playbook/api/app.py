@@ -2,12 +2,16 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
+import socket
 import threading
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlparse
 
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
 from pydantic import BaseModel
 
 from mobile_playbook.orchestration.artifact_intake import (
@@ -25,6 +29,7 @@ from mobile_playbook.platforms.android.results import normalize_android_result
 from mobile_playbook.platforms.android.risks import known_risks as known_android_risks
 from mobile_playbook.platforms.android.risks import list_risks as list_android_risks
 from mobile_playbook.platforms.android.runner import AndroidPlatformRunner
+from mobile_playbook.platforms.ios.artifacts.intake_ipa import list_intake_ipas
 from mobile_playbook.platforms.ios.config import ConfigError, load_config
 from mobile_playbook.platforms.ios.ipa.plist_utils import inspect_ipa_metadata
 from mobile_playbook.platforms.ios.results import normalize_ios_result
@@ -35,7 +40,7 @@ from mobile_playbook.reporting.messages import clean_message
 from mobile_playbook.reporting.report_writer import ReportWriter
 from mobile_playbook.reporting.run_events import read_events
 
-from mobile_playbook.api import config_editor
+from mobile_playbook.api import config_editor, playbook_assets, provisioning
 from mobile_playbook.api.job_registry import registry
 
 Platform = Literal["ios", "android"]
@@ -51,6 +56,16 @@ app = FastAPI(
         "for just the coarse status. Browse interactively at /docs."
     ),
     version="0.1.0",
+)
+
+_DEFAULT_CORS_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]
+_cors_env = os.environ.get("CORS_ALLOWED_ORIGINS", "")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[o.strip() for o in _cors_env.split(",") if o.strip()] or _DEFAULT_CORS_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
@@ -83,13 +98,78 @@ def health() -> dict:
 def platform_risks(platform: Platform) -> list[dict]:
     risks = list_android_risks() if platform == "android" else list_ios_risks()
     for risk in risks:
-        risk["demonstration"] = config_editor.get_risk_demonstration(platform, risk["risk_id"])
+        risk.update(config_editor.get_risk_metadata(platform, risk["risk_id"]))
+        risk["demonstration"] = playbook_assets.decorate_demonstration(
+            platform, config_editor.get_risk_demonstration(platform, risk["risk_id"])
+        )
     return risks
+
+
+@app.put("/platforms/{platform}/risks/{risk_id}")
+def put_platform_risk(platform: Platform, risk_id: str, body: dict) -> dict:
+    return config_editor.put_risk_metadata(platform, risk_id, body)
 
 
 @app.put("/platforms/{platform}/risks/{risk_id}/demonstration")
 def put_platform_risk_demonstration(platform: Platform, risk_id: str, body: list[dict]) -> list[dict]:
-    return config_editor.put_risk_demonstration(platform, risk_id, body)
+    stored = config_editor.put_risk_demonstration(platform, risk_id, playbook_assets.strip_derived(body))
+    return playbook_assets.decorate_demonstration(platform, stored)
+
+
+@app.get("/platforms/{platform}/playbook/images/{image_path:path}")
+def playbook_image(platform: Platform, image_path: str) -> FileResponse:
+    resolved = playbook_assets.resolve_image(platform, image_path)
+    if resolved is None:
+        raise HTTPException(status_code=404, detail="Image not found")
+    return FileResponse(resolved)
+
+
+# Domains iOS itself needs for Developer App certificate verification — these
+# must bypass Burp or WebDriverAgent can fail to launch with the device
+# reporting it can't verify/trust the app. See docs/ios/configuration.md#traffic-interception.
+_PAC_DIRECT_HOST_PATTERNS = ["*.apple.com", "*.icloud.com", "ocsp.apple.com", "*.push.apple.com"]
+
+_TRAFFIC_INTERCEPTION_RISK_ID = {"ios": "ios-feature-02-risk-01"}
+
+
+def _detect_lan_ip() -> str:
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+        try:
+            sock.connect(("8.8.8.8", 80))
+            return sock.getsockname()[0]
+        except OSError:
+            return "127.0.0.1"
+
+
+@app.get("/platforms/{platform}/traffic-interception/proxy.pac")
+def traffic_interception_pac(platform: Platform, proxy_host: str | None = None) -> PlainTextResponse:
+    risk_id = _TRAFFIC_INTERCEPTION_RISK_ID.get(platform)
+    if risk_id is None:
+        raise HTTPException(status_code=404, detail=f"No traffic-interception proxy config for platform {platform}")
+    settings = config_editor.get_risk_settings(platform, risk_id)
+    proxy_url = str((settings.get("burp") or {}).get("proxy_url") or "")
+    if not proxy_url:
+        raise HTTPException(status_code=400, detail=f"{risk_id}.burp.proxy_url is not configured")
+
+    parsed = urlparse(proxy_url)
+    host = proxy_host or parsed.hostname or "127.0.0.1"
+    if not proxy_host and host in {"127.0.0.1", "localhost", "0.0.0.0"}:
+        # burp.proxy_url is written from this server's own point of view, but a PAC
+        # file is evaluated on the phone — "127.0.0.1" there means the phone itself,
+        # not this Mac, so swap in this machine's LAN-facing IP instead.
+        host = _detect_lan_ip()
+    port = parsed.port or 8080
+
+    direct_conditions = " ||\n      ".join(f'shExpMatch(host, "{pattern}")' for pattern in _PAC_DIRECT_HOST_PATTERNS)
+    pac = (
+        "function FindProxyForURL(url, host) {\n"
+        f"  if ({direct_conditions}) {{\n"
+        "    return \"DIRECT\";\n"
+        "  }\n"
+        f'  return "PROXY {host}:{port}";\n'
+        "}\n"
+    )
+    return PlainTextResponse(pac, media_type="application/x-ns-proxy-autoconfig")
 
 
 @app.get("/platforms/{platform}/features")
@@ -323,6 +403,38 @@ def _inspect_uploaded_artifact(platform: Platform, path: Path) -> dict:
         return {"error": str(exc)}
 
 
+@app.get("/artifacts/{platform}")
+def list_artifacts(platform: Platform) -> list[dict]:
+    """Builds sitting in the intake directory, newest first.
+
+    Lets a dashboard offer "which app are you assessing?" as a pick-list read
+    out of the builds themselves, instead of asking someone to type a bundle
+    ID they'd need the IPA (or to be the developer) to know.
+
+    iOS entries carry `bundle_id`/`display_name`/`version` read from each
+    IPA's Info.plist. Android returns filenames only — `inspect_apk_metadata`
+    is still a stub, and Android identifies apps by package name off the
+    device rather than from a stored APK.
+    """
+    directory = _INTAKE_DIRS[platform]
+    if platform == "ios":
+        return [build.as_dict() for build in list_intake_ipas(directory)]
+    if not directory.is_dir():
+        return []
+    files = sorted(directory.glob(f"*{_ARTIFACT_SUFFIXES[platform]}"), key=lambda p: p.stat().st_mtime, reverse=True)
+    return [
+        {
+            "file": path.name,
+            "path": str(path),
+            "bundle_id": None,
+            "display_name": None,
+            "version": None,
+            "modified_at": path.stat().st_mtime,
+        }
+        for path in files
+    ]
+
+
 @app.post("/artifacts/{platform}", status_code=201)
 async def upload_artifact(platform: Platform, file: UploadFile = File(...)) -> dict:
     filename = Path(file.filename or "").name
@@ -398,6 +510,18 @@ def edit_config_app(platform: Platform, app_id: str, body: dict) -> dict:
 def delete_config_app(platform: Platform, app_id: str) -> None:
     _, _, _, delete_fn = _apps_ops(platform)
     delete_fn(app_id)
+
+
+@app.get("/config/{platform}/apps/{app_id}/provisioning")
+def get_app_provisioning(platform: Platform, app_id: str) -> dict:
+    """Whether this app is actually ready to be tested, stage by stage.
+
+    Cheap enough to poll: config + filesystem + at most one `adb` call, never
+    an Appium session. See mobile_playbook/api/provisioning.py for what each
+    stage means, and why an unregistered app comes back as a 200 with
+    status="failed" rather than a 404.
+    """
+    return provisioning.describe(platform, app_id)
 
 
 @app.get("/config/{platform}/risk-settings/{risk_id}")

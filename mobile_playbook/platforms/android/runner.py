@@ -105,8 +105,14 @@ class AndroidPlatformRunner:
         for risk_id, risk_config in app.risks.items():
             if selected_tests and risk_id not in selected_tests:
                 continue
-            if risk_config.get("enabled", False):
-                yield risk_id
+            if not risk_config.get("enabled", False):
+                continue
+            # Manual-only risks are listed on an app to record that they're in
+            # scope; they have no implementation, so a run never selects them.
+            risk = get_risk(risk_id)
+            if risk is not None and not getattr(risk, "automation_available", True):
+                continue
+            yield risk_id
 
     def dry_run_lines(self, config, selected_tests: set[str] | None, selected_apps: set[str] | None = None) -> list[str]:
         lines = ["Dry run: no Android device, Appium session, APK install, or repackaging files will be touched."]

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+from fastapi import HTTPException
 
 from mobile_playbook.api import config_editor as ce
 from tests.conftest import make_ipa
@@ -18,6 +19,14 @@ def config_root(tmp_path, monkeypatch):
         "x-local-ipa-artifact: &local_ipa_artifact\n"
         "  source: \"local_ipa\"\n"
         "  expected_bundle_id: \"\"\n"
+        "\n"
+        "x-default-launch-check: &default_launch_check\n"
+        "  app_state_must_be_foreground: true\n"
+        "  source_contains: []\n"
+        "  source_not_contains:\n"
+        "    - \"Tamper detected\"\n"
+        "    - \"Integrity check failed\"\n"
+        "  app_specific_check: null\n"
     )
     (tmp_path / "configs/split/ios/apps.yaml").write_text(
         "# The iOS app roster.\n"
@@ -50,6 +59,7 @@ def config_root(tmp_path, monkeypatch):
         "  # which team signs WDA\n"
         "  team_id: \"TEAM\"\n"
         "  appium_server_url: \"http://127.0.0.1:4723\"\n"
+        "  updated_wda_bundle_id: \"UDID_WDA\"\n"
         "\n"
         "runner:\n"
         "  work_dir: \"work/ios\"\n"
@@ -110,8 +120,29 @@ def test_ios_add_edit_delete_app_preserves_untouched_entries(config_root):
 def test_ios_edit_reverts_file_on_invalid_config(config_root):
     original = (config_root / "configs/split/ios/apps.yaml").read_text()
     with pytest.raises(Exception):
-        ce.edit_ios_app("app_one", {"artifact": {"ipa": "does/not/exist.ipa"}})
+        ce.edit_ios_app("app_one", {"artifact": {"source": "not_a_real_source"}})
     assert (config_root / "configs/split/ios/apps.yaml").read_text() == original
+
+
+def test_ios_edit_allows_a_build_that_has_not_been_provided_yet(config_root):
+    """A path with no file behind it is a provisioning state, not a config error."""
+    ce.edit_ios_app("app_one", {"artifact": {"ipa": "intake/ios/ipas/not_extracted_yet.ipa"}})
+    assert ce._effective_ios_app("app_one")["artifact"]["ipa"] == "intake/ios/ipas/not_extracted_yet.ipa"
+
+
+def test_a_write_succeeds_despite_an_unrelated_pre_existing_problem(config_root):
+    """Pre-existing breakage elsewhere must not hold unrelated edits hostage."""
+    path = config_root / "configs/split/ios/apps.yaml"
+    path.write_text(
+        path.read_text().rstrip("\n")
+        + '\n  - id: broken_app\n    name: "Broken App"\n    bundle_id: "com.example.broken"\n'
+        '    test_bundle_id: "com.example.broken"\n    artifact:\n      source: "not_a_real_source"\n'
+        "    risks: {}\n"
+    )
+
+    ce.edit_ios_app("app_one", {"name": "Renamed App One"})
+
+    assert ce._effective_ios_app("app_one")["name"] == "Renamed App One"
 
 
 def test_ios_add_app_duplicate_id_rejected(config_root):
@@ -169,3 +200,22 @@ def test_android_edit_preserves_other_untouched_entries(config_root):
     text_after = (config_root / "configs/split/android/apps.yaml").read_text()
     assert 'name: "One"' in text_after
     assert text_before != text_after
+
+
+def test_new_ios_app_is_filled_out_to_match_the_existing_roster(config_root):
+    ce.add_ios_app({"name": "Bare App", "artifact": {"source": "intake_ipa"}})
+
+    entry = next(a for a in ce.list_ios_apps() if a["id"] == "bare_app")
+
+    # The launch check comes from templates.yaml and the WDA bundle id from
+    # device config, so a minimal request still produces a conventional entry.
+    assert entry["expected_behavior"]["source_not_contains"] == ["Tamper detected", "Integrity check failed"]
+    assert entry["test_bundle_id"] == "UDID_WDA"
+
+
+def test_duplicate_app_conflict_names_the_existing_app(config_root):
+    with pytest.raises(HTTPException) as excinfo:
+        ce.add_ios_app({"name": "App One", "artifact": {"source": "intake_ipa"}})
+
+    assert excinfo.value.status_code == 409
+    assert excinfo.value.detail["app_id"] == "app_one"

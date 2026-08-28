@@ -1,0 +1,52 @@
+name: LocalKeyboardResign
+options:
+  createIntermediateGroups: true
+targets:
+  LocalKeyboard:
+    type: application
+    platform: iOS
+    deploymentTarget: "15.0"
+    sources: [App]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.LocalKeyboard.4228qcqtj9
+        DEVELOPMENT_TEAM: 4228QCQTJ9
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_IDENTITY: "Apple Development"
+        GENERATE_INFOPLIST_FILE: YES
+    entitlements:
+      path: App/App.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.example.LocalKeyboard.4228QCQTJ9
+    dependencies:
+      - target: KeyboardExtension
+        embed: true
+
+  KeyboardExtension:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "15.0"
+    sources: [Extension]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.LocalKeyboard.4228qcqtj9.KeyboardExtension
+        DEVELOPMENT_TEAM: 4228QCQTJ9
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_IDENTITY: "Apple Development"
+    entitlements:
+      path: Extension/Extension.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.example.LocalKeyboard.4228QCQTJ9
+    info:
+      path: Extension/Info.plist
+      properties:
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.keyboard-service
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).KeyboardViewController
+          NSExtensionAttributes:
+            IsASCIICapable: false
+            PrefersRightToLeft: false
+            PrimaryLanguage: en-US
+            RequestsOpenAccess: true

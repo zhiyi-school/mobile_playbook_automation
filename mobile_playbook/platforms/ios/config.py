@@ -128,6 +128,13 @@ def parse_config(raw: dict[str, Any], config_path: Path | None = None) -> Global
 
 
 def validate_config(config: GlobalConfig, dry_run: bool = False) -> None:
+    errors = collect_config_errors(config, dry_run=dry_run)
+    if errors:
+        raise ConfigError(errors)
+
+
+def collect_config_errors(config: GlobalConfig, dry_run: bool = False) -> list[str]:
+    """Every config problem instead of raising. App-scoped ones are prefixed `apps[<id>].`"""
     errors: list[str] = []
     _auto_fill_bundle_ids(config, errors)
     if not config.device.udid:
@@ -149,16 +156,17 @@ def validate_config(config: GlobalConfig, dry_run: bool = False) -> None:
             errors.append(f"{label}.artifact.source is required")
         elif source not in known_sources():
             errors.append(f"{label}.artifact.source is unknown: {source}")
-        if not app.bundle_id:
-            errors.append(f"{label}.bundle_id is required")
-        if not app.test_bundle_id:
-            errors.append(f"{label}.test_bundle_id is required")
+        # intake_ipa takes its identity from the build itself, which may not be
+        # extracted yet; acquisition reports that as ARTIFACT_NOT_FOUND.
+        if source != "intake_ipa":
+            if not app.bundle_id:
+                errors.append(f"{label}.bundle_id is required")
+            if not app.test_bundle_id:
+                errors.append(f"{label}.test_bundle_id is required")
         if source in LOCAL_IPA_SOURCES:
-            ipa = app.artifact.get("ipa") or app.artifact.get("path")
-            if not ipa:
+            # A missing build is a provisioning state, not a config error.
+            if not (app.artifact.get("ipa") or app.artifact.get("path")):
                 errors.append(f"{label}.artifact.ipa is required for {source}")
-            elif not dry_run and not Path(ipa).expanduser().exists():
-                errors.append(f"{label}.artifact.ipa does not exist: {ipa}")
         for risk_id, risk_config in app.risks.items():
             if risk_id not in known_risks():
                 errors.append(f"{label}.risks.{risk_id} is unknown")
@@ -183,15 +191,31 @@ def validate_config(config: GlobalConfig, dry_run: bool = False) -> None:
                 burp = effective.get("burp") or {}
                 if not str(burp.get("proxy_url") or "").strip():
                     errors.append(f"{label}.risks.{risk_id}.burp.proxy_url is required")
-    if errors:
-        raise ConfigError(errors)
+    return errors
 
 
 def _auto_fill_bundle_ids(config: GlobalConfig, errors: list[str]) -> None:
     for app in config.apps:
         label = f"apps[{app.id or '?'}]"
         source = app.artifact.get("source")
-        if source in LOCAL_IPA_SOURCES:
+        if source == "intake_ipa":
+            from mobile_playbook.platforms.ios.artifacts.intake_ipa import resolve_for_app
+
+            resolution = resolve_for_app(app)
+            if resolution.ambiguous:
+                found = ", ".join(sorted({build.bundle_id for build in resolution.candidates}))
+                errors.append(
+                    f"{label}: several different apps in intake are named {app.name!r} ({found}); "
+                    "set artifact.expected_bundle_id to say which is meant"
+                )
+            elif resolution.match:
+                if not app.bundle_id:
+                    app.bundle_id = resolution.match.bundle_id
+                if not app.test_bundle_id:
+                    app.test_bundle_id = resolution.match.bundle_id
+                if not app.artifact.get("expected_bundle_id"):
+                    app.artifact["expected_bundle_id"] = resolution.match.bundle_id
+        elif source in LOCAL_IPA_SOURCES:
             ipa = app.artifact.get("ipa") or app.artifact.get("path")
             metadata = _inspect_metadata_if_available(ipa)
             if metadata:

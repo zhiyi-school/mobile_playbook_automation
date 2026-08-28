@@ -41,13 +41,31 @@ class IosPlatformRunner:
         preflight = check_ios_preflight(config)
         if not preflight.ok:
             raise RuntimeError("; ".join(preflight.errors))
-        return AppiumDeviceClient(config.device).connect()
+        client = AppiumDeviceClient(config.device).connect()
+        self._unlock_best_effort(client, run_dir)
+        return client
+
+    def _unlock_best_effort(self, device_client, run_dir: Path | None) -> None:
+        # Best-effort: only meaningfully unlocks a passcode-less device (Appium
+        # can't enter a passcode or Face/Touch ID on a real device), and a
+        # failure here shouldn't abort a run over what's otherwise a recoverable
+        # device-state hiccup.
+        try:
+            result = device_client.unlock()
+        except Exception as exc:
+            print(f"ios: (could not check/unlock device screen, continuing anyway: {exc})")
+            return
+        if result.get("was_locked"):
+            message = "ios: device screen was locked — unlocked automatically."
+            print(message)
+            append_event(run_dir or Path("work/ios"), "device_unlocked", message=message)
 
     def close_device(self, device_client) -> None:
         device_client.quit()
 
     def ensure_device_healthy(self, config, device_client, run_dir: Path | None = None):
         if tcp_reachable(config.device.appium_server_url, timeout=2):
+            self._unlock_best_effort(device_client, run_dir)
             return device_client
         message = f"ios: Appium server at {config.device.appium_server_url} is no longer reachable mid-run — attempting to recover and resume."
         print(message)
@@ -72,7 +90,26 @@ class IosPlatformRunner:
         try:
             risk.run(app, config, device_client, report_writer)
         except Exception as exc:
+            if self._unlock_and_retry(device_client, exc):
+                try:
+                    risk.run(app, config, device_client, report_writer)
+                    return
+                except Exception as retry_exc:
+                    exc = retry_exc
             self._record_failure(app, test_id, risk, report_writer, exc)
+
+    def _unlock_and_retry(self, device_client, exc: Exception) -> bool:
+        # Only worth retrying if the device actually was locked — an unrelated
+        # failure (bad selector, missing config, real app behavior) would just
+        # fail the same way again, so this isn't a blind retry-on-any-error.
+        try:
+            result = device_client.unlock()
+        except Exception:
+            return False
+        if result.get("was_locked"):
+            print(f"ios: test failed ({exc}) and the device was locked — unlocked it, retrying the test once.")
+            return True
+        return False
 
     def _record_failure(self, app, test_id: str, risk, report_writer, exc: Exception) -> None:
         # A single test's unhandled exception (a missing dependency, a device
@@ -104,8 +141,14 @@ class IosPlatformRunner:
         for risk_id, risk_config in app.risks.items():
             if selected_tests and risk_id not in selected_tests:
                 continue
-            if risk_config.get("enabled", False):
-                yield risk_id
+            if not risk_config.get("enabled", False):
+                continue
+            # Manual-only risks are listed on an app to record that they're in
+            # scope; they have no implementation, so a run never selects them.
+            risk = get_risk(risk_id)
+            if risk is not None and not getattr(risk, "automation_available", True):
+                continue
+            yield risk_id
 
     def acquire_artifacts(self, config, selected_apps: set[str] | None, run_timestamp: str, out_dir: Path) -> list[dict]:
         client = None
