@@ -1,17 +1,7 @@
 #!/usr/bin/env python3
-"""Renew LocalKeyboard.ipa's provisioning profiles and re-sign it in place.
+"""Renew and re-sign the LocalKeyboard IPA.
 
-Free/individual Apple Developer accounts only get 7-day provisioning
-profiles, and LocalKeyboard.ipa has no Xcode project in this repo to rebuild
-from. This instead builds the placeholder project in this same directory
-(project.yml, matching LocalKeyboard's real bundle IDs and entitlements) to
-make Xcode mint fresh profiles, pulls those profiles and a matching signing
-identity out of the build output, and reapplies them directly to the
-existing prebuilt LocalKeyboard.ipa via codesign — no LocalKeyboard source
-required. See docs/ios/reports-and-troubleshooting.md for background.
-
-Usage:
-    python tools/localkeyboard_resign/resign.py --udid <device.udid> --team-id <device.team_id>
+See docs/ios/reports-and-troubleshooting.md.
 """
 
 from __future__ import annotations

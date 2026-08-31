@@ -88,7 +88,7 @@ python -m mobile_playbook run --platform ios --config configs/ios.yaml --risks i
 Run one iOS app:
 
 ```bash
-python -m mobile_playbook run --platform ios --config configs/ios.yaml --apps app_one --risks ios-feature-01-risk-01 --out reports
+python -m mobile_playbook run --platform ios --config configs/ios.yaml --apps example-app --risks ios-feature-01-risk-01 --out reports
 ```
 
 Run Android risks:
@@ -108,15 +108,15 @@ python -m mobile_playbook run --platform android --config configs/android.yaml -
 Run both platforms in one command:
 
 ```bash
-python -m mobile_playbook run-all --ios-config configs/ios.yaml --android-config configs/android.yaml --apps app_one,app_two --out reports
+python -m mobile_playbook run-all --ios-config configs/ios.yaml --android-config configs/android.yaml --apps example-app,other-example-app --out reports
 ```
 
-`run-all` runs the iOS and Android `run` flows concurrently in one process (Appium/adb/network calls are I/O-bound, so a thread per platform is enough). It is additive on top of `run` — nothing about single-platform `run` changes. `--apps`/`--risks` are applied to both configs, and each platform still writes its own `reports/<run_timestamp>/ios/...` or `.../android/...` tree exactly as it would from a standalone `run`, so results are never merged. If both platforms happen to start in the same second, they may share one `<run_timestamp>` folder (their per-app/per-risk reports still land in separate `ios/`/`android/` subfolders either way); the only thing that can then race is which platform's top-level `dashboard_results.json` is written last.
+`run-all` runs the iOS and Android `run` flows concurrently in one process (Appium/adb/network calls are I/O-bound, so a thread per platform is enough). It is additive on top of `run` — nothing about single-platform `run` changes. `--apps`/`--risks` are applied to both configs, and each platform still writes its own `reports/<run_timestamp>/ios/...` or `.../android/...` tree exactly as it would from a standalone `run`, so results are never merged. Each platform reserves its own `<run_timestamp>` atomically, by creating the directory as part of claiming the name, so two platforms starting in the same second get separate folders (the second one takes a `-2` suffix) and each keeps its own top-level `summary.md`, `dashboard_results.json`, and `run_manifest.json`.
 
 Acquire iOS artifacts only:
 
 ```bash
-python -m mobile_playbook acquire --config configs/ios.yaml --apps app_one --out work/ios/acquired
+python -m mobile_playbook acquire --config configs/ios.yaml --apps example-app --out work/ios/acquired
 ```
 
 Inspect IPA mutability:
@@ -143,16 +143,31 @@ intake/android/apks/   local APK drop-zone for future APK-intake flows
 work/ios/              generated iOS working files
 work/android/          generated Android working files
 reports/               timestamped run reports
-data/                  future dashboard database location
 ```
 
-This repository's own dashboard UI is not implemented, but its results are reachable over HTTP: `python -m mobile_playbook.api` exposes run-triggering and report reading (including `dashboard_results.json`) as an API a separate dashboard can call. See [docs/api.md](docs/api.md).
+Results are reachable over HTTP: `python -m mobile_playbook.api` exposes run triggering and report reading (including `dashboard_results.json` and a SARIF 2.1.0 export) as an API any dashboard can call. A companion React dashboard lives in a separate repository; see [docs/backend-integration.md](docs/backend-integration.md) for the contract between them.
 
 ## Documentation
 
-Docs are split by platform under [docs/](docs/README.md):
+Full index: [docs/README.md](docs/README.md).
+
+| Document | Purpose |
+| --- | --- |
+| [docs/setup.md](docs/setup.md) | Clean checkout to a working run and API |
+| [docs/configuration.md](docs/configuration.md) | YAML settings, environment variables, the secret boundary |
+| [docs/architecture.md](docs/architecture.md) | How a run executes end to end, and what each layer owns |
+| [docs/api.md](docs/api.md) | Every HTTP endpoint, run lifecycle, SARIF, sync status |
+| [docs/operations.md](docs/operations.md) | Dashboard sync worker: triggers, locking, retries, health |
+| [docs/troubleshooting.md](docs/troubleshooting.md) | Symptom-to-cause tables |
+| [docs/testing.md](docs/testing.md) | Running and extending the test suite |
+| [docs/backend-integration.md](docs/backend-integration.md) | Using this backend from another project |
+
+Platform specifics:
 
 - **iOS** ([docs/ios/](docs/ios/README.md)): [Configuration](docs/ios/configuration.md), [Risk Catalog](docs/ios/risks.md), [Manual LocalKeyboard Server](docs/ios/manual-local-keyboard-server.md), [Reports And Troubleshooting](docs/ios/reports-and-troubleshooting.md).
 - **Android** ([docs/android/](docs/android/README.md)): [Configuration](docs/android/configuration.md), [Risk Catalog](docs/android/risks.md), [Reports And Troubleshooting](docs/android/reports-and-troubleshooting.md).
-- **Architecture** ([docs/architecture.md](docs/architecture.md)): how a run is executed end-to-end and what libraries/tools each part of the framework depends on, across both platforms.
-- **HTTP API** ([docs/api.md](docs/api.md)): running `python -m mobile_playbook.api` to trigger runs and read reports over HTTP, without a dashboard.
+
+Documentation examples use placeholder identifiers (`Example App`,
+`example-app`, `com.example.placeholder`, `<RUN_TIMESTAMP>`). Real applications
+under test appear only in local configuration and generated reports, neither of
+which is committed.

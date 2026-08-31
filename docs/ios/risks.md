@@ -60,7 +60,14 @@ This risk doesn't talk to Burp's own APIs — Burp has no simple built-in "give 
 
 This mirrors how this framework already exposes evidence to itself elsewhere (`events.jsonl`, `appium.log`) — a plain append-only file that both sides agree on, rather than a live API integration.
 
-[tools/burp_traffic_capture_extension.py](../../tools/burp_traffic_capture_extension.py) is a ready-to-load Jython Burp extension that writes this format — see its header comment for one-time setup (a standalone Jython JAR configured in Burp's Extender options, then loading the file as a Python extension). It hasn't been exercised against a real Burp Suite instance; treat it as a starting point to verify, not a guaranteed-working drop-in.
+[tools/burp_traffic_capture_extension.py](../../tools/burp_traffic_capture_extension.py) is a ready-to-load Jython Burp extension that writes this format. One-time setup:
+
+1. Download a standalone Jython JAR from `https://www.jython.org/download`.
+2. In Burp Suite, open Extender > Options > Python Environment and point it at that JAR.
+3. Open Extender > Extensions > Add, choose extension type `Python`, and select `tools/burp_traffic_capture_extension.py`.
+4. Update `CAPTURE_PATH` in the extension to match `traffic_interception.burp.capture_path`; an absolute path is safest because Burp's working directory is not guaranteed to be this repo.
+
+It hasn't been exercised against a real Burp Suite instance; treat it as a starting point to verify, not a guaranteed-working drop-in.
 
 ### Checking the whole chain before a batch of runs
 

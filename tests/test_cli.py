@@ -5,7 +5,8 @@ from dataclasses import replace
 from datetime import datetime, timezone
 
 from mobile_playbook import cli as cli_module
-from mobile_playbook.cli import _load_env_file, _new_run_timestamp, _run, _run_all
+from mobile_playbook.cli import _new_run_timestamp, _run, _run_all
+from mobile_playbook.env_file import load_env_file
 from mobile_playbook.platforms.android.config import parse_config as parse_android_config
 from mobile_playbook.platforms.ios.risks import get_risk, known_risks
 
@@ -178,7 +179,7 @@ def test_load_env_file_sets_missing_values_without_overriding_existing(monkeypat
     monkeypatch.delenv("QUOTED_VALUE", raising=False)
     monkeypatch.setenv("EXISTING_VALUE", "from-shell")
 
-    _load_env_file(env_file)
+    load_env_file(env_file)
 
     import os
 

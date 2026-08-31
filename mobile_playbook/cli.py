@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 import threading
 import uuid
@@ -25,6 +24,8 @@ from mobile_playbook.platforms.ios.config import ConfigError, load_config
 from mobile_playbook.platforms.ios.mutations.mutability import inspect_main_executable
 from mobile_playbook.platforms.ios.ipa.plist_utils import inspect_ipa_metadata
 from mobile_playbook.platforms.ios.ipa.unpacker import unpack_ipa
+from mobile_playbook.env_file import load_env_file
+from mobile_playbook.dashboard_sync_trigger import trigger_dashboard_sync
 from mobile_playbook.logging_setup import configure_logging
 from mobile_playbook.reporting.messages import clean_message
 from mobile_playbook.reporting.report_writer import ReportWriter
@@ -80,13 +81,13 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    _load_env_file(Path(".env"))
+    load_env_file(Path(".env"))
     if hasattr(args, "config"):
-        _load_env_file(Path(args.config).parent / ".env")
+        load_env_file(Path(args.config).parent / ".env")
     if hasattr(args, "ios_config"):
-        _load_env_file(Path(args.ios_config).parent / ".env")
+        load_env_file(Path(args.ios_config).parent / ".env")
     if hasattr(args, "android_config"):
-        _load_env_file(Path(args.android_config).parent / ".env")
+        load_env_file(Path(args.android_config).parent / ".env")
     configure_logging(args.verbose)
     try:
         if args.command == "validate":
@@ -119,9 +120,13 @@ def main(argv: list[str] | None = None) -> int:
                 else:
                     _print_dry_run(config, selected, selected_apps)
                 return 0
-            if args.platform == "android":
-                return _run_android(config, selected, selected_apps, Path(args.out))
-            return _run(config, selected, selected_apps, Path(args.out))
+            out_dir = Path(args.out)
+            try:
+                if args.platform == "android":
+                    return _run_android(config, selected, selected_apps, out_dir)
+                return _run(config, selected, selected_apps, out_dir)
+            finally:
+                trigger_dashboard_sync(out_dir)
         if args.command == "run-all":
             ios_config = load_config(Path(args.ios_config), dry_run=args.dry_run)
             android_config = load_android_config(Path(args.android_config), dry_run=args.dry_run)
@@ -134,7 +139,11 @@ def main(argv: list[str] | None = None) -> int:
                 _print_dry_run(ios_config, selected, selected_apps)
                 _print_android_dry_run(android_config, selected, selected_apps)
                 return 0
-            return _run_all(ios_config, android_config, selected, selected_apps, Path(args.out))
+            out_dir = Path(args.out)
+            try:
+                return _run_all(ios_config, android_config, selected, selected_apps, out_dir)
+            finally:
+                trigger_dashboard_sync(out_dir)
         if args.command == "acquire":
             config = load_config(Path(args.config), dry_run=False)
             selected_apps = selected_app_csv(args.apps)
@@ -151,26 +160,6 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     return 1
 
-
-def _load_env_file(path: Path) -> None:
-    if not path.exists() or not path.is_file():
-        return
-    try:
-        lines = path.read_text().splitlines()
-    except OSError:
-        return
-    for line in lines:
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#") or "=" not in stripped:
-            continue
-        key, value = stripped.split("=", 1)
-        key = key.strip()
-        if not key or key in os.environ:
-            continue
-        value = value.strip()
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
-            value = value[1:-1]
-        os.environ[key] = value
 
 
 def _selected_risks(risks: str | None) -> set[str] | None:
@@ -242,10 +231,11 @@ def _run_all(
 ) -> int:
     """Run the existing iOS and Android `run` flows concurrently, unchanged.
 
-    Each platform still picks its own run_timestamp and writes its own
+    Each platform reserves its own run_timestamp atomically and writes its own
     reports/<run_timestamp>/ folder via _run / _run_android, so results stay
-    fully separate. Threads (not processes) are enough here because the work
-    is I/O-bound: Appium/network calls and adb/apktool/xcodebuild subprocesses.
+    fully separate even when both threads start in the same second. Threads
+    (not processes) are enough here because the work is I/O-bound:
+    Appium/network calls and adb/apktool/xcodebuild subprocesses.
     """
     outcomes: dict[str, tuple[int, Exception | None]] = {}
 

@@ -171,7 +171,7 @@ class FakeReportWriter:
         self.written = []
         self.run_timestamp = "2026-01-01_00-00-00"
 
-    def test_report_dir(self, app_id, test_id, case_id):
+    def test_report_dir(self, app_id, test_id, case_id, platform=None):
         return Path("/tmp") / app_id / test_id / case_id
 
     def write_result(self, result, report_dir):
@@ -180,6 +180,10 @@ class FakeReportWriter:
 
 def _fake_app():
     return SimpleNamespace(id="app", name="App", bundle_id="com.example.app", test_bundle_id="com.example.app.wda", artifact={})
+
+
+def _fake_android_app():
+    return SimpleNamespace(id="app", name="App", package_name="com.example.app")
 
 
 def _fake_risk(run_side_effects):
@@ -299,3 +303,25 @@ def test_android_ensure_device_healthy_returns_same_client_when_reachable(monkey
 
     assert result == "OLD_CLIENT"
     assert not reconnect_called
+
+
+def test_android_run_test_records_failure_with_typed_result(monkeypatch):
+    risk = _fake_risk([RuntimeError("boom")])
+    monkeypatch.setattr("mobile_playbook.platforms.android.runner.get_risk", lambda test_id: risk)
+    monkeypatch.setattr(
+        "mobile_playbook.platforms.android.runner.check_android_preflight",
+        lambda config, adb, requires: SimpleNamespace(ok=True, errors=[]),
+    )
+    config = SimpleNamespace(runner=SimpleNamespace(auto_grant_permissions=False))
+    device_client = SimpleNamespace(adb=object())
+    report_writer = FakeReportWriter()
+
+    AndroidPlatformRunner().run_test(_fake_android_app(), "risk_id", config, device_client, report_writer)
+
+    assert len(risk.calls) == 1
+    assert len(report_writer.written) == 1
+    result = report_writer.written[0][0]
+    assert result.errors == ["boom"]
+    assert result.final_status == "FAILED"
+    assert result.artifact_source == "installed_app"
+    assert result.package_name == "com.example.app"

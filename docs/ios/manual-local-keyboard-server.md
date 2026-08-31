@@ -17,7 +17,7 @@ The script prints:
 In the LocalKeyboard app, set the server URL to the printed phone/server URL, for example:
 
 ```text
-http://192.168.1.9:8765
+http://<this-machine-ip>:8765
 ```
 
 Then pair from the app. The server returns a token that the keyboard can use for event submission.

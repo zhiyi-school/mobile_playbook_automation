@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 
@@ -7,6 +9,7 @@ from mobile_playbook.platforms.ios.artifacts.registry import get_provider
 from mobile_playbook.orchestration.appium_process import ensure_appium_running, tcp_reachable
 from mobile_playbook.orchestration.artifact_intake import app_matches_selector
 from mobile_playbook.orchestration.platform_runner import (
+    appium_start_message,
     enabled_test_ids,
     ensure_appium_session,
     iter_enabled_tests,
@@ -18,6 +21,8 @@ from mobile_playbook.platforms.ios.preflight import check_ios_preflight
 from mobile_playbook.platforms.ios.risks import get_risk
 from mobile_playbook.reporting.run_events import append_event
 
+logger = logging.getLogger(__name__)
+
 
 class IosPlatformRunner:
     platform = "ios"
@@ -28,13 +33,10 @@ class IosPlatformRunner:
     def connect_device(self, config, run_dir: Path | None = None):
         log_dir = run_dir or Path("work/ios")
         outcome = ensure_appium_running(config.device.appium_server_url, getattr(config.device, "appium_auto_start", None), log_dir / "appium.log")
-        if outcome.status == "ALREADY_RUNNING":
-            print(f"ios: Appium already reachable at {config.device.appium_server_url}.")
-        elif outcome.status == "STARTED":
-            print(f"ios: Appium was not running — started it (log: {outcome.log_path}).")
-        elif outcome.status == "DISABLED":
-            print(f"ios: Appium not reachable at {config.device.appium_server_url} and appium_auto_start is disabled.")
-        elif outcome.status == "FAILED":
+        message = appium_start_message(self.platform, config.device.appium_server_url, outcome)
+        if message is not None:
+            logger.info("%s", message)
+        if outcome.status == "FAILED":
             detail = f" Appium log tail:\n{outcome.log_tail}" if outcome.log_tail else ""
             raise RuntimeError(f"ios: {outcome.error}{detail}")
         preflight = check_ios_preflight(config)
@@ -52,11 +54,11 @@ class IosPlatformRunner:
         try:
             result = device_client.unlock()
         except Exception as exc:
-            print(f"ios: (could not check/unlock device screen, continuing anyway: {exc})")
+            logger.warning("ios: (could not check/unlock device screen, continuing anyway: %s)", exc)
             return
         if result.get("was_locked"):
             message = "ios: device screen was locked — unlocked automatically."
-            print(message)
+            logger.info(message)
             append_event(run_dir or Path("work/ios"), "device_unlocked", message=message)
 
     def close_device(self, device_client) -> None:
@@ -82,6 +84,7 @@ class IosPlatformRunner:
         risk = get_risk(test_id)
         if risk is None:
             return
+        failure_result = self._failure_result_template(app, test_id, risk, report_writer)
         try:
             risk.run(app, config, device_client, report_writer)
         except Exception as exc:
@@ -91,7 +94,7 @@ class IosPlatformRunner:
                     return
                 except Exception as retry_exc:
                     exc = retry_exc
-            self._record_failure(app, test_id, risk, report_writer, exc)
+            self._record_failure(failure_result, report_writer, exc)
 
     def _unlock_and_retry(self, device_client, exc: Exception) -> bool:
         # Only worth retrying if the device actually was locked — an unrelated
@@ -102,18 +105,16 @@ class IosPlatformRunner:
         except Exception:
             return False
         if result.get("was_locked"):
-            print(f"ios: test failed ({exc}) and the device was locked — unlocked it, retrying the test once.")
+            logger.info("ios: test failed (%s) and the device was locked — unlocked it, retrying the test once.", exc)
             return True
         return False
 
-    def _record_failure(self, app, test_id: str, risk, report_writer, exc: Exception) -> None:
-        now = datetime.now().astimezone().isoformat()
+    def _failure_result_template(self, app, test_id: str, risk, report_writer) -> RiskRunResult:
         case_id = getattr(risk, "test_case_id", "") or "risk_execution_failed"
-        report_dir = report_writer.test_report_dir(app.id, test_id, case_id)
-        result = RiskRunResult(
+        return RiskRunResult(
             run_timestamp=report_writer.run_timestamp,
-            timestamp_start=now,
-            timestamp_end=now,
+            timestamp_start="",
+            timestamp_end=None,
             app_id=app.id,
             app_name=app.name,
             original_bundle_id=app.bundle_id,
@@ -124,9 +125,20 @@ class IosPlatformRunner:
             test_case_type=getattr(risk, "test_case_type", "unhandled_exception"),
             artifact_source=(app.artifact or {}).get("source", ""),
             final_status="FAILED",
-            errors=[str(exc)],
+            errors=[],
         )
-        report_writer.write_result(result, report_dir)
+
+    def _record_failure(self, failure_result: RiskRunResult, report_writer, exc: Exception) -> None:
+        now = datetime.now().astimezone().isoformat()
+        report_dir = report_writer.test_report_dir(
+            failure_result.app_id,
+            failure_result.risk_id,
+            failure_result.test_case_id,
+        )
+        report_writer.write_result(
+            replace(failure_result, timestamp_start=now, timestamp_end=now, errors=[str(exc)]),
+            report_dir,
+        )
 
     def enabled_test_ids(self, app, selected_tests: set[str] | None):
         yield from enabled_test_ids(app, selected_tests, get_risk)
@@ -146,11 +158,11 @@ class IosPlatformRunner:
                     continue
                 provider = get_provider(app.artifact.get("source", ""))
                 if provider is None:
-                    print(f"{app.id}: UNSUPPORTED_ARTIFACT_SOURCE")
+                    logger.warning("%s: UNSUPPORTED_ARTIFACT_SOURCE", app.id)
                     continue
                 result = provider.acquire(app, config, client, run_timestamp, out_dir)
                 results.append(result.to_dict())
-                print(f"{app.id}: {result.status} {result.ipa_path or ''}")
+                logger.info("%s: %s %s", app.id, result.status, result.ipa_path or "")
         finally:
             if client is not None:
                 self.close_device(client)

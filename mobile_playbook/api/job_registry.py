@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import tempfile
 import threading
@@ -11,6 +12,7 @@ from pathlib import Path
 DEFAULT_PERSIST_PATH = Path("reports/.job_registry.json")
 
 INTERRUPTED_ERROR = "Interrupted by API server restart"
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -24,6 +26,8 @@ class RunRecord:
     error: str | None = None
     started_at: str = field(default_factory=lambda: datetime.now().astimezone().isoformat())
     completed_at: str | None = None
+    apps: str | None = None
+    risks: str | None = None
 
 
 class JobRegistry:
@@ -42,14 +46,19 @@ class JobRegistry:
         try:
             raw = json.loads(self._persist_path.read_text())
         except (OSError, json.JSONDecodeError) as exc:
-            print(f"api: could not read {self._persist_path} ({exc}) — starting with an empty run registry.")
+            logger.warning("api: could not read %s (%s) — starting with an empty run registry.", self._persist_path, exc)
             return
         interrupted = 0
         for run_id, data in raw.items():
             try:
                 record = RunRecord(**data)
             except TypeError as exc:
-                print(f"api: skipping malformed run record {run_id!r} in {self._persist_path} ({exc}).")
+                logger.warning(
+                    "api: skipping malformed run record %r in %s (%s).",
+                    run_id,
+                    self._persist_path,
+                    exc,
+                )
                 continue
             if record.status == "running":
                 record.status = "failed"
@@ -57,9 +66,9 @@ class JobRegistry:
                 record.completed_at = datetime.now().astimezone().isoformat()
                 interrupted += 1
             self._records[record.run_id] = record
-        print(f"api: restored {len(self._records)} run record(s) from {self._persist_path}.")
+        logger.info("api: restored %d run record(s) from %s.", len(self._records), self._persist_path)
         if interrupted:
-            print(f"api: marked {interrupted} still-'running' run(s) as failed ({INTERRUPTED_ERROR}).")
+            logger.info("api: marked %d still-'running' run(s) as failed (%s).", interrupted, INTERRUPTED_ERROR)
             self._save()
 
     def _save(self) -> None:
@@ -88,8 +97,22 @@ class JobRegistry:
         with self._lock:
             self._busy_platforms.discard(platform)
 
-    def create(self, run_id: str, platform: str, config_path: str) -> RunRecord:
-        record = RunRecord(run_id=run_id, platform=platform, config_path=config_path, run_timestamp=run_id)
+    def create(
+        self,
+        run_id: str,
+        platform: str,
+        config_path: str,
+        apps: str | None = None,
+        risks: str | None = None,
+    ) -> RunRecord:
+        record = RunRecord(
+            run_id=run_id,
+            platform=platform,
+            config_path=config_path,
+            run_timestamp=run_id,
+            apps=apps,
+            risks=risks,
+        )
         with self._lock:
             self._records[record.run_id] = record
             self._save()

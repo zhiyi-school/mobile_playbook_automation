@@ -83,6 +83,32 @@ def test_malformed_record_is_skipped_not_fatal(tmp_path):
     assert registry.list() == []
 
 
+def test_selection_survives_a_restart_so_clients_can_identify_the_run(tmp_path):
+    persist_path = tmp_path / "job_registry.json"
+    first = JobRegistry(persist_path=persist_path)
+    first.create("run-one", "ios", "configs/ios.yaml", apps="parents_gateway", risks="ios-feature-01-risk-01")
+
+    second = JobRegistry(persist_path=persist_path)
+
+    record = second.get("run-one")
+    assert record.apps == "parents_gateway"
+    assert record.risks == "ios-feature-01-risk-01"
+
+
+def test_record_without_a_selection_reads_back_as_every_app_and_risk(tmp_path):
+    persist_path = tmp_path / "job_registry.json"
+    persist_path.write_text(
+        json.dumps({"legacy-run": {"run_id": "legacy-run", "platform": "ios", "config_path": "configs/ios.yaml"}})
+    )
+
+    registry = JobRegistry(persist_path=persist_path)
+
+    record = registry.get("legacy-run")
+    assert record is not None
+    assert record.apps is None
+    assert record.risks is None
+
+
 def test_no_persist_path_stays_in_memory_only(tmp_path):
     registry = JobRegistry(persist_path=None)
     registry.create("run-one", "ios", "configs/ios.yaml")

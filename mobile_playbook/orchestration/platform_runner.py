@@ -1,14 +1,26 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Any
 
-from mobile_playbook.orchestration.appium_process import tcp_reachable
+from mobile_playbook.orchestration.appium_process import AppiumStartResult, tcp_reachable
 from mobile_playbook.orchestration.artifact_intake import app_matches_selector
 from mobile_playbook.reporting.run_events import append_event
 
 RiskGetter = Callable[[str], Any]
+logger = logging.getLogger(__name__)
+
+
+def appium_start_message(platform: str, appium_server_url: str, outcome: AppiumStartResult) -> str | None:
+    if outcome.status == "ALREADY_RUNNING":
+        return f"{platform}: Appium already reachable at {appium_server_url}."
+    if outcome.status == "STARTED":
+        return f"{platform}: Appium was not running — started it (log: {outcome.log_path})."
+    if outcome.status == "DISABLED":
+        return f"{platform}: Appium not reachable at {appium_server_url} and appium_auto_start is disabled."
+    return None
 
 
 def enabled_test_ids(app: Any, selected_tests: set[str] | None, get_risk: RiskGetter) -> Iterable[str]:
@@ -61,10 +73,10 @@ def ensure_appium_session(
         return device_client
 
     message = f"{platform}: Appium server at {appium_server_url} is no longer reachable mid-run — attempting to recover and resume."
-    print(message)
+    logger.warning(message)
     append_event(run_dir or fallback_dir, "appium_recovery", message=message)
     try:
         close_device(device_client)
     except Exception as exc:
-        print(f"{platform}: (ignoring failure while closing the broken session: {exc})")
+        logger.warning("%s: (ignoring failure while closing the broken session: %s)", platform, exc)
     return connect_device()

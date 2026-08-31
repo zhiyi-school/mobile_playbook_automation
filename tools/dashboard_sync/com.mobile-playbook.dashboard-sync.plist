@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  launchd agent for the dashboard sync worker.
+
+  Recovery sweep for the dashboard sync worker. Normal API and CLI runs start
+  a detached one-shot worker immediately when their terminal manifest is
+  written. This calendar job catches work left behind if that trigger could
+  not start or the host was interrupted.
+
+  To use:
+    1. Copy to ~/Library/LaunchAgents/com.mobile-playbook.dashboard-sync.plist
+    2. Replace REPLACE_WITH_REPO_PATH with the absolute path to this repository.
+    3. launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.mobile-playbook.dashboard-sync.plist
+
+  Credentials come from the repository's .env, which the worker loads itself.
+  Do not put SUPABASE_SERVICE_ROLE_KEY in this file: plists in LaunchAgents are
+  world-readable by default.
+
+  The calendar entries run every five minutes. Overlapping passes are safe
+  because the worker takes a host-wide lock and exits as "busy".
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.mobile-playbook.dashboard-sync</string>
+
+    <key>Program</key>
+    <string>REPLACE_WITH_REPO_PATH/.venv/bin/python</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>REPLACE_WITH_REPO_PATH/.venv/bin/python</string>
+        <string>-m</string>
+        <string>mobile_playbook.dashboard_sync</string>
+        <string>--reports-dir</string>
+        <string>reports</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>REPLACE_WITH_REPO_PATH</string>
+
+    <key>StartCalendarInterval</key>
+    <array>
+        <dict><key>Minute</key><integer>0</integer></dict>
+        <dict><key>Minute</key><integer>5</integer></dict>
+        <dict><key>Minute</key><integer>10</integer></dict>
+        <dict><key>Minute</key><integer>15</integer></dict>
+        <dict><key>Minute</key><integer>20</integer></dict>
+        <dict><key>Minute</key><integer>25</integer></dict>
+        <dict><key>Minute</key><integer>30</integer></dict>
+        <dict><key>Minute</key><integer>35</integer></dict>
+        <dict><key>Minute</key><integer>40</integer></dict>
+        <dict><key>Minute</key><integer>45</integer></dict>
+        <dict><key>Minute</key><integer>50</integer></dict>
+        <dict><key>Minute</key><integer>55</integer></dict>
+    </array>
+
+    <key>StandardOutPath</key>
+    <string>REPLACE_WITH_REPO_PATH/work/dashboard-sync.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>REPLACE_WITH_REPO_PATH/work/dashboard-sync.log</string>
+</dict>
+</plist>

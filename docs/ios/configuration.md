@@ -82,7 +82,7 @@ apps:
     test_bundle_id: ""
     artifact:
       source: "local_ipa"
-      ipa: "intake/ios/ipas/Example_App.ipa"
+      ipa: "intake/ios/ipas/example_app.ipa"
       workspace_dir: "work/ios/acquired"
       expected_bundle_id: ""
     expected_behavior:

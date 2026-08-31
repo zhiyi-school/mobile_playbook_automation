@@ -91,17 +91,17 @@ IPA install failure:
 
 Check provisioning, entitlements, device compatibility, and whether the IPA is installable outside the framework.
 
-`Cannot install the com.example.LocalKeyboard.4228qcqtj9 application ... ApplicationVerificationFailed ... Failed to verify code signature`:
+`Cannot install the com.example.keyboard_harness application ... ApplicationVerificationFailed ... Failed to verify code signature`:
 
-`ios-feature-04-risk-01`'s keyboard host app (`intake/ios/ipas/LocalKeyboard.ipa`, configured via `keystroke_collection.keyboard_app.ipa`) is a prebuilt binary with no Xcode project source in this repo, so nothing rebuilds it automatically the way WDA gets rebuilt on every session. Its provisioning profile is free-tier (7-day validity) same as WDA's, but with no automatic renewal, it will eventually expire and every install attempt fails with this error until it's resigned.
+`ios-feature-04-risk-01`'s keyboard host app (`intake/ios/ipas/keyboard_harness.ipa`, configured via `keystroke_collection.keyboard_app.ipa`) is a prebuilt binary with no Xcode project source in this repo, so nothing rebuilds it automatically the way WDA gets rebuilt on every session. Its provisioning profile is free-tier (7-day validity) same as WDA's, but with no automatic renewal, it will eventually expire and every install attempt fails with this error until it's resigned.
 
-Fix it with `tools/localkeyboard_resign/resign.py`, which doesn't need the original LocalKeyboard source: it builds a placeholder Xcode project (`tools/localkeyboard_resign/project.yml`, generated via `xcodegen`) targeting LocalKeyboard's exact bundle IDs and App Group entitlement, with the device connected and Automatic Signing on — Apple ties profile issuance to (team + bundle ID + device), not to specific source code, so this mints a fresh profile without the real project. It then pulls that profile and a matching signing identity out of the build output and reapplies both directly to the existing `LocalKeyboard.ipa` via `codesign`, in place:
+Fix it with `tools/localkeyboard_resign/resign.py`, which doesn't need the original keyboard harness source: it builds a placeholder Xcode project (`tools/localkeyboard_resign/project.yml`, generated via `xcodegen`) targeting the harness bundle IDs and App Group entitlement, with the device connected and Automatic Signing on — Apple ties profile issuance to (team + bundle ID + device), not to specific source code, so this mints a fresh profile without the real project. It then pulls that profile and a matching signing identity out of the build output and reapplies both directly to the existing `keyboard_harness.ipa` via `codesign`, in place:
 
 ```bash
 python tools/localkeyboard_resign/resign.py --udid <device.udid> --team-id <device.team_id>
 ```
 
-Both values come from `configs/ios.yaml`'s `device` section. This overwrites `--ipa` (defaults to `intake/ios/ipas/LocalKeyboard.ipa`) with the resigned version; pass `--out` to write elsewhere instead. Requires `xcodegen` (`brew install xcodegen`) and a signing identity in the keychain whose certificate's team (its X.509 `OU` field — not necessarily what its display name suggests) matches `--team-id`.
+Both values come from `configs/ios.yaml`'s `device` section. This overwrites `--ipa` (defaults to `intake/ios/ipas/keyboard_harness.ipa`) with the resigned version; pass `--out` to write elsewhere instead. Requires `xcodegen` (`brew install xcodegen`) and a signing identity in the keychain whose certificate's team (its X.509 `OU` field — not necessarily what its display name suggests) matches `--team-id`.
 
 Protected or encrypted iOS executable:
 
