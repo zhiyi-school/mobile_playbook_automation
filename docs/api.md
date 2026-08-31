@@ -17,11 +17,14 @@ Run this from the repository root, the same way you'd run `python -m mobile_play
 ## Who owns what
 
 ```text
-Backend automation   owns execution, raw reports, evidence, run status, SARIF
+Backend automation   owns execution, IPA/APK files, extracted artifact
+                     metadata, application icons, raw reports, evidence,
+                     run status, SARIF
 Sync worker          translates completed reports into Supabase
 Supabase             owns users, roles, teams, applications, assessments,
                      findings, finding history, tickets, retests, messages,
-                     activity
+                     activity, and small references (checksums, icon refs)
+                     back to backend-owned files — never the files themselves
 Frontend             reads backend automation state and Supabase dashboard
                      state; performs no authoritative synchronisation
 ```
@@ -510,10 +513,186 @@ curl -X POST http://127.0.0.1:8080/artifacts/ios -F "file=@example_app.ipa"
 ```
 
 ```json
-{"path": "intake/ios/ipas/example_app.ipa", "metadata": {"bundle_id": "com.example.app", "display_name": "...", "...": "..."}}
+{
+  "path": "intake/ios/ipas/<IPA_PATH>",
+  "metadata": {
+    "bundle_id": "com.example.placeholder",
+    "display_name": "Example App",
+    "artifact_id": "<ARTIFACT_ID>",
+    "sha256": "<SHA256>",
+    "icon": {"available": true, "storage_ref": "icons/<ARTIFACT_ID>.png", "mime_type": "image/png"}
+  }
+}
 ```
 
+The `artifact_id`/`sha256` and `icon` fields come from the same inspection pass — see [Application icons](#application-icons).
+
 The file must match the platform's expected extension (`.ipa` for `ios`, `.apk` for `android`) or the request is rejected with `400`. Uploads are streamed to disk, capped at 2 GiB by default, and can be adjusted with `MAX_ARTIFACT_UPLOAD_BYTES`. Metadata comes from `inspect_ipa_metadata()` or `inspect_apk_metadata()`: iOS reads bundle ID, display name, version and `Info.plist`; Android reads package name, display name and version through `aapt`, `aapt2` or `apkanalyzer`. A file with the same name overwrites whatever was already in the intake folder after the upload completes, matching how that folder already works as a plain drop-zone.
+
+## Application icons
+
+An app's icon is extracted from the same build the automation would test, stored
+on the backend, and served as a PNG. The dashboard database holds a logical
+reference to it and nothing more: no image bytes, no base64, no filesystem path.
+
+### Endpoint
+
+```bash
+curl -o icon.png http://127.0.0.1:8080/config/ios/apps/<APP_ID>/icon
+```
+
+`GET /config/{platform}/apps/{app_id}/icon` returns `200` with `image/png`, an
+`ETag` of the source build's SHA-256 and `Cache-Control: private, max-age=300`.
+A matching `If-None-Match` gets `304`. An unknown app and an app whose build has
+no readable icon both get `404`, with a detail that names no path or filename.
+
+Read-only is the whole surface. Re-extraction is not exposed over HTTP: it reads
+backend-owned build files, so it stays an operator task on the host that owns
+them — see [Backfilling existing apps](#backfilling-existing-apps).
+
+### Storage layout
+
+```text
+intake/ios/ipas/<IPA_PATH>          original builds, unchanged
+intake/android/apks/<APK_PATH>
+derived/artifacts/<ARTIFACT_ID>.json   extracted metadata
+derived/icons/<ARTIFACT_ID>.png        normalized icon
+```
+
+`<ARTIFACT_ID>` is the build's SHA-256, so two uploads of the same file share one
+entry and re-extraction is free. `derived/` is set by `ARTIFACT_STORE_DIR` and
+defaults to `<repository root>/derived` — see
+[configuration.md](configuration.md#artifact_store_dir) for persistence and
+retention.
+
+### Which build an icon belongs to
+
+A run records the SHA-256 of the build it actually executed against, per app, in
+`run_manifest.json`:
+
+```json
+{"artifacts": {"<APP_ID>": "<ARTIFACT_SHA256>"}}
+```
+
+The checksum is taken when the app is first attempted, and the icon is derived
+at the same moment, so both are pinned to the build under test. The sync worker
+then links the icon for *that* checksum. Uploading a new build between execution
+and synchronisation therefore cannot change what the dashboard shows for a
+finished run.
+
+If the recorded build has no derived icon in the store, the worker writes
+nothing for that app and the previous reference stands. It never falls forward
+to a different build's icon.
+
+Runs made before this field existed have no `artifacts` map. Those fall back to
+resolving whatever build the app configuration currently points at — the legacy
+path, kept only so old reports still sync.
+
+### What gets extracted
+
+Extraction reads the build as an untrusted archive: entry names are validated
+before anything is read, nothing is written to disk from the archive, members
+over 4 MiB are skipped, and images over 2048x2048 are rejected. Only PNG is
+accepted, and only after its header is parsed.
+
+**iOS** reads `Info.plist` for `CFBundleIcons` -> `CFBundlePrimaryIcon` ->
+`CFBundleIconFiles`/`CFBundleIconName`, the `~ipad` variant, and the legacy
+`CFBundleIconFiles`/`CFBundleIconFile` keys, then matches those names against the
+loose PNGs at the `.app` root and picks the largest that decodes. Asset-catalog
+apps are covered by this path because `actool` writes the primary app icon to the
+bundle root as well as into `Assets.car`. Apple ships those PNGs through its own
+pngcrush variant — a `CgBI` chunk, raw deflate, BGRA order, premultiplied alpha —
+which no browser can decode, so they are rebuilt into standard PNGs before being
+stored.
+
+**Android** asks `aapt`/`aapt2`/`apkanalyzer` for the manifest's declared icon
+resources and reads the densest PNG among them. Without those tools on `PATH` it
+falls back to scanning the archive for conventional `res/mipmap-*`/`res/drawable-*`
+launcher icons, so extraction still works, just less precisely.
+
+### iOS asset catalogs
+
+When a bundle has no loose icon PNG, the catalog is inspected with `assetutil`
+(`/usr/bin/assetutil`, run as an argument list, never through a shell). The
+catalog is written to a temporary directory that is removed immediately after,
+capped at 64 MiB in and 16 MiB out, with a 20-second timeout. `CFBundleIconName`
+selects the icon by name, the `marketing` idiom (the 1024px store artwork) is
+excluded, and the largest remaining rendition is identified.
+
+**Raster export from `Assets.car` is not implemented.** `assetutil` can thin a
+catalog or describe it as JSON; it has no export mode, and no other tool shipped
+with macOS or Xcode exposes the pixel data. Rather than claim support that does
+not exist, the catalog path identifies the icon and reports a precise reason:
+
+| Reason | Meaning |
+| --- | --- |
+| `asset_catalog_tool_unavailable` | `assetutil` is not on this host (not macOS). Retried on the next pass. |
+| `asset_catalog_unreadable` | The catalog could not be read or parsed. |
+| `asset_catalog_no_icon` | The catalog holds no rendition matching the app's icon name. |
+| `asset_catalog_no_extractor` | The primary icon was identified but cannot be exported. |
+
+`asset_catalog_no_extractor` is logged with the rendition's dimensions so an
+operator knows exactly what the catalog contains. In practice this is rare:
+`actool` writes the primary app icon to the bundle root as well as into the
+catalog, and that loose copy is what the normal path reads.
+
+### Limitations
+
+- `Assets.car` raster export is not available (above). A build whose icon exists
+  *only* in the catalog reports unavailable.
+- An Android adaptive icon falls back to its raster foreground
+  (`res/**/ic_launcher_foreground.png` and friends). One that is vector-only
+  reports `adaptive_icon_vector_only`; binary XML and vector drawables are not
+  rendered, and the foreground is used as-is rather than composited over its
+  background layer.
+- A CgBI image larger than 512x512 is rejected; the pure-Python decoder is not
+  worth running at that size. Standard PNGs are unaffected up to 2048x2048.
+- Android apps configured by package name alone have no icon until the workflow
+  has an APK on disk. No device operation is added to fetch one.
+
+Extraction never fails a surrounding operation. An upload, an app registration
+and an automation run all succeed with an icon reported as unavailable.
+
+### Caching
+
+Results are keyed by artifact checksum, so the cache invalidates itself: a
+rebuilt artifact has a different digest, a different store entry and a different
+icon. A successful extraction is stored once and reused. An absence is recorded
+too, so a large artifact with no icon is not rescanned on every pass — except
+for absences caused by the host rather than the build
+(`asset_catalog_tool_unavailable`), which are always retried so installing the
+tooling is enough to fix them.
+
+### Backfilling existing apps
+
+Apps that predate icon support keep `icon_ref = null` until something fills it
+in. Two things do:
+
+- a dashboard sync pass, which records the reference alongside the rest of the
+  application row it already writes;
+- a one-time sweep for every configured app that already exists in the dashboard:
+
+```bash
+python -m mobile_playbook.icon_backfill                    # both platforms
+python -m mobile_playbook.icon_backfill --platform ios
+python -m mobile_playbook.icon_backfill --platform android
+python -m mobile_playbook.icon_backfill --app <APP_ID>
+python -m mobile_playbook.icon_backfill --dry-run
+```
+
+The sweep matches an application by backend id **and** platform first. If no row
+is linked, it falls back to the project's existing adoption rule — a single
+unlinked row with the same name and platform. More than one match is counted as
+`ambiguous` and left alone rather than guessed at. Each platform reports
+`scanned`, `linked`, `unavailable`, `skipped`, `ambiguous` and `failed`;
+`--dry-run` reports those counts without writing.
+
+`--force` re-extracts even when an icon is already stored, which is what to use
+after fixing a build whose icon could not be read the first time. The sweep only
+updates applications the dashboard already has; it never creates rows, and it
+skips any app whose config or build cannot be read. It needs the same Supabase
+credentials as the sync worker and is not reachable from the API.
+
 
 ## Editing config
 
@@ -638,6 +817,7 @@ It is designed to be polled: config read + filesystem check + at most one `adb` 
 | `GET/POST /config/{platform}/apps` | List every configured app, or add a new one. |
 | `GET/PUT/DELETE /config/{platform}/apps/{app_id}` | Read, partially update, or remove one app. |
 | `GET /config/{platform}/apps/{app_id}/provisioning` | Whether this app is ready to be tested yet, stage by stage. See [Is an app ready to test?](#is-an-app-ready-to-test) |
+| `GET /config/{platform}/apps/{app_id}/icon` | The app's icon as `image/png`, with an `ETag` and `Cache-Control`. `404` for an unknown app and for one with no readable icon alike. Read-only; re-extraction is not exposed over HTTP. See [Application icons](#application-icons). |
 | `GET/PUT /config/{platform}/risk-settings/{risk_id}` | Read or partially update a risk's global settings (only risks with shared cross-app settings — see below). |
 | `GET/PUT /config/{platform}/device` | Read or partially update the `device:` block. |
 | `GET/PUT /config/{platform}/runner` | Read or partially update the `runner:` block. |

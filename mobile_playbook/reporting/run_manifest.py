@@ -23,6 +23,7 @@ def write_manifest(
     platform: str,
     attempted: list[dict[str, str]],
     status: str,
+    artifacts: Mapping[str, str] | None = None,
     started_at: str | None = None,
     completed_at: str | None = None,
     error: str | None = None,
@@ -33,6 +34,7 @@ def write_manifest(
         "apps": sorted({item["app_id"] for item in attempted}),
         "risks": sorted({item["risk_id"] for item in attempted}),
         "attempted": attempted,
+        "artifacts": dict(artifacts or {}),
         "status": status,
         "started_at": started_at,
         "completed_at": completed_at,
@@ -63,3 +65,11 @@ def read_manifest(run_dir: Path) -> dict[str, Any] | None:
 
 def is_completed(manifest: Mapping[str, Any] | None) -> bool:
     return manifest is not None and manifest.get("status") == COMPLETED
+
+
+def artifact_checksums(manifest: Mapping[str, Any] | None) -> dict[str, str]:
+    """Per-app artifact SHA-256 recorded by the run. Empty for runs predating this field."""
+    artifacts = (manifest or {}).get("artifacts")
+    if not isinstance(artifacts, dict):
+        return {}
+    return {str(k): str(v) for k, v in artifacts.items() if isinstance(v, str) and v}

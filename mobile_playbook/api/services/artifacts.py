@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from mobile_playbook.api.models import Platform
+from mobile_playbook.artifact_store.extraction import describe_artifact
+from mobile_playbook.artifact_store.resolver import app_icon_file
 from mobile_playbook.platforms.android.apk_tools import inspect_apk_metadata
 from mobile_playbook.platforms.ios.artifacts.intake_ipa import list_intake_ipas
 from mobile_playbook.platforms.ios.ipa.plist_utils import inspect_ipa_metadata
@@ -10,14 +12,29 @@ from mobile_playbook.platforms.ios.ipa.plist_utils import inspect_ipa_metadata
 INTAKE_DIRS: dict[Platform, Path] = {"ios": Path("intake/ios/ipas"), "android": Path("intake/android/apks")}
 ARTIFACT_SUFFIXES: dict[Platform, str] = {"ios": ".ipa", "android": ".apk"}
 
+ICON_CACHE_CONTROL = "private, max-age=300"
+
 
 def inspect_uploaded_artifact(platform: Platform, path: Path) -> dict:
     try:
-        if platform == "android":
-            return inspect_apk_metadata(path)
-        return inspect_ipa_metadata(path)
+        metadata = inspect_apk_metadata(path) if platform == "android" else inspect_ipa_metadata(path)
     except Exception as exc:
         return {"error": str(exc)}
+    return {**metadata, **_artifact_reference(platform, path)}
+
+
+def _artifact_reference(platform: Platform, path: Path) -> dict:
+    """Checksum and icon state for an uploaded build. Never fails the upload."""
+    try:
+        described = describe_artifact(platform, path)
+    except Exception:
+        return {}
+    return {key: described.get(key) for key in ("artifact_id", "sha256", "platform", "icon")}
+
+
+def app_icon_file_path(platform: Platform, app_id: str) -> tuple[Path, str] | None:
+    """(file, artifact_id) for a configured app's icon, or `None` when there is none to serve."""
+    return app_icon_file(platform, app_id)
 
 
 def list_artifacts(platform: Platform) -> list[dict]:

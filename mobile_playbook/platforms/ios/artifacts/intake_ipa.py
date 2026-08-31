@@ -60,9 +60,12 @@ def _version_of(metadata: dict) -> str | None:
     return info.get("CFBundleShortVersionString") or info.get("CFBundleVersion") or None
 
 
-def _intake_dir(artifact: dict | None) -> Path:
+def intake_dir_for(artifact: dict | None) -> Path:
     configured = (artifact or {}).get("intake_dir")
     return Path(configured).expanduser() if configured else DEFAULT_INTAKE_DIR
+
+
+_intake_dir = intake_dir_for
 
 
 _scan_cache: dict[str, tuple[tuple, list[IntakeBuild]]] = {}

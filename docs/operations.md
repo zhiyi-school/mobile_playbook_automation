@@ -196,3 +196,32 @@ refused with `409`.
   security boundary.
 - **Eventual consistency.** There is no push notification; the dashboard learns
   a run landed by polling `sync-status`.
+
+
+## Application icons
+
+The backend owns IPA/APK files and every icon derived from them; the dashboard
+database holds only a checksum and a logical `icons/<ARTIFACT_ID>.png`
+reference. See [api.md](api.md#application-icons) for the endpoint, the
+extraction rules and their limits.
+
+**Storage.** `ARTIFACT_STORE_DIR` (default `<repository root>/derived`) must be
+on a volume that survives a redeploy wherever the checkout is disposable —
+[configuration.md](configuration.md#artifact_store_dir) covers persistence,
+cleanup and retention. Losing the store is not a data-loss event: icons report
+as unavailable until something re-derives them.
+
+**Filling in existing applications.**
+
+```bash
+python -m mobile_playbook.icon_backfill --dry-run
+python -m mobile_playbook.icon_backfill
+```
+
+Run it once after applying `0016_application_icon_refs.sql`. It only updates
+applications the dashboard already has, never creates rows, and skips anything
+ambiguous. Ordinary sync passes keep the references current afterwards.
+
+**Migration requirement.** `0016_application_icon_refs.sql` must be applied
+before a sync pass can record icon references. Without it the worker's
+application writes fail with `column ... does not exist`.

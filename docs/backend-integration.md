@@ -351,3 +351,27 @@ treat those as sensitive.
   would break clients silently.
 - **No retention or pruning** of reports and working files.
 - **One run per platform**, single host — no queue, no horizontal scaling.
+
+
+## Application icons
+
+A replacement dashboard consumes one endpoint:
+
+```text
+GET /config/{platform}/apps/{app_id}/icon   ->  200 image/png | 404
+```
+
+`404` covers an unknown app and an app with no readable icon alike, and its
+detail names no path or filename. `ETag` carries the source build's checksum and
+`Cache-Control` is `private, max-age=300`. There is no write endpoint: icons are
+derived by runs and by `python -m mobile_playbook.icon_backfill`, never by a
+browser.
+
+A replacement backend must also record, per app, the SHA-256 of the build a run
+executed against, so the dashboard shows the icon for that exact build rather
+than whatever was uploaded most recently. See
+[api.md](api.md#which-build-an-icon-belongs-to).
+
+Binaries and images never enter the dashboard database. It stores
+`artifact_sha256`, a logical `icons/<ARTIFACT_ID>.png` reference and an
+extraction status; everything else stays on the automation host.

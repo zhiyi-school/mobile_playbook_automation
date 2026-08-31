@@ -7,11 +7,14 @@ This document explains how a run is actually executed under the hood, and what l
 Four components, four responsibilities. Nothing crosses these lines.
 
 ```text
-Backend automation   owns execution, raw reports, evidence, run status, SARIF
+Backend automation   owns execution, IPA/APK files, extracted artifact
+                     metadata, application icons, raw reports, evidence,
+                     run status, SARIF
 Sync worker          translates completed reports into Supabase
 Supabase             owns users, roles, teams, applications, assessments,
                      findings, finding history, tickets, retests, messages,
-                     activity
+                     activity, and small references (checksums, icon refs)
+                     back to backend-owned files — never the files themselves
 Frontend             reads backend automation state and Supabase dashboard
                      state; performs no authoritative synchronisation
 ```
@@ -26,6 +29,14 @@ The consequences that matter in practice:
 - **Everything under `/runs` and `/reports` comes from disk.** The API never
   touches the dashboard database. Raw results and evidence stay available even
   if synchronisation never succeeds.
+- **Binaries and images never enter the database.** IPA/APK files stay in
+  `intake/`, derived icons in the artifact store; Supabase holds a checksum and
+  a logical `icons/<ARTIFACT_ID>.png` reference, and the frontend resolves that
+  through the backend. See [api.md](api.md#application-icons).
+- **An icon belongs to a build, not to an app.** A run records the SHA-256 of
+  the artifact it executed against, and the sync worker links the icon derived
+  from that exact checksum. A build uploaded after the run cannot change what a
+  finished assessment displays.
 - **Two statuses answer different questions.** Automation status
   (`GET /runs/{run_id}`) says whether the device finished executing; dashboard
   sync status (`GET /runs/{run_id}/sync-status`) says whether the completed

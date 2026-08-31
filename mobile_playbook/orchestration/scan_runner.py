@@ -63,6 +63,7 @@ def run_platform(
     writer = report_writer_factory(options.out_dir, run_timestamp)
     client = None
     attempted: list[dict[str, str]] = []
+    artifacts: dict[str, str] = {}
     failure: BaseException | None = None
     try:
         if platform_runner.requires_device(config, options.selected_tests, options.selected_apps):
@@ -71,7 +72,10 @@ def run_platform(
             if client is not None:
                 client = platform_runner.ensure_device_healthy(config, client, writer.run_dir)
             append_event(writer.run_dir, "risk_started", app_id=getattr(app, "id", app), risk_id=test_id)
-            attempted.append({"app_id": str(getattr(app, "id", app)), "risk_id": str(test_id)})
+            app_id = str(getattr(app, "id", app))
+            attempted.append({"app_id": app_id, "risk_id": str(test_id)})
+            if app_id not in artifacts:
+                _record_artifact(artifacts, app_id, getattr(platform_runner, "platform", ""), app)
             platform_runner.run_test(app, test_id, config, client, writer)
     except BaseException as exc:
         failure = exc
@@ -86,6 +90,7 @@ def run_platform(
                 run_timestamp=run_timestamp,
                 platform=getattr(platform_runner, "platform", ""),
                 attempted=attempted,
+                artifacts=artifacts,
                 status=FAILED if failure is not None else COMPLETED,
                 started_at=_isoformat(getattr(writer, "started_at", None)),
                 completed_at=_isoformat(getattr(writer, "completed_at", None)),
@@ -96,6 +101,19 @@ def run_platform(
         _best_effort(lambda: write_sarif(writer.run_dir), "write the SARIF export")
     completed = _isoformat(getattr(writer, "completed_at", None))
     return RunOutcome(run_timestamp=run_timestamp, run_dir=writer.run_dir, completed_at=completed)
+
+
+def _record_artifact(artifacts: dict[str, str], app_id: str, platform: str, app: Any) -> None:
+    """Pin the build under test now; a later upload must not change what the dashboard shows."""
+    try:
+        from mobile_playbook.artifact_store.resolver import prepare_icon_for_app_config
+
+        digest = prepare_icon_for_app_config(platform, app)
+    except Exception as exc:
+        logger.warning("Could not record the artifact for %s: %s", app_id, type(exc).__name__)
+        return
+    if digest:
+        artifacts[app_id] = digest
 
 
 def _isoformat(value: Any) -> str | None:

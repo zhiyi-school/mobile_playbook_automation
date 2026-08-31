@@ -13,7 +13,7 @@ from urllib import error, parse, request
 
 from mobile_playbook import sync_status
 from mobile_playbook.env_file import load_env_file
-from mobile_playbook.reporting.run_manifest import is_completed, read_manifest
+from mobile_playbook.reporting.run_manifest import artifact_checksums, is_completed, read_manifest
 from mobile_playbook.sync_state import SyncBusy, is_processed, mark_processed, report_digest, single_instance
 from mobile_playbook.platforms.android.risks import known_risks as known_android_risks
 from mobile_playbook.platforms.ios.risks import known_risks as known_ios_risks
@@ -23,6 +23,9 @@ logger = logging.getLogger(__name__)
 
 class DashboardSyncStore(Protocol):
     def find_application_by_external_id(self, external_id: str) -> dict[str, Any] | None:
+        ...
+
+    def find_application_by_external_id_and_platform(self, external_id: str, platform: str) -> dict[str, Any] | None:
         ...
 
     def find_unlinked_applications(self, name: str, platform: str) -> list[dict[str, Any]]:
@@ -145,6 +148,13 @@ class SupabaseRestStore:
 
     def find_application_by_external_id(self, external_id: str) -> dict[str, Any] | None:
         return self._single("applications", {"external_id": f"eq.{external_id}", "select": "*"})
+
+    def find_application_by_external_id_and_platform(self, external_id: str, platform: str) -> dict[str, Any] | None:
+        """`external_id` alone is ambiguous: the same config app id can exist on both platforms."""
+        return self._single(
+            "applications",
+            {"external_id": f"eq.{external_id}", "platform": f"eq.{platform}", "select": "*"},
+        )
 
     def find_unlinked_applications(self, name: str, platform: str) -> list[dict[str, Any]]:
         return self._get(
@@ -318,12 +328,13 @@ def sync_dashboard_results(
     store: DashboardSyncStore,
     triggered_by: str | None = None,
     risk_counts: Mapping[str, int] | None = None,
+    artifacts: Mapping[str, str] | None = None,
 ) -> SyncSummary:
     grouped = _rows_by_app(rows)
     recorded = 0
     for app_id, app_rows in grouped.items():
         first = app_rows[0]
-        application = _sync_application(first, store)
+        application = _sync_application(first, store, (artifacts or {}).get(app_id))
         assessment = _sync_assessment(app_id, app_rows, application["id"], store, risk_counts)
         for row in app_rows:
             if _sync_finding(row, application["id"], assessment["id"], store, triggered_by):
@@ -342,6 +353,7 @@ def sync_report_dir(
     store: DashboardSyncStore,
     triggered_by: str | None = None,
     risk_counts: Mapping[str, int] | None = None,
+    artifacts: Mapping[str, str] | None = None,
 ) -> SyncSummary:
     results_path = Path(run_dir) / "dashboard_results.json"
     rows = json.loads(results_path.read_text())
@@ -352,7 +364,9 @@ def sync_report_dir(
         # A completed run with no result rows still has a lifecycle to close.
         _sync_retest(run_timestamp, store, "completed", "Retest completed with no recorded results.")
         return SyncSummary(reports=1)
-    summary = sync_dashboard_results(rows, store, triggered_by=triggered_by, risk_counts=risk_counts)
+    summary = sync_dashboard_results(
+        rows, store, triggered_by=triggered_by, risk_counts=risk_counts, artifacts=artifacts
+    )
     _sync_retest(run_timestamp, store, "completed", "Retest completed — see finding for updated status.")
     return summary.plus(SyncSummary(reports=1))
 
@@ -390,7 +404,13 @@ def sync_reports(
             continue
         sync_status.mark_running(run_dir)
         try:
-            current = sync_report_dir(run_dir, store, triggered_by=triggered_by, risk_counts=risk_counts)
+            current = sync_report_dir(
+                run_dir,
+                store,
+                triggered_by=triggered_by,
+                risk_counts=risk_counts,
+                artifacts=artifact_checksums(manifest),
+            )
         except Exception as exc:
             logger.exception("dashboard sync: failed to sync report %s: %s", run_dir.name, exc)
             sync_status.mark_failed(
@@ -418,7 +438,24 @@ def _rows_by_app(rows: Sequence[Mapping[str, Any]]) -> dict[str, list[Mapping[st
     return grouped
 
 
-def _sync_application(row: Mapping[str, Any], store: DashboardSyncStore) -> dict[str, Any]:
+def _icon_reference(platform: str, app_id: str, artifact_sha256: str | None = None) -> dict[str, Any]:
+    """Prefer the build the run recorded; an empty result leaves the existing reference alone."""
+    from mobile_playbook.artifact_store.resolver import app_icon_reference, icon_reference_for_artifact
+
+    if artifact_sha256:
+        exact = icon_reference_for_artifact(artifact_sha256)
+        if exact is not None:
+            return exact
+        logger.info("dashboard sync: no derived icon for the build %s used; leaving the icon unchanged.", app_id)
+        return {}
+
+    reference = app_icon_reference(platform, app_id)
+    return {} if reference.get("icon_extraction_status") == "failed" else reference
+
+
+def _sync_application(
+    row: Mapping[str, Any], store: DashboardSyncStore, artifact_sha256: str | None = None
+) -> dict[str, Any]:
     now = _now()
     app_id = str(row["app_id"])
     platform = str(row["platform"])
@@ -430,8 +467,9 @@ def _sync_application(row: Mapping[str, Any], store: DashboardSyncStore) -> dict
         "provisioning_status": "ready",
         "provisioning_error": None,
         "updated_at": now,
+        **_icon_reference(platform, app_id, artifact_sha256),
     }
-    linked = store.find_application_by_external_id(app_id)
+    linked = store.find_application_by_external_id_and_platform(app_id, platform)
     if linked is not None:
         return store.update_application(linked["id"], fields)
     candidates = store.find_unlinked_applications(fields["name"], platform)

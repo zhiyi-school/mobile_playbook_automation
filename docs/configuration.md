@@ -99,6 +99,7 @@ processes in deliberately different ways.
 | `SUPABASE_SERVICE_ROLE_KEY` | sync worker only | bypasses row-level security |
 | `DASHBOARD_SYNC_AUTO_TRIGGER` | API and CLI | `false` disables the post-run worker launch |
 | `CORS_ALLOWED_ORIGINS` | API process | exact browser origins allowed to call the API |
+| `ARTIFACT_STORE_DIR` | API, sync worker, backfill | where derived artifact metadata and icons are kept |
 
 ### Who may read what
 
@@ -106,10 +107,10 @@ processes in deliberately different ways.
   `mobile_playbook/env_file.py`'s `load_env_file()`, because it genuinely needs
   the service-role key. It is the only process that ever holds that key.
 - **The API** must not. `mobile_playbook/api/settings.py` reads one allowlisted
-  key at a time. `ALLOWED_ENV_KEYS` currently contains only
-  `CORS_ALLOWED_ORIGINS`; any other key raises `DisallowedSettingError`. The
-  API package does not import `load_env_file` at all, so there is no code path
-  from it to whole-file loading.
+  key at a time. `ALLOWED_ENV_KEYS` currently contains `CORS_ALLOWED_ORIGINS`
+  and `ARTIFACT_STORE_DIR`, both non-secret; any other key raises
+  `DisallowedSettingError`. The API package does not import `load_env_file` at
+  all, so there is no code path from it to whole-file loading.
 
 The practical consequence: putting `SUPABASE_SERVICE_ROLE_KEY` in `.env` does
 not put it in the API process's environment, even though both read the same
@@ -148,6 +149,40 @@ CORS_ALLOWED_ORIGINS="http://localhost:5173,https://dashboard.example.com"
 
 Defaults to true. Set `false` on an installation that does not use a dashboard;
 runs still write reports, and `GET /sync/status` reports `enabled: false`.
+
+### `ARTIFACT_STORE_DIR`
+
+```env
+ARTIFACT_STORE_DIR="/var/lib/mobile-playbook/derived"
+```
+
+Where extracted artifact metadata and application icons are written. Defaults to
+`<repository root>/derived`.
+
+```text
+<ARTIFACT_STORE_DIR>/artifacts/<ARTIFACT_ID>.json   extracted metadata
+<ARTIFACT_STORE_DIR>/icons/<ARTIFACT_ID>.png        normalized icon
+```
+
+`<ARTIFACT_ID>` is the SHA-256 of the build the entry was derived from, so the
+layout deduplicates by checksum on its own and every path is relative to the
+store root. Original IPA/APK files are **not** moved here; they stay in
+`intake/{ios,android}/{ipas,apks}/` exactly as before.
+
+**Persistence.** Point this at a volume that survives a redeploy in any posture
+where the repository checkout is disposable. If the store is lost, icons simply
+report as unavailable until something re-extracts them
+([api.md](api.md#backfilling-existing-apps)); nothing else in the system depends
+on it, and no dashboard row becomes invalid.
+
+**Cleanup and retention.** Entries are content-addressed and small — a few KB
+per app — and are never rewritten in place, so the store grows only when a new
+build appears. Deleting the whole directory is safe at any time. To reclaim
+space from builds no longer in use, remove `<ARTIFACT_ID>` pairs whose
+`artifact_sha256` no longer appears in the dashboard's `applications` table, then
+re-run the backfill. Backing it up is a plain directory copy; migrating it is a
+copy plus a change to this variable, with no database change, because every
+stored reference is relative.
 
 ### Frontend-safe variables
 

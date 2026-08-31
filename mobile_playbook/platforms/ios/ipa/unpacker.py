@@ -8,9 +8,14 @@ from pathlib import Path, PurePosixPath
 IGNORED_NAMES = {"__MACOSX", ".DS_Store"}
 
 
+def is_safe_member_name(member_name: str) -> bool:
+    pure = PurePosixPath(member_name)
+    return bool(pure.parts) and not pure.is_absolute() and ".." not in pure.parts
+
+
 def _safe_target(root: Path, member_name: str) -> Path:
     pure = PurePosixPath(member_name)
-    if pure.is_absolute() or ".." in pure.parts:
+    if not is_safe_member_name(member_name):
         raise ValueError(f"Unsafe zip entry path: {member_name}")
     target = (root / Path(*pure.parts)).resolve()
     root_resolved = root.resolve()

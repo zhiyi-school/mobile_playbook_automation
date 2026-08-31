@@ -86,3 +86,16 @@ paste them into issue trackers unredacted.
 3. Run a single app and a single risk: `--apps example-app --risks <RISK_ID>`.
 4. Read `run_manifest.json` before anything else — it distinguishes "the run
    failed" from "the run completed and a risk found something".
+
+
+## Application icons
+
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| Every app shows the dashboard placeholder | `0016_application_icon_refs.sql` not applied, or no reference written yet | apply the migration, then `python -m mobile_playbook.icon_backfill` |
+| Sync fails with `column ... does not exist` | same migration missing | apply it; the worker writes icon fields on every application row |
+| One app keeps its placeholder | its build has no icon this backend can read | check the reason in `derived/artifacts/<ARTIFACT_ID>.json`; `asset_catalog_no_extractor` and `adaptive_icon_vector_only` are known limits |
+| Icon endpoint returns 404 for an app that has one | the API process predates the route | restart the API; `curl .../openapi.json` should list `/config/{platform}/apps/{app_id}/icon` |
+| Icon is stale after a new build | the run that produced the dashboard row used the older build | expected — icons are pinned to the build under test; the next run re-pins |
+| `asset_catalog_tool_unavailable` on every iOS app | not running on macOS, or `assetutil` missing | expected off macOS; loose-PNG extraction still works |
+| Backfill reports `ambiguous` | several unlinked rows share the app's name and platform | link or rename them in the dashboard, then re-run |

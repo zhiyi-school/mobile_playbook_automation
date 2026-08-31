@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import FileResponse, Response
 
 from mobile_playbook.api import config_editor, provisioning
 from mobile_playbook.api.dependencies import load_config_or_400
+from mobile_playbook.api.services import artifacts as artifact_service
 from mobile_playbook.api.models import (
     ConfigAppRequest,
     DeviceUpdateRequest,
@@ -78,6 +80,21 @@ def delete_config_app(platform: Platform, app_id: str) -> None:
 @router.get("/config/{platform}/apps/{app_id}/provisioning")
 def get_app_provisioning(platform: Platform, app_id: str) -> dict:
     return provisioning.describe(platform, app_id)
+
+
+@router.get("/config/{platform}/apps/{app_id}/icon")
+def get_app_icon(platform: Platform, app_id: str, request: Request) -> Response:
+    """The app's icon as PNG. 404 covers unknown apps and apps with no readable icon alike."""
+    resolved = artifact_service.app_icon_file_path(platform, app_id)
+    if resolved is None:
+        raise HTTPException(status_code=404, detail="No icon is available for this app")
+
+    path, artifact_id = resolved
+    etag = f'"{artifact_id}"'
+    headers = {"Cache-Control": artifact_service.ICON_CACHE_CONTROL, "ETag": etag}
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers=headers)
+    return FileResponse(path, media_type="image/png", headers=headers)
 
 
 @router.get("/config/{platform}/risk-settings/{risk_id}")

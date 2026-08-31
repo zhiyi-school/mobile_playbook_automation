@@ -32,6 +32,11 @@ class FakeStore:
     def find_application_by_external_id(self, external_id: str) -> dict[str, Any] | None:
         return _find(self.applications, external_id=external_id)
 
+    def find_application_by_external_id_and_platform(
+        self, external_id: str, platform: str
+    ) -> dict[str, Any] | None:
+        return _find(self.applications, external_id=external_id, platform=platform)
+
     def find_unlinked_applications(self, name: str, platform: str) -> list[dict[str, Any]]:
         return [
             row
