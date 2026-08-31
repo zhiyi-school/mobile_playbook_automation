@@ -24,6 +24,7 @@ class TestResult(SerializableDataclass):
     test_name: str
     category: str
     status: str
+    verdict: str = "Inconclusive"
     severity: str = "info"
     summary: str = ""
     evidence: list[Evidence] = field(default_factory=list)

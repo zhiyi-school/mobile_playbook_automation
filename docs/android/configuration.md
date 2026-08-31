@@ -109,7 +109,7 @@ Android risk IDs are prefixed `android-feature...`. To configure a risk for an a
      # If unset, a keystore is generated at <work_dir>/<app>/../release.keystore on first use.
      keystore_path: null
      keystore_alias: "mobileplaybook"
-     keystore_pass: "password"
+     keystore_pass: "REPLACE_WITH_KEYSTORE_PASSWORD"
    ```
 
    See `configs/split/android/risk_settings.example.yaml` for the rest of this and `screen_capture`'s fields, and the field references below for what each controls.
@@ -126,7 +126,7 @@ repackaging:
   work_dir: "work/android/repackaging"
   keystore_path: null
   keystore_alias: "mobileplaybook"
-  keystore_pass: "password"
+  keystore_pass: "REPLACE_WITH_KEYSTORE_PASSWORD"
   restore_original_after_test: true
   record_lead_in: 2
   launch_wait: 8

@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import re
 import threading
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
@@ -11,14 +12,17 @@ from fastapi import HTTPException
 from ruamel.yaml import YAML
 
 from mobile_playbook.core.config_files import merge_dicts
+from mobile_playbook.orchestration.preflight import load_yaml_config
 from mobile_playbook.platforms.android.config import ConfigError as AndroidConfigError
 from mobile_playbook.platforms.android.config import _slugify as _android_slugify
-from mobile_playbook.platforms.android.config import load_config as load_android_config
+from mobile_playbook.platforms.android.config import collect_config_errors as collect_android_errors
+from mobile_playbook.platforms.android.config import parse_config as parse_android_config
 from mobile_playbook.platforms.android.risks import list_risks as list_android_risks
 from mobile_playbook.platforms.ios.config import ConfigError as IosConfigError
 from mobile_playbook.platforms.ios.config import RISK_GLOBAL_SETTINGS_FIELD
 from mobile_playbook.platforms.ios.config import _slugify as _ios_slugify
-from mobile_playbook.platforms.ios.config import load_config as load_ios_config
+from mobile_playbook.platforms.ios.config import collect_config_errors as collect_ios_errors
+from mobile_playbook.platforms.ios.config import parse_config as parse_ios_config
 from mobile_playbook.platforms.ios.risks import list_risks as list_ios_risks
 
 ENTRY_FILES = {"ios": Path("configs/ios.yaml"), "android": Path("configs/android.yaml")}
@@ -27,15 +31,14 @@ FEATURES_FILES = {
     "ios": Path("configs/split/ios/features.yaml"),
     "android": Path("configs/split/android/features.yaml"),
 }
-RISK_DEMONSTRATIONS_FILES = {
-    "ios": Path("configs/split/ios/risk_demonstrations.yaml"),
-    "android": Path("configs/split/android/risk_demonstrations.yaml"),
+RISK_FILES = {
+    "ios": Path("configs/split/ios/risks.yaml"),
+    "android": Path("configs/split/android/risks.yaml"),
 }
 
-# risk_id -> (field name under the risk-settings file, that file's path).
-# Android has no RISK_GLOBAL_SETTINGS_FIELD equivalent to reuse (tools/repackaging/
-# screen_capture are read by fixed field name in android/config.py), so this is
-# spelled out directly for both platforms rather than only being derivable for iOS.
+RISK_METADATA_FIELDS = ("name", "description", "goal", "tactic")
+
+# risk_id -> (settings field, settings file path)
 RISK_SETTINGS = {
     "ios": {
         risk_id: (field, Path(f"configs/split/ios/{field}.yaml"))
@@ -49,8 +52,8 @@ RISK_SETTINGS = {
 
 _rt_yaml = YAML(typ="rt")
 _rt_yaml.preserve_quotes = True
-_rt_yaml.width = 100_000  # avoid re-wrapping long lines back into the file
-_rt_yaml.indent(mapping=2, sequence=4, offset=2)  # matches this repo's nested-list style (key:\n  - item)
+_rt_yaml.width = 100_000
+_rt_yaml.indent(mapping=2, sequence=4, offset=2)
 
 _locks_guard = threading.Lock()
 _locks: dict[Path, threading.Lock] = {}
@@ -63,29 +66,50 @@ def _lock_for(path: Path) -> threading.Lock:
         return _locks[path]
 
 
-def _load_and_validate(platform: str) -> None:
-    """Re-run the real config loader/validator against what's now on disk.
+_APP_ERROR_PREFIX = re.compile(r"^apps\[([^\]]+)\]")
 
-    This is the safety net every write in this module goes through: if the
-    edit just written makes the overall config invalid, the caller reverts
-    the file and this raises so nothing bad is left committed.
-    """
+
+def load_with_errors(platform: str):
+    """Return the parsed config and all current validation errors."""
     entry_path = ENTRY_FILES[platform]
     try:
-        if platform == "android":
-            load_android_config(entry_path, dry_run=False)
-        else:
-            load_ios_config(entry_path, dry_run=False)
-    except (AndroidConfigError, IosConfigError) as exc:
-        raise HTTPException(status_code=422, detail=list(exc.errors)) from exc
+        raw = load_yaml_config(entry_path)
+        config = parse_android_config(raw, entry_path) if platform == "android" else parse_ios_config(raw, entry_path)
+    except (AndroidConfigError, IosConfigError, ValueError, OSError) as exc:
+        return None, [str(exc)]
+    collect = collect_android_errors if platform == "android" else collect_ios_errors
+    return config, list(collect(config, dry_run=False))
+
+
+def config_errors(platform: str) -> list[str]:
+    """Every current config problem, or a single parse error if it won't even load."""
+    return load_with_errors(platform)[1]
+
+
+def app_config_errors(platform: str) -> dict[str, list[str]]:
+    """Config problems bucketed by app id; global ones under the empty-string key."""
+    buckets: dict[str, list[str]] = {}
+    for error in config_errors(platform):
+        match = _APP_ERROR_PREFIX.match(error)
+        buckets.setdefault(match.group(1) if match else "", []).append(error)
+    return buckets
+
+
+def _load_and_validate(platform: str, baseline: list[str] | None = None) -> None:
+    """Reject a write only for errors introduced by that write."""
+    introduced = [error for error in config_errors(platform) if error not in (baseline or [])]
+    if introduced:
+        raise HTTPException(status_code=422, detail=introduced)
 
 
 def _plain(value: Any) -> Any:
-    """Convert ruamel's CommentedMap/CommentedSeq into plain, JSON-safe dict/list."""
+    """Convert ruamel values into JSON-safe Python values."""
     if isinstance(value, dict):
         return {key: _plain(item) for key, item in value.items()}
     if isinstance(value, list):
         return [_plain(item) for item in value]
+    if isinstance(value, str):
+        return str(value)
     return value
 
 
@@ -96,14 +120,7 @@ def _rt_dump(data: Any) -> str:
 
 
 def _merge_into_commented(node: Any, updates: dict) -> None:
-    """Apply `updates` onto a live ruamel node in place, key by key.
-
-    `merge_dicts` builds a brand new plain structure, which would replace an
-    existing CommentedMap wholesale and drop every comment attached to its
-    untouched keys. Mutating the same node object instead means keys nobody
-    asked to change keep their original formatting and comments; only the
-    keys actually present in `updates` are touched.
-    """
+    """Merge updates while preserving comments on untouched keys."""
     for key, value in updates.items():
         current = node.get(key) if hasattr(node, "get") else None
         if isinstance(value, dict) and isinstance(current, dict):
@@ -115,30 +132,23 @@ def _merge_into_commented(node: Any, updates: dict) -> None:
 
 
 def _write_whole_file_validated(path: Path, mutate: "callable[[Any], None]", platform: str) -> Any:
-    """Round-trip load `path`, apply `mutate` to the parsed document, write it back,
-    validate the platform's config, and revert on failure.
-
-    Only safe for files with no cross-file YAML anchors (everything except
-    configs/split/ios/apps.yaml — see `_edit_ios_apps_file` for why that one
-    is handled differently).
-    """
+    """Write a round-tripped YAML file, then validate and revert on failure."""
     lock = _lock_for(path)
     with lock:
         original_text = path.read_text()
+        baseline = config_errors(platform)
         data = _rt_yaml.load(original_text)
         mutate(data)
         path.write_text(_rt_dump(data))
         try:
-            _load_and_validate(platform)
+            _load_and_validate(platform, baseline)
         except HTTPException:
             path.write_text(original_text)
             raise
         return data
 
 
-# ---------------------------------------------------------------------------
-# Device / runner — inlined directly in configs/{platform}.yaml, no anchors.
-# ---------------------------------------------------------------------------
+# Device / runner
 
 
 def get_section(platform: str, section: str) -> dict:
@@ -159,9 +169,7 @@ def put_section(platform: str, section: str, updates: dict) -> dict:
     return _plain(data.get(section) or {})
 
 
-# ---------------------------------------------------------------------------
-# Risk settings — one risk's global defaults, one file each, no anchors.
-# ---------------------------------------------------------------------------
+# Risk settings
 
 
 def _risk_settings_target(platform: str, risk_id: str) -> tuple[str, Path]:
@@ -189,9 +197,7 @@ def put_risk_settings(platform: str, risk_id: str, updates: dict) -> dict:
     return _plain(data.get(field_name) or {})
 
 
-# ---------------------------------------------------------------------------
-# Android apps — one file, no anchors: full round-trip works cleanly.
-# ---------------------------------------------------------------------------
+# Android apps
 
 
 def list_android_apps() -> list[dict]:
@@ -217,7 +223,10 @@ def add_android_app(app: dict) -> dict:
         apps = data.setdefault("apps", [])
         app_id = _android_app_id(app)
         if any(_android_app_id(_plain(item)) == app_id for item in apps):
-            raise HTTPException(status_code=409, detail=f"App already exists: {app_id}")
+            raise HTTPException(
+                status_code=409,
+                detail={"message": f"App already exists: {app_id}", "app_id": app_id},
+            )
         new_app = dict(app)
         new_app.setdefault("id", app_id)
         apps.append(new_app)
@@ -247,7 +256,7 @@ def edit_android_app(app_id: str, updates: dict) -> dict:
     for item in data.get("apps") or []:
         if _android_app_id(_plain(item)) == app_id:
             return _plain(item)
-    raise HTTPException(status_code=404, detail=f"Unknown app_id: {app_id}")  # pragma: no cover — validated above
+    raise HTTPException(status_code=404, detail=f"Unknown app_id: {app_id}")  # pragma: no cover
 
 
 def delete_android_app(app_id: str) -> None:
@@ -263,32 +272,12 @@ def delete_android_app(app_id: str) -> None:
     _write_whole_file_validated(path, mutate, "android")
 
 
-# ---------------------------------------------------------------------------
-# iOS apps — configs/split/ios/apps.yaml cannot be parsed on its own: its
-# `<<: *anchor` entries reference anchors defined in the sibling
-# templates.yaml, only resolvable when the two files are concatenated and
-# parsed together (see orchestration/preflight.py's include-list handling).
-# Re-serializing that combined, multi-file document back into two physical
-# files while preserving the original hand-authored anchors reliably isn't
-# solvable in general, so writes here operate on apps.yaml's own raw text
-# directly: each top-level app entry is a text block starting at a `  - `
-# line at 2-space indent (the YAML block-sequence marker; nothing else in
-# this file's structure starts a line at that exact indent), located by
-# regex rather than by parsing. Blocks that are untouched are left as
-# byte-identical text — comments and anchor usage on every OTHER app are
-# never at risk. A block being added or edited is rendered with fully
-# explicit values (no anchor usage) via a plain YAML dump — consistent with
-# accepting that API-written entries come out expanded rather than
-# templated.
-# ---------------------------------------------------------------------------
+# iOS apps. apps.yaml uses anchors from templates.yaml, so app entries are edited as text blocks.
 
 _APP_ITEM_START_RE = re.compile(r"^  - ", re.MULTILINE)
 
 
 def _field_value_re(field: str) -> re.Pattern:
-    # A block's first field sits inline after the "  - " list marker (e.g.
-    # `  - name: "SP"`); every field after that starts its own line at
-    # 4-space indent. Match either position.
     return re.compile(rf"^(?:  - |    ){re.escape(field)}:[ \t]*(.*)$", re.MULTILINE)
 
 
@@ -329,17 +318,58 @@ def _render_ios_app_block(app: dict) -> str:
     return "\n".join(rendered) + "\n"
 
 
+TEMPLATE_FILES = {"ios": Path("configs/split/ios/templates.yaml")}
+
+IOS_APP_FIELD_ORDER = (
+    "id",
+    "name",
+    "version",
+    "sector",
+    "agency",
+    "bundle_id",
+    "test_bundle_id",
+    "artifact",
+    "expected_behavior",
+    "risks",
+    "cisos",
+)
+
+
+def _ios_templates() -> dict:
+    path = TEMPLATE_FILES["ios"]
+    if not path.exists():
+        return {}
+    return yaml.safe_load(path.read_text()) or {}
+
+
+def apply_ios_app_defaults(app: dict) -> dict:
+    """Fill a minimal iOS app entry with roster defaults."""
+    filled = dict(app)
+
+    if not filled.get("expected_behavior"):
+        default_check = _ios_templates().get("x-default-launch-check")
+        if default_check:
+            filled["expected_behavior"] = deepcopy(default_check)
+
+    if not filled.get("test_bundle_id"):
+        wda_bundle_id = (get_section("ios", "device") or {}).get("updated_wda_bundle_id")
+        if wda_bundle_id:
+            filled["test_bundle_id"] = wda_bundle_id
+
+    ordered = {key: filled[key] for key in IOS_APP_FIELD_ORDER if key in filled}
+    ordered.update({key: value for key, value in filled.items() if key not in ordered})
+    return ordered
+
+
 def list_ios_apps() -> list[dict]:
-    config = load_ios_config(ENTRY_FILES["ios"], dry_run=False)
+    config, _ = load_with_errors("ios")
+    if config is None:
+        raise HTTPException(status_code=422, detail=config_errors("ios"))
     return [app.to_dict() for app in config.apps]
 
 
 def _effective_ios_app(app_id: str) -> dict | None:
-    config = load_ios_config(ENTRY_FILES["ios"], dry_run=False)
-    for app in config.apps:
-        if app.id == app_id:
-            return app.to_dict()
-    return None
+    return next((app for app in list_ios_apps() if app.get("id") == app_id), None)
 
 
 def add_ios_app(app: dict) -> dict:
@@ -347,15 +377,19 @@ def add_ios_app(app: dict) -> dict:
     lock = _lock_for(path)
     with lock:
         original_text = path.read_text()
+        baseline = config_errors("ios")
         _, blocks = _split_ios_app_blocks(original_text)
-        app = dict(app)
+        app = apply_ios_app_defaults(app)
         app_id = app.get("id") or _ios_slugify(app.get("name") or "")
         if any(_ios_block_identity(block) == app_id for block in blocks):
-            raise HTTPException(status_code=409, detail=f"App already exists: {app_id}")
+            raise HTTPException(
+                status_code=409,
+                detail={"message": f"App already exists: {app_id}", "app_id": app_id},
+            )
         new_text = original_text.rstrip("\n") + "\n" + _render_ios_app_block(app)
         path.write_text(new_text)
         try:
-            _load_and_validate("ios")
+            _load_and_validate("ios", baseline)
         except HTTPException:
             path.write_text(original_text)
             raise
@@ -367,6 +401,7 @@ def edit_ios_app(app_id: str, updates: dict) -> dict:
     lock = _lock_for(path)
     with lock:
         original_text = path.read_text()
+        baseline = config_errors("ios")
         preamble, blocks = _split_ios_app_blocks(original_text)
         target_index = next((i for i, block in enumerate(blocks) if _ios_block_identity(block) == app_id), None)
         if target_index is None:
@@ -383,7 +418,7 @@ def edit_ios_app(app_id: str, updates: dict) -> dict:
         blocks[target_index] = _render_ios_app_block(merged)
         path.write_text(preamble + "".join(blocks))
         try:
-            _load_and_validate("ios")
+            _load_and_validate("ios", baseline)
         except HTTPException:
             path.write_text(original_text)
             raise
@@ -395,13 +430,14 @@ def delete_ios_app(app_id: str) -> None:
     lock = _lock_for(path)
     with lock:
         original_text = path.read_text()
+        baseline = config_errors("ios")
         preamble, blocks = _split_ios_app_blocks(original_text)
         remaining = [block for block in blocks if _ios_block_identity(block) != app_id]
         if len(remaining) == len(blocks):
             raise HTTPException(status_code=404, detail=f"Unknown app_id: {app_id}")
         path.write_text(preamble + "".join(remaining))
         try:
-            _load_and_validate("ios")
+            _load_and_validate("ios", baseline)
         except HTTPException:
             path.write_text(original_text)
             raise
@@ -444,23 +480,58 @@ def put_feature(platform: str, feature_id: str, updates: dict) -> dict:
     return {"feature_id": feature_id, "name": entry.get("name", ""), "description": entry.get("description", "")}
 
 
-def get_risk_demonstration(platform: str, risk_id: str) -> list:
+def _require_known_risk(platform: str, risk_id: str) -> None:
     known = list_ios_risks() if platform == "ios" else list_android_risks()
     if risk_id not in {risk["risk_id"] for risk in known}:
         raise HTTPException(status_code=404, detail=f"Unknown risk_id: {risk_id}")
-    path = RISK_DEMONSTRATIONS_FILES[platform]
-    data = _plain(_rt_yaml.load(path.read_text()) or {})
-    return (data.get(risk_id) or {}).get("demonstration") or []
+
+
+def _risk_entry(platform: str, risk_id: str) -> dict:
+    path = RISK_FILES[platform]
+    try:
+        data = _plain(_rt_yaml.load(path.read_text()) or {})
+    except OSError:
+        return {}
+    entry = data.get(risk_id)
+    return entry if isinstance(entry, dict) else {}
+
+
+def get_risk_metadata(platform: str, risk_id: str) -> dict:
+    """The displayed fields this risk overrides, omitting any it doesn't set."""
+    _require_known_risk(platform, risk_id)
+    entry = _risk_entry(platform, risk_id)
+    return {field: entry[field] for field in RISK_METADATA_FIELDS if field in entry}
+
+
+def put_risk_metadata(platform: str, risk_id: str, updates: dict) -> dict:
+    _require_known_risk(platform, risk_id)
+    unknown = sorted(set(updates) - set(RISK_METADATA_FIELDS))
+    if unknown:
+        raise HTTPException(status_code=422, detail=f"Unknown risk fields: {', '.join(unknown)}")
+    path = RISK_FILES[platform]
+
+    def mutate(data: Any) -> None:
+        if not isinstance(data.get(risk_id), dict):
+            data[risk_id] = {}
+        _merge_into_commented(data[risk_id], updates)
+
+    _write_whole_file_validated(path, mutate, platform)
+    return get_risk_metadata(platform, risk_id)
+
+
+def get_risk_demonstration(platform: str, risk_id: str) -> list:
+    _require_known_risk(platform, risk_id)
+    return _risk_entry(platform, risk_id).get("demonstration") or []
 
 
 def put_risk_demonstration(platform: str, risk_id: str, demonstration: list) -> list:
-    known = list_ios_risks() if platform == "ios" else list_android_risks()
-    if risk_id not in {risk["risk_id"] for risk in known}:
-        raise HTTPException(status_code=404, detail=f"Unknown risk_id: {risk_id}")
-    path = RISK_DEMONSTRATIONS_FILES[platform]
+    _require_known_risk(platform, risk_id)
+    path = RISK_FILES[platform]
 
     def mutate(data: Any) -> None:
-        data[risk_id] = {"demonstration": demonstration}
+        if not isinstance(data.get(risk_id), dict):
+            data[risk_id] = {}
+        data[risk_id]["demonstration"] = demonstration
 
     data = _write_whole_file_validated(path, mutate, platform)
     return (data.get(risk_id) or {}).get("demonstration") or []

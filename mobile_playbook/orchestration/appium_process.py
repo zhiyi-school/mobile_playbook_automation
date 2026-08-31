@@ -11,10 +11,13 @@ from typing import Any
 from urllib.parse import urlparse
 
 
-def tcp_reachable(url_or_hostport: str, timeout: float = 3.0) -> bool:
+def _host_port(url_or_hostport: str) -> tuple[str, int]:
     parsed = urlparse(url_or_hostport if "//" in url_or_hostport else f"//{url_or_hostport}")
-    host = parsed.hostname or "127.0.0.1"
-    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    return parsed.hostname or "127.0.0.1", parsed.port or (443 if parsed.scheme == "https" else 80)
+
+
+def tcp_reachable(url_or_hostport: str, timeout: float = 3.0) -> bool:
+    host, port = _host_port(url_or_hostport)
     try:
         with socket.create_connection((host, port), timeout=timeout):
             return True

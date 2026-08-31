@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import tempfile
 import threading
@@ -11,6 +12,7 @@ from pathlib import Path
 DEFAULT_PERSIST_PATH = Path("reports/.job_registry.json")
 
 INTERRUPTED_ERROR = "Interrupted by API server restart"
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -18,30 +20,18 @@ class RunRecord:
     run_id: str
     platform: str
     config_path: str
-    status: str = "running"  # "running" | "completed" | "failed"
+    status: str = "running"
     run_timestamp: str | None = None
     run_dir: str | None = None
     error: str | None = None
     started_at: str = field(default_factory=lambda: datetime.now().astimezone().isoformat())
     completed_at: str | None = None
+    apps: str | None = None
+    risks: str | None = None
 
 
 class JobRegistry:
-    """Tracker for runs triggered through the API, persisted to disk.
-
-    `run_id` is always the run's `run_timestamp` (also its
-    `reports/<run_timestamp>/` directory name), reserved up front by the
-    caller before the record is created — there is no separate ID scheme
-    to look up.
-
-    Records are written to `persist_path` on every change and reloaded from
-    there on startup, so `GET /runs`/`GET /runs/{run_id}` history survives an
-    API server restart. Platform-claim state (`_busy_platforms`) is *not*
-    persisted: it only ever reflects a run actually in progress in this
-    process's threads, and a restart kills those threads regardless, so any
-    record still `"running"` at load time is rewritten to `"failed"` — it can
-    never actually finish and polling it would hang forever otherwise.
-    """
+    """Persisted tracker for runs triggered through the API."""
 
     def __init__(self, persist_path: Path | None = DEFAULT_PERSIST_PATH) -> None:
         self._lock = threading.Lock()
@@ -56,14 +46,19 @@ class JobRegistry:
         try:
             raw = json.loads(self._persist_path.read_text())
         except (OSError, json.JSONDecodeError) as exc:
-            print(f"api: could not read {self._persist_path} ({exc}) — starting with an empty run registry.")
+            logger.warning("api: could not read %s (%s) — starting with an empty run registry.", self._persist_path, exc)
             return
         interrupted = 0
         for run_id, data in raw.items():
             try:
                 record = RunRecord(**data)
             except TypeError as exc:
-                print(f"api: skipping malformed run record {run_id!r} in {self._persist_path} ({exc}).")
+                logger.warning(
+                    "api: skipping malformed run record %r in %s (%s).",
+                    run_id,
+                    self._persist_path,
+                    exc,
+                )
                 continue
             if record.status == "running":
                 record.status = "failed"
@@ -71,9 +66,9 @@ class JobRegistry:
                 record.completed_at = datetime.now().astimezone().isoformat()
                 interrupted += 1
             self._records[record.run_id] = record
-        print(f"api: restored {len(self._records)} run record(s) from {self._persist_path}.")
+        logger.info("api: restored %d run record(s) from %s.", len(self._records), self._persist_path)
         if interrupted:
-            print(f"api: marked {interrupted} still-'running' run(s) as failed ({INTERRUPTED_ERROR}).")
+            logger.info("api: marked %d still-'running' run(s) as failed (%s).", interrupted, INTERRUPTED_ERROR)
             self._save()
 
     def _save(self) -> None:
@@ -91,15 +86,7 @@ class JobRegistry:
             raise
 
     def try_claim_platform(self, platform: str) -> bool:
-        """Claim `platform` for an in-progress run, or return False if one's already running.
-
-        Each platform's config identifies one physical device, and a run
-        drives real Appium sessions against it — a second concurrent run for
-        the same platform would fight the first over that same device. This
-        is per-platform (not global) because iOS and Android runs already
-        target separate devices and are meant to run concurrently, the same
-        way the CLI's `run-all` already does.
-        """
+        """Claim one physical device platform for the current process."""
         with self._lock:
             if platform in self._busy_platforms:
                 return False
@@ -110,8 +97,22 @@ class JobRegistry:
         with self._lock:
             self._busy_platforms.discard(platform)
 
-    def create(self, run_id: str, platform: str, config_path: str) -> RunRecord:
-        record = RunRecord(run_id=run_id, platform=platform, config_path=config_path, run_timestamp=run_id)
+    def create(
+        self,
+        run_id: str,
+        platform: str,
+        config_path: str,
+        apps: str | None = None,
+        risks: str | None = None,
+    ) -> RunRecord:
+        record = RunRecord(
+            run_id=run_id,
+            platform=platform,
+            config_path=config_path,
+            run_timestamp=run_id,
+            apps=apps,
+            risks=risks,
+        )
         with self._lock:
             self._records[record.run_id] = record
             self._save()

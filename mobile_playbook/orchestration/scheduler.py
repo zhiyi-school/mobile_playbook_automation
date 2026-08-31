@@ -32,11 +32,12 @@ def reserve_run_timestamp(root: Path, now: datetime | None = None, extra_files: 
 
     `new_run_timestamp` only checks-then-returns, which leaves a window
     between two concurrent callers observing the same "does not exist"
-    state and both picking the same candidate — fine for the CLI, which
-    only ever allocates one run_timestamp per process, but not safe when
-    multiple requests can call this in overlapping threads (e.g. the HTTP
-    API). This instead creates the directory as part of picking it, so a
-    loser of the race retries against the winner's now-existing directory.
+    state and both picking the same candidate. That affects any overlapping
+    allocation: the HTTP API serving two requests, and `run-all`, whose two
+    platform threads would otherwise share one run directory and overwrite
+    each other's top-level report files. This instead creates the directory
+    as part of picking it, so a loser of the race retries against the
+    winner's now-existing directory.
     """
     root = Path(root)
     root.mkdir(parents=True, exist_ok=True)

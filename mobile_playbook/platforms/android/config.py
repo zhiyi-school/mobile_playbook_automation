@@ -65,6 +65,13 @@ def parse_config(raw: dict[str, Any], config_path: Path | None = None) -> Androi
 
 
 def validate_config(config: AndroidGlobalConfig, dry_run: bool = False) -> None:
+    errors = collect_config_errors(config, dry_run=dry_run)
+    if errors:
+        raise ConfigError(errors)
+
+
+def collect_config_errors(config: AndroidGlobalConfig, dry_run: bool = False) -> list[str]:
+    """Every config problem instead of raising. App-scoped ones are prefixed `apps[<id>].`"""
     errors: list[str] = []
     if not config.device.appium_server_url:
         errors.append("device.appium_server_url is required")
@@ -82,8 +89,7 @@ def validate_config(config: AndroidGlobalConfig, dry_run: bool = False) -> None:
                 errors.append(f"{label}.risks.{risk_id} is unknown")
             elif not isinstance(risk_config, dict):
                 errors.append(f"{label}.risks.{risk_id} must be a mapping")
-    if errors:
-        raise ConfigError(errors)
+    return errors
 
 
 def _load_apps_file(raw: dict[str, Any], base_dir: Path) -> dict[str, Any]:

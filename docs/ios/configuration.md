@@ -44,6 +44,14 @@ device:
 
 This is checked once when a run connects to the device, and again before every single test — if Appium was running fine but crashes partway through a run, the next test's check notices it's unreachable, restarts it, reconnects, and the run continues with the remaining apps/risks rather than every subsequent test failing the same way. Appium is started once and left running for the rest of the run (and afterward) — it is not stopped between tests. Every launch attempt (including restarts after a crash) is appended to `appium.log` in that run's report directory, so what happened and why is inspectable after the fact.
 
+### Automatic unlock
+
+Same two points — right after connecting, and again before every test — also check whether the device's screen is locked and unlock it if so, logged as a `device_unlocked` event in that run's `events.jsonl` when it actually had to do anything. This is a no-op (and reported as `was_locked: false`) if the screen was already unlocked.
+
+This only actually unlocks a device with **no passcode/Face ID/Touch ID set** — Appium can't enter a passcode or biometric on a real device, so a secured device still needs a person to unlock it before/during a run. If the device also has Auto-Lock disabled (Settings > Display & Brightness > Auto-Lock > Never), the screen won't lock from idling during a run's long waits in the first place, which avoids the problem rather than just recovering from it.
+
+If a test still fails outright (an exception escapes a risk's own error handling — a genuine bug or device hiccup, not that risk's normal failure path), `run_test` checks whether the device was actually locked at that moment before giving up: if so, it unlocks and retries that one test exactly once, and only records a failure if the retry fails too. This only ever catches a failure that already escaped a risk's own try/except entirely; risks like `ios-feature-02-risk-01`/`ios-feature-04-risk-01` that catch their own errors and report `Inconclusive`/`FAILED` themselves won't trigger this retry, since nothing propagates up to see.
+
 ## Runner
 
 The `runner` section controls install timing, run order, workspace location, and permission prompts:
@@ -74,7 +82,7 @@ apps:
     test_bundle_id: ""
     artifact:
       source: "local_ipa"
-      ipa: "intake/ios/ipas/Example_App.ipa"
+      ipa: "intake/ios/ipas/example_app.ipa"
       workspace_dir: "work/ios/acquired"
       expected_bundle_id: ""
     expected_behavior:
@@ -147,6 +155,16 @@ traffic_interception:
 ```
 
 `burp.proxy_url` is checked for reachability before the risk runs. `expected_hosts` filters `capture_path`'s entries down to this app's own traffic; leave it empty to accept any newly-captured entry (useful for a first test, but noisier if anything else is also proxied through the same Burp instance at the time).
+
+A device-wide manual proxy also intercepts iOS's own traffic to Apple's certificate/app-verification servers, which WebDriverAgent needs to reach to confirm its Developer App certificate is legitimate — with everything routed through Burp, that verification can fail and the device reports it can't verify/trust the app (see [Reports and Troubleshooting](reports-and-troubleshooting.md) for that error). Point the device's Wi-Fi proxy at a PAC (Proxy Auto-Configuration) file instead of a manual `host:port` to avoid this — it routes Apple's own domains direct while everything else, including the app under test, still goes through Burp.
+
+The API server generates this PAC file for you from the current `traffic_interception.burp.proxy_url` — no separate file to host or keep in sync:
+
+```
+GET /platforms/ios/traffic-interception/proxy.pac
+```
+
+On the device: Settings > Wi-Fi > (i) next to the network > Configure Proxy > Automatic > URL, and point it at `http://<this-machine's-IP>:8080/platforms/ios/traffic-interception/proxy.pac`. If `burp.proxy_url` is a loopback address (`127.0.0.1`, since it's written from this server's own point of view rather than the phone's), the endpoint auto-detects this machine's LAN IP and substitutes it — override with `?proxy_host=<ip>` if that guess is wrong (multiple network interfaces, VPN, etc). Without this, the one-off alternative is to turn the proxy off just long enough to launch/trust the app once, then back on for the capture run — that trust is generally cached until the provisioning profile next rotates.
 
 ## Split iOS Configs
 

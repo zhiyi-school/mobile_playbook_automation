@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from mobile_playbook.platforms.ios.device_client import AppiumDeviceClient
+from mobile_playbook.platforms.ios.device_client import AppiumDeviceClient, is_untrusted_developer_cert_error
 
 
 class FakeElement:
@@ -25,9 +25,11 @@ class FakeElement:
 
 
 class FakeDriver:
-    def __init__(self, elements_by_class: dict[str, list[FakeElement]]):
-        self.elements_by_class = elements_by_class
+    def __init__(self, elements_by_class: dict[str, list[FakeElement]] | None = None, is_locked: bool = False):
+        self.elements_by_class = elements_by_class or {}
         self.executed: list[tuple[str, dict]] = []
+        self._is_locked = is_locked
+        self.unlock_calls = 0
 
     def find_elements(self, by, value):
         return self.elements_by_class.get(value, [])
@@ -35,6 +37,13 @@ class FakeDriver:
     def execute_script(self, command: str, args: dict):
         self.executed.append((command, args))
         return True
+
+    def is_locked(self) -> bool:
+        return self._is_locked
+
+    def unlock(self) -> None:
+        self.unlock_calls += 1
+        self._is_locked = False
 
 
 class FakeAlert:
@@ -84,6 +93,61 @@ def test_connect_wraps_a_failed_appium_session_in_a_clean_runtime_error(monkeypa
 
     with pytest.raises(RuntimeError, match="failed to start Appium session at http://127.0.0.1:4723"):
         client.connect()
+
+
+def test_connect_gives_actionable_message_when_developer_cert_is_untrusted(monkeypatch):
+    import appium.webdriver as appium_webdriver
+
+    def fail_to_connect(*args, **kwargs):
+        raise RuntimeError(
+            "Unable to launch WebDriverAgent. Original error: xcodebuild failed with code 65. "
+            "Testing failed:\n\tThe application could not be launched because the Developer App "
+            "Certificate is not trusted."
+        )
+
+    monkeypatch.setattr(appium_webdriver, "Remote", fail_to_connect)
+
+    device_config = SimpleNamespace(
+        udid="udid",
+        team_id="TEAM123",
+        appium_server_url="http://127.0.0.1:4723",
+        platform_version=None,
+        xcode_signing_id="Apple Development",
+        keep_wda=True,
+        show_xcode_log=False,
+        updated_wda_bundle_id=None,
+        allow_provisioning_device_registration=False,
+    )
+    client = AppiumDeviceClient(device_config)
+
+    with pytest.raises(RuntimeError, match="VPN & Device Management"):
+        client.connect()
+
+
+def test_is_untrusted_developer_cert_error_matches_known_markers():
+    assert is_untrusted_developer_cert_error("The Developer App Certificate is not trusted.")
+    assert is_untrusted_developer_cert_error("...profile has not been explicitly trusted by the user.")
+    assert not is_untrusted_developer_cert_error("xcodebuild failed with code 65")
+
+
+def test_unlock_calls_driver_unlock_when_locked():
+    driver = FakeDriver(is_locked=True)
+    client = _client(driver)
+
+    result = client.unlock()
+
+    assert result == {"was_locked": True}
+    assert driver.unlock_calls == 1
+
+
+def test_unlock_still_calls_driver_unlock_when_not_locked():
+    driver = FakeDriver(is_locked=False)
+    client = _client(driver)
+
+    result = client.unlock()
+
+    assert result == {"was_locked": False}
+    assert driver.unlock_calls == 1  # driver.unlock() itself no-ops safely; this just reports prior state
 
 
 def test_install_app_resolves_a_relative_ipa_path_to_absolute(tmp_path, monkeypatch):

@@ -64,6 +64,63 @@ def test_ios_connect_device_raises_with_log_tail_when_appium_fails_to_start(monk
         IosPlatformRunner().connect_device(_ios_config(), tmp_path)
 
 
+def test_ios_connect_device_unlocks_after_connecting(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        "mobile_playbook.platforms.ios.runner.ensure_appium_running",
+        lambda url, cfg, log_path: AppiumStartResult(status="ALREADY_RUNNING"),
+    )
+    monkeypatch.setattr(
+        "mobile_playbook.platforms.ios.runner.check_ios_preflight",
+        lambda config: SimpleNamespace(ok=True, errors=[]),
+    )
+    fake_client = SimpleNamespace(unlock=lambda: {"was_locked": True})
+    monkeypatch.setattr(
+        "mobile_playbook.platforms.ios.runner.AppiumDeviceClient.connect",
+        lambda self: fake_client,
+    )
+
+    client = IosPlatformRunner().connect_device(_ios_config(), tmp_path)
+
+    assert client is fake_client
+    events = (tmp_path / "events.jsonl").read_text()
+    assert "device_unlocked" in events
+
+
+def test_ios_connect_device_tolerates_unlock_failure(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        "mobile_playbook.platforms.ios.runner.ensure_appium_running",
+        lambda url, cfg, log_path: AppiumStartResult(status="ALREADY_RUNNING"),
+    )
+    monkeypatch.setattr(
+        "mobile_playbook.platforms.ios.runner.check_ios_preflight",
+        lambda config: SimpleNamespace(ok=True, errors=[]),
+    )
+
+    def broken_unlock():
+        raise RuntimeError("no session")
+
+    fake_client = SimpleNamespace(unlock=broken_unlock)
+    monkeypatch.setattr(
+        "mobile_playbook.platforms.ios.runner.AppiumDeviceClient.connect",
+        lambda self: fake_client,
+    )
+
+    client = IosPlatformRunner().connect_device(_ios_config(), tmp_path)
+
+    assert client is fake_client
+
+
+def test_ios_ensure_device_healthy_unlocks_when_reachable(monkeypatch, tmp_path):
+    monkeypatch.setattr("mobile_playbook.platforms.ios.runner.tcp_reachable", lambda url, timeout=2: True)
+    unlock_calls = []
+    fake_client = SimpleNamespace(unlock=lambda: unlock_calls.append(1) or {"was_locked": False})
+
+    result = IosPlatformRunner().ensure_device_healthy(_ios_config(), fake_client, tmp_path)
+
+    assert result is fake_client
+    assert unlock_calls == [1]
+
+
 def test_ios_ensure_device_healthy_returns_same_client_when_reachable(monkeypatch):
     monkeypatch.setattr("mobile_playbook.platforms.ios.runner.tcp_reachable", lambda url, timeout=2: True)
     reconnect_called = []
@@ -107,6 +164,93 @@ def test_ios_ensure_device_healthy_tolerates_close_device_raising(monkeypatch):
     result = IosPlatformRunner().ensure_device_healthy(_ios_config(), "OLD_CLIENT", Path("/tmp"))
 
     assert result == "NEW_CLIENT"
+
+
+class FakeReportWriter:
+    def __init__(self):
+        self.written = []
+        self.run_timestamp = "2026-01-01_00-00-00"
+
+    def test_report_dir(self, app_id, test_id, case_id, platform=None):
+        return Path("/tmp") / app_id / test_id / case_id
+
+    def write_result(self, result, report_dir):
+        self.written.append((result, report_dir))
+
+
+def _fake_app():
+    return SimpleNamespace(id="app", name="App", bundle_id="com.example.app", test_bundle_id="com.example.app.wda", artifact={})
+
+
+def _fake_android_app():
+    return SimpleNamespace(id="app", name="App", package_name="com.example.app")
+
+
+def _fake_risk(run_side_effects):
+    calls = []
+
+    def run(app, config, device_client, report_writer):
+        calls.append(1)
+        effect = run_side_effects[len(calls) - 1]
+        if effect is not None:
+            raise effect
+
+    return SimpleNamespace(run=run, test_case_id="the_case", calls=calls)
+
+
+def test_ios_run_test_retries_once_after_unlocking_a_locked_device(monkeypatch):
+    risk = _fake_risk([RuntimeError("no such element"), None])
+    monkeypatch.setattr("mobile_playbook.platforms.ios.runner.get_risk", lambda test_id: risk)
+    device_client = SimpleNamespace(unlock=lambda: {"was_locked": True})
+    report_writer = FakeReportWriter()
+
+    IosPlatformRunner().run_test(_fake_app(), "risk_id", object(), device_client, report_writer)
+
+    assert len(risk.calls) == 2
+    assert report_writer.written == []  # the retry succeeded, so nothing gets recorded as failed
+
+
+def test_ios_run_test_does_not_retry_when_device_was_not_locked(monkeypatch):
+    risk = _fake_risk([RuntimeError("boom"), None])
+    monkeypatch.setattr("mobile_playbook.platforms.ios.runner.get_risk", lambda test_id: risk)
+    device_client = SimpleNamespace(unlock=lambda: {"was_locked": False})
+    report_writer = FakeReportWriter()
+
+    IosPlatformRunner().run_test(_fake_app(), "risk_id", object(), device_client, report_writer)
+
+    assert len(risk.calls) == 1  # no retry attempted
+    assert len(report_writer.written) == 1
+    assert report_writer.written[0][0].errors == ["boom"]
+
+
+def test_ios_run_test_records_the_retrys_own_failure_if_it_also_fails(monkeypatch):
+    risk = _fake_risk([RuntimeError("first failure"), RuntimeError("second failure")])
+    monkeypatch.setattr("mobile_playbook.platforms.ios.runner.get_risk", lambda test_id: risk)
+    device_client = SimpleNamespace(unlock=lambda: {"was_locked": True})
+    report_writer = FakeReportWriter()
+
+    IosPlatformRunner().run_test(_fake_app(), "risk_id", object(), device_client, report_writer)
+
+    assert len(risk.calls) == 2
+    assert len(report_writer.written) == 1
+    assert report_writer.written[0][0].errors == ["second failure"]
+
+
+def test_ios_run_test_does_not_retry_when_unlock_itself_raises(monkeypatch):
+    risk = _fake_risk([RuntimeError("boom")])
+    monkeypatch.setattr("mobile_playbook.platforms.ios.runner.get_risk", lambda test_id: risk)
+
+    def broken_unlock():
+        raise RuntimeError("no session")
+
+    device_client = SimpleNamespace(unlock=broken_unlock)
+    report_writer = FakeReportWriter()
+
+    IosPlatformRunner().run_test(_fake_app(), "risk_id", object(), device_client, report_writer)
+
+    assert len(risk.calls) == 1
+    assert len(report_writer.written) == 1
+    assert report_writer.written[0][0].errors == ["boom"]
 
 
 # --- Android ---------------------------------------------------------------
@@ -159,3 +303,25 @@ def test_android_ensure_device_healthy_returns_same_client_when_reachable(monkey
 
     assert result == "OLD_CLIENT"
     assert not reconnect_called
+
+
+def test_android_run_test_records_failure_with_typed_result(monkeypatch):
+    risk = _fake_risk([RuntimeError("boom")])
+    monkeypatch.setattr("mobile_playbook.platforms.android.runner.get_risk", lambda test_id: risk)
+    monkeypatch.setattr(
+        "mobile_playbook.platforms.android.runner.check_android_preflight",
+        lambda config, adb, requires: SimpleNamespace(ok=True, errors=[]),
+    )
+    config = SimpleNamespace(runner=SimpleNamespace(auto_grant_permissions=False))
+    device_client = SimpleNamespace(adb=object())
+    report_writer = FakeReportWriter()
+
+    AndroidPlatformRunner().run_test(_fake_android_app(), "risk_id", config, device_client, report_writer)
+
+    assert len(risk.calls) == 1
+    assert len(report_writer.written) == 1
+    result = report_writer.written[0][0]
+    assert result.errors == ["boom"]
+    assert result.final_status == "FAILED"
+    assert result.artifact_source == "installed_app"
+    assert result.package_name == "com.example.app"

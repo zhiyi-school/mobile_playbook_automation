@@ -60,9 +60,13 @@ Generated work files (backed-up, decoded, and rebuilt APKs) are left under `work
 
 ## Risk Metadata
 
-Each risk carries descriptive metadata as class attributes alongside `risk_id`/`name`: `description` (what the risk is), `goal` (what the test is trying to show), `is_blocking` (whether a positive finding should block a release/compliance sign-off), and `mitre_attack_mobile_technique_id` (the MITRE ATT&CK for Mobile tactic or technique this risk maps to, or `None` if not yet mapped — currently the tactic name, e.g. `"Discovery"`, since not every risk has a clean single-technique match). `list_risks()` and `GET /platforms/{platform}/risks` (see [HTTP API](../api.md)) return all of these alongside the existing fields.
+**`configs/split/android/risks.yaml` is the source of truth for everything a dashboard displays about a risk** — its `name`, `description`, `goal`, `tactic` and `demonstration`. The `AndroidRisk` class holds none of that text: it carries only `risk_id`, `feature_id`, the test-case identifiers and the flags that change what a run does (`is_blocking`, `requires`, `requires_device`). `list_risks()` returns the class's empty defaults and `GET /platforms/{platform}/risks` overlays the YAML entry on top. See [iOS risk metadata](../ios/risks.md#risk-metadata) for the reasoning — the same arrangement applies here.
 
-`GET /platforms/{platform}/risks` also returns each risk's `demonstration` — the setup/steps content a dashboard shows for "how to demonstrate this risk". Unlike the fields above, this doesn't live on the `AndroidRisk` class itself: it's stored in `configs/split/android/risk_demonstrations.yaml`, editable via `PUT /platforms/android/risks/{risk_id}/demonstration` without a code change. Similarly, a feature_id's own `name`/`description` (there's no `Feature` class — `feature_id` is just a string tag on each risk) live in `configs/split/android/features.yaml`, exposed at `GET /platforms/android/features` and editable at `PUT /platforms/android/features/{feature_id}`.
+There is no Android playbook yet, so the current entries carry over what the risk classes used to say; replace them with the playbook's own `### Description` and `### Goal` wording once it exists. `tactic` is `null` for both Android risks until they're mapped.
+
+Both halves of an entry are editable over HTTP without a code change: `PUT /platforms/android/risks/{risk_id}` replaces the metadata fields, and `PUT /platforms/android/risks/{risk_id}/demonstration` replaces the demonstration. Neither touches the run.
+
+Similarly, a feature_id's own `name`/`description` (there's no `Feature` class — `feature_id` is just a string tag on each risk) live in `configs/split/android/features.yaml`, exposed at `GET /platforms/android/features` and editable at `PUT /platforms/android/features/{feature_id}`.
 
 ## Adding An Android Risk
 

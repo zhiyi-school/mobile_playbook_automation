@@ -60,7 +60,14 @@ This risk doesn't talk to Burp's own APIs — Burp has no simple built-in "give 
 
 This mirrors how this framework already exposes evidence to itself elsewhere (`events.jsonl`, `appium.log`) — a plain append-only file that both sides agree on, rather than a live API integration.
 
-[tools/burp_traffic_capture_extension.py](../../tools/burp_traffic_capture_extension.py) is a ready-to-load Jython Burp extension that writes this format — see its header comment for one-time setup (a standalone Jython JAR configured in Burp's Extender options, then loading the file as a Python extension). It hasn't been exercised against a real Burp Suite instance; treat it as a starting point to verify, not a guaranteed-working drop-in.
+[tools/burp_traffic_capture_extension.py](../../tools/burp_traffic_capture_extension.py) is a ready-to-load Jython Burp extension that writes this format. One-time setup:
+
+1. Download a standalone Jython JAR from `https://www.jython.org/download`.
+2. In Burp Suite, open Extender > Options > Python Environment and point it at that JAR.
+3. Open Extender > Extensions > Add, choose extension type `Python`, and select `tools/burp_traffic_capture_extension.py`.
+4. Update `CAPTURE_PATH` in the extension to match `traffic_interception.burp.capture_path`; an absolute path is safest because Burp's working directory is not guaranteed to be this repo.
+
+It hasn't been exercised against a real Burp Suite instance; treat it as a starting point to verify, not a guaranteed-working drop-in.
 
 ### Checking the whole chain before a batch of runs
 
@@ -103,7 +110,8 @@ See [Manual LocalKeyboard Server](manual-local-keyboard-server.md) to run the co
 
 ## Artifact Sources
 
-- `local_ipa`: validates and copies a local IPA.
+- `local_ipa`: validates and copies a local IPA from the exact path in `artifact.ipa`.
+- `intake_ipa`: stores no path, and needs no bundle ID. Looks the IPA up in `intake/ios/ipas/` (override with `artifact.intake_dir`) by reading each candidate's `Info.plist`: by `artifact.expected_bundle_id` when one is set, otherwise by matching the app's `name` against the build's `CFBundleDisplayName`, case-, space- and punctuation-insensitively. Several versions of one app resolve to the newest; several *different* apps sharing a display name are reported as ambiguous rather than guessed. Built for the install-from-App-Store-then-extract-off-the-device workflow, where a pinned path goes stale on every version bump: drop a newer extraction in and the next run picks it up with no config change. Validates with no file present and no `bundle_id` — both are filled in from the matched build — so an app can be registered before its build has been obtained. Otherwise identical to `local_ipa`.
 - `ci_artifact`: currently validates a configured local IPA path; future CI fetching can be added.
 - `vendor_ipa`: currently validates a configured local IPA path with separate reporting identity.
 - `xcode_archive_export`: currently accepts a configured local IPA path; it does not create certificates or profiles.
@@ -117,9 +125,17 @@ The framework reports this condition and does not try to bypass it.
 
 ## Risk Metadata
 
-Each risk carries descriptive metadata as class attributes alongside `risk_id`/`feature_id`/`name`: `description` (what the risk is), `goal` (what the test is trying to show), `is_blocking` (whether a positive finding should block a release/compliance sign-off), and `mitre_attack_mobile_technique_id` (the MITRE ATT&CK for Mobile tactic or technique this risk maps to, or `None` if not yet mapped — currently the tactic name, e.g. `"Discovery"`, since not every risk has a clean single-technique match). `list_risks()` and `GET /platforms/{platform}/risks` (see [HTTP API](../api.md)) return all of these alongside the existing fields.
+**`configs/split/ios/risks.yaml` is the source of truth for everything a dashboard displays about a risk** — its `name`, `description`, `goal`, `tactic` and `demonstration`. The `Risk` class holds none of that text: it carries only `risk_id`, `feature_id` and the flags that change what a run does (`is_blocking`, `requires_ipa_artifact`, `requires_device`, `automation_available`). `list_risks()` returns the class's empty defaults and `GET /platforms/{platform}/risks` overlays the YAML entry on top, so the API response is what the YAML says.
 
-`GET /platforms/{platform}/risks` also returns each risk's `demonstration` — the setup/steps content a dashboard shows for "how to demonstrate this risk". Unlike the fields above, this doesn't live on the `Risk` class itself: it's stored in `configs/split/ios/risk_demonstrations.yaml`, editable via `PUT /platforms/ios/risks/{risk_id}/demonstration` without a code change. Similarly, a feature_id's own `name`/`description` (there's no `Feature` class — `feature_id` is just a string tag on each risk) live in `configs/split/ios/features.yaml`, exposed at `GET /platforms/ios/features` and editable at `PUT /platforms/ios/features/{feature_id}`.
+This split exists because that text belongs to the playbook, not to the automation. `description` and `goal` are transcribed from the risk's own playbook page — its `### Description` and `### Goal` sections — as plain text, dropping markdown emphasis and links since a dashboard renders them verbatim. `tactic` is the MITRE ATT&CK for Mobile tactic named in that goal (`"Discovery"`, `"Collection"`, or `null` where the risk isn't mapped), kept as a tactic name because not every risk has a clean single-technique match. When the same prose was also hand-written onto the Python classes the two copies drifted apart, which is exactly what this arrangement prevents: update the playbook, transcribe into the YAML, and no code changes.
+
+Both halves of an entry are editable over HTTP without a code change: `PUT /platforms/ios/risks/{risk_id}` replaces the metadata fields (any of `name`, `description`, `goal`, `tactic`; anything else is a 422), and `PUT /platforms/ios/risks/{risk_id}/demonstration` replaces the demonstration. Neither touches the run.
+
+A missing or unreadable `risks.yaml` is treated as "no entries" rather than an error. The catalogue endpoint is what a dashboard uses to list an app's tests at all, so a read failure there would show an app with *no tests* — a far worse outcome than showing tests with empty descriptions. The file is gitignored and machine-local, so its absence is a normal state on a fresh checkout, not a defect.
+
+Similarly, a feature_id's own `name`/`description` (there's no `Feature` class — `feature_id` is just a string tag on each risk) live in `configs/split/ios/features.yaml`, exposed at `GET /platforms/ios/features` and editable at `PUT /platforms/ios/features/{feature_id}`.
+
+A demonstration step can also carry screenshots from the playbook, cited relative to `playbook_dir` at the top of `risks.yaml` so relocating the playbook doesn't break them — see [Playbook images](../api.md#playbook-images).
 
 ## Adding An iOS Risk
 

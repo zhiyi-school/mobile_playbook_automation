@@ -19,6 +19,7 @@ def test_report_generation(tmp_path):
     assert normalized_json[0]["platform"] == "ios"
     assert normalized_json[0]["test_id"] == "ios-feature-01-risk-01"
     assert normalized_json[0]["report_path"] == "ios/app/ios-feature-01-risk-01/ipa_static_analysis"
+    assert normalized_json[0]["verdict"] == "At Risk"
     assert (tmp_path / "run1" / "ios" / "app" / "ios-feature-01-risk-01" / "ipa_static_analysis").exists()
     assert (tmp_path / "run1" / "evidence").exists()
     summary_md = (tmp_path / "run1" / "summary.md").read_text()

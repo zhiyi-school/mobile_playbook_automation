@@ -83,9 +83,25 @@ WebDriverAgent signing failure:
 
 Check `device.team_id`, `device.xcode_signing_id`, `device.updated_wda_bundle_id`, Xcode Accounts, and device registration.
 
+`failed to start Appium session ...: xcodebuild failed with code 65`:
+
+Appium's own message here ("Consider checking the WebDriverAgent configuration guide...") is generic and doesn't say what actually went wrong — the real reason is further down in `appium.log`. The most common one: if the raw log shows `The application could not be launched because the Developer App Certificate is not trusted` or `...profile has not been explicitly trusted by the user`, WebDriverAgent built and signed fine — iOS itself just hasn't been told to trust that certificate yet. This framework detects this case and raises the concrete fix directly instead of Appium's generic text: a one-time physical action on the iPhone, **Settings > General > VPN & Device Management > select the Developer App certificate for `device.team_id` > Trust**, then confirm "Trust" in the popup. Nothing in Appium, xcodebuild, or this framework can grant this remotely. This can recur whenever the provisioning profile rotates, so it isn't a one-time fix — expect to repeat it occasionally. A proxy intercepting all device traffic (e.g. a manual Burp proxy) can also cause this by blocking iOS's own certificate-verification traffic to Apple — see [Traffic interception](configuration.md#traffic-interception) for the PAC-based fix that avoids that.
+
 IPA install failure:
 
 Check provisioning, entitlements, device compatibility, and whether the IPA is installable outside the framework.
+
+`Cannot install the com.example.keyboard_harness application ... ApplicationVerificationFailed ... Failed to verify code signature`:
+
+`ios-feature-04-risk-01`'s keyboard host app (`intake/ios/ipas/keyboard_harness.ipa`, configured via `keystroke_collection.keyboard_app.ipa`) is a prebuilt binary with no Xcode project source in this repo, so nothing rebuilds it automatically the way WDA gets rebuilt on every session. Its provisioning profile is free-tier (7-day validity) same as WDA's, but with no automatic renewal, it will eventually expire and every install attempt fails with this error until it's resigned.
+
+Fix it with `tools/localkeyboard_resign/resign.py`, which doesn't need the original keyboard harness source: it builds a placeholder Xcode project (`tools/localkeyboard_resign/project.yml`, generated via `xcodegen`) targeting the harness bundle IDs and App Group entitlement, with the device connected and Automatic Signing on — Apple ties profile issuance to (team + bundle ID + device), not to specific source code, so this mints a fresh profile without the real project. It then pulls that profile and a matching signing identity out of the build output and reapplies both directly to the existing `keyboard_harness.ipa` via `codesign`, in place:
+
+```bash
+python tools/localkeyboard_resign/resign.py --udid <device.udid> --team-id <device.team_id>
+```
+
+Both values come from `configs/ios.yaml`'s `device` section. This overwrites `--ipa` (defaults to `intake/ios/ipas/keyboard_harness.ipa`) with the resigned version; pass `--out` to write elsewhere instead. Requires `xcodegen` (`brew install xcodegen`) and a signing identity in the keychain whose certificate's team (its X.509 `OU` field — not necessarily what its display name suggests) matches `--team-id`.
 
 Protected or encrypted iOS executable:
 

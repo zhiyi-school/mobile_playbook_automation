@@ -39,9 +39,10 @@ def list_risks() -> list[dict]:
                 "description": risk.description,
                 "goal": risk.goal,
                 "is_blocking": risk.is_blocking,
-                "mitre_attack_mobile_technique_id": risk.mitre_attack_mobile_technique_id,
+                "tactic": risk.tactic,
                 "requires_device": risk.requires_device,
                 "requires": list(risk.requires),
+                "automation_available": getattr(risk, "automation_available", True),
             }
         )
     return risks

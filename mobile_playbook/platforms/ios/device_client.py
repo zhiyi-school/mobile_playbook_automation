@@ -4,6 +4,16 @@ from pathlib import Path
 
 from mobile_playbook.platforms.ios.models import InstallResult
 
+UNTRUSTED_DEVELOPER_CERT_MARKERS = (
+    "developer app certificate is not trusted",
+    "profile has not been explicitly trusted",
+)
+
+
+def is_untrusted_developer_cert_error(message: str) -> bool:
+    lowered = message.lower()
+    return any(marker in lowered for marker in UNTRUSTED_DEVELOPER_CERT_MARKERS)
+
 
 class AppiumDeviceClient:
     TEXT_FIELD_CLASS_NAMES = [
@@ -41,6 +51,14 @@ class AppiumDeviceClient:
         try:
             self.driver = webdriver.Remote(self.device_config.appium_server_url, options=options)
         except Exception as exc:
+            if is_untrusted_developer_cert_error(str(exc)):
+                raise RuntimeError(
+                    "WebDriverAgent's Developer App certificate is not trusted on this device yet. "
+                    "On the iPhone: Settings > General > VPN & Device Management > select the "
+                    f"Developer App certificate for team {self.device_config.team_id} > Trust, then confirm "
+                    "\"Trust\" in the popup. This is a one-time physical action Apple requires per device — "
+                    f"nothing in Appium, xcodebuild, or this framework can grant it. Original error: {exc}"
+                ) from exc
             raise RuntimeError(
                 f"failed to start Appium session at {self.device_config.appium_server_url}: {exc}"
             ) from exc
@@ -78,6 +96,11 @@ class AppiumDeviceClient:
 
     def launch_app(self, bundle_id: str) -> dict:
         return {"result": self._execute("launchApp", {"bundleId": bundle_id})}
+
+    def unlock(self) -> dict:
+        was_locked = self.driver.is_locked()
+        self.driver.unlock()  # no-ops on its own if the device wasn't actually locked
+        return {"was_locked": was_locked}
 
     def open_url(self, url: str, bundle_id: str = "com.apple.mobilesafari") -> dict:
         # mobile: deepLink avoids driving Safari's own address-bar UI directly.

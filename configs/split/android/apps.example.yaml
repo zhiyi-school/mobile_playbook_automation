@@ -1,9 +1,4 @@
-# Example Android app roster: one entry per app under test, with its
-# identity, package name, and enabled risks. Each app's `risks:` map only
-# needs `enabled: true` per risk_id — the actual settings come from that
-# risk's own global settings file, and any field nested under a risk here
-# overrides that shared default for this app alone.
-
+# Example Android app roster. Copy to apps.yaml and add only authorized test apps; see docs/android/configuration.md.
 apps:
   - id: "example_app"
     name: "Example App"
@@ -13,9 +8,6 @@ apps:
         enabled: true
       android-feature-06-risk-01:
         enabled: true
-    # Organizational metadata only — not read by the automation run itself.
-    # A dashboard (e.g. litmus-v2) reads/writes these through
-    # GET/PUT /config/android/apps/{id}; all are optional and default to blank/empty.
     sector: "Government"
     agency: "Example Agency"
     version: "1.0.0"

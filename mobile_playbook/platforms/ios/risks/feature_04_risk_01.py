@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -10,20 +11,13 @@ from mobile_playbook.platforms.ios.control_server import CommandControlServer
 from mobile_playbook.platforms.ios.models import BehaviorResult, RiskRunResult
 from mobile_playbook.platforms.ios.risks.feature_04_keyboard_base import Feature04KeyboardRiskBase
 
+logger = logging.getLogger(__name__)
+
 
 class Feature04Risk01(Feature04KeyboardRiskBase):
     risk_id = "ios-feature-04-risk-01"
     feature_id = "feature-04"
     name = "Custom keyboard keystroke collection"
-    description = (
-        "A third-party custom keyboard with user-granted Full Access can observe and collect text typed "
-        "into the app's non-secure input fields."
-    )
-    goal = (
-        "Demonstrate whether the app's sensitive text fields block third-party keyboards (via secure text "
-        "entry) or allow their content to be observed by an installed custom keyboard."
-    )
-    mitre_attack_mobile_technique_id = "Collection"
     requires_ipa_artifact = False
 
     def __init__(self, server_factory=CommandControlServer):
@@ -39,7 +33,7 @@ class Feature04Risk01(Feature04KeyboardRiskBase):
         installed_keyboard_by_risk = False
         server = None
         try:
-            print(f"ios-feature-04-risk-01[{app_config.id}]: installing/verifying keyboard app")
+            logger.info("ios-feature-04-risk-01[%s]: installing/verifying keyboard app", app_config.id)
             keyboard_setup = self._install_or_verify_keyboard_app(keyboard_config, global_config, device_client)
             result.launch_result = {"keyboard_app": keyboard_setup}
             if keyboard_setup.get("status") not in {"INSTALLED", "INSTALLED_APP_VERIFIED", "SKIPPED"}:
@@ -82,14 +76,15 @@ class Feature04Risk01(Feature04KeyboardRiskBase):
 
             setup_wait = float(collection.get("keyboard_setup_wait_seconds", 0))
             if setup_wait > 0:
-                print(
+                logger.info(
                     "Add the custom keyboard in iOS Settings and enable Full Access now. "
-                    f"Waiting {setup_wait:g} seconds before continuing."
+                    "Waiting %g seconds before continuing.",
+                    setup_wait,
                 )
                 time.sleep(setup_wait)
 
             pair_timeout = float(collection.get("pair_timeout_seconds", 60))
-            print(f"ios-feature-04-risk-01[{app_config.id}]: waiting for /pair for up to {pair_timeout:g}s")
+            logger.info("ios-feature-04-risk-01[%s]: waiting for /pair for up to %gs", app_config.id, pair_timeout)
             if not server.wait_for_pair(pair_timeout):
                 result.final_status = "PAIRING_TIMEOUT"
                 result.errors.append(f"The keyboard app did not call /pair within {pair_timeout:g} seconds")

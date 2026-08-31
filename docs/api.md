@@ -14,6 +14,28 @@ Add `--reload` during development to restart on code changes, and `--host 0.0.0.
 
 Run this from the repository root, the same way you'd run `python -m mobile_playbook`, since config paths and `reports/` are resolved relative to the process's working directory.
 
+## Who owns what
+
+```text
+Backend automation   owns execution, raw reports, evidence, run status, SARIF
+Sync worker          translates completed reports into Supabase
+Supabase             owns users, roles, teams, applications, assessments,
+                     findings, finding history, tickets, retests, messages,
+                     activity
+Frontend             reads backend automation state and Supabase dashboard
+                     state; performs no authoritative synchronisation
+```
+
+Everything this API serves comes from disk. Nothing here reads or writes the
+dashboard database — that is the sync worker's job alone
+([operations.md](operations.md)).
+
+## Security model
+
+The automation API is intended for localhost or a trusted lab network. It can start tests on attached devices, write YAML config, accept IPA/APK uploads, and serve report/evidence files from `reports/` and `work/`, so do not expose the FastAPI server directly to the internet.
+
+For anything beyond localhost or a trusted LAN, put it behind a VPN or authenticated reverse proxy that handles user auth, TLS, request-size limits, and access logging. Keep `CORS_ALLOWED_ORIGINS` to the exact dashboard origins that should call it; wildcard origins are rejected at startup.
+
 ## Exploring it without a dashboard
 
 FastAPI serves interactive, browsable docs at **http://127.0.0.1:8080/docs** — every endpoint below can be called from there with a form, no client code required. `curl` also works, for example:
@@ -41,7 +63,7 @@ curl -X POST http://127.0.0.1:8080/runs \
 ```
 
 ```json
-{"run_id": "2026-08-20_09-28-42", "platform": "ios", "status": "running"}
+{"run_id": "<RUN_TIMESTAMP>", "platform": "ios", "status": "running"}
 ```
 
 `apps`/`risks` are optional comma-separated strings, same as the CLI flags — omit either to run every enabled app/risk in the config. `out_dir` defaults to `reports` if left out.
@@ -51,23 +73,31 @@ The `run_id` *is* the run's timestamp and its `reports/<run_id>/` directory name
 Poll it for status:
 
 ```bash
-curl http://127.0.0.1:8080/runs/2026-08-20_09-28-42
+curl http://127.0.0.1:8080/runs/<RUN_TIMESTAMP>
 ```
 
 ```json
-{"run_id": "2026-08-20_09-28-42", "platform": "ios", "config_path": "configs/ios.yaml", "status": "completed", "run_timestamp": "2026-08-20_09-28-42", "run_dir": "reports/2026-08-20_09-28-42", "error": null, "started_at": "...", "completed_at": "..."}
+{"run_id": "<RUN_TIMESTAMP>", "platform": "ios", "config_path": "configs/ios.yaml", "status": "completed", "run_timestamp": "<RUN_TIMESTAMP>", "run_dir": "reports/<RUN_TIMESTAMP>", "error": null, "started_at": "...", "completed_at": "...", "apps": "example-app", "risks": "ios-feature-01-risk-01"}
 ```
+
+`apps` and `risks` echo back the selection the run was started with, so a client
+that lost track of a run — a browser tab that navigated away and came back, or a
+second person opening the same page — can find it again by listing `GET /runs`
+and matching on platform, app and risk rather than having to remember a `run_id`.
+Either field is `null` when the run covers everything, matching the CLI's
+behaviour when `--apps`/`--risks` are omitted. Runs recorded before these fields
+existed read back as `null` on both.
 
 Once `status` is `"completed"`, fetch the results:
 
 ```bash
-curl http://127.0.0.1:8080/runs/2026-08-20_09-28-42/summary
+curl http://127.0.0.1:8080/runs/<RUN_TIMESTAMP>/summary
 ```
 
 This returns the same `dashboard_results.json` content the run wrote to disk. The identical value also works under `/reports` (useful since that path works for CLI-started runs too, not just ones started via `/runs`):
 
 ```bash
-curl http://127.0.0.1:8080/reports/2026-08-20_09-28-42/summary
+curl http://127.0.0.1:8080/reports/<RUN_TIMESTAMP>/summary
 ```
 
 ## Watching a run's progress live
@@ -75,13 +105,13 @@ curl http://127.0.0.1:8080/reports/2026-08-20_09-28-42/summary
 `GET /runs/{run_id}` only ever reports one of three coarse states (`running`/`completed`/`failed`) — enough to know when a run is done, but nothing about what it's doing while it runs, which can be minutes for a config with several apps and risks. `GET /runs/{run_id}/events` streams that in real time over Server-Sent Events instead of needing to poll:
 
 ```bash
-curl -N http://127.0.0.1:8080/runs/2026-08-20_09-28-42/events
+curl -N http://127.0.0.1:8080/runs/<RUN_TIMESTAMP>/events
 ```
 
 ```text
-data: {"type": "risk_started", "timestamp": "...", "app_id": "app_one", "risk_id": "ios-feature-01-risk-01"}
+data: {"type": "risk_started", "timestamp": "...", "app_id": "example-app", "risk_id": "ios-feature-01-risk-01"}
 
-data: {"type": "risk_completed", "timestamp": "...", "app_id": "app_one", "risk_id": "ios-feature-01-risk-01", "verdict": "At Risk", "final_status": "IPA_ANALYSIS_COMPLETE"}
+data: {"type": "risk_completed", "timestamp": "...", "app_id": "example-app", "risk_id": "ios-feature-01-risk-01", "verdict": "At Risk", "final_status": "IPA_ANALYSIS_COMPLETE"}
 
 data: {"type": "appium_recovery", "timestamp": "...", "message": "ios: Appium server at http://127.0.0.1:4723 is no longer reachable mid-run — attempting to recover and resume."}
 
@@ -92,7 +122,370 @@ Every `risk_started`/`risk_completed` event comes from the same run loop that wr
 
 These events are read from `reports/{run_id}/events.jsonl`, appended to as the run progresses — a client that connects late still gets every event from the start (each poll re-reads the whole file), and any number of clients can watch the same run independently.
 
-A `POST /runs` call still needs everything a CLI `run` needs to actually succeed — Appium running, the device connected/unlocked/trusted, and for risks like keystroke collection, someone available to interact with the phone mid-run. The API doesn't remove those requirements, it just lets you kick the run off and check on it over HTTP instead of watching a terminal.
+A `POST /runs` call still needs everything a CLI `run` needs to actually succeed — Appium running and the device connected/trusted. The API doesn't remove those requirements, it just lets you kick the run off and check on it over HTTP instead of watching a terminal. Device *unlocking* specifically is handled automatically now (see [Automatic unlock](ios/configuration.md#automatic-unlock)) as long as the device has no passcode/Face ID/Touch ID set — Appium can't enter a passcode or biometric on a real device, so a locked, secured device still needs a person.
+
+## Durable dashboard sync
+
+Every run writes `reports/{run_id}/run_manifest.json` alongside its
+`dashboard_results.json`. The manifest is written atomically at the
+orchestration boundary and records the run timestamp, platform, the app and
+risk IDs actually attempted, `started_at`, `completed_at`, a terminal `status`
+of `completed` or `failed`, and a cleaned terminal error.
+
+The manifest exists because report-file existence is not a completion signal.
+The report summary is written from a `finally` block, so a fatal device or
+orchestration failure still leaves a partial `dashboard_results.json` behind. A
+risk that fails is recorded as an ordinary result row and leaves the run
+`completed`; only an uncaught setup, device, or orchestration failure marks the
+run `failed`.
+
+A separate CLI worker with no HTTP surface is the only writer of dashboard rows
+from automation results. It syncs a run only when its manifest says `completed`.
+The dashboard never writes findings, assessments, or applications from a report
+feed; it starts runs and watches progress, and what it shows comes from whatever
+the worker has already synced.
+
+Because the worker owns completion, a browser that stops watching a run — the
+poll window ending, or the tab closing — changes nothing about the run or its
+dashboard state. Only a terminal `failed` manifest marks an assessment or retest
+failed. A run correlated with a retest through
+`retest_runs.external_test_run_id` is completed by the worker, which also moves
+that ticket to `under_review`; a failed manifest fails the retest with the run's
+error and imports none of its partial rows.
+
+```bash
+SUPABASE_URL=https://dashboard.example.supabase.co \
+SUPABASE_SERVICE_ROLE_KEY=replace_with_service_role_key \
+python -m mobile_playbook.dashboard_sync --reports-dir reports
+```
+
+Report folders produced before the manifest existed are skipped, because their
+completion cannot be verified. Pass `--allow-legacy-report` to import them
+deliberately after review. A missing reports directory is treated as an empty
+queue, and missing credentials exit with code 2 and a single error line rather
+than a traceback.
+
+## SARIF export
+
+SARIF (Static Analysis Results Interchange Format) is the OASIS standard JSON
+format that security tools use to hand findings to each other — code-scanning
+dashboards, CI annotations, aggregators. Emitting it lets this project's results
+be consumed by tooling that has never heard of `dashboard_results.json`.
+
+SARIF here is strictly an **export**. `dashboard_results.json` remains the
+canonical normalized feed and the only thing the dashboard sync worker reads;
+nothing in the pipeline consumes SARIF back. The flow is:
+
+```text
+run → normalized TestResult rows → dashboard_results.json → results.sarif → download / external tool
+```
+
+Each completed run writes `reports/<run_timestamp>/results.sarif` alongside its
+feed, from the same rows. The write is best-effort at the orchestration boundary,
+so a SARIF failure can never change a run's outcome. A run whose manifest is not
+`completed` produces **no** SARIF at all, so a partial or failed run is never
+published as a result set.
+
+```bash
+curl http://127.0.0.1:8080/reports/<RUN_TIMESTAMP>/sarif
+```
+
+Returns `application/sarif+json` with a
+`Content-Disposition: attachment; filename="<run_timestamp>.sarif"` header, so a
+browser link downloads it directly. `404` when the run directory does not exist,
+when its manifest is missing or not `completed`, or when its results feed is
+missing or unreadable. Run timestamps go through the same validation as every
+other report endpoint, so `..` and path separators are rejected before anything
+is read. Runs that predate this feature have their SARIF generated on the first
+request and cached to disk, which is why the endpoint works for old reports
+without a backfill. The same file is also reachable through the existing
+report-file endpoint at `/reports/{run_timestamp}/files/results.sarif`; the
+dedicated `/sarif` route is preferred because it sets the media type and the
+download filename, and because it can generate the document on demand.
+
+### Field mapping
+
+| Project field | SARIF |
+| --- | --- |
+| `test_id` (the risk id) | `rule.id` and `result.ruleId` |
+| Risk name | `rule.name` |
+| Risk description | `rule.shortDescription.text` |
+| Risk description + goal | `rule.fullDescription.text` |
+| `summary` | `result.message.text` |
+| `verdict` | `result.kind` / `result.level` |
+| run timestamp | `automationDetails.id` as `mobile-playbook/<run_timestamp>`, and `run.properties.run_timestamp` |
+| manifest `started_at`/`completed_at` | `invocations[0].startTimeUtc`/`endTimeUtc` |
+| everything else | `result.properties` |
+
+Verdicts map as:
+
+| Verdict | `kind` | `level` |
+| --- | --- | --- |
+| At Risk | `fail` | from severity — see below |
+| Reduced Risk | `pass` | `none` |
+| Inconclusive (and any unrecognised verdict) | `review` | `none` |
+
+SARIF 2.1.0 §3.27.9–§3.27.10 allow a `level` other than `none` **only** on a
+result whose `kind` is `fail`; for every other kind the level SHALL be `none`.
+The exporter follows that rule, so a passing or inconclusive result carries no
+severity in its `level`. For failing results the level is derived from the
+project's own severity:
+
+| `severity` | `level` |
+| --- | --- |
+| `critical`, `high` | `error` |
+| `medium` | `warning` |
+| `low`, `info` | `note` |
+| missing or unrecognised | `error` |
+
+Because SARIF has nowhere to put severity on a non-failing result, **the
+project's verdict and severity are always preserved in custom properties**,
+whatever the kind. `result.properties.dashboard_verdict` and
+`result.properties.dashboard_severity` carry the original dashboard values
+verbatim for every result, including the passing and inconclusive ones whose
+`level` is forced to `none`. A consumer that wants this project's own severity
+ordering should read those properties rather than `level`.
+
+The original product values are preserved verbatim in `result.properties`:
+`app_id`, `app_name`, `platform`, `package_or_bundle_id`, `test_id`,
+`test_name`, `test_case_id`, `category`, `verdict`, `severity`,
+`dashboard_verdict`, `dashboard_severity`, `status`, `run_timestamp`,
+`report_path`, `started_at`, `completed_at`, `duration_seconds` and `evidence`.
+(`verdict`/`severity` and their `dashboard_`-prefixed twins hold the same
+values; the prefixed pair names them unambiguously as product data rather than
+SARIF semantics.) Rules carry `category`, `platform`, `tactic`, `feature_id` and
+`is_blocking` in `rule.properties`.
+
+### Fingerprints, locations and evidence
+
+`result.partialFingerprints["mobilePlaybook/v1"]` is a sha256 over
+`platform | app_id | test_id | test_case_id` — stable project identifiers only.
+No timestamp, no random value, no filesystem path goes into it, so the same
+check on the same app keeps the same fingerprint across runs and a consumer can
+track one finding over time. `test_case_id` is included because one risk can run
+several cases against the same app, and they are distinct findings.
+
+**No source locations are invented.** These are runtime findings about a device
+and a binary, not a line in a file, so results carry no `locations` array rather
+than a fabricated file/line/column. That is the main limitation compared with a
+source-code analyzer: a consumer cannot annotate a diff or a pull request from
+these results, and any tool that requires a location per result will need to
+supply its own. Where a run recorded evidence, the file appears as a relative URI
+in `result.attachments[].artifactLocation.uri` and in
+`result.properties.evidence`, resolved relative to the run directory the SARIF
+file sits in. Evidence stored outside the run directory is reduced to its file
+name and flagged `"external": true`, so no absolute host path ever reaches the
+document.
+
+Output is deterministic: results are sorted by app, risk, test case and report
+path, rules by id, JSON keys are sorted, and the document is UTF-8. Two exports
+of the same run are byte-identical.
+
+Documents validate against the official SARIF 2.1.0 JSON Schema. Note that the
+schema does not encode the §3.27.10 constraint on `level` — that is prose — so
+`tests/test_sarif_writer.py` asserts it directly on every generated document
+rather than relying on schema validation to catch it.
+
+### Two workflows, two meanings of "completed"
+
+The automation run and the dashboard sync are separate workflows with separate
+lifecycles, and a run is routinely `completed` while its sync is still `queued`
+or `running`. They answer different questions:
+
+| | `GET /runs/{run_id}` | `GET /runs/{run_id}/sync-status` |
+| --- | --- | --- |
+| Owned by | the API's run registry | the dashboard sync worker |
+| `completed` means | the device finished executing every selected risk and the report is on disk | every Supabase write for that report succeeded and the ledger recorded it |
+| Read by | the live progress view | the "is the dashboard current?" indicator |
+
+Everything under `/runs/{run_id}/summary` and `/reports/...` is served straight
+off disk, so the raw results and evidence for a run stay available whether or
+not its dashboard sync ever succeeds. A failed sync is not a failed run.
+
+The dashboard is eventually consistent by design: results appear in Supabase
+some seconds after a run finishes, once the detached worker has processed the
+queue. A client that wants to know when the dashboard caught up should poll the
+sync status rather than assume the run's own `completed` implies it.
+
+### Per-run sync status
+
+```bash
+curl http://127.0.0.1:8080/runs/<RUN_TIMESTAMP>/sync-status
+```
+
+```json
+{
+  "run_id": "<RUN_TIMESTAMP>",
+  "run_timestamp": "<RUN_TIMESTAMP>",
+  "status": "queued",
+  "attempt": 1,
+  "queued_at": "<TIMESTAMP>",
+  "started_at": null,
+  "completed_at": null,
+  "last_updated_at": "<TIMESTAMP>",
+  "error": null,
+  "retryable": false,
+  "counts": {"applications": 0, "assessments": 0, "findings": 0, "history": 0, "activity": 0}
+}
+```
+
+`status` is one of:
+
+| Status | Meaning |
+| --- | --- |
+| `queued` | The run completed and a worker has been asked to publish it; nothing written yet. |
+| `running` | A worker is writing this run's rows to Supabase right now. |
+| `completed` | Every expected write for this report succeeded and the ledger recorded it. |
+| `failed` | A write failed. `error` carries a short, redacted reason and `retryable` says whether repeating the pass could help. |
+| `not_required` | No dashboard sync is expected — the automation run did not complete, or the folder predates the manifest. |
+
+`attempt` counts how many times a worker has been asked to publish this run;
+it increments only when a new pass is queued after a terminal state, so a
+duplicate trigger for a pass already `queued` or `running` does not inflate it.
+`counts` describes the rows the *most recent attempt* reconciled, so a repeat
+pass that the ledger short-circuits reports zeros — accurately, because it wrote
+nothing. `error` is passed through the same one-line cleaner the run reports
+use, and anything shaped like a bearer token is replaced with `[redacted]`
+before it is stored, so a Supabase rejection quoting a request cannot leak the
+service-role key to a browser.
+
+### Worker health
+
+```bash
+curl http://127.0.0.1:8080/sync/status
+```
+
+```json
+{
+  "enabled": true,
+  "worker_state": "idle",
+  "queue_depth": 0,
+  "last_success_at": "<TIMESTAMP>",
+  "last_failure_at": null,
+  "last_error": null,
+  "recovery_sweep_enabled": true
+}
+```
+
+`enabled` reflects `DASHBOARD_SYNC_AUTO_TRIGGER` as the API process sees it.
+`worker_state` is `running` when something currently holds the host-wide sync
+lock and `idle` otherwise — the same lock that serializes passes, so this is an
+observation rather than a second source of truth. `queue_depth` counts runs
+whose recorded status is `queued` or `running`. `recovery_sweep_enabled`
+reports whether the launchd agent is installed for the current user.
+
+This endpoint reports operational state only. It never returns credentials,
+report contents, or filesystem paths.
+
+**Diagnosing a worker that is not keeping up.** Read `/sync/status` first:
+
+- `enabled: false` — automatic triggering is off for the API process. Check
+  `DASHBOARD_SYNC_AUTO_TRIGGER` in the environment and in `.env`.
+- `queue_depth` above zero with `worker_state: "idle"` and a stale
+  `last_success_at` — nothing is draining the queue. Confirm the recovery sweep
+  with `launchctl print gui/$(id -u)/com.mobile-playbook.dashboard-sync`, and
+  read `work/dashboard-sync.log` for the last pass's output.
+- `last_error` set — the last pass ran and something failed. The per-run
+  `sync-status` for each affected run names the specific failure.
+- Credentials are the usual cause of a pass that starts and immediately exits 2;
+  that shows up in `work/dashboard-sync.log`, not in this endpoint.
+
+### Retrying one run
+
+```bash
+curl -X POST http://127.0.0.1:8080/runs/<RUN_TIMESTAMP>/sync
+```
+
+Returns `202` with the same body as `sync-status`. It queues another worker pass
+and returns immediately; the status moves `queued` → `running` → `completed` on
+its own.
+
+The retry deliberately does **not** pass `--force`, so the processed ledger still
+short-circuits any report that already landed. Retrying is therefore idempotent:
+a run that was fully synced writes nothing on the retry, and a run that failed
+partway is reconciled by the same upsert-and-`sync_key` path that makes an
+ordinary repeat pass safe. A run already `queued` or `running` returns its
+current status without starting a second worker, and a `not_required` run is
+refused with `409`.
+
+Like every other endpoint here this has no authentication of its own and relies
+on the localhost/trusted-LAN boundary described under [Security model](#security-model);
+it is reachable only on the automation host's API, never from Supabase.
+
+### Scheduling
+
+The primary trigger is tied to run completion rather than a timer. After an API
+or CLI run writes its terminal manifest, it starts a detached one-shot worker
+that scans the report queue. The child loads credentials from the repository
+`.env`; the API does not import the service-role key merely to trigger it. Set
+`DASHBOARD_SYNC_AUTO_TRIGGER=false` to disable this behavior on an installation
+that does not use the dashboard.
+
+Post-run workers pass `--lock-wait-seconds 60`. This serializes simultaneous
+iOS and Android completions instead of allowing the second invocation to exit
+as busy before its report is seen. Manual invocations remain non-blocking by
+default.
+
+A launchd calendar job is retained as a recovery sweep for a trigger that could
+not start or a host interruption. It invokes the same worker in one-shot mode
+every five minutes. The template is at
+`tools/dashboard_sync/com.mobile-playbook.dashboard-sync.plist`; copy it into
+`~/Library/LaunchAgents`, substitute the absolute repository path, and load it
+with `launchctl bootstrap gui/$(id -u)`. Credentials come from `.env` and must
+not be placed in the plist, which is normally world-readable.
+
+`--interval-seconds` is retained for development only and must be greater than
+zero.
+
+The recovery plist deliberately uses `StartCalendarInterval` and omits
+`RunAtLoad`. On one verified macOS host launchd held every speculative launch
+request indefinitely — `StartInterval`, `RunAtLoad`, and `KeepAlive` alike — at
+`state = not running` with `pended nondemand spawn = speculative`, while
+`launchctl kickstart` ran the same job immediately. Power state, low power mode,
+session type, and plist ownership were all ruled out; the calendar activation
+class fires on that same host where the others never did. Check the recovery job
+with `launchctl print gui/$(id -u)/com.mobile-playbook.dashboard-sync` and look
+at `runs`. The single-instance lock makes the recovery sweep safe to combine with
+post-run and manual invocations.
+
+### Repeat and overlap safety
+
+The worker takes a host-wide lock (`reports/.dashboard_sync.lock`) for each
+pass, so a manual invocation and a scheduled one cannot overlap; the loser
+reports `skipped, another dashboard sync is already running` and exits 0.
+
+Processed runs are recorded in `reports/.dashboard_sync_ledger.json`, keyed by
+run timestamp against a digest of the manifest and the report feed. A pass over
+unchanged reports performs no database writes at all. Editing a report's feed
+changes its digest and makes it eligible again; `--force` re-syncs regardless,
+for reconciliation or a database rebuild.
+
+Rows the worker appends to `finding_history` and `activity_log` carry a
+`sync_key` covered by a partial unique index, so a retry or a concurrent writer
+cannot duplicate them. Rows created by people in the dashboard leave `sync_key`
+null and are unaffected. A finding's status and `latest_test_run_id` only move
+forward: replaying an older run imports its assessment row without regressing
+the current finding.
+
+Within one report, the finding's status and `latest_test_run_id` are written
+last, after the history and activity rows. A pass that fails midway therefore
+leaves the run un-applied, and the next pass re-attempts the append-only rows
+rather than seeing "no change" and skipping them permanently.
+
+Use `--run-timestamp 2026-01-01_00-00-00` to sync one completed run, or
+`--interval-seconds 60` to run it as a development reconciler loop. The worker
+uses stable dashboard keys (`applications.external_id = app_id`,
+`assessments.external_id = "<run_timestamp>::<app_id>"`, and
+`findings.external_id = "<app_id>::<test_id>"`) so re-running it updates the
+same rows. If it adopts a dashboard-created `manual::...` assessment
+placeholder, the update is conditional so a concurrent browser sync cannot
+cause it to re-key the wrong row.
+
+Keep `SUPABASE_SERVICE_ROLE_KEY` only in this worker's server-side
+environment. Do not put it in frontend `.env`, any `VITE_*` variable,
+checked-in examples, or the FastAPI process environment unless that process is
+separately redesigned and authenticated. The FastAPI API remains a localhost
+or trusted-lab service and does not need database-wide credentials.
 
 ## One run per platform at a time
 
@@ -113,23 +506,23 @@ This is per-platform, not global — an iOS run and an Android run are always fr
 `POST /artifacts/{platform}` accepts a multipart file upload and drops it straight into this repo's existing intake drop-zone (`intake/ios/ipas/` or `intake/android/apks/`), then inspects it for metadata to help fill in an app's config:
 
 ```bash
-curl -X POST http://127.0.0.1:8080/artifacts/ios -F "file=@app.ipa"
+curl -X POST http://127.0.0.1:8080/artifacts/ios -F "file=@example_app.ipa"
 ```
 
 ```json
-{"path": "intake/ios/ipas/app.ipa", "metadata": {"bundle_id": "com.example.app", "display_name": "...", "...": "..."}}
+{"path": "intake/ios/ipas/example_app.ipa", "metadata": {"bundle_id": "com.example.app", "display_name": "...", "...": "..."}}
 ```
 
-The file must match the platform's expected extension (`.ipa` for `ios`, `.apk` for `android`) or the request is rejected with `400`. Metadata comes from this repo's existing `inspect_ipa_metadata()`/`inspect_apk_metadata()` — for iOS that's the real bundle ID, display name, and full `Info.plist`; Android's APK inspector isn't implemented yet (`mobile_playbook/platforms/android/apk_tools.py`), so an Android upload still saves the file but its `metadata` comes back as `{"error": "..."}` instead of real fields. A file with the same name overwrites whatever was already in the intake folder, matching how that folder already works as a plain drop-zone.
+The file must match the platform's expected extension (`.ipa` for `ios`, `.apk` for `android`) or the request is rejected with `400`. Uploads are streamed to disk, capped at 2 GiB by default, and can be adjusted with `MAX_ARTIFACT_UPLOAD_BYTES`. Metadata comes from `inspect_ipa_metadata()` or `inspect_apk_metadata()`: iOS reads bundle ID, display name, version and `Info.plist`; Android reads package name, display name and version through `aapt`, `aapt2` or `apkanalyzer`. A file with the same name overwrites whatever was already in the intake folder after the upload completes, matching how that folder already works as a plain drop-zone.
 
 ## Editing config
 
-`/config/{platform}/apps`, `/config/{platform}/risk-settings/{risk_id}`, and `/config/{platform}/device` / `/config/{platform}/runner` read and write the same YAML files under `configs/` that the CLI reads — there's no separate copy of the config for the API. Every write re-runs the real config loader/validator against what's now on disk and reverts the file if that fails, so an edit can never leave the config in a state `python -m mobile_playbook validate` would reject:
+`/config/{platform}/apps`, `/config/{platform}/risk-settings/{risk_id}`, and `/config/{platform}/device` / `/config/{platform}/runner` read and write the same YAML files under `configs/` that the CLI reads — there's no separate copy of the config for the API. Every write re-runs the real config loader/validator against what's now on disk and reverts the file if the edit **introduced** a problem, so an edit can never make the config worse than it found it. Problems that were already there — another app still waiting for its build, say — don't block an unrelated edit, which would otherwise make one broken entry freeze the whole config:
 
 ```bash
 curl -X POST http://127.0.0.1:8080/config/ios/apps \
   -H "Content-Type: application/json" \
-  -d '{"name": "REPLACE_WITH_APP_NAME", "bundle_id": "com.example.app", "test_bundle_id": "com.example.app", "artifact": {"source": "local_ipa", "ipa": "intake/ios/ipas/app.ipa"}, "risks": {"ios-feature-01-risk-01": {"enabled": true}}}'
+  -d '{"name": "REPLACE_WITH_APP_NAME", "bundle_id": "com.example.app", "test_bundle_id": "com.example.app", "artifact": {"source": "local_ipa", "ipa": "intake/ios/ipas/example_app.ipa"}, "risks": {"ios-feature-01-risk-01": {"enabled": true}}}'
 # {"id": "replace_with_app_name"}
 
 curl -X PUT http://127.0.0.1:8080/config/ios/apps/replace_with_app_name \
@@ -147,40 +540,178 @@ curl -X PUT http://127.0.0.1:8080/config/ios/device -H "Content-Type: applicatio
 
 `PUT` merges the given fields onto the current value rather than replacing it wholesale — a request that only sets one nested field leaves everything else in that app/risk/section untouched. Reads and writes go through `ruamel.yaml` in round-trip mode, so hand-written comments and formatting elsewhere in the file survive an edit intact.
 
+The API uses explicit request models for the stable outer shapes: risk metadata, demonstration blocks, app create/update, device settings and runner settings. A few nested config fields remain open-ended JSON objects by design: `artifact` varies by artifact provider, `risks` holds per-risk app overrides, and `risk-settings` bodies are owned by each risk's YAML schema. Those flexible fields are still required to be JSON objects rather than arbitrary JSON values.
+
 `configs/split/ios/apps.yaml` is the one exception to full comment/anchor preservation on the entries themselves: its app entries use `<<: *anchor` references to templates defined in the sibling `templates.yaml`, which can only be parsed together with that file, not on its own. Editing or adding an app there writes that one entry with fully explicit values instead of the anchor shorthand — every other untouched app entry, and all of the file's comments, are left byte-for-byte as they were. `configs/split/android/apps.yaml` has no such anchors, so Android app edits round-trip in full.
 
 `GET /config/{platform}/risk-settings/{risk_id}` only covers risks that have global settings shared across apps (`ios-feature-01-risk-01`, `ios-feature-02-risk-01`, `ios-feature-04-risk-01`, `android-feature-01-risk-02`, `android-feature-06-risk-01`) — a per-app override still goes through that app's own `risks.<risk_id>` entry via the apps endpoints above.
 
 Every app entry also carries `sector`, `agency`, `version`, and `cisos` (a list of `{"name", "email"}`) alongside its identity/artifact fields — organizational metadata a dashboard displays, not read by the automation run itself. All four are optional and default to blank/empty; `PUT /config/{platform}/apps/{app_id}` accepts any of them like any other field, including clearing `cisos` back to `[]` (unlike most other list-valued fields on this endpoint, an empty `cisos` in the request body does clear it rather than being treated as "no change").
 
+## Playbook images
+
+A demonstration step can cite screenshots from the platform's playbook. They're stored as `{path, caption}` entries under a step's `images`, where `path` is relative to `playbook_dir` at the top of `configs/split/{platform}/risks.yaml`:
+
+```yaml
+playbook_dir: /path/to/ios-playbook-format/playbooks
+
+ios-feature-01-risk-01:
+  demonstration:
+    - id: steps
+      type: steps
+      items:
+        - id: step_2
+          text: Upload the .ipa file to MobSF and review the static analysis report.
+          images:
+            - path: attachments/ios-feature-01-risk-01-step-2.png
+              caption: Screenshot shows possible exposed credentials and api key found by MobSF
+```
+
+Paths are deliberately never absolute: moving the playbook means changing `playbook_dir` alone, and every image keeps resolving. `playbook_dir` may be absolute or relative to the repository root, and `~` expands. That file is gitignored, so the path stays machine-local.
+
+`GET /platforms/{platform}/risks` adds two derived fields to each image — `url`, the endpoint to fetch it from, and `exists`, whether the file is actually on disk right now. `exists` is what turns a stale `playbook_dir` into something a dashboard can show plainly rather than a broken image. Both are recomputed per request and stripped on `PUT`, so they never end up in the YAML.
+
+The image itself comes from `GET /platforms/{platform}/playbook/images/{image_path}`. Since a playbook is typically a whole vault — notes, source, editor state — and this API has no authentication, that endpoint serves **only** files under `playbook_dir` whose suffix is one of `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.svg`. Anything else, and anything resolving outside `playbook_dir` (`../`), is a `404`.
+
+## Is an app ready to test?
+
+Adding an app to config is only half of making it testable. `GET /config/{platform}/apps/{app_id}/provisioning` answers whether it can actually be run, as three stages that complete independently of one another:
+
+| Stage id | Means |
+| --- | --- |
+| `app_registered` | The app is in this platform's roster. `in_progress` until it is. |
+| `service_online` | This API answered, so the assessment service is up. |
+| `configuration_applied` | The app's entry is complete enough to run — identity resolvable, a build available (iOS) or the app installed on the device (Android), and at least one risk enabled. |
+
+```bash
+curl http://127.0.0.1:8080/config/ios/apps/example_app/provisioning
+# {"app_id": "example_app", "platform": "ios", "bundle_id": "com.example.app", "status": "ready",
+#  "stages": [
+#    {"id": "app_registered",        "label": "Server environment prepared",  "state": "done", "detail": "The app has been set up for testing."},
+#    {"id": "service_online",        "label": "Assessment service is running","state": "done", "detail": "The testing service is online."},
+#    {"id": "configuration_applied", "label": "Configuration applied",        "state": "done", "detail": "This app is configured and ready to test."}
+#  ],
+#  "error": null}
+```
+
+Stage states are `done`, `in_progress`, `pending`, `failed`, and `unknown` (couldn't be checked cheaply — verify by hand). Overall `status` is `failed` if any stage failed, `ready` if every stage is `done` or `unknown`, else `pending`. **`unknown` deliberately does not block `ready`**, so an unverifiable check can't strand an app in setup forever.
+
+**Stage text is written for end users and deliberately discloses nothing about this repo's internals** — no paths, filenames, config field names, risk ids or bundle ids. A dashboard renders `label`/`detail` directly. Specifics (which build was ambiguous, which validator rule failed, which artifact path is missing) go to `mobile_playbook.api.provisioning`'s logger instead, so operators still get them from the server log. `bundle_id` is returned as its own field for callers to store, not as display text.
+
+An app that isn't registered, or whose config no longer validates, returns `200` with a generic `failed`/`pending` report rather than an error code — the caller is polling to find out *why* it isn't ready. `404` is reserved for "this build has no provisioning support at all", so a client can tell the two apart.
+
+**An app is only held back by its own problems.** Config errors are attributed to the app they name, so one broken entry reports `failed` on its own while every other app still reports its real status. Only a problem outside any app (a malformed file, a missing `device` field) fails them all.
+
+**A build that hasn't been provided yet is not a config error.** An app can be registered before its IPA/APK exists — `configuration_applied` sits at `in_progress` with "Waiting for the app build to be provided", and flips to `done` on the next poll once the build appears, with no config change. That holds for a fixed `artifact.ipa` path as much as for `intake_ipa`. A path that is simply wrong therefore isn't caught by `validate`; a run surfaces it as `ARTIFACT_NOT_FOUND`.
+
+It is designed to be polled: config read + filesystem check + at most one `adb` call, never an Appium session. iOS apps using `intake_ipa` resolve their build through the same `resolve_intake_ipa` the run itself uses, so readiness cannot disagree with what a run would find.
+
 ## Endpoints
 
 | Method & Path | Purpose |
 | --- | --- |
 | `GET /health` | Liveness check. |
-| `GET /platforms/{platform}/risks` | Every risk's full metadata — `risk_id`, `name`, `description`, `goal`, `is_blocking`, `mitre_attack_mobile_technique_id`, `demonstration`, and platform-specific requirement fields. `platform` is `ios` or `android`. See [Risk Metadata](ios/risks.md#risk-metadata). |
-| `PUT /platforms/{platform}/risks/{risk_id}/demonstration` | Replace a risk's `demonstration` content — the "how to demonstrate this" setup/steps a dashboard shows, stored in `configs/split/{platform}/risk_demonstrations.yaml`. Body is the full `demonstration` array; it never affects what the automation run itself does. |
+| `GET /platforms/{platform}/risks` | Every risk's full metadata — `risk_id`, `name`, `description`, `goal`, `tactic`, `is_blocking`, `automation_available`, `demonstration`, and platform-specific requirement fields. The displayed text comes from `configs/split/{platform}/risks.yaml`, not from the risk's Python class. `platform` is `ios` or `android`. See [Risk Metadata](ios/risks.md#risk-metadata). |
+| `PUT /platforms/{platform}/risks/{risk_id}` | Replace a risk's displayed metadata in `configs/split/{platform}/risks.yaml`. Body may contain any of `name`, `description`, `goal`, `tactic`; any other field is a 422. Returns the stored values. It never affects what the automation run itself does. |
+| `PUT /platforms/{platform}/risks/{risk_id}/demonstration` | Replace a risk's `demonstration` content — the "how to demonstrate this" setup/steps a dashboard shows, stored in `configs/split/{platform}/risks.yaml`. Body is the full `demonstration` array; it never affects what the automation run itself does. Each image's derived `url`/`exists` are stripped before writing, so a GET's response can be PUT straight back. |
+| `GET /platforms/{platform}/playbook/images/{image_path}` | One screenshot referenced by a demonstration step, resolved under that platform's `playbook_dir`. See [Playbook images](#playbook-images). |
 | `GET /platforms/{platform}/features` | Every feature_id referenced by that platform's risks, with its `name`/`description` from `configs/split/{platform}/features.yaml`. `feature_id` here has no platform prefix (e.g. `"feature-01"`). |
 | `PUT /platforms/{platform}/features/{feature_id}` | Partially update a feature's `name`/`description`. |
+| `GET /platforms/{platform}/traffic-interception/proxy.pac` | A PAC (Proxy Auto-Configuration) file, generated from that platform's traffic-interception risk's `burp.proxy_url`, that routes Apple's own certificate/app-verification domains direct and everything else through Burp — point a device's Wi-Fi "Automatic" proxy config at this URL instead of a manual `host:port` so WebDriverAgent can still verify its certificate with the proxy on. `ios` only. Optional `?proxy_host=` overrides the auto-detected host (used when `burp.proxy_url` is a loopback address, since that's written from this server's point of view, not the phone's). See [Traffic interception](ios/configuration.md#traffic-interception). |
 | `POST /config/validate` | Same check as `validate`. Body: `{"platform", "config_path"}`. Returns `422` with the config's error list if invalid. |
 | `POST /runs` | Starts a run in a background thread and returns immediately (`202`) with a `run_id` — it does not wait for the run to finish. Body: `{"platform", "config_path", "apps"?, "risks"?, "out_dir"?}`, mirroring `run`'s `--apps`/`--risks`/`--out` flags. `409` if that platform already has a run in progress. |
-| `GET /runs` | Lists runs started through this API (this process's history only — see below). |
-| `GET /runs/{run_id}` | One run's status: `running`, `completed`, or `failed`, plus its `run_timestamp`/`run_dir` once known. |
+| `GET /runs` | Lists runs started through this API (this process's history only — see below). Each record carries the `apps`/`risks` it was started with, so a client can find an in-progress run without knowing its `run_id`. |
+| `GET /runs/{run_id}` | One run's status: `running`, `completed`, or `failed`, plus its `run_timestamp`/`run_dir` once known and the `apps`/`risks` it covers. |
 | `GET /runs/{run_id}/events` | Server-Sent Events stream of this run's progress — `risk_started`/`risk_completed`/`appium_recovery` events as they happen, ending with `done`. See [Watching a run's progress live](#watching-a-runs-progress-live). |
 | `GET /runs/{run_id}/summary` | The completed run's `dashboard_results.json`, by `run_id`. `409` while still running, `500` with the error if it failed. |
+| `GET /runs/{run_id}/sync-status` | Where this run's *dashboard sync* stands: `queued`, `running`, `completed`, `failed`, or `not_required`, with attempt, timings, a redacted error and the row counts written. Separate from the run's own status — see [Two workflows](#two-workflows-two-meanings-of-completed). |
+| `POST /runs/{run_id}/sync` | Queues another dashboard sync pass for one run (`202`). Idempotent — the processed ledger still short-circuits a report that already landed. `409` if the run needs no sync or a pass is already pending. |
+| `GET /sync/status` | Dashboard sync worker health: whether automatic triggering is enabled, whether a pass is running, the queue depth, and the last success/failure. Operational state only, no credentials or report contents. |
 | `GET /reports` | Lists every `reports/<run_timestamp>/` directory on disk, most recent first — including runs started from the CLI, not just from this API. |
 | `GET /reports/{run_timestamp}/summary` | The same `dashboard_results.json`, looked up directly by `run_timestamp` instead of `run_id`. Works for any run on disk regardless of how it was started. |
+| `GET /reports/{run_timestamp}/sarif` | The run's results as SARIF 2.1.0 (`application/sarif+json`, sent as a download). Generated on demand for runs made before the export existed. `404` unless the run has a `completed` manifest and a results feed. See [SARIF export](#sarif-export). |
 | `GET /reports/{run_timestamp}/files/{file_path}` | Serves any file inside that run's report directory — screenshots, recordings, `report.json`, `logs.txt`, `critical_findings.md`, etc. |
+| `GET /reports/{run_timestamp}/evidence-file?path=...` | Serves report evidence stored under either `reports/` or `work/`, while rejecting paths outside those roots. |
+| `GET /apps/{app_id}/risks/{risk_id}/history?limit=20` | Returns the latest matching summary rows for one app/risk without forcing clients to scan all report folders. |
+| `GET /artifacts/{platform}` | Builds sitting in `intake/{ios,android}/{ipas,apks}/`, newest first. iOS identity fields are read from each IPA; Android APK identity fields are read with Android SDK tooling when available. Unreadable files are skipped. |
 | `POST /artifacts/{platform}` | Multipart file upload (`file`) into `intake/{ios,android}/{ipas,apks}/`. Returns `{"path", "metadata"}`; `400` if the file extension doesn't match the platform. |
 | `GET/POST /config/{platform}/apps` | List every configured app, or add a new one. |
 | `GET/PUT/DELETE /config/{platform}/apps/{app_id}` | Read, partially update, or remove one app. |
+| `GET /config/{platform}/apps/{app_id}/provisioning` | Whether this app is ready to be tested yet, stage by stage. See [Is an app ready to test?](#is-an-app-ready-to-test) |
 | `GET/PUT /config/{platform}/risk-settings/{risk_id}` | Read or partially update a risk's global settings (only risks with shared cross-app settings — see below). |
 | `GET/PUT /config/{platform}/device` | Read or partially update the `device:` block. |
 | `GET/PUT /config/{platform}/runner` | Read or partially update the `runner:` block. |
 
-A run is asynchronous because it isn't a quick request/response: it drives real Appium sessions against a physical device and can take several minutes, and some risks (for example the custom-keyboard keystroke-collection risk) need a person to unlock the phone and grant permissions mid-run. Use `GET /runs/{run_id}/events` for live progress, or poll `GET /runs/{run_id}` for just the coarse status, instead of expecting `POST /runs` to block until finished.
+A run is asynchronous because it isn't a quick request/response: it drives real Appium sessions against a physical device and can take several minutes, and some risks (for example the custom-keyboard keystroke-collection risk) may need a person to grant permissions mid-run that `runner.permission_alerts` doesn't already cover. Use `GET /runs/{run_id}/events` for live progress, or poll `GET /runs/{run_id}` for just the coarse status, instead of expecting `POST /runs` to block until finished.
 
 ## What's tracked where
 
 `GET /runs`/`GET /runs/{run_id}` come from a registry that's persisted to `reports/.job_registry.json`, written on every status change and reloaded on startup — this history survives an API server restart. A run still `"running"` at the moment the server stops can never actually finish (the restart kills the thread driving it), so on reload it's rewritten to `"failed"` with an "Interrupted by API server restart" error instead of hanging a poller forever. The `reports/{run_timestamp}/...` endpoints read straight off disk instead, so they see every run that ever wrote a `reports/<run_timestamp>/` folder, from the CLI or the API, past or present, regardless of whether the server was restarted since.
 
+Dashboard sync state lives on disk beside the report it describes, so it
+survives an API restart and is readable whether the run came from the CLI or the
+API. The **processed ledger** (`reports/.dashboard_sync_ledger.json`) remains the
+authority on whether a report was published: it maps a run timestamp to the
+digest of the manifest and feed that were synced. The per-run
+`reports/<run_timestamp>/sync_status.json` sidecar adds the lifecycle around
+that fact — attempt, timings, error, counts — and is written atomically under a
+per-run lock, so a reader never sees a half-written file and two writers cannot
+interleave.
+
+The sidecar is a projection, never a competing source of truth. If it is missing
+or unreadable the API derives the status from the manifest and the ledger
+instead: a `failed` manifest or a folder with no manifest reads as
+`not_required`, a completed manifest whose digest is in the ledger reads as
+`completed`, and a completed manifest that is not reads as `queued`. That is why
+runs that predate this feature report a sensible status without a backfill, and
+why deleting a sidecar cannot make a published run look unpublished.
+`reports/.dashboard_sync_worker.json` holds the last pass's outcome for
+`/sync/status`.
+
+## CORS
+
+Browser callers are limited to `http://localhost:5173` and `http://127.0.0.1:5173` by default. Set `CORS_ALLOWED_ORIGINS` to a comma-separated list of exact origins for any other dashboard host, for example a LAN-hosted frontend. Do not use `*`; the server rejects wildcard origins at startup. Origins are compared exactly — scheme, host and port all have to match, and nothing is normalized or wildcard-expanded.
+
+The value can come from either the shell environment or the repository `.env`:
+
+```env
+CORS_ALLOWED_ORIGINS="http://localhost:5173,https://dashboard.example.com"
+```
+
+Precedence is **exported environment variable → repository `.env` → built-in localhost defaults**. An explicitly exported value always wins, including an exported empty string, which falls back to the defaults rather than reaching into `.env`. An unset, empty or absent value in every source leaves the defaults in place. Values may be quoted, and surrounding whitespace around each origin is trimmed.
+
+**Only `CORS_ALLOWED_ORIGINS` is read from `.env` by the API.** `mobile_playbook/api/settings.py` holds an explicit allowlist and refuses any other key, and it parses one key at a time rather than importing the file — so `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_URL` and `MOBSF_API_KEY` never enter the API process's environment even though they sit in the same file. The service-role key stays worker-only: the dashboard sync worker is a separate process that loads its own credentials (see [Durable dashboard sync](#durable-dashboard-sync)). Nothing read here is logged or returned by any endpoint.
+
+Resolution happens when `cors_allowed_origins()` is called rather than at module import of a launcher, so it behaves the same however the app is started — `python -m mobile_playbook.api`, the same command with `--reload` (whose worker subprocess re-imports the app), or `uvicorn mobile_playbook.api.app:app` directly.
+
+## Current limitations and follow-up work
+
+1. **No built-in user authentication on the automation API.** No auth, no
+   authorisation, no rate limiting. Acceptable only for localhost or
+   trusted-network use. Internet-accessible deployments need authentication and
+   TLS in front of this service, preferably at a reverse proxy or VPN boundary.
+2. **Evidence and report access is filesystem based.** The path helpers
+   constrain reads to `reports/`, `work/`, or configured playbook image
+   directories, but there is no per-user authorisation and a protected
+   deployment should still treat these as sensitive assessment artifacts.
+3. **Single-host worker assumptions.** The sync lock, processed ledger and
+   per-run status sidecars are local files. Two automation hosts writing the
+   same dashboard would need shared state.
+4. **Eventual consistency between reports and the dashboard.** There is no push
+   notification when a run lands in Supabase; clients poll
+   `GET /runs/{run_id}/sync-status`.
+5. **No published contract for a replacement implementation.** FastAPI serves a
+   generated schema at `/openapi.json` and a browser at `/docs`, but there is no
+   versioned, reviewed OpenAPI or JSON Schema file that an alternative server
+   could be validated against — so "implements the same endpoints" cannot be
+   checked mechanically.
+6. **No API versioning.** Paths are unversioned, so a breaking change would
+   break clients silently.
+7. **No retention or pruning** of `reports/` and `work/`. Both grow without
+   bound and hold sensitive data.
+8. **One run per platform, one host.** No queue, no horizontal scaling; the
+   attached device is the hard constraint.
+9. **SARIF results carry no source locations**, because these are runtime
+   findings about a device and a binary. Consumers that require a location per
+   result cannot annotate a diff from them. See
+   [SARIF export](#sarif-export).

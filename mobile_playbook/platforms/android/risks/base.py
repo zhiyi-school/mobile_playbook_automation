@@ -5,10 +5,12 @@ class AndroidRisk:
     risk_id: str = ""
     feature_id: str = ""
     name: str = ""
+    #: Displayed text, owned by configs/split/android/risks.yaml — subclasses
+    #: leave these alone. See docs/android/risks.md#risk-metadata.
     description: str = ""
     goal: str = ""
+    tactic: str | None = None
     is_blocking: bool = False
-    mitre_attack_mobile_technique_id: str | None = None
     test_case_id: str = ""
     test_case_type: str = ""
     requires: list[str] = []

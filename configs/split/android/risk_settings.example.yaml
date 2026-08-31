@@ -1,13 +1,4 @@
-# Example of Android's global config sections — shown together here for
-# easier reading, though the real split config keeps each in its own file.
-# repackaging and screen_capture are each one risk's shared default settings;
-# an app's own `risks.<risk_id>` entry in apps.yaml can override any field in
-# either for that app alone. tools is not risk-specific — it holds shared
-# external-tool locations (MobSF, Burp) used by the Android preflight check.
-#
-# To add a new risk's global settings: create configs/split/android/<name>.yaml
-# and add a matching `include:` entry in configs/android.yaml.
-
+# Example Android tool/risk settings. Split real settings into one file per top-level key; see docs/android/configuration.md.
 tools:
   mobsf_url: "http://localhost:8000"
   mobsf_api_key: ""
@@ -15,7 +6,6 @@ tools:
 
 repackaging:
   work_dir: "work/android/repackaging"
-  # If unset, a keystore is generated at <work_dir>/<app>/../release.keystore on first use.
   keystore_path: null
   keystore_alias: "mobileplaybook"
   keystore_pass: "password"

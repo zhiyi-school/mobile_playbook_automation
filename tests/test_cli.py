@@ -5,7 +5,8 @@ from dataclasses import replace
 from datetime import datetime, timezone
 
 from mobile_playbook import cli as cli_module
-from mobile_playbook.cli import _load_env_file, _new_run_timestamp, _run, _run_all
+from mobile_playbook.cli import _new_run_timestamp, _run, _run_all
+from mobile_playbook.env_file import load_env_file
 from mobile_playbook.platforms.android.config import parse_config as parse_android_config
 from mobile_playbook.platforms.ios.risks import get_risk, known_risks
 
@@ -136,7 +137,21 @@ def test_run_all_isolates_one_platform_failure_from_the_other(monkeypatch, globa
 
 
 def test_ios_registry_only_exposes_current_risks():
-    assert known_risks() == {"ios-feature-01-risk-01", "ios-feature-02-risk-01", "ios-feature-04-risk-01"}
+    assert known_risks() == {
+        "ios-feature-01-risk-01",
+        "ios-feature-02-risk-01",
+        "ios-feature-04-risk-01",
+        "ios-feature-99-risk-01",
+    }
+
+
+def test_manual_only_risks_are_flagged_in_the_catalogue():
+    from mobile_playbook.platforms.ios.risks import list_risks
+
+    by_id = {risk["risk_id"]: risk for risk in list_risks()}
+
+    assert by_id["ios-feature-99-risk-01"]["automation_available"] is False
+    assert by_id["ios-feature-01-risk-01"]["automation_available"] is True
 
 
 def test_new_run_timestamp_is_sortable_and_collision_safe(tmp_path):
@@ -164,7 +179,7 @@ def test_load_env_file_sets_missing_values_without_overriding_existing(monkeypat
     monkeypatch.delenv("QUOTED_VALUE", raising=False)
     monkeypatch.setenv("EXISTING_VALUE", "from-shell")
 
-    _load_env_file(env_file)
+    load_env_file(env_file)
 
     import os
 
