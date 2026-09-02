@@ -12,6 +12,7 @@ HTTP, and optionally publishes completed results to a Supabase dashboard.
 | [configuration.md](configuration.md) | Every YAML setting, environment variable and the secret boundary |
 | [architecture.md](architecture.md) | How a run executes end to end, and what each layer owns |
 | [api.md](api.md) | Every HTTP endpoint, run lifecycle, SARIF, sync status |
+| [developer-playbook.md](developer-playbook.md) | The external remediation playbook: terminology, format, status, caching |
 | [operations.md](operations.md) | The dashboard sync worker: triggers, locking, retries, health |
 | [troubleshooting.md](troubleshooting.md) | Symptom-to-cause tables |
 | [testing.md](testing.md) | Running and extending the test suite |

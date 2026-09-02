@@ -752,6 +752,137 @@ Paths are deliberately never absolute: moving the playbook means changing `playb
 
 The image itself comes from `GET /platforms/{platform}/playbook/images/{image_path}`. Since a playbook is typically a whole vault — notes, source, editor state — and this API has no authentication, that endpoint serves **only** files under `playbook_dir` whose suffix is one of `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.svg`. Anything else, and anything resolving outside `playbook_dir` (`../`), is a `404`.
 
+## Developer remediation controls
+
+`GET /platforms/{platform}/risks` says what a risk *is* and how security
+demonstrates it. The endpoints below say what a developer should *change* to
+reduce it, read from the external playbook directory described in
+[developer-playbook.md](developer-playbook.md).
+
+The two are deliberately separate. A risk's `demonstration` is security's
+reproduction procedure; a control's `steps` are developer remediation
+instructions. Neither is ever served as the other.
+
+### Control summaries on the risk list
+
+Each risk in `GET /platforms/{platform}/risks` gains three fields:
+
+```json
+{
+  "risk_id": "example-feature-01-risk-01",
+  "name": "Example risk",
+  "description": "Example risk description",
+  "goal": "Example security goal",
+  "controls_available": true,
+  "controls_error": null,
+  "controls": [
+    {
+      "control_id": "example-feature-01-risk-01-control-01",
+      "risk_id": "example-feature-01-risk-01",
+      "title": "Example control",
+      "status": "active",
+      "required": true,
+      "step_count": 4,
+      "playbook_revision": "sha256:example",
+      "has_source_archive": true
+    }
+  ]
+}
+```
+
+If the playbook directory is missing or unreadable, `controls` is empty,
+`controls_available` is `false`, and `controls_error` carries the reason. The
+risk list itself keeps working — a broken playbook never takes the catalogue
+down, and it is never reported as "this risk has no controls".
+
+### Control detail
+
+`GET /platforms/{platform}/controls/{control_id}` returns the whole control as
+normalised JSON, so no client has to parse Markdown:
+
+```json
+{
+  "control_id": "example-feature-01-risk-01-control-01",
+  "risk_id": "example-feature-01-risk-01",
+  "platform": "ios",
+  "title": "Example control",
+  "status": "active",
+  "status_source": "default",
+  "required": true,
+  "playbook_revision": "sha256:example",
+  "source_file": "example-feature-01-risk-01-control-01.md",
+  "summary": "Your app can reduce this risk by taking the following steps:",
+  "step_count": 2,
+  "intro": [],
+  "steps": [
+    {
+      "step_key": "rotate-example-key",
+      "step_id_source": "declared",
+      "content_hash": "sha256:…",
+      "step_index": 0,
+      "number": 1,
+      "step_title": "The first thing the developer changes",
+      "text": "The first thing the developer changes. Some more detail.",
+      "content": [
+        {
+          "type": "image",
+          "path": "attachments/example_control_ss1.png",
+          "alt": "Alt text",
+          "width": "400",
+          "caption": "What the screenshot shows",
+          "url": "/platforms/ios/controls/example-feature-01-risk-01-control-01/assets/attachments/example_control_ss1.png",
+          "exists": true
+        }
+      ]
+    }
+  ],
+  "references": [{ "label": "Example reference", "url": "https://example.test/reference" }],
+  "source_archives": [],
+  "source_download_url": null
+}
+```
+
+`content` blocks are one of `paragraph`, `caption`, `heading`, `code`, `list`,
+`table`, `image`. A client should render only the kinds it knows and drop the
+rest rather than passing anything through as raw HTML.
+
+`step_key` is the step's stable identifier and the only safe thing to record
+progress against. `step_id_source` says where it came from: `declared` when the
+playbook author wrote a `<!-- playbook-step-id: … -->` directive above the step,
+`auto` when it was derived from the instruction text because none was declared.
+A declared id survives rewording and reordering; a derived one survives
+reordering and renumbering but deliberately changes when the instruction is
+rewritten, so a tick is never carried across to a different instruction.
+
+`content_hash` covers the step's text and everything rendered under it. It is
+for spotting that a step changed, never for storing or re-rendering an older
+version — the API serves the current playbook and has no endpoint for any other.
+
+`playbook_revision` is the SHA-256 of the control document. The catalogue-wide
+`revision` on `/playbook/status` additionally covers screenshots and archives,
+so a client can poll one value to learn that anything changed. Image URLs carry
+a `?v=` content digest so a replaced screenshot is refetched rather than served
+from cache.
+
+### Endpoints
+
+| Method & Path | Purpose |
+| --- | --- |
+| `GET /platforms/{platform}/risks/{risk_id}/controls` | Every control addressing one risk, in full detail. Accepts either the platform-prefixed id or the generic playbook id. `404` for an unknown risk, `503` if the playbook directory is unreadable. |
+| `GET /platforms/{platform}/controls/{control_id}` | One control's remediation steps, assets, references and archive metadata. |
+| `GET /platforms/{platform}/controls/{control_id}/assets/{asset_path}` | One screenshot from that control, resolved under the playbook root. Only approved image extensions; anything escaping the root is a `404`. |
+| `GET /platforms/{platform}/controls/{control_id}/source` | Metadata for the implemented-control archive: `exists`, `file_name`, `size_bytes`, `sha256`, `download_enabled`. Never the bytes. |
+| `GET /platforms/{platform}/controls/{control_id}/source/download` | The archive itself, as `application/zip`. `403` when `PLAYBOOK_SOURCE_DOWNLOAD_ENABLED=false`; `404` when the control has no archive. |
+| `GET /platforms/{platform}/playbook/status` | Diagnostics: the configured path, whether it is readable, risk/control counts, the catalogue revision, and every warning. Always answers `200`, even when the directory is missing. |
+| `POST /platforms/{platform}/playbook/reload` | Rebuilds the catalogue for a platform and returns the same shape as `status`. `503` if the directory is unreadable. |
+
+### Caching
+
+The catalogue is built on first request and cached per platform. It rebuilds by
+itself when any `*.md` file's path, modification time or size changes, or when
+the contents of `attachments/`/`implemented_controls/` change — an edit shows up
+on the next request with no restart. `POST …/playbook/reload` forces it.
+
 ## Is an app ready to test?
 
 Adding an app to config is only half of making it testable. `GET /config/{platform}/apps/{app_id}/provisioning` answers whether it can actually be run, as three stages that complete independently of one another:
@@ -860,7 +991,7 @@ CORS_ALLOWED_ORIGINS="http://localhost:5173,https://dashboard.example.com"
 
 Precedence is **exported environment variable → repository `.env` → built-in localhost defaults**. An explicitly exported value always wins, including an exported empty string, which falls back to the defaults rather than reaching into `.env`. An unset, empty or absent value in every source leaves the defaults in place. Values may be quoted, and surrounding whitespace around each origin is trimmed.
 
-**Only `CORS_ALLOWED_ORIGINS` is read from `.env` by the API.** `mobile_playbook/api/settings.py` holds an explicit allowlist and refuses any other key, and it parses one key at a time rather than importing the file — so `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_URL` and `MOBSF_API_KEY` never enter the API process's environment even though they sit in the same file. The service-role key stays worker-only: the dashboard sync worker is a separate process that loads its own credentials (see [Durable dashboard sync](#durable-dashboard-sync)). Nothing read here is logged or returned by any endpoint.
+**Only allowlisted keys are read from `.env` by the API** — currently `CORS_ALLOWED_ORIGINS`, `ARTIFACT_STORE_DIR`, `IOS_PLAYBOOK_DIR` and `ANDROID_PLAYBOOK_DIR`, all non-secret. `mobile_playbook/api/settings.py` holds an explicit allowlist and refuses any other key, and it parses one key at a time rather than importing the file — so `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_URL` and `MOBSF_API_KEY` never enter the API process's environment even though they sit in the same file. The service-role key stays worker-only: the dashboard sync worker is a separate process that loads its own credentials (see [Durable dashboard sync](#durable-dashboard-sync)). Nothing read here is logged or returned by any endpoint.
 
 Resolution happens when `cors_allowed_origins()` is called rather than at module import of a launcher, so it behaves the same however the app is started — `python -m mobile_playbook.api`, the same command with `--reload` (whose worker subprocess re-imports the app), or `uvicorn mobile_playbook.api.app:app` directly.
 
@@ -895,3 +1026,21 @@ Resolution happens when `cors_allowed_origins()` is called rather than at module
    findings about a device and a binary. Consumers that require a location per
    result cannot annotate a diff from them. See
    [SARIF export](#sarif-export).
+10. **Implemented-control archives have no per-user authorisation.** They are
+    protected only by the API's network posture and the
+    `PLAYBOOK_SOURCE_DOWNLOAD_ENABLED` switch, which is all-or-nothing for the
+    host. A deployment that needs per-application access control on those
+    archives has to add it at a reverse proxy. See
+    [developer-playbook.md](developer-playbook.md#assets-and-archives).
+11. **The control catalogue is invalidated by file fingerprint, not by watching
+    the filesystem.** A change is picked up on the next request, but a change
+    that leaves path, modification time and size identical is not seen until a
+    `POST …/playbook/reload` or a restart.
+12. **Only iOS has a playbook today.** `ANDROID_PLAYBOOK_DIR` is read and the
+    catalogue is platform-agnostic, but no Android control documents exist yet,
+    so Android risks report no controls.
+13. **Control status inferred from a filename is a compatibility measure.** A
+    `(deprioritise)` marker in a filename is honoured because the existing
+    corpus uses it, but it is fragile. Prefer front matter or
+    `configs/split/<platform>/controls.yaml`; a control resolved from a filename
+    reports `status_source: "naming"` so the difference stays visible.

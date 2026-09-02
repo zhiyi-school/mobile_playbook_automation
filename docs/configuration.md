@@ -20,6 +20,7 @@ configs/
   split/ios/apps.yaml               the iOS app roster
   split/ios/<risk_settings>.yaml    one file per risk's global settings
   split/ios/risks.yaml              authored risk text and demonstrations
+  split/ios/controls.yaml           optional overrides for developer controls
   split/android/...                 the same shape for Android
 ```
 
@@ -100,6 +101,9 @@ processes in deliberately different ways.
 | `DASHBOARD_SYNC_AUTO_TRIGGER` | API and CLI | `false` disables the post-run worker launch |
 | `CORS_ALLOWED_ORIGINS` | API process | exact browser origins allowed to call the API |
 | `ARTIFACT_STORE_DIR` | API, sync worker, backfill | where derived artifact metadata and icons are kept |
+| `IOS_PLAYBOOK_DIR` | API | where the iOS developer remediation playbook lives |
+| `ANDROID_PLAYBOOK_DIR` | API | where the Android developer remediation playbook lives |
+| `PLAYBOOK_SOURCE_DOWNLOAD_ENABLED` | API | `false` refuses implemented-control archive downloads |
 
 ### Who may read what
 
@@ -107,9 +111,9 @@ processes in deliberately different ways.
   `mobile_playbook/env_file.py`'s `load_env_file()`, because it genuinely needs
   the service-role key. It is the only process that ever holds that key.
 - **The API** must not. `mobile_playbook/api/settings.py` reads one allowlisted
-  key at a time. `ALLOWED_ENV_KEYS` currently contains `CORS_ALLOWED_ORIGINS`
-  and `ARTIFACT_STORE_DIR`, both non-secret; any other key raises
-  `DisallowedSettingError`. The API package does not import `load_env_file` at
+  key at a time. `ALLOWED_ENV_KEYS` currently contains `CORS_ALLOWED_ORIGINS`,
+  `ARTIFACT_STORE_DIR`, `IOS_PLAYBOOK_DIR` and `ANDROID_PLAYBOOK_DIR`, all
+  non-secret; any other key raises `DisallowedSettingError`. The API package does not import `load_env_file` at
   all, so there is no code path from it to whole-file loading.
 
 The practical consequence: putting `SUPABASE_SERVICE_ROLE_KEY` in `.env` does
@@ -149,6 +153,48 @@ CORS_ALLOWED_ORIGINS="http://localhost:5173,https://dashboard.example.com"
 
 Defaults to true. Set `false` on an installation that does not use a dashboard;
 runs still write reports, and `GET /sync/status` reports `enabled: false`.
+
+### `IOS_PLAYBOOK_DIR` and `ANDROID_PLAYBOOK_DIR`
+
+```env
+IOS_PLAYBOOK_DIR=/opt/app/playbooks/ios
+ANDROID_PLAYBOOK_DIR=/opt/app/playbooks/android
+```
+
+Where each platform's developer remediation playbook lives. The directory is
+external to this repository and is only ever read — nothing is written there and
+nothing is copied in.
+
+Resolution order per platform, first match wins:
+
+1. The environment variable above
+2. The `playbook_dir` key in `configs/split/<platform>/risks.yaml`
+3. Nothing configured, in which case the control endpoints answer `503` and
+   `GET /platforms/{platform}/risks` reports `controls_available: false` with
+   the reason in `controls_error`
+
+The variable exists so a deployment can point at a mounted volume without
+editing a config file that is otherwise machine-local. Paths may be absolute or
+relative to the repository root, and `~` expands. Prefer an absolute path: a
+relative one resolves against the process working directory, which differs
+between the API, the CLI and the launchd worker.
+
+An unreadable directory is always reported rather than treated as an empty
+catalogue. See [developer-playbook.md](developer-playbook.md).
+
+### `PLAYBOOK_SOURCE_DOWNLOAD_ENABLED`
+
+```env
+PLAYBOOK_SOURCE_DOWNLOAD_ENABLED=true
+```
+
+Defaults to true. Set `false` on any host reachable beyond the trusted LAN:
+`GET /platforms/{platform}/controls/{control_id}/source/download` then answers
+`403` and the corresponding `…/source` metadata reports
+`download_enabled: false`, while the control's steps, screenshots and archive
+metadata stay available. This API has no authentication of its own, so this
+switch is the only host-level control over who can pull an implemented-control
+archive.
 
 ### `ARTIFACT_STORE_DIR`
 

@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from mobile_playbook.api.cors import cors_allowed_origins
-from mobile_playbook.api.routes import artifacts, catalog, config, reports, runs, sync
+from mobile_playbook.api.routes import artifacts, catalog, config, playbook, reports, runs, sync
 
 app = FastAPI(
     title="Mobile Playbook Automation API",
@@ -26,6 +26,7 @@ app.add_middleware(
 )
 
 app.include_router(catalog.router)
+app.include_router(playbook.router)
 app.include_router(config.router)
 app.include_router(runs.router)
 app.include_router(reports.router)

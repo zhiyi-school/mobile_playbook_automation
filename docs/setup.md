@@ -43,9 +43,14 @@ differently, and the difference is deliberate:
 | `SUPABASE_URL` | the dashboard sync worker only | |
 | `SUPABASE_SERVICE_ROLE_KEY` | the dashboard sync worker only | bypasses row-level security; never expose it to a browser |
 | `DASHBOARD_SYNC_AUTO_TRIGGER` | the API and CLI, to decide whether to launch a post-run worker | |
-| `CORS_ALLOWED_ORIGINS` | the API process | the **only** key the API reads from `.env` |
+| `CORS_ALLOWED_ORIGINS` | the API process | one of the four keys the API reads from `.env` |
+| `ARTIFACT_STORE_DIR` | the API, worker and backfill | where derived icons and artifact metadata live; empty means `<repo>/derived` |
+| `IOS_PLAYBOOK_DIR` | the API process | where the iOS developer remediation playbook lives; empty falls back to `playbook_dir` in `configs/split/ios/risks.yaml` |
+| `ANDROID_PLAYBOOK_DIR` | the API process | the same for Android |
+| `PLAYBOOK_SOURCE_DOWNLOAD_ENABLED` | the API process | `false` refuses implemented-control archive downloads |
 
-The API process never loads the whole file. See
+The API process never loads the whole file — it reads one allowlisted key at a
+time, so `SUPABASE_SERVICE_ROLE_KEY` never enters it. See
 [configuration.md](configuration.md#environment-variables-and-the-secret-boundary)
 for precedence rules and the allowlist that enforces this.
 

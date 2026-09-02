@@ -10,11 +10,15 @@ Four components, four responsibilities. Nothing crosses these lines.
 Backend automation   owns execution, IPA/APK files, extracted artifact
                      metadata, application icons, raw reports, evidence,
                      run status, SARIF
+Developer playbook   an external, read-only directory owning the remediation
+                     control text, screenshots and reference archives; the
+                     backend serves it, never copies or edits it
 Sync worker          translates completed reports into Supabase
 Supabase             owns users, roles, teams, applications, assessments,
                      findings, finding history, tickets, retests, messages,
-                     activity, and small references (checksums, icon refs)
-                     back to backend-owned files — never the files themselves
+                     activity, developer control progress, and small
+                     references (checksums, icon refs, control ids) back to
+                     backend-owned files — never the files themselves
 Frontend             reads backend automation state and Supabase dashboard
                      state; performs no authoritative synchronisation
 ```
@@ -33,6 +37,15 @@ The consequences that matter in practice:
   `intake/`, derived icons in the artifact store; Supabase holds a checksum and
   a logical `icons/<ARTIFACT_ID>.png` reference, and the frontend resolves that
   through the backend. See [api.md](api.md#application-icons).
+- **A risk, a control and a step are three different things.** A risk is the
+  problem an assessment found; its `demonstration` is how security reproduces
+  it. A control is the remediation approach, and its steps are what a developer
+  implements. The demonstration is never served as remediation instructions, and
+  developer progress is recorded against control steps only. See
+  [developer-playbook.md](developer-playbook.md).
+- **Playbook Markdown, screenshots and archives never enter the database.** The
+  backend normalizes them to JSON per request; Supabase holds only a
+  `control_id`, a `step_key`, a status and a `playbook_revision`.
 - **An icon belongs to a build, not to an app.** A run records the SHA-256 of
   the artifact it executed against, and the sync worker links the icon derived
   from that exact checksum. A build uploaded after the run cannot change what a
@@ -176,6 +189,33 @@ than `none`; because that leaves passing and inconclusive results with nowhere
 to express severity, the project's verdict and severity are always preserved in
 `result.properties`. All of this is documented in
 [api.md](api.md#sarif-export).
+
+### Developer playbook catalogue layer
+
+`mobile_playbook/playbook/` reads the external developer remediation playbook
+and turns it into structured JSON. It has four parts: `source.py` resolves the
+configured directory and does every safe path join, `markdown.py` tokenizes a
+document into typed blocks, `controls.py` turns those blocks into one risk or
+control record, and `catalogue.py` indexes them into a cached
+platform → risk → control tree with a warning list.
+
+The direction of the arrow matters here too. The playbook directory is the
+source of truth, the backend only reads it, and the in-memory catalogue is a
+cache keyed on a fingerprint of the source files. Nothing is imported into a
+database and there is no second control catalogue — Supabase stores only the
+developer's progress against a `control_id` and `step_key` this layer reports.
+
+The package deliberately does not import FastAPI or `api/config_editor.py`; it
+reads `risks.yaml` with plain `yaml.safe_load` for the same reason the SARIF
+exporter does. `api/services/playbook.py` is the only adapter between it and
+HTTP, so the catalogue can be exercised without an app instance.
+
+Identity comes from a document's level-2 heading rather than its filename, so a
+renamed or draft-suffixed file is still catalogued as the control it declares
+itself to be, with the disagreement reported as a warning. Deriving a control's
+owning risk from its own id, rather than from the links in the risk document,
+means a wrong link surfaces as a warning instead of silently attaching a control
+to the wrong risk. See [developer-playbook.md](developer-playbook.md).
 
 ### API configuration and the secret boundary
 

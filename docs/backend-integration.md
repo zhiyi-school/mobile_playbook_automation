@@ -141,6 +141,7 @@ Everything else is optional and adds a capability.
 | **Finding history** | `GET /apps/{app_id}/risks/{risk_id}/history` |
 | **Dashboard synchronisation** | `GET /runs/{run_id}/sync-status`, `GET /sync/status`, `POST /runs/{run_id}/sync` |
 | **SARIF export** | `GET /reports/{run_timestamp}/sarif` |
+| **Developer remediation controls** | `GET /platforms/{platform}/risks` (for the `controls` summaries), `GET /platforms/{platform}/risks/{risk_id}/controls`, `GET /platforms/{platform}/controls/{control_id}`, `GET /platforms/{platform}/controls/{control_id}/assets/{asset_path}`, `GET /platforms/{platform}/controls/{control_id}/source`, `GET /platforms/{platform}/playbook/status` |
 | **Worker operations** | `GET /sync/status`, plus the CLI worker itself |
 
 Full request and response shapes: [api.md](api.md#endpoints).
@@ -266,6 +267,53 @@ absolute host paths, with stable per-finding fingerprints. It is an **export**
 — nothing in the pipeline reads it back. Field mapping and limitations:
 [api.md](api.md#sarif-export).
 
+## Developer remediation controls
+
+Optional. Skip it entirely if your project only reports findings and does not
+run a developer remediation workflow.
+
+### Providing an equivalent playbook directory
+
+The control text is not in this repository. Point a platform's directory at your
+own and the endpoints work with no code change:
+
+```env
+IOS_PLAYBOOK_DIR=/opt/app/playbooks/ios
+```
+
+Your directory needs one Markdown file per risk and per control, named
+`<prefix>-feature-NN-risk-NN[-control-NN].md`, with the document's identity in a
+level-2 heading. Screenshots go in `attachments/`, optional reference archives
+in `implemented_controls/`. The full format, including how control status and
+step keys are derived, is in
+[developer-playbook.md](developer-playbook.md#expected-directory-layout).
+
+The directory is read-only from this backend's point of view: nothing is written
+there, nothing is copied out of it into this repository, and nothing is imported
+into a database.
+
+### What an integrating project has to supply
+
+The backend serves the control text and does not store progress. A project that
+wants a developer workflow owns:
+
+- **Progress storage** keyed by `control_id` and `step_key`, both strings this
+  API reports. Store `playbook_revision` alongside them so you can tell that the
+  guidance changed after the work was recorded.
+- **Authorisation.** This API has no notion of users, teams or applications, so
+  every access decision — which developer may see which control, who may record
+  progress — belongs to the integrating project.
+- **Rendering.** Control content arrives as typed JSON blocks (`paragraph`,
+  `heading`, `code`, `list`, `table`, `image`, `caption`). Render only the kinds
+  you know and drop the rest; never pass a block through as raw HTML.
+
+### Keeping the two kinds of instruction apart
+
+A risk's `demonstration` is how **security** reproduces the problem. A control's
+`steps` are what a **developer** changes to fix it. They come from different
+files and different endpoints, and an integrating project should not present
+one as the other.
+
 ## Dashboard synchronisation
 
 Optional. If you have your own datastore, read `dashboard_results.json` and
@@ -351,6 +399,11 @@ treat those as sensitive.
   would break clients silently.
 - **No retention or pruning** of reports and working files.
 - **One run per platform**, single host — no queue, no horizontal scaling.
+- **Implemented-control archives have no per-user authorisation.** The only
+  host-level control is `PLAYBOOK_SOURCE_DOWNLOAD_ENABLED`, which is
+  all-or-nothing; finer-grained access has to be added at a proxy.
+- **Only iOS has a playbook today.** The catalogue is platform-agnostic and
+  `ANDROID_PLAYBOOK_DIR` is read, but no Android control documents exist yet.
 
 
 ## Application icons

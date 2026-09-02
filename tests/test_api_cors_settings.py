@@ -155,7 +155,9 @@ def test_resolving_cors_never_imports_a_credential_into_the_process(tmp_path, mo
 
 
 def test_only_non_secret_keys_are_allowlisted():
-    assert settings.ALLOWED_ENV_KEYS == frozenset({"CORS_ALLOWED_ORIGINS", "ARTIFACT_STORE_DIR"})
+    assert settings.ALLOWED_ENV_KEYS == frozenset(
+        {"CORS_ALLOWED_ORIGINS", "ARTIFACT_STORE_DIR", "IOS_PLAYBOOK_DIR", "ANDROID_PLAYBOOK_DIR"}
+    )
     for key in SECRET_KEYS:
         assert key not in settings.ALLOWED_ENV_KEYS
 

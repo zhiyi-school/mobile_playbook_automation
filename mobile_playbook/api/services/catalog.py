@@ -7,6 +7,7 @@ from fastapi import HTTPException
 
 from mobile_playbook.api import config_editor, playbook_assets
 from mobile_playbook.api.models import Platform
+from mobile_playbook.api.services import playbook as playbook_service
 from mobile_playbook.platforms.android.risks import list_risks as list_android_risks
 from mobile_playbook.platforms.ios.risks import list_risks as list_ios_risks
 
@@ -16,11 +17,15 @@ TRAFFIC_INTERCEPTION_RISK_ID = {"ios": "ios-feature-02-risk-01"}
 
 def list_platform_risks(platform: Platform) -> list[dict]:
     risks = list_android_risks() if platform == "android" else list_ios_risks()
+    controls_by_risk, controls_error = playbook_service.risk_control_summaries(platform)
     for risk in risks:
         risk.update(config_editor.get_risk_metadata(platform, risk["risk_id"]))
         risk["demonstration"] = playbook_assets.decorate_demonstration(
             platform, config_editor.get_risk_demonstration(platform, risk["risk_id"])
         )
+        risk["controls"] = controls_by_risk.get(risk["risk_id"], [])
+        risk["controls_available"] = controls_error is None
+        risk["controls_error"] = controls_error
     return risks
 
 

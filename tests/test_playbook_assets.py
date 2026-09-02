@@ -4,7 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from mobile_playbook.api import config_editor, playbook_assets
+from mobile_playbook.api import playbook_assets, settings
+from mobile_playbook.playbook import source
 
 
 @pytest.fixture
@@ -17,7 +18,9 @@ def playbook(tmp_path, monkeypatch):
 
     demonstrations = tmp_path / "risks.yaml"
     demonstrations.write_text(f"playbook_dir: {root}\n")
-    monkeypatch.setitem(config_editor.RISK_FILES, "ios", demonstrations)
+    monkeypatch.delenv("IOS_PLAYBOOK_DIR", raising=False)
+    monkeypatch.setattr(settings, "ENV_FILE", tmp_path / "absent.env")
+    monkeypatch.setattr(source, "RISK_CONFIG_FILES", {"ios": demonstrations})
     return root
 
 
@@ -47,9 +50,27 @@ def test_missing_image_resolves_to_none(playbook):
 def test_no_playbook_dir_configured_resolves_to_none(tmp_path, monkeypatch):
     demonstrations = tmp_path / "risks.yaml"
     demonstrations.write_text("ios-feature-01-risk-01:\n  demonstration: []\n")
-    monkeypatch.setitem(config_editor.RISK_FILES, "ios", demonstrations)
+    monkeypatch.delenv("IOS_PLAYBOOK_DIR", raising=False)
+    monkeypatch.setattr(settings, "ENV_FILE", tmp_path / "absent.env")
+    monkeypatch.setattr(source, "RISK_CONFIG_FILES", {"ios": demonstrations})
     assert playbook_assets.playbook_dir("ios") is None
     assert playbook_assets.resolve_image("ios", "attachments/shot.png") is None
+
+
+def test_demonstration_images_follow_the_same_root_as_developer_controls(tmp_path, monkeypatch):
+    from_env = tmp_path / "from-env"
+    (from_env / "attachments").mkdir(parents=True)
+    (from_env / "attachments" / "shot.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+    stale = tmp_path / "risks.yaml"
+    stale.write_text(f"playbook_dir: {tmp_path / 'from-yaml'}\n")
+    monkeypatch.setenv("IOS_PLAYBOOK_DIR", str(from_env))
+    monkeypatch.setattr(settings, "ENV_FILE", tmp_path / "absent.env")
+    monkeypatch.setattr(source, "RISK_CONFIG_FILES", {"ios": stale})
+
+    assert playbook_assets.playbook_dir("ios") == from_env
+    assert playbook_assets.resolve_image("ios", "attachments/shot.png") == (
+        from_env / "attachments" / "shot.png"
+    ).resolve()
 
 
 def test_decorate_marks_a_present_image_and_builds_its_url(playbook):

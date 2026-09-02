@@ -5,19 +5,14 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from mobile_playbook.api import config_editor
+from mobile_playbook.playbook import source
 
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"}
 DERIVED_IMAGE_KEYS = ("url", "exists")
 
 
 def playbook_dir(platform: str) -> Path | None:
-    path = config_editor.RISK_FILES.get(platform)
-    if path is None or not path.exists():
-        return None
-    data = config_editor._plain(config_editor._rt_yaml.load(path.read_text()) or {})
-    configured = data.get("playbook_dir")
-    return Path(str(configured)).expanduser() if configured else None
+    return source.configured_root(platform)
 
 
 def resolve_image(platform: str, image_path: str) -> Path | None:

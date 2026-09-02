@@ -8,7 +8,9 @@ ENV_FILE = REPOSITORY_ROOT / ".env"
 
 #: Only these may be read from .env. Everything else in that file — the Supabase
 #: service-role key above all — stays out of the API process entirely.
-ALLOWED_ENV_KEYS = frozenset({"CORS_ALLOWED_ORIGINS", "ARTIFACT_STORE_DIR"})
+ALLOWED_ENV_KEYS = frozenset(
+    {"CORS_ALLOWED_ORIGINS", "ARTIFACT_STORE_DIR", "IOS_PLAYBOOK_DIR", "ANDROID_PLAYBOOK_DIR"}
+)
 
 
 class DisallowedSettingError(KeyError):

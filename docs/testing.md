@@ -42,6 +42,7 @@ python -m compileall -q mobile_playbook/
 | API routes, models, CORS, logging | `test_api_*.py` |
 | Dashboard sync and idempotency | `test_dashboard_sync*.py`, `test_sync_status.py`, `test_job_registry.py` |
 | SARIF export | `test_sarif_writer.py`, `test_api_sarif.py` |
+| Developer playbook catalogue | `test_playbook_catalogue.py`, `test_api_playbook.py` |
 
 ## Conventions worth following
 
@@ -67,6 +68,34 @@ and the §3.27.10 rule that only a `fail` result may carry a level other than
 encode it, so schema validation alone would not catch a regression. The project
 deliberately carries no schema-validation dependency; see
 [api.md](api.md#sarif-export).
+
+## Testing the developer playbook
+
+`test_playbook_catalogue.py` builds a whole playbook directory under `tmp_path`
+from the fixtures at the top of the module and points `IOS_PLAYBOOK_DIR` at it.
+Three things make that work and are worth preserving:
+
+- **The fixtures use placeholder names** — `example-feature-01-risk-01`,
+  `example-feature-01-risk-01-control-01`. No test refers to an application that
+  is actually being assessed.
+- **The fixture also monkeypatches `settings.ENV_FILE`, `source.RISK_CONFIG_FILES`
+  and `catalogue.CONTROL_OVERRIDE_FILES`.** Without all three, a test would fall
+  through to the repository's real `.env` and `configs/`, and would pass or fail
+  depending on whose checkout it ran on.
+- **`catalogue.clear_cache()` runs before and after each test.** The catalogue is
+  a module-level cache keyed by platform, so a leaked entry makes a later test
+  read the previous test's directory.
+
+`test_api_playbook.py` imports `write_playbook` from that module and exercises
+the route functions directly, the same way the other `test_api_*.py` modules do
+— the suite carries no HTTP client dependency.
+
+Two cases in `test_playbook_catalogue.py` exist because mutation testing found
+the tests were not actually checking what they claimed: a control whose filename
+genuinely differs from its heading — which uncovered a real bug, since the
+catalogue was dispatching on the filename and dropping such a control entirely —
+and the `__MACOSX` case, whose original form could never reach the ignore filter
+it was meant to exercise.
 
 ## Adding a risk
 
