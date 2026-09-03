@@ -22,7 +22,7 @@ Backend automation   owns execution, IPA/APK files, extracted artifact
                      run status, SARIF
 Sync worker          translates completed reports into Supabase
 Supabase             owns users, roles, teams, applications, assessments,
-                     findings, finding history, tickets, retests, messages,
+                     findings, finding history, tickets, retests, risk conversations,
                      activity, and small references (checksums, icon refs)
                      back to backend-owned files — never the files themselves
 Frontend             reads backend automation state and Supabase dashboard
@@ -153,8 +153,13 @@ poll window ending, or the tab closing — changes nothing about the run or its
 dashboard state. Only a terminal `failed` manifest marks an assessment or retest
 failed. A run correlated with a retest through
 `retest_runs.external_test_run_id` is completed by the worker, which also moves
-that ticket to `under_review`; a failed manifest fails the retest with the run's
-error and imports none of its partial rows.
+that ticket to `under_review` and posts a `retest_completed` entry into the
+conversation the retest itself names — the dashboard's conversations belong to
+an application risk, so a retest raised under an earlier assessment still
+reports into the one thread; a failed manifest fails the retest with the run's
+error, posts `retest_failed`, and imports none of its partial rows. Both entries
+carry a `sync_key`, so a repeated or retried pass never posts a second one, and
+a retest already in a terminal state is left alone.
 
 ```bash
 SUPABASE_URL=https://dashboard.example.supabase.co \
@@ -915,6 +920,47 @@ An app that isn't registered, or whose config no longer validates, returns `200`
 **A build that hasn't been provided yet is not a config error.** An app can be registered before its IPA/APK exists — `configuration_applied` sits at `in_progress` with "Waiting for the app build to be provided", and flips to `done` on the next poll once the build appears, with no config change. That holds for a fixed `artifact.ipa` path as much as for `intake_ipa`. A path that is simply wrong therefore isn't caught by `validate`; a run surfaces it as `ARTIFACT_NOT_FOUND`.
 
 It is designed to be polled: config read + filesystem check + at most one `adb` call, never an Appium session. iOS apps using `intake_ipa` resolve their build through the same `resolve_intake_ipa` the run itself uses, so readiness cannot disagree with what a run would find.
+
+### Configuration ready is not the same as runnable
+
+The stages above answer "is this app configured?". Whether it can run *now* is a
+separate question — the device may be unplugged — so the same response also
+carries structured execution readiness. A caller should branch on these rather
+than parse `detail`:
+
+| Field | Means |
+| --- | --- |
+| `configuration_ready` | The app's entry is complete and at least one risk is enabled. |
+| `device_required` | Any enabled risk needs a real device. |
+| `device_ready` | A device is attached and reachable. |
+| `platform_available` | No run currently holds this platform's device. |
+| `runnable` | All of the above; a run can be started right now. |
+| `blocker_code` | Machine-readable reason it is not runnable, or `null`. |
+| `retryable` | Whether waiting could clear the blocker on its own. |
+| `detail` | One user-facing sentence. Never a traceback or a path. |
+
+```bash
+curl http://127.0.0.1:8080/config/android/apps/example_app/provisioning
+# {"status": "ready", ...,
+#  "configuration_ready": true, "device_required": true, "device_ready": false,
+#  "platform_available": true, "runnable": false,
+#  "blocker_code": "no_device", "retryable": true,
+#  "detail": "Waiting for a compatible test device to become available."}
+```
+
+Blocker codes: `configuration_incomplete` and `no_tests_enabled` are not
+retryable (someone has to change something); `app_build_missing`,
+`app_not_installed`, `no_device`, `device_unreachable` and `platform_busy` are.
+
+Note the example above: `status` is `ready` while `runnable` is `false`. That
+combination is the point of the split — the configuration is finished, the
+device simply is not there yet. A caller that treats `status == "ready"` as
+"start the run" will start runs that cannot work.
+
+An iOS device probe that cannot be performed at all (`xcrun xctrace`
+unavailable) reports `device_ready: true` rather than blocking, matching
+preflight: the run itself stays the authority and fails fast with a real device
+error.
 
 ## Endpoints
 

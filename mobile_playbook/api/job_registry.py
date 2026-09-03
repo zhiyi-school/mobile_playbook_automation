@@ -97,6 +97,10 @@ class JobRegistry:
         with self._lock:
             self._busy_platforms.discard(platform)
 
+    def is_platform_busy(self, platform: str) -> bool:
+        with self._lock:
+            return platform in self._busy_platforms
+
     def create(
         self,
         run_id: str,

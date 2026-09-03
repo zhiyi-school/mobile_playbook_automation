@@ -4,7 +4,12 @@ import json
 from pathlib import Path
 from typing import Any, Mapping
 
-from mobile_playbook.dashboard_sync import SyncSummary, sync_dashboard_results, sync_reports
+from mobile_playbook.dashboard_sync import (
+    SyncSummary,
+    sync_dashboard_results,
+    sync_report_dir,
+    sync_reports,
+)
 from mobile_playbook.reporting.run_manifest import write_manifest
 
 
@@ -16,6 +21,7 @@ class FakeStore:
         self.finding_history: list[dict[str, Any]] = []
         self.activity_log: list[dict[str, Any]] = []
         self.retest_runs: list[dict[str, Any]] = []
+        self.risk_conversation_entries: list[dict[str, Any]] = []
         self.tickets: list[dict[str, Any]] = []
         self.upserted_assessments = 0
         self._ids: dict[str, int] = {}
@@ -101,6 +107,9 @@ class FakeStore:
 
     def create_finding_history(self, fields: Mapping[str, Any]) -> None:
         self._append_once(self.finding_history, "history", fields)
+
+    def create_risk_conversation_entry(self, fields: Mapping[str, Any]) -> None:
+        self._append_once(self.risk_conversation_entries, "entry", fields)
 
     def log_activity(self, fields: Mapping[str, Any]) -> None:
         self._append_once(self.activity_log, "activity", fields)
@@ -287,3 +296,127 @@ def test_missing_reports_directory_is_an_empty_queue(tmp_path: Path):
     summary = sync_reports(tmp_path / "does_not_exist", FakeStore(), risk_counts={"ios": 3})
 
     assert summary == SyncSummary()
+
+
+def _retest_fixture(store: FakeStore, conversation_id: str | None = "conversation_1") -> None:
+    store.applications.append(
+        {"id": "app_1", "external_id": "example_app", "name": "Example Banking App", "platform": "ios"}
+    )
+    store.tickets.append({"id": "ticket_1", "status": "retest_in_progress"})
+    store.retest_runs.append(
+        {
+            "id": "retest_1",
+            "conversation_id": conversation_id,
+            "ticket_id": "ticket_1",
+            "finding_id": "finding_1",
+            "external_test_run_id": "2026-01-01_00-00-00",
+            "status": "running",
+        }
+    )
+
+
+def test_retest_completion_posts_one_conversation_event(tmp_path: Path):
+    store = FakeStore()
+    _retest_fixture(store)
+    _report(tmp_path, "2026-01-01_00-00-00", [_row()])
+
+    sync_reports(tmp_path, store, risk_counts={"ios": 3})
+
+    assert store.retest_runs[0]["status"] == "completed"
+    assert store.tickets[0]["status"] == "under_review"
+    assert len(store.risk_conversation_entries) == 1
+    entry = store.risk_conversation_entries[0]
+    assert entry["conversation_id"] == "conversation_1"
+    assert entry["kind"] == "retest_completed"
+    assert entry["source_ticket_id"] == "ticket_1"
+    assert entry["metadata"] == {"run_timestamp": "2026-01-01_00-00-00"}
+    assert entry["sync_key"] == "retest_1::2026-01-01_00-00-00::retest"
+    assert "author_id" not in entry
+
+
+def test_the_event_follows_the_conversation_the_retest_names(tmp_path: Path):
+    store = FakeStore()
+    _retest_fixture(store)
+    # A merge repoints the retest without touching the ticket that raised it.
+    store.retest_runs[0]["conversation_id"] = "conversation_merged"
+    store.tickets[0]["risk_conversation_id"] = "conversation_1"
+    _report(tmp_path, "2026-01-01_00-00-00", [_row()])
+
+    sync_reports(tmp_path, store, risk_counts={"ios": 3})
+
+    assert [entry["conversation_id"] for entry in store.risk_conversation_entries] == [
+        "conversation_merged"
+    ]
+
+
+def test_retest_failure_posts_a_failure_event_and_leaves_the_ticket(tmp_path: Path):
+    store = FakeStore()
+    _retest_fixture(store)
+    _report(tmp_path, "2026-01-01_00-00-00", [_row()], status="failed")
+
+    summary = sync_reports(tmp_path, store, risk_counts={"ios": 3})
+
+    assert summary.skipped_reports == 1
+    assert store.retest_runs[0]["status"] == "failed"
+    assert store.tickets[0]["status"] == "retest_in_progress"
+    assert [entry["kind"] for entry in store.risk_conversation_entries] == ["retest_failed"]
+
+
+def test_a_resynced_report_does_not_post_the_event_twice(tmp_path: Path):
+    store = FakeStore()
+    _retest_fixture(store)
+    _report(tmp_path, "2026-01-01_00-00-00", [_row()])
+
+    sync_reports(tmp_path, store, risk_counts={"ios": 3})
+    sync_reports(tmp_path, store, risk_counts={"ios": 3}, force=True)
+
+    assert len(store.risk_conversation_entries) == 1
+
+
+def test_a_retest_with_no_conversation_still_completes(tmp_path: Path):
+    store = FakeStore()
+    _retest_fixture(store, conversation_id=None)
+    _report(tmp_path, "2026-01-01_00-00-00", [_row()])
+
+    sync_reports(tmp_path, store, risk_counts={"ios": 3})
+
+    assert store.retest_runs[0]["status"] == "completed"
+    assert store.tickets[0]["status"] == "under_review"
+    assert store.risk_conversation_entries == []
+
+
+def test_a_run_with_no_retest_behind_it_posts_nothing(tmp_path: Path):
+    store = FakeStore()
+    _report(tmp_path, "2026-01-01_00-00-00", [_row()])
+
+    sync_reports(tmp_path, store, risk_counts={"ios": 3})
+
+    assert store.risk_conversation_entries == []
+    assert len(store.findings) == 1
+
+
+def test_a_retry_that_finds_the_retest_unresolved_still_posts_one_event(tmp_path: Path):
+    """The early return covers a resynced report; the sync_key covers a pass that
+    died between updating the retest and appending its event."""
+    store = FakeStore()
+    _retest_fixture(store)
+    run_dir = _report(tmp_path, "2026-01-01_00-00-00", [_row()])
+
+    sync_report_dir(run_dir, store)
+    store.retest_runs[0]["status"] = "running"
+    sync_report_dir(run_dir, store)
+
+    assert len(store.risk_conversation_entries) == 1
+
+
+def test_resyncing_a_resolved_retest_does_not_reopen_what_security_closed(tmp_path: Path):
+    store = FakeStore()
+    _retest_fixture(store)
+    _report(tmp_path, "2026-01-01_00-00-00", [_row()])
+
+    sync_reports(tmp_path, store, risk_counts={"ios": 3})
+    store.tickets[0]["status"] = "closed"
+    sync_reports(tmp_path, store, risk_counts={"ios": 3}, force=True)
+
+    assert store.tickets[0]["status"] == "closed"
+    assert len(store.risk_conversation_entries) == 1

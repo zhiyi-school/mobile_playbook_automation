@@ -15,7 +15,7 @@ land on disk and the API serves them whether or not any dashboard exists.
 Backend automation   owns execution, raw reports, evidence, run status, SARIF
 Sync worker          translates completed reports into Supabase
 Supabase             owns users, roles, teams, applications, assessments,
-                     findings, finding history, tickets, retests, messages,
+                     findings, finding history, tickets, retests, risk conversations,
                      activity
 Frontend             reads backend automation state and Supabase dashboard
                      state; performs no authoritative synchronisation
@@ -56,6 +56,89 @@ Useful flags:
 
 Exit codes: `0` success, `1` at least one report failed to sync, `2` missing
 credentials (one error line, no traceback).
+
+## Running the assessment execution worker
+
+The sync worker imports finished reports. A second, separate worker turns queued
+assessments into runs, so execution never depends on a browser tab staying open.
+
+```bash
+SUPABASE_URL=https://dashboard.example.supabase.co \
+SUPABASE_SERVICE_ROLE_KEY=<SERVICE_ROLE_KEY> \
+AUTOMATION_API_URL=http://127.0.0.1:8080 \
+python -m mobile_playbook.assessment_worker
+```
+
+It requires migration `0023_assessment_run_requests.sql`. Without it every pass
+logs a Supabase error and nothing runs.
+
+| Variable / flag | Default | Effect |
+| --- | --- | --- |
+| `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | — | required; the queue lives in the dashboard database |
+| `AUTOMATION_API_URL` / `--api-url` | `http://127.0.0.1:8000` | where readiness is asked and runs are started |
+| `REPORTS_DIR` / `--reports-dir` | `reports` | passed to the run as `out_dir` |
+| `ASSESSMENT_WORKER_ID` / `--worker-id` | host name plus a random suffix | identifies the lease holder |
+| `ASSESSMENT_WORKER_POLL_SECONDS` / `--poll-seconds` | `15` | how often an empty queue is checked |
+| `ASSESSMENT_WORKER_LEASE_SECONDS` / `--lease-seconds` | `900` | how long a claim is held before another worker may recover it |
+| `--once` | off | process at most one request and exit, for cron or a smoke test |
+
+Retry policy is fixed in code: `30s` doubling to a `900s` ceiling, giving up
+after 20 attempts. A non-retryable blocker is not retried at all.
+
+### Is the worker healthy?
+
+It logs one line per action. A healthy idle worker is quiet; a working one logs
+`started run <RUN_TIMESTAMP> for assessment <ID>` or
+`assessment <ID> waiting on <BLOCKER>, next attempt in <N>s`.
+
+The queue itself is the better check, because it does not depend on log
+retention:
+
+```sql
+select status, count(*), min(next_attempt_at)
+from assessment_run_requests
+group by status;
+```
+
+Rows stuck in `claimed` or `running` with `lease_expires_at` in the past mean no
+worker is alive — any worker recovers them on its next pass, so a growing count
+there is the signal that none is running.
+
+### How a waiting assessment resumes
+
+Nothing has to be done. A blocked attempt is recorded as `waiting` with a
+`blocker_code` and a `next_attempt_at`, and the worker picks it up again when
+that time passes. Connect the device and the next attempt starts the run against
+the original assessment — no new assessment record is created.
+
+### Retrying by hand
+
+Use **Retry now** on the assessment page. It brings `next_attempt_at` forward and
+clears the blocker on the request that already exists; it never opens a second
+one, so clicking twice cannot start two runs. Equivalently, as the service role:
+
+```sql
+select request_assessment_run('<ASSESSMENT_ID>');
+```
+
+### Diagnosing "waiting for a device"
+
+```bash
+curl http://127.0.0.1:8080/config/<PLATFORM>/apps/<APP_ID>/provisioning
+```
+
+Read `blocker_code`. `no_device` means nothing is attached; `device_unreachable`
+means the device tooling could not be reached at all; `platform_busy` means
+another run holds the device — check `GET /runs`. `configuration_incomplete` and
+`no_tests_enabled` will not clear on their own and need a config change.
+
+### Shutting it down safely
+
+Send `SIGINT`/`SIGTERM`. The worker only ever holds a lease while deciding
+whether to start a run — it does not wait for the run itself — so stopping it
+cannot interrupt a test in progress. Any lease it was holding expires after
+`--lease-seconds` and the next worker recovers that request, so a hard kill is
+safe too and costs at most one lease interval.
 
 ## How a pass is triggered
 
@@ -109,8 +192,9 @@ retry to find. Replaying an older run never regresses a finding a newer run
 already moved.
 
 **Failed runs.** A run whose manifest is not `completed` is never imported. Its
-correlated retest, if any, is failed with the run's error and none of its
-partial rows are read.
+correlated retest, if any, is failed with the run's error, a `retest_failed`
+entry is posted into that retest's risk conversation, and none of its partial
+rows are read.
 
 ## Sync status per run
 

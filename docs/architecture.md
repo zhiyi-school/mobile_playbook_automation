@@ -15,7 +15,7 @@ Developer playbook   an external, read-only directory owning the remediation
                      backend serves it, never copies or edits it
 Sync worker          translates completed reports into Supabase
 Supabase             owns users, roles, teams, applications, assessments,
-                     findings, finding history, tickets, retests, messages,
+                     findings, finding history, tickets, retests, risk conversations,
                      activity, developer control progress, and small
                      references (checksums, icon refs, control ids) back to
                      backend-owned files — never the files themselves

@@ -18,7 +18,7 @@ def _stage(report: dict, stage_id: str) -> dict:
 def _assert_discloses_nothing(report: dict) -> None:
     text = " ".join(
         [str(stage["label"]) + " " + str(stage["detail"] or "") for stage in report["stages"]]
-        + [str(report.get("error") or "")]
+        + [str(report.get("error") or ""), str(report.get("detail") or "")]
     )
     for fragment in LEAKY_FRAGMENTS:
         assert fragment not in text, f"stage text leaked {fragment!r}: {text}"
@@ -183,3 +183,127 @@ def test_android_without_a_connected_device_is_unknown_not_pending(config_root, 
     assert report["status"] == "ready"
     assert _stage(report, "configuration_applied")["state"] == "unknown"
     _assert_discloses_nothing(report)
+
+
+READINESS_FIELDS = (
+    "configuration_ready",
+    "device_required",
+    "device_ready",
+    "platform_available",
+    "runnable",
+    "blocker_code",
+    "retryable",
+    "detail",
+)
+
+
+def test_every_report_carries_structured_readiness(config_root):
+    for report in (
+        provisioning.describe("ios", "never_added"),
+        provisioning.describe("ios", _register_by_name("Example Wallet")),
+        provisioning.describe("ios", _append_broken_app(config_root)),
+    ):
+        for field in READINESS_FIELDS:
+            assert field in report, f"{field} missing from {sorted(report)}"
+        assert isinstance(report["runnable"], bool)
+        _assert_discloses_nothing(report)
+
+
+def test_configuration_ready_does_not_mean_runnable_without_a_device(config_root, no_device):
+    report = provisioning.describe("android", "one")
+
+    assert report["status"] == "ready"
+    assert report["configuration_ready"] is True
+    assert report["device_ready"] is False
+    assert report["runnable"] is False
+    assert report["blocker_code"] == "no_device"
+    assert report["retryable"] is True
+    _assert_discloses_nothing(report)
+
+
+def test_a_connected_device_with_the_app_installed_is_runnable(config_root, device_with):
+    device_with(["com.example.one"])
+
+    report = provisioning.describe("android", "one")
+
+    assert report["configuration_ready"] is True
+    assert report["device_ready"] is True
+    assert report["platform_available"] is True
+    assert report["runnable"] is True
+    assert report["blocker_code"] is None
+
+
+def test_an_unreachable_device_is_reported_apart_from_a_missing_one(config_root, monkeypatch):
+    monkeypatch.setattr(provisioning.AdbClient, "is_available", lambda self: False)
+
+    report = provisioning.describe("android", "one")
+
+    assert report["device_ready"] is False
+    assert report["blocker_code"] == "device_unreachable"
+    assert report["retryable"] is True
+    _assert_discloses_nothing(report)
+
+
+def test_an_app_still_being_registered_is_retryable(config_root):
+    """The add-app flow registers the app moments after the assessment exists."""
+    report = provisioning.describe("ios", "never_added")
+
+    assert report["configuration_ready"] is False
+    assert report["runnable"] is False
+    assert report["blocker_code"] == "configuration_pending"
+    assert report["retryable"] is True
+    _assert_discloses_nothing(report)
+
+
+def test_a_broken_configuration_is_not_retryable(config_root):
+    report = provisioning.describe("ios", _append_broken_app(config_root))
+
+    assert report["configuration_ready"] is False
+    assert report["runnable"] is False
+    assert report["retryable"] is False
+    assert report["blocker_code"] == "configuration_incomplete"
+
+
+def test_an_app_with_no_enabled_tests_is_not_retryable(config_root):
+    app_id = ce.add_ios_app({"name": "Example No Tests", "artifact": {"source": "intake_ipa"}, "risks": {}})["id"]
+    make_ipa(
+        config_root / "intake/ios/ipas/Example_No_Tests.ipa",
+        bundle_id="com.example.notests",
+        display_name="Example No Tests",
+    )
+
+    report = provisioning.describe("ios", app_id)
+
+    assert report["blocker_code"] == "no_tests_enabled"
+    assert report["retryable"] is False
+
+
+def test_a_missing_build_is_retryable_rather_than_broken(config_root):
+    report = provisioning.describe("ios", _register_by_name("Example Wallet"))
+
+    assert report["configuration_ready"] is False
+    assert report["runnable"] is False
+    assert report["retryable"] is True
+    assert report["blocker_code"] == "app_build_missing"
+
+
+def test_a_platform_already_running_is_not_available(config_root, device_with):
+    device_with(["com.example.one"])
+    assert provisioning.registry.try_claim_platform("android")
+    try:
+        report = provisioning.describe("android", "one")
+    finally:
+        provisioning.registry.release_platform("android")
+
+    assert report["platform_available"] is False
+    assert report["runnable"] is False
+    assert report["blocker_code"] == "platform_busy"
+    assert report["retryable"] is True
+
+
+def test_readiness_never_names_a_device_or_a_path(config_root, no_device):
+    report = provisioning.describe("android", "one")
+
+    text = str(report["detail"]) + str(report["blocker_code"])
+    for fragment in ("/", "udid", "serial", "adb", "emulator-"):
+        assert fragment not in text.lower()

@@ -73,6 +73,9 @@ class DashboardSyncStore(Protocol):
     def create_finding_history(self, fields: Mapping[str, Any]) -> None:
         ...
 
+    def create_risk_conversation_entry(self, fields: Mapping[str, Any]) -> None:
+        ...
+
     def log_activity(self, fields: Mapping[str, Any]) -> None:
         ...
 
@@ -235,8 +238,36 @@ class SupabaseRestStore:
     def create_finding_history(self, fields: Mapping[str, Any]) -> None:
         self._append_once("finding_history", fields)
 
+    def create_risk_conversation_entry(self, fields: Mapping[str, Any]) -> None:
+        self._append_once("risk_conversation_entries", fields)
+
     def log_activity(self, fields: Mapping[str, Any]) -> None:
         self._append_once("activity_log", fields)
+
+    def get_assessment(self, assessment_id: str) -> dict[str, Any] | None:
+        return self._single("assessments", {"id": f"eq.{assessment_id}", "select": "*"})
+
+    def get_application(self, application_id: str) -> dict[str, Any] | None:
+        return self._single("applications", {"id": f"eq.{application_id}", "select": "*"})
+
+    def claim_assessment_run_request(self, worker_id: str, lease_seconds: int) -> dict[str, Any] | None:
+        rows = self._post(
+            "rpc/claim_assessment_run_request",
+            {},
+            {"p_worker_id": worker_id, "p_lease_seconds": lease_seconds},
+        )
+        row = rows[0] if rows else None
+        return row if row and row.get("id") else None
+
+    def recover_expired_assessment_run_leases(self) -> int:
+        rows = self._post("rpc/recover_expired_assessment_run_leases", {}, {})
+        if not rows:
+            return 0
+        recovered = rows[0]
+        return recovered if isinstance(recovered, int) else 0
+
+    def update_assessment_run_request(self, request_id: str, fields: Mapping[str, Any]) -> dict[str, Any]:
+        return self._update_one("assessment_run_requests", {"id": f"eq.{request_id}"}, fields)
 
     def _append_once(self, table: str, fields: Mapping[str, Any]) -> None:
         try:
@@ -608,9 +639,21 @@ def _sync_retest(run_timestamp: str, store: DashboardSyncStore, status: str, res
     retest = store.find_retest_by_external_run_id(run_timestamp)
     if retest is None:
         return False
+    # An already-resolved retest is a repeated sync pass, not a second result.
     if retest.get("status") in {"completed", "failed"}:
         return False
     store.update_retest(retest["id"], {"status": status, "result": result, "completed_at": _now()})
+    if retest.get("conversation_id"):
+        store.create_risk_conversation_entry(
+            {
+                "conversation_id": retest["conversation_id"],
+                "kind": "retest_completed" if status == "completed" else "retest_failed",
+                "message": result,
+                "metadata": {"run_timestamp": run_timestamp},
+                "source_ticket_id": retest.get("ticket_id"),
+                "sync_key": _sync_key(str(retest["id"]), run_timestamp, "retest"),
+            }
+        )
     if status == "completed" and retest.get("ticket_id"):
         store.update_ticket_status(retest["ticket_id"], "under_review")
     logger.info("dashboard sync: retest %s marked %s from run %s.", retest["id"], status, run_timestamp)
