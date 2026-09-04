@@ -20,9 +20,10 @@ def list_platform_risks(platform: Platform) -> list[dict]:
     controls_by_risk, controls_error = playbook_service.risk_control_summaries(platform)
     for risk in risks:
         risk.update(config_editor.get_risk_metadata(platform, risk["risk_id"]))
-        risk["demonstration"] = playbook_assets.decorate_demonstration(
-            platform, config_editor.get_risk_demonstration(platform, risk["risk_id"])
-        )
+        demonstration = playbook_service.risk_demonstration(platform, risk["risk_id"])
+        if demonstration is None:
+            demonstration = config_editor.get_risk_demonstration(platform, risk["risk_id"])
+        risk["demonstration"] = playbook_assets.decorate_demonstration(platform, demonstration)
         risk["controls"] = controls_by_risk.get(risk["risk_id"], [])
         risk["controls_available"] = controls_error is None
         risk["controls_error"] = controls_error

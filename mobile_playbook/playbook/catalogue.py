@@ -24,6 +24,13 @@ CONTROL_DOCUMENT = re.compile(
     r"^(?P<prefix>[a-z0-9]+)-feature-(?P<feature>\d+)-risk-(?P<risk>\d+)-control-(?P<control>\d+)$", re.I
 )
 
+_PARSE_MESSAGES = {
+    "duplicate_step_id": "two steps declare the same {detail}; the second was given a suffixed key.",
+    "duplicate_step_number": "two steps are numbered the same ({detail}).",
+    "missing_description": "has no Description section, so the title falls back to its identifier.",
+    "empty_step_section": "names a Demonstration or Remediation section that contains {detail}.",
+}
+
 _lock = threading.Lock()
 _cache: dict[str, tuple[tuple, dict[str, Any]]] = {}
 
@@ -152,6 +159,17 @@ def _finalize_control(
         if block.get("type") == "image":
             _decorate_image(block, platform, key, root, record["source_file"], warnings)
 
+    for note in record.pop("parse_warnings", None) or []:
+        warnings.append(
+            {
+                "code": note["code"],
+                "control_id": key,
+                "file": record["source_file"],
+                "path": note.get("path"),
+                "message": f"{record['source_file']}: {_PARSE_MESSAGES[note['code']].format(detail=note.get('message'))}",
+            }
+        )
+
     for step in record.get("steps") or []:
         step["content_hash"] = _step_content_hash(step)
         if not str(step.get("text") or "").strip():
@@ -208,6 +226,18 @@ def _finalize_control(
     record["source_archives"] = resolved_archives
     record["source_download_url"] = next((a["url"] for a in resolved_archives if a["exists"]), None)
     record["step_count"] = len(record.get("steps") or [])
+    if record["step_count"] == 0 and record["status"] == control_parser.ACTIVE:
+        warnings.append(
+            {
+                "code": "control_without_steps",
+                "control_id": key,
+                "file": record["source_file"],
+                "message": (
+                    f"{record['source_file']} is an active control with no remediation steps; "
+                    "the developer sees an empty walk-through."
+                ),
+            }
+        )
     return record
 
 
@@ -397,6 +427,7 @@ def _short_digest(path: Path | None) -> str | None:
 def _step_content_hash(step: dict[str, Any]) -> str:
     """Covers the instruction and everything rendered under it, so a rewritten step is detectable."""
     digest = hashlib.sha256()
+    digest.update(json.dumps(step.get("step_title") or "", sort_keys=True).encode())
     digest.update(json.dumps(step.get("text") or "", sort_keys=True).encode())
     digest.update(json.dumps(step.get("content") or [], sort_keys=True, default=str).encode())
     return f"sha256:{digest.hexdigest()[:32]}"

@@ -18,6 +18,7 @@ HTML_TAG = re.compile(r"<[^>]+>")
 ATTRIBUTE = re.compile(r"""([A-Za-z_:][-\w:.]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))""")
 EMPHASIS_ONLY = re.compile(r"\A\*{1,3}([^*].*?)\*{1,3}\Z|\A_{1,3}([^_].*?)_{1,3}\Z", re.S)
 STEP_ID_COMMENT = re.compile(r"^<!--\s*playbook-step-id\s*:\s*([A-Za-z0-9][\w.-]*)\s*-->$")
+NUMBERED_HEADING = re.compile(r"^(\d{1,3})\s*[.)]\s*(.*)$")
 
 
 class Link(NamedTuple):
@@ -148,6 +149,13 @@ def parse_blocks(text: str) -> list[dict[str, Any]]:
             flush()
             listing, index = _consume_list(lines, index)
             blocks.append(listing)
+            continue
+
+        declared = STEP_ID_COMMENT.match(stripped)
+        if declared is not None:
+            flush()
+            blocks.append({"type": "step_id", "value": declared.group(1)})
+            index += 1
             continue
 
         buffer.append(line)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import os
 from pathlib import Path
 from typing import Any
@@ -37,6 +38,16 @@ def risk_control_summaries(platform: Platform) -> tuple[dict[str, list[dict]], s
     for risk_id, risk in index["risks"].items():
         grouped[risk_id] = [summarize(index["controls"][cid]) for cid in risk["controls"] if cid in index["controls"]]
     return grouped, None
+
+
+def risk_demonstration(platform: Platform, risk_id: str) -> list[dict[str, Any]] | None:
+    """The risk's manual-testing steps from Markdown, or None when the document declares none."""
+    try:
+        index = catalogue.get(platform)
+    except source.PlaybookUnavailableError:
+        return None
+    risk = index["risks"].get(catalogue.canonical_id(control_parser.document_id(risk_id), platform))
+    return copy.deepcopy(risk["demonstration"]) if risk and risk.get("demonstration") else None
 
 
 def summarize(control: dict[str, Any]) -> dict[str, Any]:

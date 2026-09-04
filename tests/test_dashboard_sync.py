@@ -385,6 +385,20 @@ def test_a_retest_with_no_conversation_still_completes(tmp_path: Path):
     assert store.risk_conversation_entries == []
 
 
+def test_a_withdrawn_retest_is_left_resolved(tmp_path: Path):
+    store = FakeStore()
+    _retest_fixture(store)
+    store.retest_runs[0]["status"] = "cancelled"
+    store.tickets[0]["status"] = "fix_submitted"
+    _report(tmp_path, "2026-01-01_00-00-00", [_row()])
+
+    sync_reports(tmp_path, store, risk_counts={"ios": 3})
+
+    assert store.retest_runs[0]["status"] == "cancelled"
+    assert store.tickets[0]["status"] == "fix_submitted"
+    assert store.risk_conversation_entries == []
+
+
 def test_a_run_with_no_retest_behind_it_posts_nothing(tmp_path: Path):
     store = FakeStore()
     _report(tmp_path, "2026-01-01_00-00-00", [_row()])

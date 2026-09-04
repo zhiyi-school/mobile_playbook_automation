@@ -737,3 +737,448 @@ class TestIdentityHelpers:
     def test_derives_the_owning_risk_from_a_control_id(self):
         assert catalogue.risk_id_of_control("ios-feature-01-risk-01-control-02") == "ios-feature-01-risk-01"
         assert catalogue.risk_id_of_control("ios-feature-01-risk-01") is None
+
+
+HEADING_CONTROL = """## example-feature-01-risk-01-control-01
+
+### Description
+
+Detect an example repackaging attempt
+
+### Demonstration
+
+<!-- playbook-step-id: example-declared-step -->
+#### 01. Configure an example signing key
+
+Generate the key outside the repository.
+
+``` shell
+export EXAMPLE_KEY_PATH="/placeholder/key.pem"
+```
+
+_The command configures the build environment._
+
+##### Recommended solution
+
+Store the key on the build runner only.
+
+#### 02. Generate and sign the example manifest
+
+Sign the manifest during the release build.
+
+1. An ordinary numbered point inside the step.
+2. Another ordinary numbered point.
+
+- An example sub-point.
+
+<img src="attachments/example_control_ss1.png" width="400" alt="Alt text">
+
+*Example screenshot for the second step*
+
+| Setting | Value |
+| ------- | ----- |
+| Example | Enabled |
+
+### References
+
+- https://example.test/control-reference
+"""
+
+
+def build_risk(root: Path, monkeypatch, risk: str) -> dict:
+    written = write_playbook(root / "playbooks", risk=risk)
+    monkeypatch.setenv("IOS_PLAYBOOK_DIR", str(written))
+    monkeypatch.setattr(settings, "ENV_FILE", root / "absent.env")
+    monkeypatch.setattr(source, "RISK_CONFIG_FILES", {})
+    monkeypatch.setattr(catalogue, "CONTROL_OVERRIDE_FILES", {})
+    catalogue.clear_cache()
+    return catalogue.get("ios")["risks"]["ios-feature-01-risk-01"]
+
+
+def build_catalogue(root: Path, monkeypatch, **documents) -> dict:
+    written = write_playbook(root / "playbooks", **documents)
+    monkeypatch.setenv("IOS_PLAYBOOK_DIR", str(written))
+    monkeypatch.setattr(settings, "ENV_FILE", root / "absent.env")
+    monkeypatch.setattr(source, "RISK_CONFIG_FILES", {})
+    monkeypatch.setattr(catalogue, "CONTROL_OVERRIDE_FILES", {})
+    catalogue.clear_cache()
+    return catalogue.get("ios")
+
+
+def warning_codes(index: dict, code: str) -> list[dict]:
+    return [warning for warning in index["warnings"] if warning["code"] == code]
+
+
+class TestHeadingSteps:
+    def test_a_numbered_heading_starts_a_step(self, tmp_path, monkeypatch):
+        control = build_control(tmp_path, monkeypatch, HEADING_CONTROL)
+
+        assert control["step_count"] == 2
+        assert [step["number"] for step in control["steps"]] == [1, 2]
+        assert [step["step_title"] for step in control["steps"]] == [
+            "Configure an example signing key",
+            "Generate and sign the example manifest",
+        ]
+
+    def test_remediation_names_the_same_section_as_demonstration(self, tmp_path, monkeypatch):
+        control = build_control(
+            tmp_path, monkeypatch, HEADING_CONTROL.replace("### Demonstration", "### Remediation")
+        )
+        assert control["step_count"] == 2
+
+    def test_the_section_heading_is_matched_regardless_of_case(self, tmp_path, monkeypatch):
+        control = build_control(
+            tmp_path, monkeypatch, HEADING_CONTROL.replace("### Demonstration", "### DEMONSTRATION")
+        )
+        assert control["step_count"] == 2
+
+    def test_the_leading_paragraph_becomes_the_step_text_once(self, tmp_path, monkeypatch):
+        first = build_control(tmp_path, monkeypatch, HEADING_CONTROL)["steps"][0]
+
+        assert first["text"] == "Generate the key outside the repository."
+        assert all(block.get("text") != first["text"] for block in first["content"])
+
+    def test_a_code_block_stays_inside_the_step_that_introduced_it(self, tmp_path, monkeypatch):
+        first = build_control(tmp_path, monkeypatch, HEADING_CONTROL)["steps"][0]
+        code = [block for block in first["content"] if block["type"] == "code"]
+
+        assert [block["language"] for block in code] == ["shell"]
+        assert "EXAMPLE_KEY_PATH" in code[0]["text"]
+
+    def test_a_nested_heading_belongs_to_the_step_it_follows(self, tmp_path, monkeypatch):
+        first = build_control(tmp_path, monkeypatch, HEADING_CONTROL)["steps"][0]
+        headings = [block for block in first["content"] if block["type"] == "heading"]
+
+        assert [block["text"] for block in headings] == ["Recommended solution"]
+
+    def test_an_ordered_list_inside_a_step_stays_content(self, tmp_path, monkeypatch):
+        control = build_control(tmp_path, monkeypatch, HEADING_CONTROL)
+        second = control["steps"][1]
+        lists = [block for block in second["content"] if block["type"] == "list"]
+
+        assert control["step_count"] == 2
+        assert [block["ordered"] for block in lists] == [True, False]
+        assert len(lists[0]["items"]) == 2
+
+    def test_images_tables_and_captions_stay_with_their_step(self, tmp_path, monkeypatch):
+        second = build_control(tmp_path, monkeypatch, HEADING_CONTROL)["steps"][1]
+        images = [block for block in second["content"] if block["type"] == "image"]
+        tables = [block for block in second["content"] if block["type"] == "table"]
+
+        assert images[0]["caption"] == "Example screenshot for the second step"
+        assert images[0]["exists"] is True
+        assert tables[0]["rows"] == [{"Setting": "Example", "Value": "Enabled"}]
+
+    def test_a_number_inside_a_code_block_does_not_start_a_step(self, tmp_path, monkeypatch):
+        control = build_control(
+            tmp_path,
+            monkeypatch,
+            HEADING_CONTROL.replace('export EXAMPLE_KEY_PATH="/placeholder/key.pem"', "#### 09. Not a step"),
+        )
+        assert control["step_count"] == 2
+
+    def test_a_number_inside_a_paragraph_does_not_start_a_step(self, tmp_path, monkeypatch):
+        control = build_control(
+            tmp_path,
+            monkeypatch,
+            HEADING_CONTROL.replace(
+                "Generate the key outside the repository.", "01. This sentence is prose, not a heading."
+            ),
+        )
+        assert control["step_count"] == 2
+
+    def test_a_closing_parenthesis_numbers_a_step_too(self, tmp_path, monkeypatch):
+        control = build_control(
+            tmp_path, monkeypatch, HEADING_CONTROL.replace("#### 02.", "#### 02)")
+        )
+        assert [step["number"] for step in control["steps"]] == [1, 2]
+
+    def test_the_references_section_ends_the_steps(self, tmp_path, monkeypatch):
+        control = build_control(tmp_path, monkeypatch, HEADING_CONTROL)
+
+        assert control["step_count"] == 2
+        assert [reference["url"] for reference in control["references"]] == [
+            "https://example.test/control-reference"
+        ]
+        assert all("control-reference" not in str(block) for step in control["steps"] for block in step["content"])
+
+    def test_structural_headings_never_reach_the_intro(self, tmp_path, monkeypatch):
+        control = build_control(tmp_path, monkeypatch, HEADING_CONTROL)
+        rendered = [block.get("text") for block in control["intro"]]
+
+        for structural in ("Description", "Demonstration", "Remediation", "References", "Goal"):
+            assert structural not in rendered
+
+    def test_an_unknown_section_heading_stays_visible(self, tmp_path, monkeypatch):
+        control = build_control(
+            tmp_path,
+            monkeypatch,
+            HEADING_CONTROL.replace(
+                "### Demonstration", "### Additional context\n\nSome extra background.\n\n### Demonstration", 1
+            ),
+        )
+        assert "Additional context" in [block.get("text") for block in control["intro"]]
+        assert "Some extra background." in [block.get("text") for block in control["intro"]]
+
+
+class TestDescriptionTitle:
+    def test_the_description_supplies_the_title_and_summary(self, tmp_path, monkeypatch):
+        control = build_control(tmp_path, monkeypatch, HEADING_CONTROL)
+
+        assert control["title"] == "Detect an example repackaging attempt"
+        assert control["summary"] == "Detect an example repackaging attempt"
+
+    def test_front_matter_wins_over_the_description(self, tmp_path, monkeypatch):
+        control = build_control(
+            tmp_path, monkeypatch, f"---\ntitle: An explicit placeholder title\n---\n\n{HEADING_CONTROL}"
+        )
+        assert control["title"] == "An explicit placeholder title"
+        assert control["summary"] == "Detect an example repackaging attempt"
+
+    def test_a_control_without_a_description_falls_back_to_its_number(self, tmp_path, monkeypatch):
+        control = build_control(tmp_path, monkeypatch, HEADING_CONTROL.replace("### Description", "### Ignored"))
+        assert control["title"] == "Control 1"
+
+
+class TestHeadingStepIds:
+    def test_a_declared_id_attaches_to_the_heading_below_it(self, tmp_path, monkeypatch):
+        steps = build_control(tmp_path, monkeypatch, HEADING_CONTROL)["steps"]
+
+        assert steps[0]["step_key"] == "example-declared-step"
+        assert steps[0]["step_id_source"] == "declared"
+        assert steps[1]["step_id_source"] == "auto"
+
+    def test_the_declaration_is_never_rendered(self, tmp_path, monkeypatch):
+        control = build_control(tmp_path, monkeypatch, HEADING_CONTROL)
+        blocks = list(control["intro"]) + [block for step in control["steps"] for block in step["content"]]
+
+        assert "playbook-step-id" not in str(blocks)
+        assert "example-declared-step" not in str(blocks)
+        assert all(block["type"] != "step_id" for block in blocks)
+
+    def test_a_generated_key_survives_renumbering(self, tmp_path, monkeypatch):
+        before = build_control(tmp_path, monkeypatch, HEADING_CONTROL)["steps"][1]["step_key"]
+        after = build_control(
+            tmp_path / "again", monkeypatch, HEADING_CONTROL.replace("#### 02.", "#### 07.")
+        )["steps"][1]["step_key"]
+
+        assert before == after
+
+    def test_a_generated_key_survives_reordering(self, tmp_path, monkeypatch):
+        ordered = (
+            "## example-feature-01-risk-01-control-01\n\n### Description\n\nA placeholder.\n\n"
+            "### Demonstration\n\n#### 01. Alpha placeholder step\n\nFirst.\n\n"
+            "#### 02. Beta placeholder step\n\nSecond.\n"
+        )
+        swapped = (
+            "## example-feature-01-risk-01-control-01\n\n### Description\n\nA placeholder.\n\n"
+            "### Demonstration\n\n#### 01. Beta placeholder step\n\nSecond.\n\n"
+            "#### 02. Alpha placeholder step\n\nFirst.\n"
+        )
+        before = {step["step_title"]: step["step_key"] for step in build_control(tmp_path, monkeypatch, ordered)["steps"]}
+        after = {
+            step["step_title"]: step["step_key"]
+            for step in build_control(tmp_path / "again", monkeypatch, swapped)["steps"]
+        }
+
+        assert before == after
+
+    def test_a_generated_key_survives_a_body_edit(self, tmp_path, monkeypatch):
+        before = build_control(tmp_path, monkeypatch, HEADING_CONTROL)["steps"][1]["step_key"]
+        after = build_control(
+            tmp_path / "again",
+            monkeypatch,
+            HEADING_CONTROL.replace("Sign the manifest during the release build.", "Rewritten instruction."),
+        )["steps"][1]["step_key"]
+
+        assert before == after
+
+    def test_a_retitled_step_becomes_a_new_step(self, tmp_path, monkeypatch):
+        before = build_control(tmp_path, monkeypatch, HEADING_CONTROL)["steps"][1]["step_key"]
+        after = build_control(
+            tmp_path / "again",
+            monkeypatch,
+            HEADING_CONTROL.replace("Generate and sign the example manifest", "Publish the example manifest"),
+        )["steps"][1]["step_key"]
+
+        assert before != after
+
+    def test_the_content_hash_follows_the_title(self, tmp_path, monkeypatch):
+        before = build_control(tmp_path, monkeypatch, HEADING_CONTROL)["steps"][0]["content_hash"]
+        after = build_control(
+            tmp_path / "again",
+            monkeypatch,
+            HEADING_CONTROL.replace("Configure an example signing key", "Configure an example signing secret"),
+        )["steps"][0]["content_hash"]
+
+        assert before != after
+
+    def test_the_content_hash_follows_the_body(self, tmp_path, monkeypatch):
+        before = build_control(tmp_path, monkeypatch, HEADING_CONTROL)["steps"][0]["content_hash"]
+        after = build_control(
+            tmp_path / "again",
+            monkeypatch,
+            HEADING_CONTROL.replace("Store the key on the build runner only.", "Rotate the key every release."),
+        )["steps"][0]["content_hash"]
+
+        assert before != after
+
+
+class TestHeadingRiskDemonstration:
+    HEADING_RISK = """## example-feature-01-risk-01
+
+### Description
+
+An example risk description for the placeholder application.
+
+### Goal
+
+As a result, this could lead to _**Discovery**_ - an example security goal.
+
+### Demonstration
+
+| Configuration | Detail |
+| ------------- | ------ |
+| Prerequisite  | example-feature-01 |
+
+#### 01. Prepare the example environment
+
+Install the placeholder tooling.
+
+``` shell
+example --prepare
+```
+
+#### 02. Perform the example test
+
+Capture the result.
+
+<img src="attachments/example_risk_ss1.png" width="400" alt="Alt text">
+
+*Example demonstration screenshot*
+
+Feature-01-Risk-01 control measures:
+
+- [example-feature-01-risk-01-control-01](example-feature-01-risk-01-control-01.md)
+
+References:
+
+- https://example.test/reference
+"""
+
+    def test_numbered_headings_become_manual_testing_steps(self, tmp_path, monkeypatch):
+        risk = build_risk(tmp_path, monkeypatch, self.HEADING_RISK)
+        steps = [block for block in risk["demonstration"] if block["type"] == "steps"]
+
+        assert [item["title"] for item in steps[0]["items"]] == [
+            "Prepare the example environment",
+            "Perform the example test",
+        ]
+        assert steps[0]["items"][0]["commands"] == ["example --prepare"]
+        assert steps[0]["items"][1]["images"][0]["path"] == "attachments/example_risk_ss1.png"
+
+    def test_a_leading_table_is_kept_with_its_label(self, tmp_path, monkeypatch):
+        risk = build_risk(tmp_path, monkeypatch, self.HEADING_RISK)
+        tables = [block for block in risk["demonstration"] if block["type"] == "table"]
+
+        assert tables[0]["rows"] == [{"Configuration": "Prerequisite", "Detail": "example-feature-01"}]
+
+    def test_an_ordered_list_demonstration_still_parses(self, tmp_path, monkeypatch):
+        risk = build_risk(tmp_path, monkeypatch, RISK)
+        steps = [block for block in risk["demonstration"] if block["type"] == "steps"]
+
+        assert len(steps[0]["items"]) == 1
+        assert "security performs" in steps[0]["items"][0]["text"]
+
+    def test_a_risk_without_a_demonstration_section_offers_nothing(self, tmp_path, monkeypatch):
+        risk = build_risk(tmp_path, monkeypatch, RISK.replace("### Demonstration", "### Ignored"))
+        assert risk["demonstration"] == []
+
+
+class TestParserWarnings:
+    def test_an_active_control_with_no_steps_is_reported(self, tmp_path, monkeypatch):
+        index = build_catalogue(
+            tmp_path,
+            monkeypatch,
+            control="## example-feature-01-risk-01-control-01\n\n### Description\n\nA placeholder.\n",
+        )
+        assert warning_codes(index, "control_without_steps")
+
+    def test_a_demonstration_section_without_steps_is_reported(self, tmp_path, monkeypatch):
+        index = build_catalogue(
+            tmp_path,
+            monkeypatch,
+            control=(
+                "## example-feature-01-risk-01-control-01\n\n### Description\n\nA placeholder.\n\n"
+                "### Demonstration\n\nProse with no numbered steps.\n"
+            ),
+        )
+        assert warning_codes(index, "empty_step_section")
+
+    def test_a_duplicate_declared_id_is_reported(self, tmp_path, monkeypatch):
+        index = build_catalogue(
+            tmp_path,
+            monkeypatch,
+            control=HEADING_CONTROL.replace(
+                "#### 02. Generate and sign the example manifest",
+                "<!-- playbook-step-id: example-declared-step -->\n#### 02. Generate and sign the example manifest",
+            ),
+        )
+        assert warning_codes(index, "duplicate_step_id")
+        assert len({step["step_key"] for step in index["controls"]["ios-feature-01-risk-01-control-01"]["steps"]}) == 2
+
+    def test_a_duplicate_step_number_is_reported(self, tmp_path, monkeypatch):
+        index = build_catalogue(tmp_path, monkeypatch, control=HEADING_CONTROL.replace("#### 02.", "#### 01."))
+        assert warning_codes(index, "duplicate_step_number")
+
+    def test_a_missing_description_is_reported_for_a_sectioned_document(self, tmp_path, monkeypatch):
+        index = build_catalogue(
+            tmp_path, monkeypatch, control=HEADING_CONTROL.replace("### Description", "### Ignored")
+        )
+        assert warning_codes(index, "missing_description")
+
+    def test_a_legacy_document_is_not_reported_as_missing_a_description(self, tmp_path, monkeypatch):
+        index = build_catalogue(tmp_path, monkeypatch)
+        assert warning_codes(index, "missing_description") == []
+
+    def test_a_cross_risk_control_link_is_reported(self, tmp_path, monkeypatch):
+        written = write_playbook(tmp_path / "playbooks")
+        (written / "example-feature-02-risk-01.md").write_text(
+            "## example-feature-02-risk-01\n\n### Description\n\nAnother placeholder risk.\n\n"
+            "- [example-feature-02-risk-01-control-01](example-feature-01-risk-01-control-01.md)\n"
+        )
+        monkeypatch.setenv("IOS_PLAYBOOK_DIR", str(written))
+        monkeypatch.setattr(settings, "ENV_FILE", tmp_path / "absent.env")
+        monkeypatch.setattr(source, "RISK_CONFIG_FILES", {})
+        monkeypatch.setattr(catalogue, "CONTROL_OVERRIDE_FILES", {})
+        catalogue.clear_cache()
+        index = catalogue.get("ios")
+
+        assert warning_codes(index, "cross_risk_control_link")
+        assert warning_codes(index, "malformed_control_link")
+
+
+class TestAutomaticRefresh:
+    def test_a_markdown_edit_appears_without_an_explicit_reload(self, playbook):
+        assert catalogue.get("ios")["controls"]["ios-feature-01-risk-01-control-01"]["step_count"] == 3
+
+        (playbook / "example-feature-01-risk-01-control-01.md").write_text(HEADING_CONTROL)
+
+        assert catalogue.get("ios")["controls"]["ios-feature-01-risk-01-control-01"]["step_count"] == 2
+
+    def test_a_replaced_image_changes_the_catalogue_revision(self, playbook):
+        before = catalogue.get("ios")["revision"]
+
+        (playbook / "attachments/example_control_ss1.png").write_bytes(b"\x89PNG\r\n\x1a\nchanged")
+
+        assert catalogue.get("ios")["revision"] != before
+
+    def test_a_replaced_archive_changes_the_catalogue_revision(self, playbook):
+        before = catalogue.get("ios")["revision"]
+
+        with zipfile.ZipFile(
+            playbook / "implemented_controls/example-feature-01-risk-01-control-01.zip", "w"
+        ) as bundle:
+            bundle.writestr("README.txt", "replaced example source")
+
+        assert catalogue.get("ios")["revision"] != before

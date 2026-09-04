@@ -640,7 +640,8 @@ def _sync_retest(run_timestamp: str, store: DashboardSyncStore, status: str, res
     if retest is None:
         return False
     # An already-resolved retest is a repeated sync pass, not a second result.
-    if retest.get("status") in {"completed", "failed"}:
+    # A withdrawn one is resolved too, and the database refuses to reopen it.
+    if retest.get("status") in {"completed", "failed", "cancelled"}:
         return False
     store.update_retest(retest["id"], {"status": status, "result": result, "completed_at": _now()})
     if retest.get("conversation_id"):

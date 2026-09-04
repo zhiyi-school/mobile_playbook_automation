@@ -63,6 +63,21 @@ a directory that arrived as a zip works without cleaning up first.
 
 ### Document format
 
+Both risk and control documents are read **section by section**. A level-3
+heading names the section; matching is case-insensitive.
+
+| Section | Risk document | Control document |
+| --- | --- | --- |
+| `### Description` | The risk's description | The control's title and summary |
+| `### Goal` | The tactic the risk leads to | Kept as introductory content |
+| `### Demonstration` | Manual-testing steps | Remediation steps |
+| `### Remediation` | — | Remediation steps (alias of `Demonstration`) |
+| `### References` | Reference links | Reference links and the archive link |
+
+`Description`, `Goal`, `Demonstration`, `Remediation` and `References` are
+structural: their headings are never rendered as ordinary content. Any other
+level-3 heading — `### Additional context`, say — stays visible.
+
 A risk document:
 
 ```markdown
@@ -78,7 +93,21 @@ As a result, this could lead to _**Tactic**_ — <consequence>.
 
 ### Demonstration
 
-1. A step security performs to demonstrate the risk.
+| Configuration | Detail |
+| ------------- | ------ |
+| Prerequisite  | example-feature-01 |
+
+#### 01. Prepare the example environment
+
+Install the placeholder tooling.
+
+``` shell
+example --prepare
+```
+
+#### 02. Perform the example test
+
+Capture the result.
 
 Feature-01-Risk-01 control measures:
 
@@ -90,17 +119,35 @@ A control document:
 ```markdown
 ## example-feature-01-risk-01-control-01
 
-Your app can reduce this risk by taking the following steps:
+### Description
 
-<!-- playbook-step-id: example-first-change -->
-1. The first thing the developer changes.
+Detect an example repackaging attempt
+
+### Demonstration
+
+<!-- playbook-step-id: example-signing-key -->
+#### 01. Configure an example signing key
+
+Generate the key outside the repository.
+
+``` shell
+export EXAMPLE_KEY_PATH="/placeholder/key.pem"
+```
+
+_What the command configures._
+
+##### Recommended solution
+
+A nested heading stays inside the step above it.
+
+#### 02. Verify the example control
+
+1. An ordinary numbered point inside the step.
+2. Another ordinary numbered point.
 
 <img src="attachments/example_control_ss1.png" width="400" alt="Alt text">
 
 *What the screenshot shows*
-
-<!-- playbook-step-id: example-second-change -->
-2. The second thing the developer changes.
 
 ### References
 
@@ -109,6 +156,39 @@ Your app can reduce this risk by taking the following steps:
 The source code with the implemented control can be found [here](implemented_controls/example-feature-01-risk-01-control-01.zip).
 ```
 
+#### Heading-based steps
+
+Inside `Demonstration` or `Remediation`, a **numbered level-4 heading** starts a
+step. `#### 01. Title`, `#### 1. Title`, `#### 02) Title` and `#### 3) Title`
+are all accepted. The number becomes the step's `number` and the remainder
+becomes its `step_title`.
+
+Everything after the heading belongs to that step until the next numbered
+heading or the next structural section:
+
+- The first paragraph becomes the step's `text`; the rest becomes `content`.
+- A deeper heading (`#####`) is content, not a new step.
+- An ordered list inside a step is content, not extra steps.
+- A number inside a paragraph or a code block never starts a step.
+
+#### Ordered-list fallback
+
+Documents written before heading-based steps keep working. The precedence is:
+
+1. Numbered headings inside `Demonstration` or `Remediation`.
+2. Otherwise, top-level ordered-list items inside that section.
+3. If the document names no section at all, top-level ordered-list items before
+   the references, exactly as before.
+
+#### Title and summary
+
+A control's title comes from, in order: the front-matter `title`, the first
+paragraph of `### Description`, then a generated `Control N`. The Description
+is also the summary, so a control that gives only a short Description will have
+the same text for both — the dashboard shows it once.
+
+Front matter still carries `title`, `status`, `required` and `risk_id`.
+
 Both HTML `<img>` tags and Markdown `![]()` images are read. An italic-only
 paragraph directly under an image becomes that image's caption.
 
@@ -116,11 +196,11 @@ paragraph directly under an image becomes that image's caption.
 
 A developer's progress is recorded against a step's **identifier**, never
 against its position or its wording. Declare one on the line directly above a
-numbered step:
+numbered step or a numbered step heading:
 
 ```markdown
 <!-- playbook-step-id: rotate-example-key -->
-1. Rotate the example API key.
+#### 01. Rotate the example API key
 ```
 
 The comment is a directive, not content: it is never rendered, and it is the
@@ -139,12 +219,14 @@ step. Only the author deciding to issue a new id makes it a new step.
 
 ### Documents without declared ids
 
-A step with no directive falls back to an id derived from its own instruction
-text (`auto-<hash>`). That fallback is deliberately conservative:
+A step with no directive falls back to an id derived from its own wording
+(`auto-<hash>`) — the **step title** for a heading-based step, the instruction
+text for an ordered-list step. That fallback is deliberately conservative:
 
 - Renumbering or reordering steps keeps their ids, so progress survives.
 - Inserting or deleting a step does not shift anyone else's id.
-- **Rewording a step changes its id**, so it is treated as a new step that
+- Editing a step's body, commands or screenshots keeps its id.
+- **Retitling a step changes its id**, so it is treated as a new step that
   nobody has completed yet, rather than silently carrying a tick across to a
   different instruction.
 
@@ -152,8 +234,8 @@ That last point is the reason to declare ids: without one, a typo fix costs
 every developer their progress on that step. Declared ids are the supported
 format; the fallback exists so an existing document keeps working untouched.
 
-Every step is also served with a `content_hash` covering its text and
-everything rendered under it. The dashboard uses it to flag a step that changed
+Every step is also served with a `content_hash` covering its title, its text
+and everything rendered under it. The dashboard uses it to flag a step that changed
 while a developer had the ticket open; it is never used to store or re-render
 an older version.
 
@@ -223,7 +305,19 @@ authoritative; the cache is only a performance optimisation.
 
 `GET /platforms/{platform}/playbook/status` reports everything the catalogue
 found wrong. Nothing here stops a control being served — the point is that a
-problem is visible rather than silently swallowed.
+problem is visible rather than silently swallowed. One malformed document does
+not take the catalogue down; only a document that cannot be read at all is
+skipped, with a warning.
+
+To read the same information from a terminal:
+
+```
+python -m mobile_playbook validate-playbook --platform ios
+```
+
+That prints the risk-to-control mapping, each control's step count and whether
+it has an archive, each risk's demonstration step count, the catalogue
+revision, and every warning. It never prints archive contents or secrets.
 
 | Code | Meaning |
 | --- | --- |
@@ -234,6 +328,11 @@ problem is visible rather than silently swallowed.
 | `missing_source_archive` | A control references an implemented-control archive that is not there |
 | `mismatched_source_archive` | A control offers an archive built for a different control |
 | `empty_step` | A numbered step has no instruction text |
+| `control_without_steps` | An active control parsed to zero steps, so the developer sees an empty walk-through |
+| `empty_step_section` | A `Demonstration` or `Remediation` section contains no numbered steps |
+| `duplicate_step_id` | Two steps declare the same id; the second was given a suffixed key |
+| `duplicate_step_number` | Two steps carry the same number |
+| `missing_description` | A sectioned document has no `Description`, so its title falls back to `Control N` |
 | `heading_filename_mismatch` | The heading and the filename disagree; the heading won |
 | `missing_heading` | A document has no level-2 heading; the filename was used |
 | `risk_without_controls` | A risk document has no developer controls |
@@ -263,6 +362,19 @@ metadata and the rest of the control stay available.
 An implemented-control archive is a worked example for a developer to read. It
 is not evidence that the developer fixed anything, and the dashboard presents it
 that way.
+
+## Source of truth
+
+| Lives in | Owns |
+| --- | --- |
+| The Markdown playbook | Descriptions, goals, demonstrations, remediation instructions, references, media |
+| The configuration files | Automation execution settings and environment-specific configuration |
+| Supabase | Assessment data, workflow state, conversations and step progress |
+
+A risk's manual-testing demonstration comes from its Markdown `Demonstration`
+section. The configured `demonstration:` block in `risks.yaml` is only a
+fallback, used when the Markdown document supplies none — narrative content is
+not duplicated into configuration or the database.
 
 ## What the backend does not do
 

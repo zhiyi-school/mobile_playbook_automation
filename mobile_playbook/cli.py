@@ -25,6 +25,7 @@ from mobile_playbook.platforms.ios.mutations.mutability import inspect_main_exec
 from mobile_playbook.platforms.ios.ipa.plist_utils import inspect_ipa_metadata
 from mobile_playbook.platforms.ios.ipa.unpacker import unpack_ipa
 from mobile_playbook.env_file import load_env_file
+from mobile_playbook.playbook import catalogue as playbook_catalogue
 from mobile_playbook.dashboard_sync_trigger import trigger_dashboard_sync
 from mobile_playbook.logging_setup import configure_logging
 from mobile_playbook.reporting.messages import clean_message
@@ -45,6 +46,12 @@ def build_parser() -> argparse.ArgumentParser:
     validate = sub.add_parser("validate")
     validate.add_argument("--config", required=True)
     validate.add_argument("--platform", choices=("ios", "android"), required=True)
+
+    validate_playbook = sub.add_parser(
+        "validate-playbook",
+        help="Report what the configured Markdown playbook parses to, and every catalogue warning.",
+    )
+    validate_playbook.add_argument("--platform", choices=("ios", "android"), required=True)
 
     list_risks_parser = sub.add_parser("list-risks")
     list_risks_parser.add_argument("--platform", choices=("ios", "android"), required=True)
@@ -79,6 +86,45 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _validate_playbook(platform: str) -> int:
+    """Names what the playbook parsed to; never prints archive contents or secrets."""
+    from mobile_playbook.api.services import playbook as playbook_service
+
+    report = playbook_service.status(platform)
+    print(f"platform:   {platform}")
+    print(f"configured: {report['configured_path'] or '(not configured)'}")
+    if not report["readable"]:
+        print(f"error:      {report['error']}")
+        return 1
+
+    index = playbook_catalogue.get(platform)
+    print(f"revision:   {report['revision']}")
+    print(f"risks:      {report['risk_count']}")
+    print(f"controls:   {report['control_count']}")
+
+    print("\nrisk -> controls")
+    for risk_id in sorted(index["risks"]):
+        risk = index["risks"][risk_id]
+        demonstration = sum(len(block.get("items") or []) for block in risk.get("demonstration") or [])
+        print(f"  {risk_id}  controls={len(risk['controls'])}  demonstration_steps={demonstration}")
+        for control_id in risk["controls"]:
+            control = index["controls"][control_id]
+            archive = "archive" if control.get("source_download_url") else "no-archive"
+            print(f"    {control_id}  steps={control['step_count']}  {archive}  {control['title']}")
+
+    orphans = [c for c in sorted(index["controls"]) if index["controls"][c]["risk_id"] not in index["risks"]]
+    for control_id in orphans:
+        print(f"  (no risk document)  {control_id}  steps={index['controls'][control_id]['step_count']}")
+
+    warnings = report["warnings"]
+    print(f"\nwarnings:   {len(warnings)}")
+    for warning in warnings:
+        where = warning.get("path") or warning.get("control_id") or warning.get("risk_id") or ""
+        print(f"  [{warning['code']}] {warning.get('file') or ''} {where}".rstrip())
+        print(f"      {warning['message']}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     load_env_file(Path(".env"))
@@ -97,6 +143,8 @@ def main(argv: list[str] | None = None) -> int:
                 load_config(Path(args.config), dry_run=False)
             print("Config is valid")
             return 0
+        if args.command == "validate-playbook":
+            return _validate_playbook(args.platform)
         if args.command == "list-risks":
             risks = list_android_risks() if args.platform == "android" else list_risks()
             for risk in risks:

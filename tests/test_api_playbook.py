@@ -293,3 +293,137 @@ class TestSecretBoundary:
         assert "SUPABASE_SERVICE_ROLE_KEY" not in settings.ALLOWED_ENV_KEYS
         with pytest.raises(settings.DisallowedSettingError):
             settings.env_setting("SUPABASE_SERVICE_ROLE_KEY")
+
+
+class TestHeadingFormatResponse:
+    """The heading-based format must reach the dashboard in the shape it already reads."""
+
+    def _heading_playbook(self, tmp_path, monkeypatch):
+        from tests.test_playbook_catalogue import HEADING_CONTROL
+
+        root = write_playbook(tmp_path / "playbooks", control=HEADING_CONTROL)
+        monkeypatch.setenv("IOS_PLAYBOOK_DIR", str(root))
+        monkeypatch.delenv("PLAYBOOK_SOURCE_DOWNLOAD_ENABLED", raising=False)
+        monkeypatch.setattr(settings, "ENV_FILE", tmp_path / "absent.env")
+        monkeypatch.setattr(source, "RISK_CONFIG_FILES", {})
+        monkeypatch.setattr(catalogue, "CONTROL_OVERRIDE_FILES", {})
+        catalogue.clear_cache()
+        return root
+
+    def test_the_control_response_keeps_every_documented_field(self, tmp_path, monkeypatch):
+        self._heading_playbook(tmp_path, monkeypatch)
+        control = playbook_route.control_detail("ios", CONTROL_ID)
+
+        for field in (
+            "control_id",
+            "risk_id",
+            "platform",
+            "title",
+            "summary",
+            "status",
+            "required",
+            "playbook_revision",
+            "source_file",
+            "step_count",
+            "intro",
+            "steps",
+            "references",
+            "source_archives",
+        ):
+            assert field in control, field
+        assert control["step_count"] == 2
+
+    def test_each_step_keeps_every_documented_field(self, tmp_path, monkeypatch):
+        self._heading_playbook(tmp_path, monkeypatch)
+        step = playbook_route.control_detail("ios", CONTROL_ID)["steps"][0]
+
+        assert set(step) == {
+            "step_key",
+            "step_id_source",
+            "step_index",
+            "number",
+            "step_title",
+            "text",
+            "content",
+            "content_hash",
+        }
+        assert step["step_id_source"] == "declared"
+        assert step["content_hash"].startswith("sha256:")
+
+    def test_the_summary_endpoint_still_reports_the_step_count(self, tmp_path, monkeypatch):
+        self._heading_playbook(tmp_path, monkeypatch)
+        summary = playbook_route.risk_controls("ios", RISK_ID)[0]
+
+        assert summary["step_count"] == 2
+        assert summary["title"] == "Detect an example repackaging attempt"
+
+    def test_an_active_control_without_steps_is_reported_by_status(self, tmp_path, monkeypatch):
+        root = write_playbook(
+            tmp_path / "playbooks",
+            control="## example-feature-01-risk-01-control-01\n\n### Description\n\nA placeholder.\n",
+        )
+        monkeypatch.setenv("IOS_PLAYBOOK_DIR", str(root))
+        monkeypatch.setattr(settings, "ENV_FILE", tmp_path / "absent.env")
+        monkeypatch.setattr(source, "RISK_CONFIG_FILES", {})
+        monkeypatch.setattr(catalogue, "CONTROL_OVERRIDE_FILES", {})
+        catalogue.clear_cache()
+
+        codes = [warning["code"] for warning in playbook_route.playbook_status("ios")["warnings"]]
+        assert "control_without_steps" in codes
+
+    def test_the_risk_list_prefers_the_markdown_demonstration(self, tmp_path, monkeypatch):
+        from mobile_playbook.api.services import catalog as catalog_service
+        from tests.test_playbook_catalogue import TestHeadingRiskDemonstration
+
+        root = write_playbook(
+            tmp_path / "playbooks", risk=TestHeadingRiskDemonstration.HEADING_RISK
+        )
+        monkeypatch.setenv("IOS_PLAYBOOK_DIR", str(root))
+        monkeypatch.setattr(settings, "ENV_FILE", tmp_path / "absent.env")
+        monkeypatch.setattr(source, "RISK_CONFIG_FILES", {})
+        monkeypatch.setattr(catalogue, "CONTROL_OVERRIDE_FILES", {})
+        catalogue.clear_cache()
+        monkeypatch.setattr(
+            catalog_service, "list_ios_risks", lambda: [{"risk_id": RISK_ID, "name": "Example risk"}]
+        )
+        monkeypatch.setattr(catalog_service.config_editor, "get_risk_metadata", lambda *_: {})
+        monkeypatch.setattr(
+            catalog_service.config_editor,
+            "get_risk_demonstration",
+            lambda *_: [{"id": "configured", "type": "steps", "items": []}],
+        )
+
+        risk = catalog_service.list_platform_risks("ios")[0]
+        steps = [block for block in risk["demonstration"] if block["type"] == "steps"]
+
+        assert all(block["id"] != "configured" for block in risk["demonstration"])
+        assert [item["title"] for item in steps[0]["items"]] == [
+            "Prepare the example environment",
+            "Perform the example test",
+        ]
+        assert steps[0]["items"][1]["images"][0]["exists"] is True
+
+    def test_the_configured_demonstration_is_used_when_markdown_has_none(self, tmp_path, monkeypatch):
+        from mobile_playbook.api.services import catalog as catalog_service
+        from tests.test_playbook_catalogue import RISK
+
+        root = write_playbook(
+            tmp_path / "playbooks", risk=RISK.replace("### Demonstration", "### Ignored")
+        )
+        monkeypatch.setenv("IOS_PLAYBOOK_DIR", str(root))
+        monkeypatch.setattr(settings, "ENV_FILE", tmp_path / "absent.env")
+        monkeypatch.setattr(source, "RISK_CONFIG_FILES", {})
+        monkeypatch.setattr(catalogue, "CONTROL_OVERRIDE_FILES", {})
+        catalogue.clear_cache()
+        monkeypatch.setattr(
+            catalog_service, "list_ios_risks", lambda: [{"risk_id": RISK_ID, "name": "Example risk"}]
+        )
+        monkeypatch.setattr(catalog_service.config_editor, "get_risk_metadata", lambda *_: {})
+        monkeypatch.setattr(
+            catalog_service.config_editor,
+            "get_risk_demonstration",
+            lambda *_: [{"id": "configured", "type": "steps", "items": []}],
+        )
+
+        risk = catalog_service.list_platform_risks("ios")[0]
+        assert [block["id"] for block in risk["demonstration"]] == ["configured"]

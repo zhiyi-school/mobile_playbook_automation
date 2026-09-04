@@ -734,6 +734,8 @@ Every app entry also carries `sector`, `agency`, `version`, and `cisos` (a list 
 
 ## Playbook images
 
+A risk's `demonstration` comes from the `### Demonstration` section of its Markdown risk document — see [developer-playbook.md](developer-playbook.md). The `demonstration:` block in `configs/split/{platform}/risks.yaml` is a fallback, served only when the Markdown document supplies no demonstration. A step parsed from a numbered heading also carries an optional `title`; steps parsed from an ordered list have none, and clients fall back to `Step N`.
+
 A demonstration step can cite screenshots from the platform's playbook. They're stored as `{path, caption}` entries under a step's `images`, where `path` is relative to `playbook_dir` at the top of `configs/split/{platform}/risks.yaml`:
 
 ```yaml
@@ -854,12 +856,13 @@ rest rather than passing anything through as raw HTML.
 `step_key` is the step's stable identifier and the only safe thing to record
 progress against. `step_id_source` says where it came from: `declared` when the
 playbook author wrote a `<!-- playbook-step-id: … -->` directive above the step,
-`auto` when it was derived from the instruction text because none was declared.
+`auto` when it was derived because none was declared — from the step title for
+a heading-based step, from the instruction text for an ordered-list step.
 A declared id survives rewording and reordering; a derived one survives
-reordering and renumbering but deliberately changes when the instruction is
-rewritten, so a tick is never carried across to a different instruction.
+reordering, renumbering and body edits but deliberately changes when the step is
+retitled, so a tick is never carried across to a different instruction.
 
-`content_hash` covers the step's text and everything rendered under it. It is
+`content_hash` covers the step's title, its text and everything rendered under it. It is
 for spotting that a step changed, never for storing or re-rendering an older
 version — the API serves the current playbook and has no endpoint for any other.
 

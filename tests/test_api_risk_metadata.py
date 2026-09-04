@@ -5,9 +5,21 @@ from fastapi import HTTPException
 
 from mobile_playbook.api import config_editor as ce
 from mobile_playbook.api.routes.catalog import platform_risks
+from mobile_playbook.playbook import catalogue
 from tests.test_api_config_editor import config_root  # noqa: F401 — reused fixture
 
 RISK_ID = "ios-feature-01-risk-01"
+
+
+@pytest.fixture(autouse=True)
+def empty_playbook(tmp_path, monkeypatch):
+    """No Markdown demonstrations, so these tests exercise the configuration fallback."""
+    root = tmp_path / "empty-playbook"
+    root.mkdir()
+    monkeypatch.setenv("IOS_PLAYBOOK_DIR", str(root))
+    catalogue.clear_cache()
+    yield root
+    catalogue.clear_cache()
 
 
 @pytest.fixture
