@@ -44,8 +44,15 @@ def report_file(run_timestamp: str, file_path: str) -> FileResponse:
 
 
 @router.get("/reports/{run_timestamp}/evidence-file")
-def evidence_file(run_timestamp: str, path: str) -> FileResponse:
-    return FileResponse(str(reports_service.safe_evidence_path(run_timestamp, path)))
+def evidence_file(run_timestamp: str, ref: str) -> FileResponse:
+    resolved = reports_service.safe_evidence_path(run_timestamp, ref)
+    return FileResponse(
+        str(resolved),
+        media_type=reports_service.media_type_for(resolved.name),
+        filename=reports_service.safe_download_name(resolved.name),
+        content_disposition_type="attachment",
+        stat_result=resolved.stat(),
+    )
 
 
 @router.get("/apps/{app_id}/risks/{risk_id}/history")

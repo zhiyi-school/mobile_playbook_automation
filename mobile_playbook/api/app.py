@@ -23,6 +23,9 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    # Not a CORS-safelisted response header, so the browser cannot read the
+    # filename the download endpoint sends without this.
+    expose_headers=["Content-Disposition"],
 )
 
 app.include_router(catalog.router)

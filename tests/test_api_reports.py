@@ -7,6 +7,7 @@ from fastapi import HTTPException
 
 from mobile_playbook.api.routes import reports as api_reports
 from mobile_playbook.api.services import reports as reports_service
+from mobile_playbook.reporting.evidence import encode_ref
 
 
 def _write_dashboard(root, run_id, rows):
@@ -56,26 +57,26 @@ def test_app_risk_history_falls_back_to_report_json_verdict(monkeypatch, tmp_pat
 
 
 def test_evidence_file_allows_work_and_report_roots(monkeypatch, tmp_path):
-    monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(reports_service, "REPORTS_ROOT", tmp_path / "reports")
+    monkeypatch.setattr(reports_service, "WORK_ROOT", tmp_path / "work")
     _write_dashboard(reports_service.REPORTS_ROOT, "run1", [])
-    evidence = tmp_path / "work" / "ios" / "evidence.txt"
+    evidence = tmp_path / "work" / "ios" / "run1" / "evidence.txt"
     evidence.parent.mkdir(parents=True)
     evidence.write_text("ok")
 
-    response = api_reports.evidence_file("run1", "work/ios/evidence.txt")
+    response = api_reports.evidence_file("run1", encode_ref("work", "ios/run1/evidence.txt"))
 
     assert response.path == str(evidence.resolve())
 
 
 def test_evidence_file_rejects_paths_outside_allowed_roots(monkeypatch, tmp_path):
-    monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(reports_service, "REPORTS_ROOT", tmp_path / "reports")
+    monkeypatch.setattr(reports_service, "WORK_ROOT", tmp_path / "work")
     _write_dashboard(reports_service.REPORTS_ROOT, "run1", [])
     secret = tmp_path / "secret.txt"
     secret.write_text("nope")
 
     with pytest.raises(HTTPException) as exc_info:
-        api_reports.evidence_file("run1", str(secret))
+        api_reports.evidence_file("run1", encode_ref("work", "../secret.txt"))
 
-    assert exc_info.value.status_code == 404
+    assert exc_info.value.status_code == 400

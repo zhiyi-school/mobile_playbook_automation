@@ -207,3 +207,17 @@ def test_the_app_falls_back_to_the_defaults_when_nothing_is_configured(monkeypat
     middleware = [m for m in reloaded.app.user_middleware if "CORSMiddleware" in str(m.cls)]
 
     assert middleware[0].kwargs["allow_origins"] == DEFAULT_CORS_ORIGINS
+
+
+def test_the_download_filename_header_is_readable_by_the_browser(monkeypatch):
+    """Content-Disposition is not CORS-safelisted, so it must be exposed explicitly."""
+    monkeypatch.delenv("CORS_ALLOWED_ORIGINS", raising=False)
+    monkeypatch.setattr(settings, "ENV_FILE", Path("/nonexistent/.env"))
+    import importlib
+
+    from mobile_playbook.api import app as app_module
+
+    reloaded = importlib.reload(app_module)
+    middleware = [m for m in reloaded.app.user_middleware if "CORSMiddleware" in str(m.cls)]
+
+    assert "Content-Disposition" in middleware[0].kwargs["expose_headers"]
