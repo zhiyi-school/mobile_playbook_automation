@@ -50,7 +50,6 @@ def revision(raw: bytes) -> str:
 
 
 def infer_status(*candidates: str) -> tuple[str, bool]:
-    """Status inferred from naming, and whether it came from a marker rather than the default."""
     for candidate in candidates:
         if candidate and DEPRECATED_MARKER.search(candidate):
             return DEPRECATED, True
@@ -157,8 +156,6 @@ def parse_risk(document: Document, root: Path) -> dict[str, Any]:
 
 
 class Sections(NamedTuple):
-    """A document split on its structural level-3 headings, in source order."""
-
     named: dict[str, list[dict[str, Any]]]
     loose: list[dict[str, Any]]
     has_step_section: bool
@@ -197,7 +194,6 @@ def _partition(
     blocks: list[dict[str, Any]],
     warnings: list[dict[str, Any]] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
-    """Split a control document into its intro, its remediation steps, and its references."""
     sections = split_sections(blocks)
     notes = warnings if warnings is not None else []
     references = list(sections.named.get(REFERENCES) or [])
@@ -245,7 +241,6 @@ def _heading_steps(
     leading: list[dict[str, Any]] = []
     current: dict[str, Any] | None = None
     declared: str | None = None
-    seen_ids: set[str] = set()
     seen_numbers: set[int] = set()
 
     for block in blocks:
@@ -266,16 +261,19 @@ def _heading_steps(
 
         number = int(heading.group(1))
         title = " ".join(heading.group(2).split()) or f"Step {len(steps) + 1}"
-        if declared and declared in seen_ids:
-            warnings.append({"code": "duplicate_step_id", "path": declared, "message": f"step id {declared}"})
         if number in seen_numbers:
             warnings.append({"code": "duplicate_step_number", "path": str(number), "message": f"step number {number}"})
-        if declared:
-            seen_ids.add(declared)
         seen_numbers.add(number)
 
+        generated = _auto_step_id(title)
+        candidate = declared or generated
+        if candidate in used_keys:
+            code = "duplicate_step_id" if declared else "duplicate_generated_step_id"
+            warnings.append(
+                {"code": code, "path": candidate, "message": f"step id {candidate}"}
+            )
         current = {
-            "step_key": _unique(declared or _auto_step_id(title), used_keys),
+            "step_key": _unique(candidate, used_keys),
             "step_id_source": "declared" if declared else "auto",
             "step_index": len(steps),
             "number": number,
@@ -302,7 +300,6 @@ def _list_steps(
     steps: list[dict[str, Any]] = []
     leading: list[dict[str, Any]] = []
     current: dict[str, Any] | None = None
-    seen_ids: set[str] = set()
 
     for block in blocks:
         if block.get("type") == "step_id":
@@ -316,12 +313,15 @@ def _list_steps(
             for item in block.get("items") or []:
                 text = item.get("text") or ""
                 declared = str(item.get("step_id") or "").strip()
-                if declared and declared in seen_ids:
-                    warnings.append({"code": "duplicate_step_id", "path": declared, "message": f"step id {declared}"})
-                if declared:
-                    seen_ids.add(declared)
+                generated = _auto_step_id(text)
+                candidate = declared or generated
+                if candidate in used_keys:
+                    code = "duplicate_step_id" if declared else "duplicate_generated_step_id"
+                    warnings.append(
+                        {"code": code, "path": candidate, "message": f"step id {candidate}"}
+                    )
                 current = {
-                    "step_key": _unique(declared or _auto_step_id(text), used_keys),
+                    "step_key": _unique(candidate, used_keys),
                     "step_id_source": "declared" if declared else "auto",
                     "step_index": len(steps),
                     "number": item.get("number"),

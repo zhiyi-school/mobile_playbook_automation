@@ -156,7 +156,13 @@ def test_resolving_cors_never_imports_a_credential_into_the_process(tmp_path, mo
 
 def test_only_non_secret_keys_are_allowlisted():
     assert settings.ALLOWED_ENV_KEYS == frozenset(
-        {"CORS_ALLOWED_ORIGINS", "ARTIFACT_STORE_DIR", "IOS_PLAYBOOK_DIR", "ANDROID_PLAYBOOK_DIR"}
+        {
+            "CORS_ALLOWED_ORIGINS",
+            "ARTIFACT_STORE_DIR",
+            "IOS_PLAYBOOK_DIR",
+            "ANDROID_PLAYBOOK_DIR",
+            "REPORTS_DIR",
+        }
     )
     for key in SECRET_KEYS:
         assert key not in settings.ALLOWED_ENV_KEYS
@@ -175,6 +181,22 @@ def test_the_api_package_never_loads_the_whole_env_file():
 def test_the_env_file_is_resolved_from_the_repository_root_not_the_working_directory():
     assert settings.ENV_FILE == settings.REPOSITORY_ROOT / ".env"
     assert (settings.REPOSITORY_ROOT / "mobile_playbook" / "api" / "settings.py").is_file()
+
+
+def test_relative_report_root_is_anchored_to_the_repository(tmp_path, monkeypatch):
+    monkeypatch.delenv("REPORTS_DIR", raising=False)
+    env = _env_file(tmp_path, "REPORTS_DIR=var/api-reports\n")
+    monkeypatch.chdir(tmp_path)
+
+    assert settings.repository_path_setting("REPORTS_DIR", "reports", env) == (
+        settings.REPOSITORY_ROOT / "var/api-reports"
+    ).resolve()
+
+
+def test_absolute_report_root_can_be_injected(tmp_path, monkeypatch):
+    monkeypatch.setenv("REPORTS_DIR", str(tmp_path / "reports"))
+
+    assert settings.repository_path_setting("REPORTS_DIR", "reports") == (tmp_path / "reports").resolve()
 
 
 def test_the_app_is_built_with_the_resolved_origins(tmp_path, monkeypatch):

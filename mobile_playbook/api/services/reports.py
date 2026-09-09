@@ -1,57 +1,27 @@
 from __future__ import annotations
 
 import json
-import mimetypes
-import re
 from pathlib import Path
 
 from fastapi import HTTPException
 
-from mobile_playbook.api.settings import REPOSITORY_ROOT
+from mobile_playbook.api.downloads import (
+    DownloadFileMissing,
+    DownloadPathError,
+    media_type_for,
+    resolve_regular_file,
+    safe_filename,
+)
+from mobile_playbook.api.settings import REPORTS_ROOT, REPOSITORY_ROOT, WORK_ROOT
 from mobile_playbook.reporting.evidence import decode_ref, normalize_evidence
 from mobile_playbook.reporting.sarif_writer import build_from_run_dir, sarif_path, write_sarif
 
-# Anchored on the installation, not on the working directory: the API is started
-# from a service manager as often as from the repository root.
-REPORTS_ROOT = REPOSITORY_ROOT / "reports"
-WORK_ROOT = REPOSITORY_ROOT / "work"
-
-#: Suffixes browsers guess badly, or not at all.
-MEDIA_TYPES = {
-    ".ipa": "application/octet-stream",
-    ".apk": "application/vnd.android.package-archive",
-    ".zip": "application/zip",
-    ".md": "text/markdown; charset=utf-8",
-    ".log": "text/plain; charset=utf-8",
-    ".txt": "text/plain; charset=utf-8",
-    ".json": "application/json",
-    ".xml": "application/xml",
-    ".mp4": "video/mp4",
-    ".png": "image/png",
-    ".jpg": "image/jpeg",
-    ".jpeg": "image/jpeg",
-}
-
-_UNSAFE_IN_FILENAME = re.compile(r"[^A-Za-z0-9._-]")
-
-
 def evidence_roots() -> dict[str, Path]:
-    """Read through the module globals so a test can point them at a temporary tree."""
     return {"reports": REPORTS_ROOT, "work": WORK_ROOT}
 
 
 def safe_download_name(name: str) -> str:
-    """A filename safe to put in a header: no separators, no quotes, no control characters."""
-    cleaned = _UNSAFE_IN_FILENAME.sub("_", Path(name).name).lstrip(".")
-    return cleaned or "evidence"
-
-
-def media_type_for(name: str) -> str:
-    suffix = Path(name).suffix.lower()
-    if suffix in MEDIA_TYPES:
-        return MEDIA_TYPES[suffix]
-    guessed, _ = mimetypes.guess_type(name)
-    return guessed or "application/octet-stream"
+    return safe_filename(name, "evidence")
 
 
 def resolved_run_dir(run_timestamp: str) -> Path:
@@ -121,10 +91,10 @@ def list_report_timestamps() -> list[str]:
 
 def report_file_path(run_timestamp: str, file_path: str) -> Path:
     run_dir = safe_run_dir(run_timestamp)
-    resolved = (run_dir / file_path).resolve()
-    if run_dir not in resolved.parents or not resolved.is_file():
+    try:
+        return resolve_regular_file(run_dir, file_path)
+    except (DownloadPathError, DownloadFileMissing):
         raise HTTPException(status_code=404, detail="File not found")
-    return resolved
 
 
 def _belongs_to_run(resolved: Path, root_name: str, run_dir: Path, run_timestamp: str) -> bool:
@@ -148,22 +118,17 @@ def safe_evidence_path(run_timestamp: str, ref: str) -> Path:
 
     root_name, relative = decoded
     root = evidence_roots().get(root_name)
-    if root is None or Path(relative).is_absolute() or ".." in Path(relative).parts:
+    if root is None:
         raise HTTPException(status_code=400, detail="Malformed evidence reference")
 
     try:
-        resolved = (root / relative).resolve()
-        root_resolved = root.resolve()
-        exists = resolved.is_file()
-    except (OSError, ValueError):
+        resolved = resolve_regular_file(root, relative)
+    except DownloadPathError:
+        raise HTTPException(status_code=400, detail="Malformed evidence reference") from None
+    except DownloadFileMissing:
         raise HTTPException(status_code=404, detail="Evidence file not found") from None
-
-    if root_resolved not in resolved.parents:
-        raise HTTPException(status_code=404, detail="Evidence file not found")
     if not _belongs_to_run(resolved, root_name, run_dir, run_timestamp):
         raise HTTPException(status_code=404, detail="Evidence file not found for this run")
-    if not exists:
-        raise HTTPException(status_code=404, detail="Evidence file not found")
     return resolved
 
 

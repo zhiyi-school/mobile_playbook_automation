@@ -28,6 +28,48 @@ Compile check without running anything:
 python -m compileall -q mobile_playbook/
 ```
 
+Maintenance checks are independent so a failure retains its own diagnostics:
+
+```bash
+python scripts/check_requirements.py
+python scripts/check_docs.py
+python -m pytest -q tests/test_api_reports.py tests/test_report_evidence.py \
+  tests/test_api_playbook.py tests/test_playbook_validator.py
+```
+
+The first command enforces dependency-declaration synchronization. The second
+checks local Markdown links and anchors, referenced repository paths, required
+documentation entry points, external URL syntax, and accidental user-specific
+paths without executing code blocks or using the network. Exact intentional
+cross-repository references live in `docs/doc-validation-allowlist.txt`; stale
+exceptions fail validation.
+
+The focused pytest command covers the report/evidence HTTP contract and the
+sanitized playbook parser-to-renderer boundary. A combined playbook artifact
+check against an explicit frontend checkout is documented in
+[developer-playbook.md](developer-playbook.md#parser-to-frontend-contract-fixture).
+
+### Dependency ownership
+
+`pyproject.toml` is authoritative for runtime and test dependencies.
+`requirements.txt` is a generated mirror for tools that require that format;
+regenerate it with `python scripts/check_requirements.py --write`. The check
+preserves constraints, extras and markers exactly. Neither declaration locks
+transitive versions, so a clean installation is reproducible only within those
+constraints; review resolver changes when refreshing an environment.
+
+Python 3.11 is the minimum supported runtime and the CI runtime. The repository
+has no separately configured Python linter or type checker; `compileall` and
+pytest are the existing static/runtime checks.
+
+### Continuous integration
+
+The GitHub-hosted origin had no CI provider configuration before the maintenance
+workflow was added, so `.github/workflows/verify.yml` uses GitHub Actions. Its
+jobs run documentation/dependency checks, the full backend suite and compile
+check, and the focused API/playbook contract suite. Jobs use synthetic fixtures,
+need no secrets or devices, and perform no deployment or synchronization.
+
 ## What is covered
 
 | Area | Modules |
@@ -40,7 +82,7 @@ python -m compileall -q mobile_playbook/
 | Run orchestration, manifests, events | `test_run_manifest.py`, `test_run_events.py`, `test_run_all_report_isolation.py`, `test_report.py` |
 | CLI | `test_cli.py` |
 | API routes, models, CORS, logging | `test_api_*.py` |
-| Dashboard sync and idempotency | `test_dashboard_sync*.py`, `test_sync_status.py`, `test_job_registry.py` |
+| Dashboard sync mapping, worker entry point and idempotency | `test_dashboard_sync*.py`, `test_sync_status.py`, `test_job_registry.py` |
 | SARIF export | `test_sarif_writer.py`, `test_api_sarif.py` |
 | Developer playbook catalogue | `test_playbook_catalogue.py`, `test_api_playbook.py` |
 
@@ -56,6 +98,12 @@ emulates the database's unique indexes, `sync_key` deduplication and column
 defaults. A fake that accepts anything proves nothing about production, so
 extend the fake when you add a constraint.
 
+Pure identity and report mapping code under `dashboard_syncing/` is tested
+without HTTP, environment credentials or a real database. Worker tests inject
+the store factory and pass an argument list; they do not start a long-running
+worker or contact Supabase. Configuration-editor tests use `tmp_path`, including
+lock serialization and rollback after an introduced validation error.
+
 **Prove a new test can fail.** After writing a test for a fix, revert the fix
 and confirm the test fails, then restore it. Several tests in this suite exist
 because that step caught an assertion that would have passed either way.
@@ -70,6 +118,10 @@ deliberately carries no schema-validation dependency; see
 [api.md](api.md#sarif-export).
 
 ## Testing the developer playbook
+
+The validator, exact identity preview, sanitized contract source, and frontend
+artifact regeneration process are documented in
+[developer-playbook.md](developer-playbook.md#validation-and-diagnostics).
 
 `test_playbook_catalogue.py` builds a whole playbook directory under `tmp_path`
 from the fixtures at the top of the module and points `IOS_PLAYBOOK_DIR` at it.
@@ -97,6 +149,11 @@ catalogue was dispatching on the filename and dropping such a control entirely â
 and the `__MACOSX` case, whose original form could never reach the ignore filter
 it was meant to exercise.
 
+`test_playbook_validator.py` runs the actual catalogue against the portable
+fixture and generated invalid directories. It covers stable diagnostics,
+strict/JSON behavior, exact identity previews, and the backend half of the
+parser-to-renderer contract without reading the external playbook.
+
 ## Adding a risk
 
 A risk is discovered by the plugin registry, not registered by hand. Add a
@@ -110,6 +167,11 @@ subclass with a unique `risk_id`, then:
    `list-risks` and `GET /platforms/{platform}/risks` pick it up automatically.
 
 ## Frontend tests
+
+Report API coverage injects temporary roots and changes the process working
+directory. This verifies that creation, lookup, history, evidence enrichment,
+registry state and synchronization follow configuration instead of the test
+runner's current directory.
 
 The dashboard has its own suite in the frontend repository â€” `npm test`,
 `npm run typecheck`, `npm run lint`, `npm run build`. See its

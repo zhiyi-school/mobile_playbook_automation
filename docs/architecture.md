@@ -64,7 +64,7 @@ The consequences that matter in practice:
 | CLI | `argparse` (`mobile_playbook/cli.py`) |
 | Config format | YAML via `PyYAML` (`yaml.safe_load`) |
 | API | `FastAPI` (`mobile_playbook/api/app.py`) for dashboard/run/config endpoints |
-| Dashboard sync worker | stdlib `urllib.request` (`mobile_playbook/dashboard_sync.py`) for Supabase REST writes |
+| Dashboard sync worker | stdlib `urllib.request` (`mobile_playbook/dashboard_syncing/supabase.py`) for Supabase REST writes |
 | Device automation | `Appium-Python-Client` + `selenium` (Appium is the only automation engine used for both platforms) |
 | iOS driver | Appium `XCUITest` driver, real device only |
 | Android driver | Appium `UiAutomator2` driver |
@@ -154,9 +154,14 @@ Endpoints: `GET /health`, `GET /next` (token-gated; the phone-side keyboard exte
 
 ### Reporting / serialization layer
 
+API runs use one `REPORTS_DIR` root (default `<repository>/reports`) for report
+creation, lookup, registry state, history and synchronization, independent of the
+server working directory. CLI runs retain their existing custom `--out` behavior.
+See [api.md](api.md#report-root-and-evidence-contract) for the full contract.
+
 All result objects are `SerializableDataclass` subclasses (`mobile_playbook/reporting/serialization.py`; `mobile_playbook/core/serialization.py` re-exports it), whose `to_dict()` recursively converts `Path → str` and nested dataclasses/lists/dicts into plain JSON-safe structures. The platform-agnostic result schema — `TestResult` and `Evidence` — lives in `mobile_playbook/reporting/status_mapper.py`; iOS and Android each normalize their own richer result objects (`RiskRunResult`, `AndroidRiskRunResult`) into this common shape for the dashboard feed.
 
-`ReportWriter` (`mobile_playbook/reporting/report_writer.py`) owns a single run's directory: it creates `reports/<run_timestamp>/`, an `evidence/` folder, and a `<platform>/` folder; `test_report_dir(app_id, risk_id, case_id)` creates and returns the per-test folder each risk writes `report.json`/`logs.txt`/evidence into; `write_summary()` writes `summary.md` and (via `dashboard_export.write_dashboard_results`) `dashboard_results.json`. `run_timestamp` itself comes from `orchestration/scheduler.py`'s `new_run_timestamp`, a local, second-resolution, sortable timestamp string that appends a numeric suffix if a run folder with that name already exists.
+`ReportWriter` (`mobile_playbook/reporting/report_writer.py`) owns a single run's directory: it creates `<output-root>/<run_timestamp>/`, an `evidence/` folder, and a `<platform>/` folder; `test_report_dir(app_id, risk_id, case_id)` creates and returns the per-test folder each risk writes `report.json`/`logs.txt`/evidence into; `write_summary()` writes `summary.md` and (via `dashboard_export.write_dashboard_results`) `dashboard_results.json`. `run_timestamp` itself comes from `orchestration/scheduler.py`'s `new_run_timestamp`, a local, second-resolution, sortable timestamp string that appends a numeric suffix if a run folder with that name already exists.
 
 Both outputs are deliberately kept human/dashboard-facing rather than a raw dump of every field: `mobile_playbook/reporting/messages.py`'s `clean_message()` reduces a raw error (which for a failed Appium/Selenium call is a multi-line "Message: ...\nStacktrace:\n..." block) down to its first meaningful line before it goes into `summary.md`'s Notes column or a `TestResult.summary`. The full untouched error text is never lost — it still lives in each per-test `logs.txt` and `report.json`, which `TestResult.report_path` points back to.
 
@@ -217,6 +222,12 @@ owning risk from its own id, rather than from the links in the risk document,
 means a wrong link surfaces as a warning instead of silently attaching a control
 to the wrong risk. See [developer-playbook.md](developer-playbook.md).
 
+Maintenance entry points live beside the parser: `validator.py` performs
+read-only structural/reference checks, `identity_preview.py` compares exact
+effective identities across two roots, and `contract_fixture.py` exports the
+single sanitized transport fixture consumed by frontend rendering tests. All
+three call `catalogue.build`; none reimplements Markdown interpretation.
+
 ### API configuration and the secret boundary
 
 The repository `.env` holds both non-secret settings and real credentials, so
@@ -249,12 +260,16 @@ fragile. Resolving on call is correct for every entrypoint and leaves
 ### Dashboard sync layer
 
 Publishing results to the dashboard is a second workflow that runs after — and
-independently of — the automation run. `mobile_playbook/dashboard_sync.py` is a
-CLI worker with no HTTP surface and is the only writer of dashboard rows from
-automation results; the browser never writes them. It is started as a detached
-one-shot process by `dashboard_sync_trigger.py` once a run writes its terminal
-manifest, and again on a schedule by the launchd recovery sweep so a trigger
-that never fired cannot strand a report.
+independently of — the automation run. `mobile_playbook/dashboard_sync.py` is
+the compatibility entry point; ownership lives under `dashboard_syncing/`:
+`contracts.py` defines the injected store and result types, `identity.py` owns
+pure identities/status mapping, `mapping.py` maps report rows to ordered store
+mutations, `orchestrator.py` coordinates manifests, status and the processed
+ledger, `supabase.py` is the credential-bearing PostgREST adapter, and
+`worker.py` owns argument parsing and the loop. The worker has no HTTP surface
+and is the only writer of dashboard rows from automation results. It is started
+by `dashboard_sync_trigger.py` after a terminal manifest and by the recovery
+sweep.
 
 The two workflows have separate lifecycles and separate meanings of "completed".
 A run is `completed` when the device finished executing its risks and the report
@@ -286,6 +301,26 @@ duplicate insert conflicts and is swallowed; and a finding's status and
 pre-run state for the retry to find. Replaying an older run never regresses a
 finding that a newer run already moved.
 
+The API package does not import `dashboard_syncing.supabase` or `worker`; it
+only launches the module entry point in a child process. This keeps service-role
+credentials outside the API process while mapping and orchestration remain
+testable with an injected store.
+
+### API configuration editing
+
+`mobile_playbook/api/config_editor.py` is a compatibility facade. Shared
+round-trip YAML, validation, per-file locks and rollback live in
+`api/config_editing/shared.py`; `sections.py` owns device, runner and global
+risk settings; `android_apps.py` and `ios_apps.py` own their roster formats;
+and `metadata.py` owns feature, risk metadata and demonstration edits. The iOS
+editor remains text-block based because its roster references anchors from a
+separately included templates file.
+
+HTTP response models live in `api/models.py`; report rows allow additional
+fields because `dashboard_results.json` is extensible. Filename, media-type and
+containment primitives live in `api/downloads.py`, while each service still
+decides its allowed root, run binding and HTTP error.
+
 ### Concurrency
 
 Two independent uses of `threading` exist: the control server runs its HTTP server on a background daemon thread so the test harness can keep driving Appium while it listens for phone-side events, and `run-all` (`mobile_playbook/cli.py`, `_run_all`) runs the iOS and Android `run` flows on two threads so both platforms execute at once in one process. Both are appropriate uses of threads over processes because the actual work is I/O-bound (subprocess calls to `adb`/`apktool`/`otool`/Docker, and network calls to Appium/MobSF) rather than CPU-bound, so the GIL is not a bottleneck.
@@ -294,6 +329,28 @@ Two independent uses of `threading` exist: the control server runs its HTTP serv
 
 - **iOS** (`platforms/ios/models.py`): `DeviceConfig`, `RunnerConfig`, `ExpectedBehaviorConfig`, `AppConfig`, `GlobalConfig` for configuration; `ArtifactAcquisitionResult`, `BinaryInspectionResult`, `InstallResult`, `BehaviorResult`, `CleanupResult` for per-stage outcomes, all rolled up into one `RiskRunResult` per (app, risk) run.
 - **Android** (`platforms/android/models.py`): `AndroidDeviceConfig`, `AndroidRunnerConfig`, `AndroidAppConfig`, `AndroidGlobalConfig` for configuration; a single `AndroidRiskRunResult` per (app, risk) run (Android has no IPA-equivalent artifact-acquisition stage yet — APKs are pulled live from the device inside the repackaging risk itself, not acquired up front).
+
+## Maintenance and extension points
+
+Keep dependencies directed toward domain owners rather than CLI or HTTP
+facades:
+
+| Change | Owner and required verification |
+| --- | --- |
+| API request/response contract | `mobile_playbook/api/models.py`, route and service modules; extend `tests/test_api_*.py` and the focused contract command in [testing.md](testing.md) |
+| Report/evidence behavior | `mobile_playbook/api/services/reports.py`, `mobile_playbook/reporting/`; preserve the configured report-root and opaque-ref rules in [api.md](api.md#report-root-and-evidence-contract) |
+| Dashboard synchronization | `mobile_playbook/dashboard_syncing/`; keep `mobile_playbook/dashboard_sync.py` as the supported `python -m` entry point |
+| Configuration editing | `mobile_playbook/api/config_editing/`; keep `api/config_editor.py` as the public compatibility facade |
+| Risk implementation | `mobile_playbook/platforms/<platform>/risks/`, discovered dynamically; follow the platform guide linked from [testing.md](testing.md#adding-a-risk) |
+| Playbook parsing/rendering contract | `mobile_playbook/playbook/`, sanitized `tests/fixtures/playbook_contract/`, and the versioned frontend transport fixture described in [developer-playbook.md](developer-playbook.md#parser-to-frontend-contract-fixture) |
+| Regression fixture | Prefer a local test factory or `tmp_path`; add shared files under `tests/fixtures/` only when several tests model the same stable contract |
+
+The supported executable entry points remain `python -m mobile_playbook`,
+`python -m mobile_playbook.api`, `python -m mobile_playbook.dashboard_sync`,
+`python -m mobile_playbook.assessment_worker`, and the read-only playbook
+validator/identity/contract modules. Only the sync and assessment workers load
+service-role credentials; API credential loading stays allowlisted as described
+above.
 
 ## External Processes And Network Calls
 

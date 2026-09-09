@@ -12,7 +12,9 @@ python -m mobile_playbook.api --port 8080
 
 Add `--reload` during development to restart on code changes, and `--host 0.0.0.0` to accept connections from other machines on the network (leave it on the default `127.0.0.1` for local-only use).
 
-Run this from the repository root, the same way you'd run `python -m mobile_playbook`, since config paths and `reports/` are resolved relative to the process's working directory.
+Configuration paths supplied in requests remain process-relative, so starting from the
+repository root is the conventional choice. Report storage does not depend on that
+choice; see [Report root and evidence contract](#report-root-and-evidence-contract).
 
 ## Who owns what
 
@@ -53,7 +55,9 @@ curl -X POST http://127.0.0.1:8080/config/validate \
 
 ## Triggering a run
 
-`POST /runs` takes the same inputs as the CLI's `run` command (`--config`/`--platform`/`--apps`/`--risks`/`--out`) and starts it in a background thread, returning right away with a `run_id`:
+`POST /runs` takes the same platform, config, app and risk selections as the CLI's
+`run` command and starts it in a background thread, returning right away with a
+`run_id`:
 
 ```bash
 curl -X POST http://127.0.0.1:8080/runs \
@@ -69,9 +73,51 @@ curl -X POST http://127.0.0.1:8080/runs \
 {"run_id": "<RUN_TIMESTAMP>", "platform": "ios", "status": "running"}
 ```
 
-`apps`/`risks` are optional comma-separated strings, same as the CLI flags — omit either to run every enabled app/risk in the config. `out_dir` defaults to `reports` if left out.
+`apps`/`risks` are optional comma-separated strings, same as the CLI flags — omit
+either to run every enabled app/risk in the config. Omit `out_dir` to use the API's
+configured report root. The field remains accepted for older callers only when it
+identifies that same root; a different directory is rejected with `422` because the
+API could not consistently retrieve, enrich or synchronize such a run. CLI `--out`
+remains independently configurable and relative CLI paths still resolve from the
+CLI process's working directory.
 
-The `run_id` *is* the run's timestamp and its `reports/<run_id>/` directory name — reserved atomically the moment the request comes in, so it's already known before the run itself finishes, and two requests in the same second never collide (each gets its own `-2`/`-3`/... suffix, same scheme the CLI already uses for same-second collisions). There's no separate ID scheme to translate between.
+## Report root and evidence contract
+
+The API has one report root. `REPORTS_DIR` selects it, defaulting to
+`<repository>/reports`; a relative value is anchored to the repository and an
+absolute value is used as given. Run creation, report listing and lookup, history,
+SARIF, sync state and ledgers, and `.job_registry.json` all use this root. The
+policy is unchanged when the server starts from another working directory.
+
+`dashboard_results.json` persists each declared evidence item as `kind`, `path`
+and `label`. It does not persist a download handle or file size. When summary or
+history is served, the API reads that row, discovers files in its `report_path`,
+keeps only artifacts that still exist under the configured report root or the
+installation's `work/` root, de-duplicates them, and adds `ref` and `size_bytes`
+to the response. This enrichment is read-only: historical report files are not
+rewritten. A missing artifact is omitted from summary/history; a previously issued
+reference to a file that is now missing returns `404`.
+
+`path` is display/report metadata. Downloads use only the opaque `ref` returned by
+the API:
+
+```bash
+curl -OJ "http://127.0.0.1:8080/reports/<RUN_TIMESTAMP>/evidence-file?ref=<OPAQUE_REF>"
+```
+
+The reference is an identifier, not an authorization credential. It limits path
+resolution to an allowed root and the named run, but the API itself has no user
+authentication. A valid response includes the sanitized artifact filename in
+`Content-Disposition: attachment`, a media type, and `Content-Length`;
+`Content-Disposition` is exposed through CORS. Omitting `ref` is FastAPI request
+validation (`422`), a malformed or unknown-root ref is `400`, and a missing file,
+wrong-run ref, escaped symlink, or unknown run is `404`. Arbitrary path-based
+evidence downloads are not supported.
+
+The `run_id` *is* the run's timestamp and its `<report-root>/<run_id>/`
+directory name — reserved atomically the moment the request comes in, so it is
+known before the run finishes. Same-second requests receive `-2`/`-3` suffixes;
+there is no separate ID scheme.
 
 Poll it for status:
 
@@ -978,7 +1024,7 @@ error.
 | `PUT /platforms/{platform}/features/{feature_id}` | Partially update a feature's `name`/`description`. |
 | `GET /platforms/{platform}/traffic-interception/proxy.pac` | A PAC (Proxy Auto-Configuration) file, generated from that platform's traffic-interception risk's `burp.proxy_url`, that routes Apple's own certificate/app-verification domains direct and everything else through Burp — point a device's Wi-Fi "Automatic" proxy config at this URL instead of a manual `host:port` so WebDriverAgent can still verify its certificate with the proxy on. `ios` only. Optional `?proxy_host=` overrides the auto-detected host (used when `burp.proxy_url` is a loopback address, since that's written from this server's point of view, not the phone's). See [Traffic interception](ios/configuration.md#traffic-interception). |
 | `POST /config/validate` | Same check as `validate`. Body: `{"platform", "config_path"}`. Returns `422` with the config's error list if invalid. |
-| `POST /runs` | Starts a run in a background thread and returns immediately (`202`) with a `run_id` — it does not wait for the run to finish. Body: `{"platform", "config_path", "apps"?, "risks"?, "out_dir"?}`, mirroring `run`'s `--apps`/`--risks`/`--out` flags. `409` if that platform already has a run in progress. |
+| `POST /runs` | Starts a run in a background thread and returns immediately (`202`) with a `run_id`. Body: `{"platform", "config_path", "apps"?, "risks"?, "out_dir"?}`. `out_dir` is a compatibility assertion and must equal the configured API report root; otherwise `422`. `409` if that platform is busy. |
 | `GET /runs` | Lists runs started through this API (this process's history only — see below). Each record carries the `apps`/`risks` it was started with, so a client can find an in-progress run without knowing its `run_id`. |
 | `GET /runs/{run_id}` | One run's status: `running`, `completed`, or `failed`, plus its `run_timestamp`/`run_dir` once known and the `apps`/`risks` it covers. |
 | `GET /runs/{run_id}/events` | Server-Sent Events stream of this run's progress — `risk_started`/`risk_completed`/`appium_recovery` events as they happen, ending with `done`. See [Watching a run's progress live](#watching-a-runs-progress-live). |
@@ -986,11 +1032,11 @@ error.
 | `GET /runs/{run_id}/sync-status` | Where this run's *dashboard sync* stands: `queued`, `running`, `completed`, `failed`, or `not_required`, with attempt, timings, a redacted error and the row counts written. Separate from the run's own status — see [Two workflows](#two-workflows-two-meanings-of-completed). |
 | `POST /runs/{run_id}/sync` | Queues another dashboard sync pass for one run (`202`). Idempotent — the processed ledger still short-circuits a report that already landed. `409` if the run needs no sync or a pass is already pending. |
 | `GET /sync/status` | Dashboard sync worker health: whether automatic triggering is enabled, whether a pass is running, the queue depth, and the last success/failure. Operational state only, no credentials or report contents. |
-| `GET /reports` | Lists every `reports/<run_timestamp>/` directory on disk, most recent first — including runs started from the CLI, not just from this API. |
+| `GET /reports` | Lists every `<configured-report-root>/<run_timestamp>/` directory on disk, most recent first — including CLI runs written to that root. |
 | `GET /reports/{run_timestamp}/summary` | The same `dashboard_results.json`, looked up directly by `run_timestamp` instead of `run_id`. Works for any run on disk regardless of how it was started. |
 | `GET /reports/{run_timestamp}/sarif` | The run's results as SARIF 2.1.0 (`application/sarif+json`, sent as a download). Generated on demand for runs made before the export existed. `404` unless the run has a `completed` manifest and a results feed. See [SARIF export](#sarif-export). |
 | `GET /reports/{run_timestamp}/files/{file_path}` | Serves any file inside that run's report directory — screenshots, recordings, `report.json`, `logs.txt`, `critical_findings.md`, etc. |
-| `GET /reports/{run_timestamp}/evidence-file?path=...` | Serves report evidence stored under either `reports/` or `work/`, while rejecting paths outside those roots. |
+| `GET /reports/{run_timestamp}/evidence-file?ref=...` | Serves evidence named by an API-issued opaque ref. Missing query parameter: `422`; malformed ref: `400`; missing, escaped or wrong-run artifact: `404`. See [Report root and evidence contract](#report-root-and-evidence-contract). |
 | `GET /apps/{app_id}/risks/{risk_id}/history?limit=20` | Returns the latest matching summary rows for one app/risk without forcing clients to scan all report folders. |
 | `GET /artifacts/{platform}` | Builds sitting in `intake/{ios,android}/{ipas,apks}/`, newest first. iOS identity fields are read from each IPA; Android APK identity fields are read with Android SDK tooling when available. Unreadable files are skipped. |
 | `POST /artifacts/{platform}` | Multipart file upload (`file`) into `intake/{ios,android}/{ipas,apks}/`. Returns `{"path", "metadata"}`; `400` if the file extension doesn't match the platform. |
@@ -1006,7 +1052,13 @@ A run is asynchronous because it isn't a quick request/response: it drives real 
 
 ## What's tracked where
 
-`GET /runs`/`GET /runs/{run_id}` come from a registry that's persisted to `reports/.job_registry.json`, written on every status change and reloaded on startup — this history survives an API server restart. A run still `"running"` at the moment the server stops can never actually finish (the restart kills the thread driving it), so on reload it's rewritten to `"failed"` with an "Interrupted by API server restart" error instead of hanging a poller forever. The `reports/{run_timestamp}/...` endpoints read straight off disk instead, so they see every run that ever wrote a `reports/<run_timestamp>/` folder, from the CLI or the API, past or present, regardless of whether the server was restarted since.
+`GET /runs`/`GET /runs/{run_id}` come from a registry persisted as
+`.job_registry.json` inside the configured report root, written on every status
+change and reloaded on startup. This history survives an API restart. A run still
+`"running"` when the server stops is restored as `"failed"` with an "Interrupted by
+API server restart" error. The `/reports/...` endpoints read the same root directly,
+so existing CLI or API reports there remain readable whether or not the registry
+contains them.
 
 Dashboard sync state lives on disk beside the report it describes, so it
 survives an API restart and is readable whether the run came from the CLI or the
@@ -1028,6 +1080,13 @@ why deleting a sidecar cannot make a published run look unpublished.
 `reports/.dashboard_sync_worker.json` holds the last pass's outcome for
 `/sync/status`.
 
+Summary, history, run and sync-status routes have explicit response models.
+Summary/history models preserve unknown result fields so additions to the
+on-disk feed remain visible; their `evidence` items describe the API-enriched
+`kind`, display `path`, opaque `ref`, `label` and `size_bytes` contract. Download
+routes return file responses and retain their service-specific root and run
+policies.
+
 ## CORS
 
 Browser callers are limited to `http://localhost:5173` and `http://127.0.0.1:5173` by default. Set `CORS_ALLOWED_ORIGINS` to a comma-separated list of exact origins for any other dashboard host, for example a LAN-hosted frontend. Do not use `*`; the server rejects wildcard origins at startup. Origins are compared exactly — scheme, host and port all have to match, and nothing is normalized or wildcard-expanded.
@@ -1040,7 +1099,7 @@ CORS_ALLOWED_ORIGINS="http://localhost:5173,https://dashboard.example.com"
 
 Precedence is **exported environment variable → repository `.env` → built-in localhost defaults**. An explicitly exported value always wins, including an exported empty string, which falls back to the defaults rather than reaching into `.env`. An unset, empty or absent value in every source leaves the defaults in place. Values may be quoted, and surrounding whitespace around each origin is trimmed.
 
-**Only allowlisted keys are read from `.env` by the API** — currently `CORS_ALLOWED_ORIGINS`, `ARTIFACT_STORE_DIR`, `IOS_PLAYBOOK_DIR` and `ANDROID_PLAYBOOK_DIR`, all non-secret. `mobile_playbook/api/settings.py` holds an explicit allowlist and refuses any other key, and it parses one key at a time rather than importing the file — so `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_URL` and `MOBSF_API_KEY` never enter the API process's environment even though they sit in the same file. The service-role key stays worker-only: the dashboard sync worker is a separate process that loads its own credentials (see [Durable dashboard sync](#durable-dashboard-sync)). Nothing read here is logged or returned by any endpoint.
+**Only allowlisted keys are read from `.env` by the API** — currently `CORS_ALLOWED_ORIGINS`, `ARTIFACT_STORE_DIR`, `IOS_PLAYBOOK_DIR`, `ANDROID_PLAYBOOK_DIR` and `REPORTS_DIR`, all non-secret. `mobile_playbook/api/settings.py` holds an explicit allowlist and refuses any other key, and it parses one key at a time rather than importing the file — so `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_URL` and `MOBSF_API_KEY` never enter the API process's environment even though they sit in the same file. The service-role key stays worker-only: the dashboard sync worker is a separate process that loads its own credentials (see [Durable dashboard sync](#durable-dashboard-sync)). Nothing read here is logged or returned by any endpoint.
 
 Resolution happens when `cors_allowed_origins()` is called rather than at module import of a launcher, so it behaves the same however the app is started — `python -m mobile_playbook.api`, the same command with `--reload` (whose worker subprocess re-imports the app), or `uvicorn mobile_playbook.api.app:app` directly.
 

@@ -130,11 +130,11 @@ def test_replaying_an_older_run_does_not_regress_the_finding(tmp_path):
 
 
 def test_collision_suffix_orders_numerically_not_lexically(tmp_path):
-    from mobile_playbook.dashboard_sync import _is_older_run
+    from mobile_playbook.dashboard_syncing.identity import is_older_run
 
-    assert _is_older_run("2026-01-01_12-00-00-2", "2026-01-01_12-00-00-10") is True
-    assert _is_older_run("2026-01-01_12-00-00-10", "2026-01-01_12-00-00-2") is False
-    assert _is_older_run("2026-01-01_12-00-00", "2026-01-01_12-00-00-2") is True
+    assert is_older_run("2026-01-01_12-00-00-2", "2026-01-01_12-00-00-10") is True
+    assert is_older_run("2026-01-01_12-00-00-10", "2026-01-01_12-00-00-2") is False
+    assert is_older_run("2026-01-01_12-00-00", "2026-01-01_12-00-00-2") is True
 
 
 def test_unchanged_pass_performs_no_writes(tmp_path):

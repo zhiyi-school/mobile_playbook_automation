@@ -88,6 +88,12 @@ Device, runner and per-platform risk settings are documented per platform:
 [ios/configuration.md](ios/configuration.md),
 [android/configuration.md](android/configuration.md).
 
+The API editor preserves this layout rather than flattening it. Shared loading,
+round-trip YAML writes, per-file locks, validation and rollback live in
+`mobile_playbook/api/config_editing/shared.py`; platform app editors and the
+risk/feature editor own their respective formats. The public
+`mobile_playbook.api.config_editor` import remains as a compatibility facade.
+
 ## Environment variables and the secret boundary
 
 `.env` at the repository root holds local secrets. It is read by different
@@ -100,6 +106,7 @@ processes in deliberately different ways.
 | `SUPABASE_SERVICE_ROLE_KEY` | sync worker only | bypasses row-level security |
 | `DASHBOARD_SYNC_AUTO_TRIGGER` | API and CLI | `false` disables the post-run worker launch |
 | `CORS_ALLOWED_ORIGINS` | API process | exact browser origins allowed to call the API |
+| `REPORTS_DIR` | API; worker launchers must match it | API report root; default `<repository>/reports` |
 | `ARTIFACT_STORE_DIR` | API, sync worker, backfill | where derived artifact metadata and icons are kept |
 | `IOS_PLAYBOOK_DIR` | API | where the iOS developer remediation playbook lives |
 | `ANDROID_PLAYBOOK_DIR` | API | where the Android developer remediation playbook lives |
@@ -112,7 +119,8 @@ processes in deliberately different ways.
   the service-role key. It is the only process that ever holds that key.
 - **The API** must not. `mobile_playbook/api/settings.py` reads one allowlisted
   key at a time. `ALLOWED_ENV_KEYS` currently contains `CORS_ALLOWED_ORIGINS`,
-  `ARTIFACT_STORE_DIR`, `IOS_PLAYBOOK_DIR` and `ANDROID_PLAYBOOK_DIR`, all
+  `ARTIFACT_STORE_DIR`, `IOS_PLAYBOOK_DIR`, `ANDROID_PLAYBOOK_DIR` and
+  `REPORTS_DIR`, all
   non-secret; any other key raises `DisallowedSettingError`. The API package does not import `load_env_file` at
   all, so there is no code path from it to whole-file loading.
 

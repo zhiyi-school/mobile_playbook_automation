@@ -167,7 +167,8 @@ class TestServedRowsCarryTheirArtifacts:
         return run_dir
 
     def test_a_run_recorded_before_this_still_gains_its_artifacts(self, reports_root):
-        self._run(reports_root)
+        run_dir = self._run(reports_root)
+        original = (run_dir / "dashboard_results.json").read_bytes()
 
         rows = reports_service.read_dashboard_results("2026-01-02_00-00-00")
 
@@ -175,6 +176,7 @@ class TestServedRowsCarryTheirArtifacts:
             "Detailed result report",
             "Run log",
         ]
+        assert (run_dir / "dashboard_results.json").read_bytes() == original
 
     def test_the_history_endpoint_carries_them_too(self, reports_root):
         self._run(reports_root)

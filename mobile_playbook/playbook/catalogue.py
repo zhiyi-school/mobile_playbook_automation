@@ -26,6 +26,7 @@ CONTROL_DOCUMENT = re.compile(
 
 _PARSE_MESSAGES = {
     "duplicate_step_id": "two steps declare the same {detail}; the second was given a suffixed key.",
+    "duplicate_generated_step_id": "two generated step identities collide ({detail}); add explicit ids before storing progress.",
     "duplicate_step_number": "two steps are numbered the same ({detail}).",
     "missing_description": "has no Description section, so the title falls back to its identifier.",
     "empty_step_section": "names a Demonstration or Remediation section that contains {detail}.",
@@ -86,9 +87,13 @@ def clear_cache(platform: str | None = None) -> None:
             _cache.pop(platform, None)
 
 
-def build(platform: str, root: Path) -> dict[str, Any]:
+def build(
+    platform: str,
+    root: Path,
+    overrides: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     warnings: list[dict[str, Any]] = []
-    overrides = _load_overrides(platform)
+    overrides = _load_overrides(platform) if overrides is None else overrides
 
     risk_records: dict[str, dict[str, Any]] = {}
     control_records: dict[str, dict[str, Any]] = {}
@@ -109,11 +114,31 @@ def build(platform: str, root: Path) -> dict[str, Any]:
             record = control_parser.parse_control(document, root)
             key = canonical_id(record["control_id"], platform)
             _note_identity(warnings, relative, document, key, platform)
+            if key in control_records:
+                warnings.append(
+                    {
+                        "code": "duplicate_document_id",
+                        "control_id": key,
+                        "file": relative,
+                        "path": control_records[key]["source_file"],
+                        "message": f"{relative} and {control_records[key]['source_file']} declare control {key}.",
+                    }
+                )
             control_records[key] = _finalize_control(record, key, platform, root, overrides, warnings)
         elif RISK_DOCUMENT.match(document.identity):
             record = control_parser.parse_risk(document, root)
             key = canonical_id(record["risk_id"], platform)
             _note_identity(warnings, relative, document, key, platform)
+            if key in risk_records:
+                warnings.append(
+                    {
+                        "code": "duplicate_document_id",
+                        "risk_id": key,
+                        "file": relative,
+                        "path": risk_records[key]["source_file"],
+                        "message": f"{relative} and {risk_records[key]['source_file']} declare risk {key}.",
+                    }
+                )
             record["risk_id"] = key
             record["platform"] = platform
             risk_records[key] = record

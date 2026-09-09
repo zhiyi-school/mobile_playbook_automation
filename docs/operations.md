@@ -6,6 +6,11 @@ the dashboard falls behind. For the endpoints referenced here see
 [api.md](api.md); for the design behind them see
 [architecture.md](architecture.md#dashboard-sync-layer).
 
+The stable command remains `python -m mobile_playbook.dashboard_sync`. That
+module is a thin compatibility entry point; argument parsing and the worker
+loop live in `mobile_playbook/dashboard_syncing/worker.py`, and only the
+worker-owned Supabase adapter reads service-role credentials.
+
 Skip this page entirely if you use the backend standalone. Reports and evidence
 land on disk and the API serves them whether or not any dashboard exists.
 
@@ -76,7 +81,7 @@ logs a Supabase error and nothing runs.
 | --- | --- | --- |
 | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | — | required; the queue lives in the dashboard database |
 | `AUTOMATION_API_URL` / `--api-url` | `http://127.0.0.1:8000` | where readiness is asked and runs are started |
-| `REPORTS_DIR` / `--reports-dir` | `reports` | passed to the run as `out_dir` |
+| `REPORTS_DIR` / `--reports-dir` | `reports` | report root passed as the API `out_dir` compatibility assertion; it must resolve to the API's configured `REPORTS_DIR` |
 | `ASSESSMENT_WORKER_ID` / `--worker-id` | host name plus a random suffix | identifies the lease holder |
 | `ASSESSMENT_WORKER_POLL_SECONDS` / `--poll-seconds` | `15` | how often an empty queue is checked |
 | `ASSESSMENT_WORKER_LEASE_SECONDS` / `--lease-seconds` | `900` | how long a claim is held before another worker may recover it |

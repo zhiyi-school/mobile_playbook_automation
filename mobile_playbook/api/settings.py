@@ -9,7 +9,13 @@ ENV_FILE = REPOSITORY_ROOT / ".env"
 #: Only these may be read from .env. Everything else in that file — the Supabase
 #: service-role key above all — stays out of the API process entirely.
 ALLOWED_ENV_KEYS = frozenset(
-    {"CORS_ALLOWED_ORIGINS", "ARTIFACT_STORE_DIR", "IOS_PLAYBOOK_DIR", "ANDROID_PLAYBOOK_DIR"}
+    {
+        "CORS_ALLOWED_ORIGINS",
+        "ARTIFACT_STORE_DIR",
+        "IOS_PLAYBOOK_DIR",
+        "ANDROID_PLAYBOOK_DIR",
+        "REPORTS_DIR",
+    }
 )
 
 
@@ -45,3 +51,15 @@ def read_env_file_value(path: Path, wanted_key: str) -> str | None:
             value = value[1:-1]
         return value
     return None
+
+
+def repository_path_setting(name: str, default: str, env_path: Path | None = None) -> Path:
+    configured = env_setting(name, env_path) or default
+    path = Path(configured).expanduser()
+    if not path.is_absolute():
+        path = REPOSITORY_ROOT / path
+    return path.resolve()
+
+
+REPORTS_ROOT = repository_path_setting("REPORTS_DIR", "reports")
+WORK_ROOT = (REPOSITORY_ROOT / "work").resolve()

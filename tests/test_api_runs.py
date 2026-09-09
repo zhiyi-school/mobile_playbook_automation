@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from fastapi import HTTPException
 
 from mobile_playbook.api.job_registry import JobRegistry
 from mobile_playbook.api.models import RunRequest
@@ -27,6 +28,7 @@ def isolated_registry(monkeypatch, tmp_path):
     monkeypatch.setattr(runs_service, "validate_risk_selection", lambda risks, selected: None)
     monkeypatch.setattr(runs_service, "reserve_run_timestamp", lambda out_dir: "2026-01-01_00-00-00")
     monkeypatch.setattr(runs_service, "trigger_dashboard_sync", lambda *args: None)
+    monkeypatch.setattr(runs_service, "REPORTS_ROOT", tmp_path)
     return registry
 
 
@@ -73,3 +75,38 @@ def test_run_without_a_selection_records_no_apps_or_risks(isolated_registry, mon
     record = runs_service.get_run("2026-01-01_00-00-00")
     assert record["apps"] is None
     assert record["risks"] is None
+
+
+def test_api_rejects_an_output_directory_it_cannot_read(isolated_registry, tmp_path):
+    with pytest.raises(HTTPException) as exc_info:
+        runs_service.create_run(
+            RunRequest(
+                platform="ios",
+                config_path="configs/ios.yaml",
+                out_dir=str(tmp_path / "elsewhere"),
+            )
+        )
+
+    assert exc_info.value.status_code == 422
+    assert "configured report root" in exc_info.value.detail
+
+
+def test_default_api_output_is_the_configured_root_from_any_working_directory(
+    isolated_registry, monkeypatch, tmp_path
+):
+    seen: list[Path] = []
+    monkeypatch.chdir(tmp_path.parent)
+    monkeypatch.setattr(
+        runs_service,
+        "reserve_run_timestamp",
+        lambda out_dir: seen.append(out_dir) or "2026-01-01_00-00-00",
+    )
+    monkeypatch.setattr(
+        runs_service,
+        "run_platform",
+        lambda *args, **kwargs: Outcome(tmp_path / "2026-01-01_00-00-00"),
+    )
+
+    runs_service.create_run(RunRequest(platform="ios", config_path="configs/ios.yaml"))
+
+    assert seen == [tmp_path]

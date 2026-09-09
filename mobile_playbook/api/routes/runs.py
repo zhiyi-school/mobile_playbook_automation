@@ -7,7 +7,13 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from mobile_playbook.api.job_registry import registry
-from mobile_playbook.api.models import RunRequest
+from mobile_playbook.api.models import (
+    ReportResultResponse,
+    RunCreatedResponse,
+    RunRequest,
+    RunResponse,
+    RunSyncStatusResponse,
+)
 from mobile_playbook.api.services import reports as reports_service
 from mobile_playbook.api.services import runs as runs_service
 from mobile_playbook.api.services import sync as sync_service
@@ -16,32 +22,32 @@ from mobile_playbook.reporting.run_events import read_events
 router = APIRouter()
 
 
-@router.post("/runs", status_code=202)
+@router.post("/runs", status_code=202, response_model=RunCreatedResponse)
 def create_run(body: RunRequest) -> dict:
     return runs_service.create_run(body)
 
 
-@router.get("/runs")
+@router.get("/runs", response_model=list[RunResponse])
 def list_runs() -> list[dict]:
     return runs_service.list_runs()
 
 
-@router.get("/runs/{run_id}")
+@router.get("/runs/{run_id}", response_model=RunResponse)
 def get_run(run_id: str) -> dict:
     return runs_service.get_run(run_id)
 
 
-@router.get("/runs/{run_id}/summary")
+@router.get("/runs/{run_id}/summary", response_model=list[ReportResultResponse])
 def get_run_summary(run_id: str) -> list[dict]:
     return runs_service.run_summary(run_id)
 
 
-@router.get("/runs/{run_id}/sync-status")
+@router.get("/runs/{run_id}/sync-status", response_model=RunSyncStatusResponse)
 def get_run_sync_status(run_id: str) -> dict:
     return sync_service.run_sync_status(run_id)
 
 
-@router.post("/runs/{run_id}/sync", status_code=202)
+@router.post("/runs/{run_id}/sync", status_code=202, response_model=RunSyncStatusResponse)
 def resync_run(run_id: str) -> dict:
     return sync_service.resync_run(run_id)
 

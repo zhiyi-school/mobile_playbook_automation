@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from mobile_playbook import dashboard_sync
+from mobile_playbook.dashboard_syncing.mapping import sync_application
 from mobile_playbook.artifact_store import extraction, resolver, store
 from mobile_playbook.reporting.run_manifest import artifact_checksums, read_manifest, write_manifest
 from tests.icon_helpers import make_ipa, make_png, primary_icon_info
@@ -103,7 +103,7 @@ def test_sync_links_the_build_the_run_used_not_a_newer_upload(tmp_path, monkeypa
 
     recording = RecordingStore()
     recording.rows[("example_app", "ios")] = {"id": "row-1"}
-    dashboard_sync._sync_application(_row(), recording, digest_a)
+    sync_application(_row(), recording, digest_a)
 
     written = recording.updates[0]
     assert written["artifact_sha256"] == digest_a
@@ -119,7 +119,7 @@ def test_sync_keeps_the_existing_icon_when_the_recorded_build_has_no_derived_ico
 
     recording = RecordingStore()
     recording.rows[("example_app", "ios")] = {"id": "row-1"}
-    dashboard_sync._sync_application(_row(), recording, digest)
+    sync_application(_row(), recording, digest)
 
     written = recording.updates[0]
     assert "icon_ref" not in written
@@ -134,7 +134,7 @@ def test_a_legacy_run_without_artifacts_falls_back_to_the_resolver(tmp_path, mon
 
     recording = RecordingStore()
     recording.rows[("example_app", "ios")] = {"id": "row-1"}
-    dashboard_sync._sync_application(_row(), recording, None)
+    sync_application(_row(), recording, None)
 
     assert recording.updates[0]["icon_ref"] == f"icons/{digest}.png"
 
@@ -146,7 +146,7 @@ def test_sync_matches_the_application_row_on_platform_as_well_as_id(tmp_path, mo
 
     recording = RecordingStore()
     recording.rows[("example_app", "ios")] = {"id": "ios-row"}
-    dashboard_sync._sync_application(_row(platform="android"), recording, None)
+    sync_application(_row(platform="android"), recording, None)
 
     assert "ios-row" not in recording.updated_ids
     assert recording.upserted
@@ -195,7 +195,7 @@ def test_written_icon_fields_satisfy_the_migration_constraints(tmp_path, monkeyp
 
     recording = RecordingStore()
     recording.rows[("example_app", "ios")] = {"id": "row-1"}
-    dashboard_sync._sync_application(_row(), recording, digest)
+    sync_application(_row(), recording, digest)
 
     _assert_migration_compatible(recording.updates[0])
 
@@ -207,7 +207,7 @@ def test_an_unavailable_icon_writes_constraint_safe_values(tmp_path, monkeypatch
 
     recording = RecordingStore()
     recording.rows[("example_app", "ios")] = {"id": "row-1"}
-    dashboard_sync._sync_application(_row(), recording, None)
+    sync_application(_row(), recording, None)
 
     written = recording.updates[0]
     _assert_migration_compatible(written)
@@ -222,7 +222,7 @@ def test_no_image_bytes_are_ever_written_to_the_dashboard(tmp_path, monkeypatch)
 
     recording = RecordingStore()
     recording.rows[("example_app", "ios")] = {"id": "row-1"}
-    dashboard_sync._sync_application(_row(), recording, None)
+    sync_application(_row(), recording, None)
 
     for value in recording.updates[0].values():
         assert not isinstance(value, (bytes, bytearray))

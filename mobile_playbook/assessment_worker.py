@@ -19,7 +19,8 @@ from pathlib import Path
 from typing import Any, Callable, Mapping, Protocol, Sequence
 from urllib import error, parse, request
 
-from mobile_playbook.dashboard_sync import SupabaseRestError, SupabaseRestStore
+from mobile_playbook.dashboard_syncing.contracts import SupabaseRestError
+from mobile_playbook.dashboard_syncing.supabase import SupabaseRestStore
 from mobile_playbook.env_file import load_env_file
 
 logger = logging.getLogger(__name__)

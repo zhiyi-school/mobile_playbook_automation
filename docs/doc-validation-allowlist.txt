@@ -1,0 +1,2 @@
+# Exact frontend-owned paths intentionally referenced by backend documentation.
+docs/developer-playbook.md|src/test-fixtures/playbook-control-v1.json

@@ -2,29 +2,26 @@ from __future__ import annotations
 
 from typing import Annotated
 
-import re
-
 from fastapi import APIRouter, Query
 from fastapi.responses import FileResponse, JSONResponse
 
 from mobile_playbook.api.services import reports as reports_service
+from mobile_playbook.api.downloads import safe_filename
+from mobile_playbook.api.models import ReportResultResponse
 
 router = APIRouter()
 
 SARIF_MEDIA_TYPE = "application/sarif+json"
-_UNSAFE_FILENAME = re.compile(r"[^A-Za-z0-9._-]")
 
 
 def secure_filename(value: str) -> str:
-    return _UNSAFE_FILENAME.sub("_", value) or "run"
-
-
+    return safe_filename(value, "run", basename=False, strip_leading_dots=False)
 @router.get("/reports")
 def list_reports() -> list[str]:
     return reports_service.list_report_timestamps()
 
 
-@router.get("/reports/{run_timestamp}/summary")
+@router.get("/reports/{run_timestamp}/summary", response_model=list[ReportResultResponse])
 def report_summary(run_timestamp: str) -> list[dict]:
     return reports_service.read_dashboard_results(run_timestamp)
 
@@ -55,6 +52,6 @@ def evidence_file(run_timestamp: str, ref: str) -> FileResponse:
     )
 
 
-@router.get("/apps/{app_id}/risks/{risk_id}/history")
+@router.get("/apps/{app_id}/risks/{risk_id}/history", response_model=list[ReportResultResponse])
 def app_risk_history(app_id: str, risk_id: str, limit: Annotated[int, Query(ge=1, le=100)] = 20) -> list[dict]:
     return reports_service.app_risk_history(app_id, risk_id, limit)

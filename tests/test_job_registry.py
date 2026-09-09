@@ -2,7 +2,12 @@ from __future__ import annotations
 
 import json
 
-from mobile_playbook.api.job_registry import INTERRUPTED_ERROR, JobRegistry
+from mobile_playbook.api.job_registry import DEFAULT_PERSIST_PATH, INTERRUPTED_ERROR, JobRegistry
+from mobile_playbook.api.settings import REPORTS_ROOT
+
+
+def test_default_registry_lives_inside_the_api_report_root():
+    assert DEFAULT_PERSIST_PATH == REPORTS_ROOT / ".job_registry.json"
 
 
 def test_create_and_complete_persists_to_disk(tmp_path):

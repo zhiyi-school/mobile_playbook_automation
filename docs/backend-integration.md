@@ -137,7 +137,7 @@ Everything else is optional and adds a capability.
 | **Starting runs** | `POST /runs`, plus `GET /platforms/{platform}/risks` and `GET /config/{platform}/apps` to build the request |
 | **Live progress** | `GET /runs/{run_id}/events` (SSE); polling `GET /runs/{run_id}` is the fallback and remains authoritative for completion |
 | **Application provisioning** | `POST /config/{platform}/apps`, `GET /config/{platform}/apps/{app_id}`, `GET /config/{platform}/apps/{app_id}/provisioning`, `DELETE /config/{platform}/apps/{app_id}`, `POST /artifacts/{platform}` |
-| **Report and evidence viewing** | `GET /reports/{run_timestamp}/files/{file_path}`, `GET /reports/{run_timestamp}/evidence-file?path=…` |
+| **Report and evidence viewing** | `GET /reports/{run_timestamp}/files/{file_path}`, `GET /reports/{run_timestamp}/evidence-file?ref=…` |
 | **Finding history** | `GET /apps/{app_id}/risks/{risk_id}/history` |
 | **Dashboard synchronisation** | `GET /runs/{run_id}/sync-status`, `GET /sync/status`, `POST /runs/{run_id}/sync` |
 | **SARIF export** | `GET /reports/{run_timestamp}/sarif` |
@@ -188,8 +188,8 @@ are optional comma-separated selectors; omitting either means "everything
 enabled". `409` if that platform already has a run in progress; `422` for an
 unknown app or risk.
 
-**The `run_id` is the run timestamp**, and it is the `reports/<RUN_TIMESTAMP>/`
-directory name. It is reserved atomically when the request arrives, so it is
+**The `run_id` is the run timestamp**, and it is the
+`<configured-report-root>/<RUN_TIMESTAMP>/` directory name. It is reserved atomically when the request arrives, so it is
 known before the run finishes, and two requests in the same second never
 collide (the second gets a `-2` suffix). There is no second ID scheme.
 
@@ -246,13 +246,15 @@ Evidence paths appear on each result row. Two endpoints serve them:
 
 ```bash
 curl http://127.0.0.1:8080/reports/<RUN_TIMESTAMP>/files/<REPORT_PATH>/report.json
-curl "http://127.0.0.1:8080/reports/<RUN_TIMESTAMP>/evidence-file?path=<EVIDENCE_PATH>"
+curl -OJ "http://127.0.0.1:8080/reports/<RUN_TIMESTAMP>/evidence-file?ref=<OPAQUE_REF>"
 ```
 
-The first serves anything inside that run's report directory. The second also
-reaches artifacts under `work/`. Both refuse paths that resolve outside their
-allowed roots. There is no authentication on either — see
-[Security](#security-and-deployment).
+The first serves a report-relative path. The second accepts only the opaque
+`ref` returned in a summary/history evidence item; its `path` is display metadata
+and must not be sent as the query parameter. Historical rows are enriched at read
+time without rewriting `dashboard_results.json`, and missing artifacts disappear
+from those responses. See the authoritative [report-root and evidence contract](api.md#report-root-and-evidence-contract),
+including error codes and the fact that a ref is not an authorization credential.
 
 ### SARIF export
 
@@ -331,6 +333,12 @@ python -m mobile_playbook.dashboard_sync --reports-dir reports
 It is triggered automatically after each run and by a launchd recovery sweep.
 Monitoring, locking, ledger and retry semantics are in
 [operations.md](operations.md).
+
+For embedded integrations, depend on the store protocol and orchestration under
+`mobile_playbook.dashboard_syncing`, not the CLI facade. A different
+`DashboardSyncStore` implementation can retain the same mapping and retry
+ordering. The bundled `SupabaseRestStore` remains worker-only because it reads
+the service-role credential.
 
 **Automation status and dashboard sync status are different questions.** A run
 is `completed` when the device finished and the report is on disk; its sync is

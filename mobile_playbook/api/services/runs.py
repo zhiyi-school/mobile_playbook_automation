@@ -8,7 +8,8 @@ from fastapi import HTTPException
 from mobile_playbook.api.dependencies import load_config_or_400
 from mobile_playbook.api.job_registry import registry
 from mobile_playbook.api.models import Platform, RunRequest
-from mobile_playbook.api.services.reports import read_dashboard_results
+from mobile_playbook.api.services.reports import REPORTS_ROOT, read_dashboard_results
+from mobile_playbook.api.settings import REPOSITORY_ROOT
 from mobile_playbook.dashboard_sync_trigger import trigger_dashboard_sync
 from mobile_playbook.orchestration.artifact_intake import (
     selected_app_csv,
@@ -33,6 +34,21 @@ PLATFORM_RUNNERS = {
 }
 
 KNOWN_RISKS_BY_PLATFORM = {"ios": known_ios_risks, "android": known_android_risks}
+
+
+def api_out_dir(requested: str | None) -> Path:
+    if requested is None:
+        return REPORTS_ROOT
+    path = Path(requested).expanduser()
+    if not path.is_absolute():
+        path = REPOSITORY_ROOT / path
+    resolved = path.resolve()
+    if resolved != REPORTS_ROOT.resolve():
+        raise HTTPException(
+            status_code=422,
+            detail="out_dir must identify the API's configured report root",
+        )
+    return resolved
 
 
 def report_writer_factory(platform: Platform):
@@ -74,7 +90,7 @@ def create_run(body: RunRequest) -> dict:
         raise HTTPException(status_code=409, detail=f"A {body.platform} run is already in progress")
 
     try:
-        out_dir = Path(body.out_dir)
+        out_dir = api_out_dir(body.out_dir)
         run_timestamp = reserve_run_timestamp(out_dir)
         record = registry.create(
             run_timestamp, body.platform, body.config_path, apps=body.apps, risks=body.risks

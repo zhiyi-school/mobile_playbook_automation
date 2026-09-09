@@ -8,7 +8,7 @@ is the point of this document.
 | Term | Meaning | Who follows it | Where it lives |
 | --- | --- | --- | --- |
 | **Risk** | The security problem an assessment discovered | — | `configs/split/<platform>/risks.yaml` |
-| **Security demonstration** | The steps security uses to demonstrate or validate the risk | Security | the `demonstration` block in `risks.yaml` |
+| **Security demonstration** | The steps security uses to demonstrate or validate the risk | Security | the risk Markdown `Demonstration` section; `risks.yaml` is fallback |
 | **Control** | The remediation approach that addresses a risk | Developers | one Markdown file in the external playbook directory |
 | **Control step** | One action a developer performs to implement a control | Developers | a numbered item inside that Markdown file |
 | **Developer progress** | How far a developer has got through a control's steps | Developers | Supabase, in the dashboard repository |
@@ -239,6 +239,45 @@ and everything rendered under it. The dashboard uses it to flag a step that chan
 while a developer had the ticket open; it is never used to store or re-render
 an older version.
 
+### Edit compatibility
+
+Document/control identity is the canonical heading-derived `control_id`.
+Progress identity is the independent `step_key`. `playbook_revision` identifies
+the parsed document and `content_hash` identifies rendered step content; neither
+is a progress key. Supabase stores completion against `(ticket_control_id,
+step_key)` and reconciliation adds missing current keys without deleting history.
+
+| Edit | Identity and stored progress |
+| --- | --- |
+| Reorder or renumber | Preserved for declared and generated ids |
+| Add a step | New row on reconciliation; other rows preserved |
+| Remove a step/control | Historical rows remain, but disappear from current rendering/counts |
+| Change body, command, or image | Key preserved; content hash/revision changes |
+| Retitle a generated-id step | New key; old completion is not transferred |
+| Retitle a declared-id step | Key preserved; content hash/revision changes |
+| Add/change/remove a directive | Preserved only if the resulting key is exactly the old key |
+
+There is no fuzzy title mapping. An unchanged exact key is the only supported
+way to retain completion.
+
+### Adopting declared ids
+
+1. Keep an unedited copy of the playbook and validate it.
+2. Inventory current ids with the catalogue or the JSON validator result.
+3. Add directives using the existing effective generated key when progress
+   should survive; do not replace it with a nicer slug merely because wording
+   is similar.
+4. Preview the exact before/after mapping:
+
+   ```sh
+   python -m mobile_playbook.playbook.identity_preview \
+     --platform ios --old-root /path/to/before --new-root /path/to/after
+   ```
+
+5. Review every added, removed, content-changed, ambiguous, or colliding key.
+   Intentionally changed work gets a new key and begins incomplete. Resolve all
+   identity errors before publishing.
+
 ## Identity
 
 **The level-2 heading is the identity, not the filename.** A file called
@@ -301,7 +340,7 @@ That means an edit to a control appears on the next request with no restart. A
 fingerprint cannot see, and a restart always rebuilds. The files on disk are
 authoritative; the cache is only a performance optimisation.
 
-## Warnings
+## Validation and diagnostics
 
 `GET /platforms/{platform}/playbook/status` reports everything the catalogue
 found wrong. Nothing here stops a control being served — the point is that a
@@ -309,15 +348,37 @@ problem is visible rather than silently swallowed. One malformed document does
 not take the catalogue down; only a document that cannot be read at all is
 skipped, with a warning.
 
-To read the same information from a terminal:
+Use the read-only validator for maintenance and CI. The root is mandatory, so
+the command cannot silently fall through to machine-local configuration:
 
-```
-python -m mobile_playbook validate-playbook --platform ios
+```sh
+python -m mobile_playbook.playbook.validator \
+  --platform ios --root /path/to/playbook
 ```
 
-That prints the risk-to-control mapping, each control's step count and whether
-it has an archive, each risk's demonstration step count, the catalogue
-revision, and every warning. It never prints archive contents or secrets.
+It uses the production parser/catalogue without FastAPI, devices, Supabase, or
+secrets. `--format json` emits stable fields (`code`, `severity`, relative
+`path`, optional `line`/`section`, and `message`). Errors return nonzero;
+`--strict` also fails on warnings. The validator reads files and archive
+metadata only: it never writes, extracts or executes archives/code blocks, and
+never fetches external URLs.
+
+Errors cover identity conflicts, broken risk/control relationships, malformed
+or duplicate step ids, generated-id collisions, missing local files/images/
+archives, and references outside the root. Warnings cover actionable authoring
+quality, unsupported link schemes, malformed external URLs, and missing
+heading anchors. Supporting Markdown that does not claim a risk/control
+identity is allowed. The API status endpoint retains its non-blocking catalogue
+warnings for runtime observability; it is not a substitute for this validator.
+
+| Validator severity | Codes | Meaning |
+| --- | --- | --- |
+| Error | `duplicate_document_id`, `duplicate_step_id`, `duplicate_generated_step_id`, `malformed_step_id`, `unrecognized_document_identity` | Identity is ambiguous, colliding, or claims an invalid risk/control form |
+| Error | `control_without_risk`, `cross_risk_control_link`, `missing_control_file` | The risk/control relationship cannot be resolved safely |
+| Error | `missing_local_link`, `missing_image`, `missing_source_archive`, `reference_outside_root` | Required local content is absent or escapes the allowed root |
+| Warning | `missing_heading_anchor` | The document exists but its referenced heading does not |
+| Warning | `invalid_external_url`, `unsupported_link_scheme` | An external/custom target cannot be validated as a supported local or HTTP(S) link |
+| Warning | Other catalogue codes below | Content remains parseable but needs author review |
 
 | Code | Meaning |
 | --- | --- |
@@ -338,6 +399,46 @@ revision, and every warning. It never prints archive contents or secrets.
 | `risk_without_controls` | A risk document has no developer controls |
 | `control_without_risk` | A control's risk has no document in the directory |
 | `document_unreadable` | A document could not be read or decoded |
+
+## Parser-to-frontend contract fixture
+
+`tests/fixtures/playbook_contract/` is the sanitized source fixture. It covers
+risk/control relationships, heading and list-compatible parsing, explicit and
+generated ids, nested content, an SVG, and an inert archive. Backend tests parse
+that source directly. The frontend consumes one generated transport artifact at
+`src/test-fixtures/playbook-control-v1.json` in its repository. The filename is
+the transport-fixture version; it is not an API version-negotiation mechanism.
+
+Regenerate that artifact from the source parser rather than editing two
+expectations independently:
+
+```sh
+python -m mobile_playbook.playbook.contract_fixture \
+  --root tests/fixtures/playbook_contract --platform ios \
+  --control-id ios-feature-01-risk-01-control-01 \
+  --output /path/to/optimus-v1/src/test-fixtures/playbook-control-v1.json
+```
+
+Review the generated diff, then run backend validator tests and the frontend
+`playbook-contract.test.tsx`. The frontend test renders blocks and asserts that
+the same step keys and content hashes drive reconciliation. Invalid and
+ambiguous cases stay in backend validator tests and temporary directories; they
+are not a second expected transport payload.
+
+For a read-only compatibility check against an explicit frontend checkout, use
+`--check` instead of `--output`:
+
+```sh
+python -m mobile_playbook.playbook.contract_fixture \
+  --root tests/fixtures/playbook_contract --platform ios \
+  --control-id ios-feature-01-risk-01-control-01 \
+  --check /path/to/optimus-v1/src/test-fixtures/playbook-control-v1.json
+```
+
+The check returns nonzero and prints a unified diff when the explicit
+counterpart artifact differs. It never discovers or checks out a sibling
+repository on its own; record the backend and frontend revisions being tested
+when using it for a release.
 
 ## Assets and archives
 

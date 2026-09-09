@@ -24,7 +24,7 @@ ARCHIVES_DIR = "implemented_controls"
 
 
 class PlaybookUnavailableError(RuntimeError):
-    """The configured playbook directory is missing, unreadable, or not configured."""
+    pass
 
 
 def playbook_dir_env_key(platform: str) -> str | None:
@@ -43,7 +43,6 @@ def configured_root(platform: str) -> Path | None:
 
 
 def playbook_root(platform: str) -> Path | None:
-    """The configured directory when it is a readable directory, else `None`."""
     root = configured_root(platform)
     if root is None:
         return None
@@ -114,7 +113,6 @@ def markdown_files(root: Path) -> list[Path]:
 
 
 def asset_files(root: Path) -> list[Path]:
-    """Screenshots and implemented-control archives, wherever they are nested."""
     found: list[Path] = []
     for directory in (ATTACHMENTS_DIR, ARCHIVES_DIR):
         target = root / directory

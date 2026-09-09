@@ -9,7 +9,9 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
 
-DEFAULT_PERSIST_PATH = Path("reports/.job_registry.json")
+from mobile_playbook.api.settings import REPORTS_ROOT
+
+DEFAULT_PERSIST_PATH = REPORTS_ROOT / ".job_registry.json"
 
 INTERRUPTED_ERROR = "Interrupted by API server restart"
 logger = logging.getLogger(__name__)

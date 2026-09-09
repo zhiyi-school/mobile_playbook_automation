@@ -67,7 +67,7 @@ class RunRequest(BaseModel):
     config_path: str
     apps: str | None = None
     risks: str | None = None
-    out_dir: str = "reports"
+    out_dir: str | None = None
 
 
 class CisoRequest(BaseModel):
@@ -154,3 +154,79 @@ class RunnerUpdateRequest(BaseModel):
 
     def updates(self) -> dict[str, Any]:
         return self.model_dump(mode="json", include=self.model_fields_set, exclude_unset=True)
+
+
+class EvidenceResponse(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    kind: str
+    path: str
+    ref: str
+    label: str
+    size_bytes: int
+
+
+class ReportResultResponse(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    run_timestamp: str | None = None
+    app_id: str | None = None
+    test_id: str | None = None
+    verdict: str | None = None
+    evidence: list[EvidenceResponse] = Field(default_factory=list)
+
+
+class RunResponse(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    run_id: str
+    platform: Platform
+    config_path: str | None = None
+    status: str
+    run_timestamp: str | None = None
+    run_dir: str | None = None
+    error: str | None = None
+    started_at: str | None = None
+    completed_at: str | None = None
+    apps: str | None = None
+    risks: str | None = None
+
+
+class RunCreatedResponse(BaseModel):
+    run_id: str
+    platform: Platform
+    status: str
+
+
+class SyncCountsResponse(BaseModel):
+    applications: int = 0
+    assessments: int = 0
+    findings: int = 0
+    history: int = 0
+    activity: int = 0
+
+
+class RunSyncStatusResponse(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    run_id: str
+    run_timestamp: str
+    status: str
+    attempt: int
+    queued_at: str | None = None
+    started_at: str | None = None
+    completed_at: str | None = None
+    last_updated_at: str | None = None
+    error: str | None = None
+    retryable: bool
+    counts: SyncCountsResponse
+
+
+class WorkerSyncStatusResponse(BaseModel):
+    enabled: bool
+    worker_state: Literal["running", "idle"]
+    queue_depth: int
+    last_success_at: str | None = None
+    last_failure_at: str | None = None
+    last_error: str | None = None
+    recovery_sweep_enabled: bool

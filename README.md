@@ -145,6 +145,24 @@ work/android/          generated Android working files
 reports/               timestamped run reports
 ```
 
+## Contributor verification
+
+After creating and activating a Python 3.11+ environment and installing with
+`python -m pip install -e .`, run:
+
+```bash
+python scripts/check_requirements.py
+python scripts/check_docs.py
+python -m compileall -q mobile_playbook/
+python -m pytest -q
+```
+
+These checks use sanitized fixtures and require no credentials, devices,
+Appium, Supabase, external playbook, or sibling checkout. Focused contract and
+explicit cross-repository commands are in [docs/testing.md](docs/testing.md).
+The dashboard's guarded Docker database verification remains in its own
+repository as `npm run test:database`.
+
 Results are reachable over HTTP: `python -m mobile_playbook.api` exposes run triggering and report reading (including `dashboard_results.json` and a SARIF 2.1.0 export) as an API any dashboard can call. A companion React dashboard lives in a separate repository; see [docs/backend-integration.md](docs/backend-integration.md) for the contract between them.
 
 ## Documentation

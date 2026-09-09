@@ -196,13 +196,24 @@ Read [api.md](api.md#security-model) before binding it to anything else.
 `reports/` and `work/` are gitignored. Report contents are real assessment
 data — treat them as sensitive.
 
+For API runs, `REPORTS_DIR` selects one root for creation, lookup, registry
+state, history and synchronization; relative values are repository-relative.
+CLI `--out` remains custom and working-directory-relative. See the
+[report-root contract](api.md#report-root-and-evidence-contract).
+
 ## 11. Verify the install
 
 ```bash
+python scripts/check_requirements.py
+python scripts/check_docs.py
+python -m compileall -q mobile_playbook/
 python -m pytest -q
 ```
 
-See [testing.md](testing.md) for what the suite covers and how to run subsets.
+These checks need no `.env`, device, Appium, Supabase project, external
+playbook, or network after dependencies are installed. See
+[testing.md](testing.md) for focused contracts, dependency ownership, CI, and
+the checks that live in the frontend repository. Live runs remain separate.
 
 ## Next
 

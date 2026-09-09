@@ -118,7 +118,7 @@ def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     load_env_file(ENV_FILE)
 
-    from mobile_playbook.dashboard_sync import SupabaseRestStore
+    from mobile_playbook.dashboard_syncing.supabase import SupabaseRestStore
 
     try:
         store = SupabaseRestStore.from_env()
