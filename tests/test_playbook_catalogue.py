@@ -360,6 +360,23 @@ class TestStableStepIds:
         assert before["steps"][1]["step_key"] == after["steps"][1]["step_key"]
         assert before["steps"][1]["content_hash"] != after["steps"][1]["content_hash"]
 
+    def test_a_blank_line_inside_a_fence_is_content_the_hash_covers(self, tmp_path, monkeypatch):
+        spaced = CONTROL.replace("example --flag value", "example --flag value\n")
+        before = build_control(tmp_path / "a", monkeypatch, CONTROL)
+        after = build_control(tmp_path / "b", monkeypatch, spaced)
+
+        assert before["steps"][1]["step_key"] == after["steps"][1]["step_key"]
+        assert before["steps"][1]["content_hash"] != after["steps"][1]["content_hash"]
+
+    def test_a_reformatted_code_block_never_moves_a_step_identity(self, tmp_path, monkeypatch):
+        spaced = CONTROL.replace("example --flag value", "\nexample --flag value\n")
+        before = build_control(tmp_path / "a", monkeypatch, CONTROL)
+        after = build_control(tmp_path / "b", monkeypatch, spaced)
+
+        assert [step["step_key"] for step in before["steps"]] == [
+            step["step_key"] for step in after["steps"]
+        ]
+
     def test_a_declared_id_is_not_rendered_as_instruction_text(self, tmp_path, monkeypatch):
         control = build_control(
             tmp_path,

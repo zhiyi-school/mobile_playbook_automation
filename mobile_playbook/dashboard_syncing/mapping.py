@@ -204,6 +204,21 @@ def sync_finding(
     return recorded_change
 
 
+def reconcile_ticket_after_retest(store: DashboardSyncStore, ticket_id: str | None, status: str) -> None:
+    """A finished run only moves the remediation on once nothing else is outstanding."""
+    if not ticket_id:
+        return
+    outstanding = store.outstanding_retests_for_ticket(ticket_id)
+    if any(row.get("status") == "running" for row in outstanding):
+        store.update_ticket_status(ticket_id, "retest_in_progress")
+        return
+    if outstanding:
+        store.update_ticket_status(ticket_id, "retest_requested")
+        return
+    if status == "completed":
+        store.update_ticket_status(ticket_id, "under_review")
+
+
 def sync_retest(run_timestamp: str, store: DashboardSyncStore, status: str, result: str) -> bool:
     retest = store.find_retest_by_external_run_id(run_timestamp)
     if retest is None or retest.get("status") in {"completed", "failed", "cancelled"}:
@@ -220,8 +235,7 @@ def sync_retest(run_timestamp: str, store: DashboardSyncStore, status: str, resu
                 "sync_key": sync_key(str(retest["id"]), run_timestamp, "retest"),
             }
         )
-    if status == "completed" and retest.get("ticket_id"):
-        store.update_ticket_status(retest["ticket_id"], "under_review")
+    reconcile_ticket_after_retest(store, retest.get("ticket_id"), status)
     logger.info("dashboard sync: retest %s marked %s from run %s.", retest["id"], status, run_timestamp)
     return True
 

@@ -58,6 +58,13 @@ class FakeStore:
     def update_retest(self, retest_id: str, fields: Mapping[str, Any]) -> dict[str, Any]:
         return _update(self.retest_runs, retest_id, fields)
 
+    def outstanding_retests_for_ticket(self, ticket_id: str) -> list[dict[str, Any]]:
+        return [
+            {"id": row["id"], "status": row["status"]}
+            for row in self.retest_runs
+            if row.get("ticket_id") == ticket_id and row.get("status") in {"queued", "running"}
+        ]
+
     def update_ticket_status(self, ticket_id: str, status: str) -> dict[str, Any]:
         return _update(self.tickets, ticket_id, {"status": status})
 

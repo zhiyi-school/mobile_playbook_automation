@@ -102,9 +102,19 @@ class SupabaseRestStore:
         return self._single("findings", {"external_id": f"eq.{external_id}", "select": "*"})
 
     def find_retest_by_external_run_id(self, run_timestamp: str) -> dict[str, Any] | None:
-        return self._single(
+        # Several requests may be outstanding for one risk, so a run must name
+        # exactly one of them; two matches is a data fault, not a row to pick from.
+        rows = self._get("retest_runs", {"external_test_run_id": f"eq.{run_timestamp}", "select": "*", "limit": "2"})
+        if not rows:
+            return None
+        if len(rows) > 1:
+            raise ValueError(f"run {run_timestamp} is linked to more than one reassessment request")
+        return rows[0]
+
+    def outstanding_retests_for_ticket(self, ticket_id: str) -> list[dict[str, Any]]:
+        return self._get(
             "retest_runs",
-            {"external_test_run_id": f"eq.{run_timestamp}", "select": "*", "limit": "1"},
+            {"ticket_id": f"eq.{ticket_id}", "status": "in.(queued,running)", "select": "id,status"},
         )
 
     def update_retest(self, retest_id: str, fields: Mapping[str, Any]) -> dict[str, Any]:

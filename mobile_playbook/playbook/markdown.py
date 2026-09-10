@@ -11,7 +11,8 @@ FRONT_MATTER = re.compile(r"\A---[ \t]*\r?\n(.*?)\r?\n---[ \t]*\r?\n", re.S)
 HEADING = re.compile(r"^(#{1,6})\s+(.*?)\s*#*\s*$")
 ORDERED_ITEM = re.compile(r"^(\d+)[.)]\s*(.*)$")
 BULLET_ITEM = re.compile(r"^[-*+]\s+(.*)$")
-FENCE = re.compile(r"^(`{3,}|~{3,})\s*([^\s`~]*)\s*$")
+FENCE_OPEN = re.compile(r"^([ \t]*)(`{3,}|~{3,})[ \t]*([^\s`~]*)[ \t]*$")
+FENCE_CLOSE = re.compile(r"^[ \t]*(`{3,}|~{3,})[ \t]*$")
 TABLE_DIVIDER = re.compile(r"^\|?(?:\s*:?-{1,}:?\s*\|)+\s*:?-{0,}:?\s*\|?$")
 HTML_IMG = re.compile(r"<img\b([^>]*?)/?>", re.I)
 HTML_TAG = re.compile(r"<[^>]+>")
@@ -95,8 +96,18 @@ def caption_text(text: str) -> str | None:
     return " ".join((match.group(1) or match.group(2) or "").split()) or None
 
 
+def _strip_fence_indent(line: str, indent: int) -> str:
+    removed = 0
+    while removed < indent and removed < len(line) and line[removed] == " ":
+        removed += 1
+    return line[removed:]
+
+
 def parse_blocks(text: str) -> list[dict[str, Any]]:
     lines = text.replace("\r\n", "\n").split("\n")
+    # A document's final newline terminates its last line rather than adding an empty one.
+    if lines and lines[-1] == "":
+        lines.pop()
     blocks: list[dict[str, Any]] = []
     buffer: list[str] = []
     index = 0
@@ -116,20 +127,22 @@ def parse_blocks(text: str) -> list[dict[str, Any]]:
             index += 1
             continue
 
-        fence = FENCE.match(stripped)
+        fence = FENCE_OPEN.match(line)
         if fence is not None:
             flush()
-            marker = fence.group(1)[0]
+            indent, marker, info = len(fence.group(1)), fence.group(2), fence.group(3)
             body: list[str] = []
             index += 1
             while index < len(lines):
-                closing = FENCE.match(lines[index].strip())
-                if closing is not None and closing.group(1)[0] == marker:
+                closing = FENCE_CLOSE.match(lines[index])
+                # Only a fence of the same marker and at least the opening length closes
+                # the block, so a shorter fence inside it stays content.
+                if closing is not None and closing.group(1)[0] == marker[0] and len(closing.group(1)) >= len(marker):
                     index += 1
                     break
-                body.append(lines[index])
+                body.append(_strip_fence_indent(lines[index], indent))
                 index += 1
-            blocks.append({"type": "code", "language": fence.group(2) or None, "text": "\n".join(body).strip("\n")})
+            blocks.append({"type": "code", "language": info or None, "text": "\n".join(body)})
             continue
 
         heading = HEADING.match(stripped)

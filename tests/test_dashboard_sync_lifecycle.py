@@ -185,3 +185,69 @@ def test_provisioning_fields_are_set_on_every_adoption_path(tmp_path):
 
     assert store.applications[0]["provisioning_status"] == "ready"
     assert store.applications[0]["provisioning_error"] is None
+
+
+def _find_row(rows, row_id):
+    return next(row for row in rows if row["id"] == row_id)
+
+
+def test_a_second_outstanding_request_keeps_the_ticket_waiting(tmp_path):
+    """Completing one request must not put the remediation under review while others wait."""
+    _report(tmp_path, RUN, [_row(run_timestamp=RUN)])
+    store = _store_with_retest()
+    store.retest_runs.append(
+        {
+            "id": "retest_2",
+            "ticket_id": "ticket_1",
+            "finding_id": "finding_1",
+            "external_test_run_id": None,
+            "status": "queued",
+            "result": None,
+            "completed_at": None,
+        }
+    )
+
+    sync_reports(tmp_path, store, risk_counts={"ios": 3})
+
+    assert _find_row(store.retest_runs, "retest_1")["status"] == "completed"
+    assert _find_row(store.retest_runs, "retest_2")["status"] == "queued"
+    assert store.tickets[0]["status"] == "retest_requested"
+
+
+def test_a_run_linked_to_two_requests_is_refused_rather_than_guessed(tmp_path):
+    store = _store_with_retest()
+    store.tickets[0]["status"] = "retest_in_progress"
+    store.retest_runs.append(
+        {
+            "id": "retest_2",
+            "ticket_id": "ticket_1",
+            "finding_id": "finding_1",
+            "external_test_run_id": RUN,
+            "status": "running",
+            "result": None,
+            "completed_at": None,
+        }
+    )
+
+    from mobile_playbook.dashboard_syncing.supabase import SupabaseRestStore
+
+    rows = [row for row in store.retest_runs if row["external_test_run_id"] == RUN]
+    assert len(rows) == 2
+
+    # The real store refuses an ambiguous link rather than picking a row.
+    ambiguous = SupabaseRestStore.__new__(SupabaseRestStore)
+    object.__setattr__(ambiguous, "_get", lambda table, params: rows)
+    with pytest.raises(ValueError, match="more than one reassessment"):
+        SupabaseRestStore.find_retest_by_external_run_id(ambiguous, RUN)
+
+
+def test_repeated_synchronisation_of_one_request_stays_idempotent(tmp_path):
+    _report(tmp_path, RUN, [_row(run_timestamp=RUN)])
+    store = _store_with_retest()
+
+    sync_reports(tmp_path, store, risk_counts={"ios": 3})
+    events = len(store.risk_conversation_entries)
+    sync_reports(tmp_path, store, risk_counts={"ios": 3}, force=True)
+
+    assert len(store.risk_conversation_entries) == events
+    assert _find_row(store.retest_runs, "retest_1")["status"] == "completed"

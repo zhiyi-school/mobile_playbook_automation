@@ -171,6 +171,32 @@ heading or the next structural section:
 - An ordered list inside a step is content, not extra steps.
 - A number inside a paragraph or a code block never starts a step.
 
+#### Fenced code blocks
+
+Fenced blocks follow CommonMark closely enough that what you write is what the
+dashboard shows and copies:
+
+- Either ``` ``` ``` or `~~~` opens a block; the info string after it becomes the
+  block's `language`, with or without a separating space.
+- Only a fence of the **same marker and at least the opening length** closes the
+  block, so a three-backtick fence inside a four-backtick block stays content.
+- A closing fence may not carry an info string; ` ```swift ` part-way through a
+  block is content, not a terminator.
+- An indented opening fence strips up to that much leading whitespace from each
+  content line. Deeper indentation inside the block is preserved.
+- Blank lines are preserved everywhere inside the block, including immediately
+  after the opening fence and before the closing one.
+- An unclosed fence runs to the end of the document.
+
+`text` is the block's content lines joined by `\n` after CRLF is normalised to
+LF, with no trailing newline. A block holding a single blank line and an empty
+block therefore share the same empty `text`.
+
+Blank lines inside a fence are content, so adding or removing one changes that
+step's `content_hash` and the dashboard asks the developer to re-read the step.
+Step identity is derived from the instruction text, not from block content, so
+reformatting a code block never moves recorded progress to a different step.
+
 #### Ordered-list fallback
 
 Documents written before heading-based steps keep working. The precedence is:
