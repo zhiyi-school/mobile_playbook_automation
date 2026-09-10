@@ -68,28 +68,49 @@ heading names the section; matching is case-insensitive.
 
 | Section | Risk document | Control document |
 | --- | --- | --- |
-| `### Description` | The risk's description | The control's title and summary |
-| `### Goal` | The tactic the risk leads to | Kept as introductory content |
+| `### Title` | The risk's displayed name | The control's displayed name |
+| `### Description` | The risk's description, including its MITRE annotation | The control's summary, and its title when no `### Title` is written |
 | `### Demonstration` | Manual-testing steps | Remediation steps |
 | `### Remediation` | — | Remediation steps (alias of `Demonstration`) |
 | `### References` | Reference links | Reference links and the archive link |
 
-`Description`, `Goal`, `Demonstration`, `Remediation` and `References` are
+`Title`, `Description`, `Demonstration`, `Remediation` and `References` are
 structural: their headings are never rendered as ordinary content. Any other
 level-3 heading — `### Additional context`, say — stays visible.
+
+The title is the first paragraph of its section; anything else written under
+`### Title` stays as body content rather than being swallowed by the heading.
+There is no `### Goal` section: the tactic a risk leads to is now written as a
+MITRE annotation inside the Description, described below.
+
+#### The MITRE annotation
+
+A risk's tactic is written inside its `### Description` as
+`(MITRE ATT&CK: ***Tactic Name*** - TA0000)`. The tactic name may carry any
+combination of emphasis markers — `***Name***`, `_**Name**_`, `**Name**` or no
+emphasis at all — and the separator may be a hyphen or an en/em dash. The parser
+records the tactic name and its `TA####` identifier.
+
+Nothing else supplies a tactic. Prose that merely mentions a tactic word is not
+an annotation, and a tactic is never inferred from the risk's identifier,
+filename, demonstration or configuration. A description that names MITRE ATT&CK
+without a well-formed tactic and identifier is reported as
+`malformed_mitre_annotation`; one that names two different tactics is reported as
+`conflicting_mitre_annotation` and no tactic is recorded, rather than one being
+chosen arbitrarily. Both are validation errors.
 
 A risk document:
 
 ```markdown
 ## example-feature-01-risk-01
 
+### Title
+
+<The risk's displayed name>
+
 ### Description
 
-Because the platform provides <feature>, your app is at risk of <threat>.
-
-### Goal
-
-As a result, this could lead to _**Tactic**_ — <consequence>.
+Because the platform provides <feature>, your app is at risk of <threat>. (MITRE ATT&CK: ***Tactic Name*** - TA0000).
 
 ### Demonstration
 
@@ -420,6 +441,9 @@ warnings for runtime observability; it is not a substitute for this validator.
 | `duplicate_step_id` | Two steps declare the same id; the second was given a suffixed key |
 | `duplicate_step_number` | Two steps carry the same number |
 | `missing_description` | A sectioned document has no `Description`, so its title falls back to `Control N` |
+| `missing_title` | A risk document has no `Title` section, so its configured name is used |
+| `malformed_mitre_annotation` | A description names MITRE ATT&CK without both a tactic and a `TA####` identifier |
+| `conflicting_mitre_annotation` | A description names more than one MITRE tactic, so none was recorded |
 | `heading_filename_mismatch` | The heading and the filename disagree; the heading won |
 | `missing_heading` | A document has no level-2 heading; the filename was used |
 | `risk_without_controls` | A risk document has no developer controls |
@@ -494,7 +518,7 @@ that way.
 
 | Lives in | Owns |
 | --- | --- |
-| The Markdown playbook | Descriptions, goals, demonstrations, remediation instructions, references, media |
+| The Markdown playbook | Titles, descriptions, MITRE tactics, demonstrations, remediation instructions, references, media |
 | The configuration files | Automation execution settings and environment-specific configuration |
 | Supabase | Assessment data, workflow state, conversations and step progress |
 

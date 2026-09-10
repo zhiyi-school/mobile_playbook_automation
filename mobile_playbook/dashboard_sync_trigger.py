@@ -5,6 +5,8 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+
+from mobile_playbook.storage import work_root
 from typing import Mapping
 
 logger = logging.getLogger(__name__)
@@ -60,7 +62,7 @@ def trigger_dashboard_sync(reports_dir: Path, run_timestamp: str | None = None) 
     resolved_reports_dir = Path(reports_dir).resolve()
     if run_timestamp:
         _mark_queued(resolved_reports_dir / run_timestamp)
-    log_path = REPOSITORY_ROOT / "work" / "dashboard-sync.log"
+    log_path = work_root() / "dashboard-sync.log"
     command = [
         sys.executable,
         "-m",

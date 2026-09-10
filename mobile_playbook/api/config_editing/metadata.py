@@ -15,7 +15,7 @@ from mobile_playbook.api.config_editing.shared import (
 from mobile_playbook.platforms.android.risks import list_risks as list_android_risks
 from mobile_playbook.platforms.ios.risks import list_risks as list_ios_risks
 
-RISK_METADATA_FIELDS = ("name", "description", "goal", "tactic")
+RISK_METADATA_FIELDS = ("name", "description", "tactic")
 
 
 def known_feature_ids(platform: str) -> list[str]:

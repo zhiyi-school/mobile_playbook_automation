@@ -22,7 +22,6 @@ class RiskMetadataUpdateRequest(BaseModel):
 
     name: str | None = None
     description: str | None = None
-    goal: str | None = None
     tactic: str | None = None
 
     def updates(self) -> dict[str, Any]:

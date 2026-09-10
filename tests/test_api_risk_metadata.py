@@ -29,7 +29,6 @@ def risks_file(config_root):  # noqa: F811
         f"{RISK_ID}:\n"
         "  name: From the playbook\n"
         "  description: Because the iOS platform provides X, your app is at risk of Y.\n"
-        "  goal: As a result, this could lead to Discovery - attackers finding Z.\n"
         "  tactic: Discovery\n"
         "  demonstration:\n"
         "    - id: steps\n"
@@ -52,7 +51,6 @@ def test_yaml_owns_the_displayed_metadata(risks_file):
 
     assert risk["name"] == "From the playbook"
     assert risk["description"].startswith("Because the iOS platform provides X")
-    assert risk["goal"].startswith("As a result")
     assert risk["tactic"] == "Discovery"
     assert len(risk["demonstration"]) == 1
 
@@ -62,9 +60,63 @@ def test_a_risk_class_carries_no_displayed_text(risks_file):
     unlisted = _risk("ios-feature-02-risk-01")
 
     assert unlisted["description"] == ""
-    assert unlisted["goal"] == ""
     assert unlisted["tactic"] is None
     assert unlisted["demonstration"] == []
+
+
+PLAYBOOK_RISK = """## example-feature-01-risk-01
+
+### Title
+
+From the playbook document
+
+### Description
+
+An authored description. (MITRE ATT&CK: ***Collection*** - TA0035).
+
+### Demonstration
+
+#### 01. Do the authored thing
+
+Follow the authored instruction.
+"""
+
+
+@pytest.fixture
+def authored_playbook(empty_playbook, monkeypatch):
+    (empty_playbook / "example-feature-01-risk-01.md").write_text(PLAYBOOK_RISK)
+    catalogue.clear_cache()
+    return empty_playbook
+
+
+def test_the_playbook_document_overrides_the_configured_metadata(risks_file, authored_playbook):
+    risk = _risk(RISK_ID)
+
+    assert risk["name"] == "From the playbook document"
+    assert risk["description"].startswith("An authored description")
+    assert risk["tactic"] == "Collection"
+    assert risk["tactic_id"] == "TA0035"
+
+
+def test_the_configuration_still_answers_for_a_risk_the_playbook_does_not_cover(
+    risks_file, authored_playbook
+):
+    risk = _risk(RISK_ID)
+    unlisted = _risk("ios-feature-02-risk-01")
+
+    assert risk["name"] == "From the playbook document"
+    assert unlisted["name"] != "From the playbook document"
+    assert unlisted["tactic"] is None
+    assert unlisted["tactic_id"] is None
+
+
+def test_a_playbook_risk_with_no_tactic_keeps_the_configured_one(risks_file, authored_playbook):
+    (authored_playbook / "example-feature-01-risk-01.md").write_text(
+        PLAYBOOK_RISK.replace(" (MITRE ATT&CK: ***Collection*** - TA0035)", "")
+    )
+    catalogue.clear_cache()
+
+    assert _risk(RISK_ID)["tactic"] == "Discovery"
 
 
 def test_behavioural_flags_stay_with_the_class(risks_file):
@@ -73,9 +125,9 @@ def test_behavioural_flags_stay_with_the_class(risks_file):
 
 
 def test_put_metadata_updates_only_the_named_fields(risks_file):
-    stored = ce.put_risk_metadata("ios", RISK_ID, {"goal": "A new goal."})
+    stored = ce.put_risk_metadata("ios", RISK_ID, {"description": "A new description."})
 
-    assert stored["goal"] == "A new goal."
+    assert stored["description"] == "A new description."
     assert stored["name"] == "From the playbook"
     assert _risk(RISK_ID)["demonstration"][0]["items"][0]["text"] == "Do the thing."
 
@@ -90,7 +142,7 @@ def test_put_metadata_rejects_fields_it_does_not_own(risks_file):
 def test_put_demonstration_leaves_the_metadata_intact(risks_file):
     ce.put_risk_demonstration("ios", RISK_ID, [{"id": "t", "type": "table", "rows": []}])
 
-    assert ce.get_risk_metadata("ios", RISK_ID)["goal"].startswith("As a result")
+    assert ce.get_risk_metadata("ios", RISK_ID)["description"].startswith("Because the iOS platform")
     assert ce.get_risk_demonstration("ios", RISK_ID)[0]["id"] == "t"
 
 

@@ -20,7 +20,7 @@ AUTOMATION_ID_PREFIX = "mobile-playbook"
 
 RESULTS_NAME = "dashboard_results.json"
 RISK_CONFIG_ROOT = Path("configs/split")
-RISK_METADATA_FIELDS = ("name", "description", "goal", "tactic")
+RISK_METADATA_FIELDS = ("name", "description", "tactic", "tactic_id")
 
 FAIL_KIND = "fail"
 NO_LEVEL = "none"
@@ -164,8 +164,7 @@ def _rule(rule_id: str, metadata: Mapping[str, Any] | None, rows: Sequence[Mappi
     sample = next((row for row in rows if str(row.get("test_id") or "") == rule_id), {})
     name = str((metadata or {}).get("name") or sample.get("test_name") or rule_id)
     description = str((metadata or {}).get("description") or "").strip()
-    goal = str((metadata or {}).get("goal") or "").strip()
-    full = " ".join(part for part in (description, goal) if part) or description or name
+    full = description or name
     rule: dict[str, Any] = {
         "id": rule_id,
         "name": name,
@@ -176,7 +175,7 @@ def _rule(rule_id: str, metadata: Mapping[str, Any] | None, rows: Sequence[Mappi
             "platform": str(sample.get("platform") or ""),
         },
     }
-    for field in ("tactic", "feature_id"):
+    for field in ("tactic", "tactic_id", "feature_id"):
         value = (metadata or {}).get(field)
         if value:
             rule["properties"][field] = str(value)

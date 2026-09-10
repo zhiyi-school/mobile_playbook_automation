@@ -6,6 +6,8 @@ import base64
 from pathlib import Path
 from typing import Any
 
+from mobile_playbook.storage.paths import resolve_recorded_path
+
 # Named artifacts first; anything else is still offered, labelled from its suffix.
 NAMED_ARTIFACTS: list[tuple[str, str, str]] = [
     ("report.json", "report", "Detailed result report"),
@@ -116,6 +118,11 @@ def normalize_evidence(
         # directory the API happens to have been started from.
         if base is not None and not candidate.is_absolute():
             candidate = base / candidate
+        # A path recorded under the previous repository-root layout names a
+        # directory that has since moved under artifacts/; map it onto its file
+        # so the artifact is still served instead of silently dropped.
+        if candidate.is_absolute() and not candidate.exists():
+            candidate = resolve_recorded_path(candidate)
         try:
             if not candidate.is_file():
                 continue

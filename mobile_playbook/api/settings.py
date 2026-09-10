@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import Any
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 ENV_FILE = REPOSITORY_ROOT / ".env"
@@ -11,10 +12,13 @@ ENV_FILE = REPOSITORY_ROOT / ".env"
 ALLOWED_ENV_KEYS = frozenset(
     {
         "CORS_ALLOWED_ORIGINS",
+        "ARTIFACTS_DIR",
         "ARTIFACT_STORE_DIR",
+        "INTAKE_DIR",
         "IOS_PLAYBOOK_DIR",
         "ANDROID_PLAYBOOK_DIR",
         "REPORTS_DIR",
+        "WORK_DIR",
     }
 )
 
@@ -61,5 +65,13 @@ def repository_path_setting(name: str, default: str, env_path: Path | None = Non
     return path.resolve()
 
 
-REPORTS_ROOT = repository_path_setting("REPORTS_DIR", "reports")
-WORK_ROOT = (REPOSITORY_ROOT / "work").resolve()
+def _storage() -> Any:
+    from mobile_playbook.storage import paths
+
+    return paths
+
+
+# Kept as module attributes for existing importers; both follow the shared
+# resolution in mobile_playbook.storage.paths.
+REPORTS_ROOT = _storage().reports_root()
+WORK_ROOT = _storage().work_root()

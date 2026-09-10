@@ -8,6 +8,8 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+from mobile_playbook.storage import android_work_dir
+
 from mobile_playbook.platforms.android.models import AndroidRiskRunResult
 from mobile_playbook.platforms.android.risks.base import AndroidRisk
 
@@ -41,7 +43,7 @@ class AndroidRepackagingRisk(AndroidRisk):
             test_case_type=self.test_case_type,
         )
         try:
-            app_dir = Path(cfg.get("work_dir", "work/android/repackaging")) / app_config.package_name.replace(".", "_")
+            app_dir = Path(cfg.get("work_dir") or android_work_dir() / "repackaging") / app_config.package_name.replace(".", "_")
             app_dir.mkdir(parents=True, exist_ok=True)
             keystore = Path(cfg.get("keystore_path") or app_dir.parent / "release.keystore")
             keystore_alias = cfg.get("keystore_alias", "mobileplaybook")

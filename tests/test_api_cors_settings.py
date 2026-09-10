@@ -158,10 +158,13 @@ def test_only_non_secret_keys_are_allowlisted():
     assert settings.ALLOWED_ENV_KEYS == frozenset(
         {
             "CORS_ALLOWED_ORIGINS",
+            "ARTIFACTS_DIR",
             "ARTIFACT_STORE_DIR",
+            "INTAKE_DIR",
             "IOS_PLAYBOOK_DIR",
             "ANDROID_PLAYBOOK_DIR",
             "REPORTS_DIR",
+            "WORK_DIR",
         }
     )
     for key in SECRET_KEYS:

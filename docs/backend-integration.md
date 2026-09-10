@@ -96,8 +96,9 @@ non-alphanumerics.
 
 A **risk** is a Python class discovered by the plugin registry, identified by a
 platform-prefixed `risk_id` such as `<PLATFORM>-feature-NN-risk-NN`. Its
-displayed text (name, description, goal, tactic, demonstration) is authored in
-`configs/split/<PLATFORM>/risks.yaml`, not in the class. Enumerate both at
+displayed text (name, description, tactic, demonstration) comes from its
+playbook document where one exists, falling back to
+`configs/split/<PLATFORM>/risks.yaml`; never from the class. Enumerate both at
 runtime rather than hard-coding:
 
 ```bash
@@ -327,7 +328,7 @@ of dashboard rows from automation results. Deploy it on the automation host:
 ```bash
 SUPABASE_URL=https://dashboard.example.supabase.co \
 SUPABASE_SERVICE_ROLE_KEY=<SERVICE_ROLE_KEY> \
-python -m mobile_playbook.dashboard_sync --reports-dir reports
+python -m mobile_playbook.dashboard_sync --reports-dir artifacts/reports
 ```
 
 It is triggered automatically after each run and by a launchd recovery sweep.
@@ -355,8 +356,8 @@ landed.
 | Path | Growth | Notes |
 | --- | --- | --- |
 | `reports/<RUN_TIMESTAMP>/` | one directory per run, retained indefinitely | includes screenshots and recordings; the bulk of the footprint |
-| `work/<PLATFORM>/` | per-app unpacked bundles and logs | can be pruned between runs |
-| `intake/` | artifacts you supply | yours to manage |
+| `artifacts/work/<PLATFORM>/` | per-app unpacked bundles and logs | can be pruned between runs |
+| `artifacts/intake/` | artifacts you supply | yours to manage |
 
 Nothing prunes automatically. Plan retention yourself; report contents are
 sensitive assessment data.
@@ -375,7 +376,7 @@ binds to `127.0.0.1` by default, and that default is the security model.
 
 Set `CORS_ALLOWED_ORIGINS` to exact origins; `*` is rejected. The service-role
 key belongs to the worker process only and must never reach a browser.
-Evidence access is filesystem-based and constrained to `reports/`, `work/` and
+Evidence access is filesystem-based and constrained to `artifacts/reports/`, `artifacts/work/` and
 configured playbook image directories — a protected deployment should still
 treat those as sensitive.
 

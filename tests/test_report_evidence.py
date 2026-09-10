@@ -504,3 +504,51 @@ class TestMalformedReferencesAreRefusedNotRaised:
             with pytest.raises(HTTPException) as excinfo:
                 reports_service.safe_evidence_path("2026-01-02_00-00-00", tampered)
             assert excinfo.value.status_code in {400, 404}
+
+
+class TestPathsRecordedBeforeTheMove:
+    """Older reports hold absolute paths under the previous repository-root layout."""
+
+    @pytest.fixture
+    def moved(self, tmp_path, monkeypatch):
+        from mobile_playbook.storage import paths
+
+        monkeypatch.setattr(paths, "REPOSITORY_ROOT", tmp_path)
+        monkeypatch.setattr(paths, "DEFAULT_ARTIFACTS_DIR", tmp_path / "artifacts")
+        for name in paths.LOCATION_ENV.values():
+            monkeypatch.delenv(name, raising=False)
+        monkeypatch.delenv("ARTIFACTS_DIR", raising=False)
+        return tmp_path
+
+    def test_a_recorded_path_resolves_to_its_file_under_artifacts(self, moved):
+        from mobile_playbook.storage import paths
+
+        current = moved / "artifacts/work/ios/acquired/run-1/original.ipa"
+        current.parent.mkdir(parents=True)
+        current.write_bytes(b"ipa-bytes")
+
+        recorded = moved / "work/ios/acquired/run-1/original.ipa"
+        assert paths.resolve_recorded_path(recorded) == current
+
+    def test_a_path_outside_the_known_locations_is_left_alone(self, moved):
+        from mobile_playbook.storage import paths
+
+        outside = moved / "elsewhere/file.bin"
+        assert paths.resolve_recorded_path(outside) == outside
+
+    def test_such_evidence_is_still_served_rather_than_dropped(self, moved):
+        from mobile_playbook.reporting.evidence import normalize_evidence
+
+        current = moved / "artifacts/work/ios/acquired/run-1/original.ipa"
+        current.parent.mkdir(parents=True)
+        current.write_bytes(b"ipa-bytes")
+        recorded = moved / "work/ios/acquired/run-1/original.ipa"
+
+        normalized = normalize_evidence(
+            [{"kind": "file", "label": "Acquired IPA", "path": str(recorded)}],
+            roots={"work": moved / "artifacts/work"},
+        )
+
+        assert len(normalized) == 1
+        assert normalized[0]["ref"]
+        assert normalized[0]["size_bytes"] == len(b"ipa-bytes")

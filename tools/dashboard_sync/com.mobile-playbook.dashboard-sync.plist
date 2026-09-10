@@ -33,7 +33,7 @@
         <string>-m</string>
         <string>mobile_playbook.dashboard_sync</string>
         <string>--reports-dir</string>
-        <string>reports</string>
+        <string>REPLACE_WITH_REPO_PATH/artifacts/reports</string>
     </array>
 
     <key>WorkingDirectory</key>
@@ -56,9 +56,9 @@
     </array>
 
     <key>StandardOutPath</key>
-    <string>REPLACE_WITH_REPO_PATH/work/dashboard-sync.log</string>
+    <string>REPLACE_WITH_REPO_PATH/artifacts/work/dashboard-sync.log</string>
 
     <key>StandardErrorPath</key>
-    <string>REPLACE_WITH_REPO_PATH/work/dashboard-sync.log</string>
+    <string>REPLACE_WITH_REPO_PATH/artifacts/work/dashboard-sync.log</string>
 </dict>
 </plist>

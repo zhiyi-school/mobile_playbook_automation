@@ -58,7 +58,7 @@ async def upload_artifact(platform: Platform, file: UploadFile = File(...)) -> d
             status_code=400, detail=f"Expected a {expected_suffix} file for platform {platform}, got {file.filename!r}"
         )
 
-    dest_dir = artifact_service.INTAKE_DIRS[platform]
+    dest_dir = artifact_service.intake_dirs()[platform]
     dest_dir.mkdir(parents=True, exist_ok=True)
     dest_path = dest_dir / filename
     await write_upload_file(file, dest_path, max_artifact_upload_bytes())

@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import time
 from pathlib import Path
+
+from mobile_playbook.storage import ios_work_dir
 from urllib.parse import urlparse
 
 from mobile_playbook.platforms.ios.artifacts.registry import get_provider
@@ -339,7 +341,7 @@ class Feature04KeyboardRiskBase(Risk):
             global_config,
             device_client,
             run_timestamp,
-            Path(app_config.artifact.get("workspace_dir") or "work/ios/acquired"),
+            Path(app_config.artifact.get("workspace_dir") or ios_work_dir() / "acquired"),
         )
 
     def _handle_permission_alerts(self, device_client, global_config) -> list[dict]:

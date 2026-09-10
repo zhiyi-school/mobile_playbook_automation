@@ -5,7 +5,7 @@ tools:
   burp_proxy: "http://127.0.0.1:8080"
 
 repackaging:
-  work_dir: "work/android/repackaging"
+  work_dir: "artifacts/work/android/repackaging"
   keystore_path: null
   keystore_alias: "mobileplaybook"
   keystore_pass: "password"

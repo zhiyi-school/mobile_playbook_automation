@@ -4,6 +4,8 @@ from typing import Any, Mapping
 
 import pytest
 
+from mobile_playbook.storage import reports_root
+
 from mobile_playbook.assessment_worker import (
     AutomationUnavailable,
     RunRejected,
@@ -165,7 +167,7 @@ def test_a_ready_assessment_is_started_and_the_request_is_finished():
             "platform": "ios",
             "config_path": "configs/ios.yaml",
             "apps": "example_app",
-            "out_dir": "reports",
+            "out_dir": str(reports_root()),
         }
     ]
 

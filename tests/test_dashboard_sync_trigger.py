@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+
+from mobile_playbook.storage import work_root
 from types import SimpleNamespace
 
 from mobile_playbook import dashboard_sync_trigger
@@ -36,7 +38,7 @@ def test_post_run_trigger_starts_detached_worker(monkeypatch, tmp_path):
     assert kwargs["cwd"] == repository
     assert kwargs["start_new_session"] is True
     assert kwargs["env"]["PYTHONUNBUFFERED"] == "1"
-    assert Path(kwargs["stdout"].name) == repository / "work" / "dashboard-sync.log"
+    assert Path(kwargs["stdout"].name) == work_root() / "dashboard-sync.log"
 
 
 def test_post_run_trigger_can_be_disabled(monkeypatch, tmp_path):

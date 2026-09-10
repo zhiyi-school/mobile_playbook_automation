@@ -14,8 +14,20 @@ from mobile_playbook.artifact_store.extraction import (
 
 logger = logging.getLogger(__name__)
 
-ANDROID_INTAKE_DIR = Path("intake/android/apks")
-ANDROID_WORKFLOW_APK_DIR = Path("work/android/repackaging")
+def _android_intake_dir() -> Path:
+    from mobile_playbook.storage import android_intake_dir
+
+    return android_intake_dir()
+
+
+def _android_workflow_apk_dir() -> Path:
+    from mobile_playbook.storage import android_work_dir
+
+    return android_work_dir() / "repackaging"
+
+
+ANDROID_INTAKE_DIR = _android_intake_dir()
+ANDROID_WORKFLOW_APK_DIR = _android_workflow_apk_dir()
 REASON_UNKNOWN_APP = "unknown_app"
 _LOCAL_IPA_SOURCES = {"local_ipa", "ci_artifact", "vendor_ipa", "xcode_archive_export"}
 
@@ -78,7 +90,7 @@ def _resolve_android(app: dict[str, Any]) -> Path | None:
         if acquired.is_file():
             return acquired
 
-    intake_dir = Path(artifact.get("intake_dir") or ANDROID_INTAKE_DIR).expanduser()
+    intake_dir = Path(artifact.get("intake_dir") or _android_intake_dir()).expanduser()
     if not intake_dir.is_dir():
         return None
     wanted = {normalize_app_name(package_name), normalize_app_name(app.get("name"))} - {""}

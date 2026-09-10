@@ -13,7 +13,10 @@ from mobile_playbook.platforms.ios.artifacts.local_ipa import LocalIpaProvider
 from mobile_playbook.platforms.ios.ipa.plist_utils import inspect_ipa_metadata
 from mobile_playbook.platforms.ios.models import ArtifactAcquisitionResult
 
-DEFAULT_INTAKE_DIR = Path("intake/ios/ipas")
+def _default_intake_dir() -> Path:
+    from mobile_playbook.storage import ios_intake_dir
+
+    return ios_intake_dir()
 
 
 def normalize_app_name(value: str | None) -> str:
@@ -62,7 +65,7 @@ def _version_of(metadata: dict) -> str | None:
 
 def intake_dir_for(artifact: dict | None) -> Path:
     configured = (artifact or {}).get("intake_dir")
-    return Path(configured).expanduser() if configured else DEFAULT_INTAKE_DIR
+    return Path(configured).expanduser() if configured else _default_intake_dir()
 
 
 _intake_dir = intake_dir_for
@@ -84,7 +87,7 @@ def _dir_signature(directory: Path) -> tuple:
 
 def list_intake_ipas(intake_dir: Path | None = None) -> list[IntakeBuild]:
     """Every readable IPA in `intake_dir`, newest first. Unreadable files are skipped."""
-    directory = intake_dir or DEFAULT_INTAKE_DIR
+    directory = intake_dir or _default_intake_dir()
     if not directory.is_dir():
         return []
 

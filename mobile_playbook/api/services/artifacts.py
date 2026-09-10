@@ -9,7 +9,13 @@ from mobile_playbook.platforms.android.apk_tools import inspect_apk_metadata
 from mobile_playbook.platforms.ios.artifacts.intake_ipa import list_intake_ipas
 from mobile_playbook.platforms.ios.ipa.plist_utils import inspect_ipa_metadata
 
-INTAKE_DIRS: dict[Platform, Path] = {"ios": Path("intake/ios/ipas"), "android": Path("intake/android/apks")}
+def intake_dirs() -> dict[Platform, Path]:
+    from mobile_playbook.storage import android_intake_dir, ios_intake_dir
+
+    return {"ios": ios_intake_dir(), "android": android_intake_dir()}
+
+
+INTAKE_DIRS: dict[Platform, Path] = intake_dirs()
 ARTIFACT_SUFFIXES: dict[Platform, str] = {"ios": ".ipa", "android": ".apk"}
 
 ICON_CACHE_CONTROL = "private, max-age=300"
@@ -38,7 +44,7 @@ def app_icon_file_path(platform: Platform, app_id: str) -> tuple[Path, str] | No
 
 
 def list_artifacts(platform: Platform) -> list[dict]:
-    directory = INTAKE_DIRS[platform]
+    directory = intake_dirs()[platform]
     if platform == "ios":
         return [build.as_dict() for build in list_intake_ipas(directory)]
     if not directory.is_dir():

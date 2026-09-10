@@ -16,6 +16,8 @@ import time
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+from mobile_playbook.storage import reports_root
 from typing import Any, Callable, Mapping, Protocol, Sequence
 from urllib import error, parse, request
 
@@ -168,7 +170,7 @@ def process_once(
     worker_id: str,
     lease_seconds: int = DEFAULT_LEASE_SECONDS,
     risk_ids: Callable[[str], Sequence[str]] | None = None,
-    reports_dir: str = "reports",
+    reports_dir: str | None = None,
 ) -> str:
     """Claim at most one request and act on it. Returns what happened."""
     store.recover_expired_assessment_run_leases()
@@ -233,7 +235,7 @@ def process_once(
         "platform": req["platform"],
         "config_path": _config_path(req["platform"]),
         "apps": external_id,
-        "out_dir": reports_dir,
+        "out_dir": reports_dir or str(reports_root()),
     }
     selected = list(risk_ids(req["platform"])) if risk_ids else []
     if selected:
@@ -266,7 +268,7 @@ def process_once(
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run queued assessment execution requests.")
     parser.add_argument("--api-url", default=os.environ.get("AUTOMATION_API_URL", DEFAULT_API_URL))
-    parser.add_argument("--reports-dir", default=os.environ.get("REPORTS_DIR", "reports"))
+    parser.add_argument("--reports-dir", default=str(reports_root()))
     parser.add_argument("--worker-id", default=os.environ.get("ASSESSMENT_WORKER_ID"))
     parser.add_argument(
         "--poll-seconds",

@@ -18,14 +18,14 @@ REFERENCES_HEADING = re.compile(r"^references\b", re.I)
 REFERENCES_PARAGRAPH = re.compile(r"^references\s*:?\s*$", re.I)
 CONTROL_MEASURES_PARAGRAPH = re.compile(r"control measures\s*:?\s*$", re.I)
 
+TITLE = "title"
 DESCRIPTION = "description"
-GOAL = "goal"
 STEPS = "steps"
 REFERENCES = "references"
 
 SECTION_NAMES = {
+    "title": TITLE,
     "description": DESCRIPTION,
-    "goal": GOAL,
     "demonstration": STEPS,
     "remediation": STEPS,
     "references": REFERENCES,
@@ -35,9 +35,41 @@ DEPRECATED_MARKER = re.compile(r"\(deprecated\)|\bdeprecated\b", re.I)
 CONTROL_ID = re.compile(r"^(?P<platform>[a-z0-9]+)-feature-(?P<feature>\d+)-risk-(?P<risk>\d+)-control-(?P<control>\d+)", re.I)
 RISK_ID = re.compile(r"^(?P<platform>[a-z0-9]+)-feature-(?P<feature>\d+)-risk-(?P<risk>\d+)\s*$", re.I)
 SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
+MITRE_MARKER = re.compile(r"MITRE\s+ATT&CK", re.I)
+MITRE_ANNOTATION = re.compile(
+    r"MITRE\s+ATT&CK\s*:\s*(?P<tactic>[^-\u2013\u2014()]+?)\s*[-\u2013\u2014]\s*(?P<tactic_id>TA\d{4})",
+    re.I,
+)
+EMPHASIS_EDGE = re.compile(r"^[\s*_`]+|[\s*_`]+$")
 TRAILING_MARKER = re.compile(r"[_\s]*\((?:depriorit|deprecat)[^)]*\)\s*$", re.I)
 
 STEP_TITLE_MAX_CHARS = 90
+
+
+def mitre_annotation(description: str) -> tuple[dict[str, str] | None, list[dict[str, Any]]]:
+    """The MITRE tactic and ID named in the Description; never inferred from any other source."""
+    if not MITRE_MARKER.search(description or ""):
+        return None, []
+
+    found: list[tuple[str, str]] = []
+    for match in MITRE_ANNOTATION.finditer(description):
+        tactic = EMPHASIS_EDGE.sub("", match.group("tactic")).strip()
+        if tactic:
+            found.append((tactic, match.group("tactic_id").upper()))
+
+    if not found:
+        return None, [
+            {
+                "code": "malformed_mitre_annotation",
+                "message": "names MITRE ATT&CK without a tactic and TA identifier",
+            }
+        ]
+    distinct = sorted(set(found))
+    if len(distinct) > 1:
+        detail = ", ".join(f"{tactic} ({tactic_id})" for tactic, tactic_id in distinct)
+        return None, [{"code": "conflicting_mitre_annotation", "message": detail}]
+    tactic, tactic_id = distinct[0]
+    return {"tactic": tactic, "tactic_id": tactic_id}, []
 
 
 def document_id(stem_or_heading: str) -> str:
@@ -117,7 +149,7 @@ def parse_control(document: Document, root: Path) -> dict[str, Any]:
 
     record = {
         "control_id": control_id,
-        "title": _control_title(front_matter, description, control_id),
+        "title": _control_title(front_matter, _section_text(blocks, "title"), description, control_id),
         "status": status,
         "status_source": "front_matter" if declared_status else ("naming" if from_marker else "default"),
         "required": bool(front_matter.get("required", status == ACTIVE)),
@@ -140,18 +172,23 @@ def parse_risk(document: Document, root: Path) -> dict[str, Any]:
     path, raw, front_matter, blocks = document.path, document.raw, document.front_matter, document.blocks
     heading_id = document.heading_id
 
+    description = _section_text(blocks, "description")
+    mitre, parse_warnings = mitre_annotation(description)
     return {
         "risk_id": document.identity,
         "playbook_revision": revision(raw),
         "source_file": source.relative_to_root(root, path),
-        "description": _section_text(blocks, "description"),
-        "goal": _section_text(blocks, "goal"),
+        "title": _section_text(blocks, "title"),
+        "description": description,
+        "tactic": (mitre or {}).get("tactic"),
+        "tactic_id": (mitre or {}).get("tactic_id"),
         "demonstration": _risk_demonstration(blocks),
         "control_links": _control_links(blocks),
         "references": _collect_references(_partition(blocks)[2], [], []),
         "status": (normalize_status(front_matter.get("status")) or infer_status(path.name, heading_id or "")[0]),
         "heading_id": heading_id,
         "file_id": document.file_id,
+        "parse_warnings": parse_warnings,
     }
 
 
@@ -206,16 +243,25 @@ def _partition(
             steps, leading = _list_steps(body, used_keys, notes)
             if not steps:
                 notes.append({"code": "empty_step_section", "message": "no numbered steps"})
-        intro = _intro_blocks(sections.named.get(DESCRIPTION) or [])
-        intro.extend(_intro_blocks(sections.named.get(GOAL) or []))
+        intro = _intro_blocks(_after_title(sections.named.get(TITLE) or []))
+        intro.extend(_intro_blocks(sections.named.get(DESCRIPTION) or []))
         intro.extend(_intro_blocks(sections.loose))
         intro.extend(_intro_blocks(leading))
         return intro, steps, references
 
     # Legacy documents name no section: ordered lists before the references are the steps.
-    steps, intro = _list_steps(sections.loose, used_keys, notes)
+    body = _after_title(sections.named.get(TITLE) or []) + sections.loose
+    steps, intro = _list_steps(body, used_keys, notes)
     intro = _intro_blocks(_intro_blocks(sections.named.get(DESCRIPTION) or []) + intro)
     return intro, steps, references
+
+
+def _after_title(blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Everything a Title section holds beyond the title line itself."""
+    for index, block in enumerate(blocks):
+        if block.get("type") == "paragraph":
+            return blocks[index + 1 :]
+    return blocks
 
 
 def _intro_blocks(blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -243,9 +289,14 @@ def _heading_steps(
     declared: str | None = None
     seen_numbers: set[int] = set()
 
+    trailing = False
     for block in blocks:
         if block.get("type") == "step_id":
             declared = str(block.get("value") or "").strip() or None
+            continue
+
+        if block.get("type") == "paragraph" and CONTROL_MEASURES_PARAGRAPH.search(str(block.get("text") or "")):
+            trailing = True
             continue
 
         heading = None
@@ -253,12 +304,15 @@ def _heading_steps(
             heading = markdown.NUMBERED_HEADING.match(str(block.get("text") or ""))
 
         if heading is None:
+            if trailing:
+                continue
             if current is None:
                 leading.append(block)
             else:
                 current["content"].append(block)
             continue
 
+        trailing = False
         number = int(heading.group(1))
         title = " ".join(heading.group(2).split()) or f"Step {len(steps) + 1}"
         if number in seen_numbers:
@@ -374,32 +428,45 @@ def _risk_demonstration(blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return demonstration
 
 
+DEMONSTRATION_BLOCK_KEYS = {
+    "paragraph": ("text",),
+    "caption": ("text",),
+    "heading": ("level", "text"),
+    "code": ("language", "text"),
+    "image": ("path", "alt", "caption", "width"),
+    "list": ("ordered", "items"),
+    "table": ("columns", "rows"),
+}
+
+
+def _demonstration_block(block: dict[str, Any]) -> dict[str, Any] | None:
+    """One authored block kept in place, so a caption still follows the image it describes."""
+    keys = DEMONSTRATION_BLOCK_KEYS.get(str(block.get("type") or ""))
+    if keys is None:
+        return None
+    kept = {"type": block["type"], **{key: block[key] for key in keys if key in block}}
+    if kept["type"] == "list":
+        kept["items"] = [{"text": str(item.get("text") or "")} for item in block.get("items") or []]
+    return kept
+
+
 def _demonstration_step(step: dict[str, Any], _label: str | None) -> dict[str, Any]:
-    text = [str(step.get("text") or "")]
-    commands: list[str] = []
-    images: list[dict[str, Any]] = []
-    for block in step.get("content") or []:
-        kind = block.get("type")
-        if kind == "code":
-            commands.append(str(block.get("text") or ""))
-        elif kind == "image":
-            images.append(
-                {key: value for key, value in block.items() if key in {"path", "alt", "caption", "width"}}
-            )
-        elif kind == "paragraph":
-            text.append(str(block.get("text") or ""))
-        elif kind == "caption":
-            text.append(str(block.get("text") or ""))
-        elif kind == "heading":
-            text.append(str(block.get("text") or ""))
-        elif kind == "list":
-            text.extend(str(item.get("text") or "") for item in block.get("items") or [])
+    content = [
+        normalized
+        for normalized in (_demonstration_block(block) for block in step.get("content") or [])
+        if normalized is not None
+    ]
     return {
         "id": step["step_key"],
         "title": step.get("step_title"),
-        "text": "\n\n".join(part for part in text if part.strip()),
-        "commands": commands,
-        "images": images,
+        "text": str(step.get("text") or ""),
+        "content": content,
+        "commands": [block["text"] for block in content if block["type"] == "code" and block.get("text")],
+        "images": [
+            {key: value for key, value in block.items() if key != "type"}
+            for block in content
+            if block["type"] == "image"
+        ],
     }
 
 
@@ -428,8 +495,8 @@ def _step_title(text: str, position: int) -> str:
     return f"{first[: STEP_TITLE_MAX_CHARS - 1].rstrip()}…"
 
 
-def _control_title(front_matter: dict[str, Any], description: str, control_id: str) -> str:
-    declared = str(front_matter.get("title") or "").strip()
+def _control_title(front_matter: dict[str, Any], titled: str, description: str, control_id: str) -> str:
+    declared = str(front_matter.get("title") or "").strip() or titled.strip()
     if declared:
         return declared
     if description:
@@ -456,6 +523,8 @@ def _section_text(blocks: list[dict[str, Any]], heading: str) -> str:
             continue
         if collecting and block.get("type") == "paragraph":
             parts.append(str(block.get("text") or ""))
+            if heading == TITLE:
+                break
     return " ".join(parts).strip()
 
 

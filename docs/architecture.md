@@ -34,7 +34,7 @@ The consequences that matter in practice:
   touches the dashboard database. Raw results and evidence stay available even
   if synchronisation never succeeds.
 - **Binaries and images never enter the database.** IPA/APK files stay in
-  `intake/`, derived icons in the artifact store; Supabase holds a checksum and
+  `artifacts/intake/`, derived icons in the artifact store; Supabase holds a checksum and
   a logical `icons/<ARTIFACT_ID>.png` reference, and the frontend resolves that
   through the backend. See [api.md](api.md#application-icons).
 - **A risk, a control and a step are three different things.** A risk is the
@@ -154,7 +154,7 @@ Endpoints: `GET /health`, `GET /next` (token-gated; the phone-side keyboard exte
 
 ### Reporting / serialization layer
 
-API runs use one `REPORTS_DIR` root (default `<repository>/reports`) for report
+API runs use one `REPORTS_DIR` root (default `<repository>/artifacts/reports`) for report
 creation, lookup, registry state, history and synchronization, independent of the
 server working directory. CLI runs retain their existing custom `--out` behavior.
 See [api.md](api.md#report-root-and-evidence-contract) for the full contract.
@@ -334,6 +334,12 @@ Two independent uses of `threading` exist: the control server runs its HTTP serv
 
 Keep dependencies directed toward domain owners rather than CLI or HTTP
 facades:
+
+Human-facing prose uses the spelling “artifact”. Established compatibility
+identifiers retain `artifact`, including API and YAML fields, routes, database
+columns, status values, environment variables, module paths, manifest keys and
+the SARIF `artifactLocation` property. Changing those identifiers requires a
+versioned, coordinated migration rather than a spelling-only edit.
 
 | Change | Owner and required verification |
 | --- | --- |

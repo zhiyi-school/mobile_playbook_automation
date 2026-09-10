@@ -40,6 +40,18 @@ def risk_control_summaries(platform: Platform) -> tuple[dict[str, list[dict]], s
     return grouped, None
 
 
+def risk_overview(platform: Platform, risk_id: str) -> dict[str, Any] | None:
+    """The risk's authored Title, Description and MITRE tactic, or None when the playbook has no such document."""
+    try:
+        index = catalogue.get(platform)
+    except source.PlaybookUnavailableError:
+        return None
+    risk = index["risks"].get(catalogue.canonical_id(control_parser.document_id(risk_id), platform))
+    if risk is None:
+        return None
+    return {field: risk.get(field) for field in ("title", "description", "tactic", "tactic_id")}
+
+
 def risk_demonstration(platform: Platform, risk_id: str) -> list[dict[str, Any]] | None:
     """The risk's manual-testing steps from Markdown, or None when the document declares none."""
     try:

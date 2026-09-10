@@ -6,8 +6,8 @@ apps:
     test_bundle_id: "com.example.appone.test"
     artifact:
       source: "local_ipa"
-      ipa: "intake/ios/ipas/AppOne.ipa"
-      workspace_dir: "work/ios/acquired"
+      ipa: "artifacts/intake/ios/ipas/AppOne.ipa"
+      workspace_dir: "artifacts/work/ios/acquired"
       expected_bundle_id: "com.example.appone"
     expected_behavior:
       app_state_must_be_foreground: true

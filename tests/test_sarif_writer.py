@@ -418,7 +418,6 @@ def test_rule_text_comes_from_the_authored_risk_metadata_when_available(tmp_path
         "example_risk": {
             "name": "Authored name",
             "description": "Authored description.",
-            "goal": "Authored goal.",
             "tactic": "Discovery",
         }
     }
@@ -428,7 +427,7 @@ def test_rule_text_comes_from_the_authored_risk_metadata_when_available(tmp_path
     rule = document["runs"][0]["tool"]["driver"]["rules"][0]
     assert rule["name"] == "Authored name"
     assert rule["shortDescription"]["text"] == "Authored description."
-    assert rule["fullDescription"]["text"] == "Authored description. Authored goal."
+    assert rule["fullDescription"]["text"] == "Authored description."
     assert rule["properties"]["tactic"] == "Discovery"
 
 

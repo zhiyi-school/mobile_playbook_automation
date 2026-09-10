@@ -20,6 +20,7 @@ def list_platform_risks(platform: Platform) -> list[dict]:
     controls_by_risk, controls_error = playbook_service.risk_control_summaries(platform)
     for risk in risks:
         risk.update(config_editor.get_risk_metadata(platform, risk["risk_id"]))
+        _apply_playbook_overview(risk, playbook_service.risk_overview(platform, risk["risk_id"]))
         demonstration = playbook_service.risk_demonstration(platform, risk["risk_id"])
         if demonstration is None:
             demonstration = config_editor.get_risk_demonstration(platform, risk["risk_id"])
@@ -28,6 +29,20 @@ def list_platform_risks(platform: Platform) -> list[dict]:
         risk["controls_available"] = controls_error is None
         risk["controls_error"] = controls_error
     return risks
+
+
+def _apply_playbook_overview(risk: dict, overview: dict | None) -> None:
+    """The playbook document wins where it says something; the YAML entry remains the fallback."""
+    risk.setdefault("tactic_id", None)
+    if overview is None:
+        return
+    for source_field, target_field in (("title", "name"), ("description", "description")):
+        text = str(overview.get(source_field) or "").strip()
+        if text:
+            risk[target_field] = text
+    if overview.get("tactic"):
+        risk["tactic"] = overview["tactic"]
+        risk["tactic_id"] = overview.get("tactic_id")
 
 
 def detect_lan_ip() -> str:

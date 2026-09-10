@@ -25,6 +25,58 @@ def test_sanitized_contract_fixture_parses_and_validates():
     assert control["source_archives"][0]["exists"] is True
 
 
+def test_the_contract_fixture_carries_the_current_risk_contract():
+    risk = catalogue.build("ios", FIXTURE, overrides={})["risks"]["ios-feature-01-risk-01"]
+
+    assert risk["title"] == "Synthetic contract risk"
+    assert (risk["tactic"], risk["tactic_id"]) == ("Discovery", "TA0032")
+    assert "goal" not in risk
+
+
+def _validate_with_risk(tmp_path: Path, description: str) -> dict:
+    root = tmp_path / "playbook"
+    root.mkdir()
+    for source_file in FIXTURE.rglob("*"):
+        target = root / source_file.relative_to(FIXTURE)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if source_file.is_file():
+            target.write_bytes(source_file.read_bytes())
+    risk = root / "platform-feature-01-risk-01.md"
+    risk.write_text(
+        risk.read_text().replace(
+            "Synthetic risk used to verify the parser contract. (MITRE ATT&CK: ***Discovery*** - TA0032).",
+            description,
+        )
+    )
+    catalogue.clear_cache()
+    return validate(root, "ios")
+
+
+def test_a_malformed_mitre_annotation_fails_validation(tmp_path):
+    result = _validate_with_risk(tmp_path, "Synthetic risk. (MITRE ATT&CK: Discovery).")
+    codes = {item["code"]: item["severity"] for item in result["diagnostics"]}
+
+    assert codes.get("malformed_mitre_annotation") == "error"
+    assert result["errors"] >= 1
+
+
+def test_two_conflicting_mitre_annotations_fail_validation(tmp_path):
+    result = _validate_with_risk(
+        tmp_path,
+        "Synthetic risk. (MITRE ATT&CK: ***Discovery*** - TA0032) and (MITRE ATT&CK: ***Collection*** - TA0035).",
+    )
+    codes = {item["code"]: item["severity"] for item in result["diagnostics"]}
+
+    assert codes.get("conflicting_mitre_annotation") == "error"
+
+
+def test_a_description_naming_no_tactic_is_not_an_error(tmp_path):
+    result = _validate_with_risk(tmp_path, "Synthetic risk with no annotation at all.")
+
+    assert result["errors"] == 0
+    assert not [item for item in result["diagnostics"] if "mitre" in item["code"]]
+
+
 def test_contract_export_matches_the_frontend_transport_shape():
     control = export_contract(FIXTURE, "ios", "ios-feature-01-risk-01-control-01")
 

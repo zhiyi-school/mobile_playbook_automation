@@ -189,11 +189,11 @@ Read [api.md](api.md#security-model) before binding it to anything else.
 | `reports/<RUN_TIMESTAMP>/` | one run: `summary.md`, `dashboard_results.json`, `run_manifest.json`, `results.sarif`, `events.jsonl` |
 | `reports/<RUN_TIMESTAMP>/<PLATFORM>/<APP_ID>/<RISK_ID>/<CASE_ID>/` | per-test `report.json`, `logs.txt`, evidence |
 | `reports/<RUN_TIMESTAMP>/evidence/` | run-level evidence |
-| `work/ios/`, `work/android/` | intermediate artifacts, unpacked bundles, Appium logs |
-| `work/dashboard-sync.log` | output of every detached sync worker |
+| `artifacts/work/ios/`, `artifacts/work/android/` | intermediate artifacts, unpacked bundles, Appium logs |
+| `artifacts/work/dashboard-sync.log` | output of every detached sync worker |
 | `intake/ios/ipas/`, `intake/android/apks/` | drop-zone for local artifacts |
 
-`reports/` and `work/` are gitignored. Report contents are real assessment
+`artifacts/reports/` and `artifacts/work/` are gitignored. Report contents are real assessment
 data — treat them as sensitive.
 
 For API runs, `REPORTS_DIR` selects one root for creation, lookup, registry

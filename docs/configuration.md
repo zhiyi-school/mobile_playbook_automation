@@ -106,8 +106,11 @@ processes in deliberately different ways.
 | `SUPABASE_SERVICE_ROLE_KEY` | sync worker only | bypasses row-level security |
 | `DASHBOARD_SYNC_AUTO_TRIGGER` | API and CLI | `false` disables the post-run worker launch |
 | `CORS_ALLOWED_ORIGINS` | API process | exact browser origins allowed to call the API |
-| `REPORTS_DIR` | API; worker launchers must match it | API report root; default `<repository>/reports` |
-| `ARTIFACT_STORE_DIR` | API, sync worker, backfill | where derived artifact metadata and icons are kept |
+| `ARTIFACTS_DIR` | API, CLI, workers | root holding intake, derived, reports and work; default `<repository>/artifacts`. Each location below overrides it — see [storage](./storage.md) |
+| `INTAKE_DIR` | API, CLI, workers | IPA/APK inputs; default `<ARTIFACTS_DIR>/intake` |
+| `WORK_DIR` | API, CLI, workers | working directories; default `<ARTIFACTS_DIR>/work` |
+| `REPORTS_DIR` | API; worker launchers must match it | API report root; default `<ARTIFACTS_DIR>/reports` |
+| `ARTIFACT_STORE_DIR` | API, sync worker, backfill | derived artifact metadata and icons; default `<ARTIFACTS_DIR>/derived` |
 | `IOS_PLAYBOOK_DIR` | API | where the iOS developer remediation playbook lives |
 | `ANDROID_PLAYBOOK_DIR` | API | where the Android developer remediation playbook lives |
 | `PLAYBOOK_SOURCE_DOWNLOAD_ENABLED` | API | `false` refuses implemented-control archive downloads |
@@ -119,8 +122,8 @@ processes in deliberately different ways.
   the service-role key. It is the only process that ever holds that key.
 - **The API** must not. `mobile_playbook/api/settings.py` reads one allowlisted
   key at a time. `ALLOWED_ENV_KEYS` currently contains `CORS_ALLOWED_ORIGINS`,
-  `ARTIFACT_STORE_DIR`, `IOS_PLAYBOOK_DIR`, `ANDROID_PLAYBOOK_DIR` and
-  `REPORTS_DIR`, all
+  `ARTIFACTS_DIR`, `ARTIFACT_STORE_DIR`, `INTAKE_DIR`, `IOS_PLAYBOOK_DIR`,
+  `ANDROID_PLAYBOOK_DIR`, `REPORTS_DIR` and `WORK_DIR`, all
   non-secret; any other key raises `DisallowedSettingError`. The API package does not import `load_env_file` at
   all, so there is no code path from it to whole-file loading.
 

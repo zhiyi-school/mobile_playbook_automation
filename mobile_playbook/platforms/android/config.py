@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+
+from mobile_playbook.storage import android_work_dir
 from typing import Any
 
 from mobile_playbook.orchestration.preflight import load_yaml_config
@@ -39,7 +41,7 @@ def parse_config(raw: dict[str, Any], config_path: Path | None = None) -> Androi
     paths_raw = raw.get("paths") or {}
     repackaging_raw = dict(raw.get("repackaging") or {})
     if "work_dir" not in repackaging_raw:
-        repackaging_raw["work_dir"] = paths_raw.get("repackaging_work_dir", "work/android/repackaging")
+        repackaging_raw["work_dir"] = paths_raw.get("repackaging_work_dir") or str(android_work_dir() / "repackaging")
 
     apps = [_parse_app(item) for item in (raw.get("apps") or [])]
     return AndroidGlobalConfig(
@@ -50,7 +52,7 @@ def parse_config(raw: dict[str, Any], config_path: Path | None = None) -> Androi
             appium_auto_start=device_raw.get("appium_auto_start") or {},
         ),
         runner=AndroidRunnerConfig(
-            work_dir=Path(runner_raw.get("work_dir") or paths_raw.get("work_dir", "work/android")),
+            work_dir=Path(runner_raw.get("work_dir") or paths_raw.get("work_dir") or android_work_dir()),
             auto_grant_permissions=bool(
                 runner_raw.get("auto_grant_permissions", permissions_raw.get("auto_grant", False))
             ),

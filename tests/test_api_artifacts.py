@@ -26,7 +26,7 @@ class ChunkedUpload:
 
 def test_upload_artifact_streams_to_intake(monkeypatch, tmp_path):
     intake = tmp_path / "intake"
-    monkeypatch.setitem(artifact_service.INTAKE_DIRS, "ios", intake)
+    monkeypatch.setattr(artifact_service, "intake_dirs", lambda: {"ios": intake})
     monkeypatch.setattr(api_artifacts, "max_artifact_upload_bytes", lambda: 10)
     monkeypatch.setattr(artifact_service, "inspect_uploaded_artifact", lambda platform, path: {"ok": path.name})
 
@@ -41,7 +41,7 @@ def test_upload_artifact_rejects_oversized_file_without_replacing_existing(monke
     intake.mkdir()
     existing = intake / "example_app.ipa"
     existing.write_bytes(b"existing")
-    monkeypatch.setitem(artifact_service.INTAKE_DIRS, "ios", intake)
+    monkeypatch.setattr(artifact_service, "intake_dirs", lambda: {"ios": intake})
     monkeypatch.setattr(api_artifacts, "max_artifact_upload_bytes", lambda: 5)
 
     with pytest.raises(HTTPException) as exc_info:

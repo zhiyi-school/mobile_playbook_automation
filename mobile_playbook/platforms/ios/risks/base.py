@@ -8,7 +8,6 @@ class Risk:
     #: Displayed text, owned by configs/split/ios/risks.yaml — subclasses leave
     #: these alone. See docs/ios/risks.md#risk-metadata.
     description: str = ""
-    goal: str = ""
     tactic: str | None = None
     is_blocking: bool = False
     requires_ipa_artifact: bool = False

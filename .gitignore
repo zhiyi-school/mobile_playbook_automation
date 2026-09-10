@@ -12,16 +12,9 @@ profiles/
 *.p12
 *.cer
 
-# Generated run output
-reports/
-derived/
-work/*
-!work/ios/
-!work/android/
-work/ios/*
-!work/ios/.gitkeep
-work/android/*
-!work/android/.gitkeep
+# Generated runtime files
+artifacts/
+artefacts/
 data/*.sqlite
 data/*.sqlite-*
 

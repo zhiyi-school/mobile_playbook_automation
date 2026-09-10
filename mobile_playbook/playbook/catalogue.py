@@ -30,6 +30,9 @@ _PARSE_MESSAGES = {
     "duplicate_step_number": "two steps are numbered the same ({detail}).",
     "missing_description": "has no Description section, so the title falls back to its identifier.",
     "empty_step_section": "names a Demonstration or Remediation section that contains {detail}.",
+    "malformed_mitre_annotation": "{detail}, so no tactic was recorded.",
+    "conflicting_mitre_annotation": "names more than one MITRE tactic ({detail}); no tactic was recorded.",
+    "missing_title": "has no Title section, so the risk falls back to its configured name.",
 }
 
 _lock = threading.Lock()
@@ -141,6 +144,18 @@ def build(
                 )
             record["risk_id"] = key
             record["platform"] = platform
+            if not record.get("title"):
+                record.setdefault("parse_warnings", []).append({"code": "missing_title", "message": None})
+            for note in record.pop("parse_warnings", None) or []:
+                warnings.append(
+                    {
+                        "code": note["code"],
+                        "risk_id": key,
+                        "file": record["source_file"],
+                        "path": note.get("path"),
+                        "message": f"{record['source_file']}: {_PARSE_MESSAGES[note['code']].format(detail=note.get('message'))}",
+                    }
+                )
             risk_records[key] = record
 
     _link_controls(risk_records, control_records, platform, root, warnings)

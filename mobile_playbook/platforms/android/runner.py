@@ -5,6 +5,8 @@ from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 
+from mobile_playbook.storage import android_work_dir
+
 from mobile_playbook.orchestration.appium_process import ensure_appium_running, tcp_reachable
 from mobile_playbook.orchestration.artifact_intake import app_matches_selector
 from mobile_playbook.orchestration.platform_runner import (
@@ -31,7 +33,7 @@ class AndroidPlatformRunner:
         return requires_device(config, selected_tests, selected_apps, get_risk)
 
     def connect_device(self, config, run_dir: Path | None = None):
-        log_dir = run_dir or Path("work/android")
+        log_dir = run_dir or android_work_dir()
         outcome = ensure_appium_running(config.device.appium_server_url, getattr(config.device, "appium_auto_start", None), log_dir / "appium.log")
         message = appium_start_message(self.platform, config.device.appium_server_url, outcome)
         if message is not None:
@@ -51,7 +53,7 @@ class AndroidPlatformRunner:
             appium_server_url=config.device.appium_server_url,
             device_client=device_client,
             run_dir=run_dir,
-            fallback_dir=Path("work/android"),
+            fallback_dir=android_work_dir(),
             close_device=self.close_device,
             connect_device=lambda: self.connect_device(config, run_dir),
             is_reachable=lambda url, timeout: tcp_reachable(url, timeout=timeout),

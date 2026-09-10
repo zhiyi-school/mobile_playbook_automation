@@ -60,9 +60,9 @@ Generated work files (backed-up, decoded, and rebuilt APKs) are left under `work
 
 ## Risk Metadata
 
-**`configs/split/android/risks.yaml` is the source of truth for everything a dashboard displays about a risk** — its `name`, `description`, `goal`, `tactic` and `demonstration`. The `AndroidRisk` class holds none of that text: it carries only `risk_id`, `feature_id`, the test-case identifiers and the flags that change what a run does (`is_blocking`, `requires`, `requires_device`). `list_risks()` returns the class's empty defaults and `GET /platforms/{platform}/risks` overlays the YAML entry on top. See [iOS risk metadata](../ios/risks.md#risk-metadata) for the reasoning — the same arrangement applies here.
+**`configs/split/android/risks.yaml` is the source of truth for everything a dashboard displays about a risk** — its `name`, `description`, `tactic` and `demonstration`. The `AndroidRisk` class holds none of that text: it carries only `risk_id`, `feature_id`, the test-case identifiers and the flags that change what a run does (`is_blocking`, `requires`, `requires_device`). `list_risks()` returns the class's empty defaults and `GET /platforms/{platform}/risks` overlays the YAML entry on top. See [iOS risk metadata](../ios/risks.md#risk-metadata) for the reasoning — the same arrangement applies here.
 
-There is no Android playbook yet, so the current entries carry over what the risk classes used to say; replace them with the playbook's own `### Description` and `### Goal` wording once it exists. `tactic` is `null` for both Android risks until they're mapped.
+There is no Android playbook yet, so the current entries carry over what the risk classes used to say; once one exists its `### Title` and `### Description` take over automatically and these entries become the fallback. `tactic` is `null` for both Android risks until they're mapped.
 
 Both halves of an entry are editable over HTTP without a code change: `PUT /platforms/android/risks/{risk_id}` replaces the metadata fields, and `PUT /platforms/android/risks/{risk_id}/demonstration` replaces the demonstration. Neither touches the run.
 
@@ -71,7 +71,7 @@ Similarly, a feature_id's own `name`/`description` (there's no `Feature` class �
 ## Adding An Android Risk
 
 1. Add a new class under `mobile_playbook/platforms/android/risks/`.
-2. Subclass `AndroidRisk` and set a unique `risk_id`, plus `description`/`goal` describing the risk and what the test demonstrates.
+2. Subclass `AndroidRisk` and set a unique `risk_id`; the displayed text comes from the YAML entry, never from the class.
 3. Reuse the ADB/Appium device client and report writing where possible.
 4. Add mocked pytest coverage for device and external-tool behavior.
 

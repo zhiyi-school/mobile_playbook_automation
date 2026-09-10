@@ -7,6 +7,10 @@ import threading
 import uuid
 from pathlib import Path
 
+from mobile_playbook.storage import ios_work_dir, reports_root
+
+from mobile_playbook.storage import reports_root
+
 from mobile_playbook.orchestration.scan_runner import RunOptions, run_platform
 from mobile_playbook.orchestration.artifact_intake import (
     selected_app_csv,
@@ -62,7 +66,7 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--apps", default=None, help="Comma-separated app IDs or names")
     run.add_argument("--risks", default=None, help="Comma-separated risk IDs")
     run.add_argument("--dry-run", action="store_true")
-    run.add_argument("--out", default="reports")
+    run.add_argument("--out", default=str(reports_root()))
 
     run_all = sub.add_parser(
         "run-all",
@@ -73,12 +77,12 @@ def build_parser() -> argparse.ArgumentParser:
     run_all.add_argument("--apps", default=None, help="Comma-separated app IDs or names, applied to both platforms")
     run_all.add_argument("--risks", default=None, help="Comma-separated risk IDs, applied to both platforms")
     run_all.add_argument("--dry-run", action="store_true")
-    run_all.add_argument("--out", default="reports")
+    run_all.add_argument("--out", default=str(reports_root()))
 
     acquire = sub.add_parser("acquire")
     acquire.add_argument("--config", required=True)
     acquire.add_argument("--apps", default=None, help="Comma-separated app IDs")
-    acquire.add_argument("--out", default="work/ios/acquired")
+    acquire.add_argument("--out", default=str(ios_work_dir() / "acquired"))
 
     inspect = sub.add_parser("inspect-ipa")
     inspect.add_argument("--ipa", required=True)

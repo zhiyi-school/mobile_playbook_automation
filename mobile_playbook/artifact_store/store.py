@@ -8,10 +8,10 @@ from pathlib import Path
 from typing import Any
 
 from mobile_playbook.platforms.ios.mutations.hashing import sha256_file
+from mobile_playbook.storage import LOCATION_ENV
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
-STORE_DIR_ENV = "ARTIFACT_STORE_DIR"
-DEFAULT_STORE_DIR = REPOSITORY_ROOT / "derived"
+STORE_DIR_ENV = LOCATION_ENV["derived"]
 
 ICONS_SUBDIR = "icons"
 METADATA_SUBDIR = "artifacts"
@@ -24,10 +24,9 @@ _digest_cache: dict[tuple[str, int, float], str] = {}
 
 
 def store_root() -> Path:
-    from mobile_playbook.api import settings
+    from mobile_playbook.storage import derived_root
 
-    configured = os.environ.get(STORE_DIR_ENV) or settings.read_env_file_value(settings.ENV_FILE, STORE_DIR_ENV)
-    return Path(configured).expanduser() if configured else DEFAULT_STORE_DIR
+    return derived_root()
 
 
 def is_artifact_id(value: str | None) -> bool:

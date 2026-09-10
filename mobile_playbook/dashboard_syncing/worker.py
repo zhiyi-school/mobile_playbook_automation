@@ -6,6 +6,8 @@ import time
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
+from mobile_playbook.storage import reports_root
+
 from mobile_playbook import sync_status
 from mobile_playbook.dashboard_syncing.contracts import SupabaseRestError
 from mobile_playbook.dashboard_syncing.orchestrator import sync_reports
@@ -18,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Sync completed automation reports into the dashboard database.")
-    parser.add_argument("--reports-dir", default="reports")
+    parser.add_argument("--reports-dir", default=str(reports_root()))
     parser.add_argument("--run-timestamp", action="append", dest="run_timestamps")
     parser.add_argument("--triggered-by", default=None)
     parser.add_argument(

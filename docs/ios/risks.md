@@ -125,11 +125,11 @@ The framework reports this condition and does not try to bypass it.
 
 ## Risk Metadata
 
-**`configs/split/ios/risks.yaml` is the source of truth for everything a dashboard displays about a risk** — its `name`, `description`, `goal`, `tactic` and `demonstration`. The `Risk` class holds none of that text: it carries only `risk_id`, `feature_id` and the flags that change what a run does (`is_blocking`, `requires_ipa_artifact`, `requires_device`, `automation_available`). `list_risks()` returns the class's empty defaults and `GET /platforms/{platform}/risks` overlays the YAML entry on top, so the API response is what the YAML says.
+**`configs/split/ios/risks.yaml` is the source of truth for everything a dashboard displays about a risk** — its `name`, `description`, `tactic` and `demonstration`. The `Risk` class holds none of that text: it carries only `risk_id`, `feature_id` and the flags that change what a run does (`is_blocking`, `requires_ipa_artifact`, `requires_device`, `automation_available`). `list_risks()` returns the class's empty defaults and `GET /platforms/{platform}/risks` overlays the YAML entry on top, so the API response is what the YAML says.
 
-This split exists because that text belongs to the playbook, not to the automation. `description` and `goal` are transcribed from the risk's own playbook page — its `### Description` and `### Goal` sections — as plain text, dropping markdown emphasis and links since a dashboard renders them verbatim. `tactic` is the MITRE ATT&CK for Mobile tactic named in that goal (`"Discovery"`, `"Collection"`, or `null` where the risk isn't mapped), kept as a tactic name because not every risk has a clean single-technique match. When the same prose was also hand-written onto the Python classes the two copies drifted apart, which is exactly what this arrangement prevents: update the playbook, transcribe into the YAML, and no code changes.
+These YAML entries are the **fallback**, not the first source. Where the playbook has a document for the risk, `GET /platforms/{platform}/risks` overlays the parsed `### Title` onto `name`, the parsed `### Description` onto `description`, and the description's MITRE annotation onto `tactic` and `tactic_id`; the YAML value is used only where the playbook says nothing. `tactic` is the MITRE ATT&CK for Mobile tactic name (`"Discovery"`, `"Collection"`, or `null` where the risk isn't mapped) and `tactic_id` its `TA####` identifier. Risks that have no playbook document — Android today — still read entirely from the YAML. See [the playbook document format](../developer-playbook.md#document-format) for how those sections are authored.
 
-Both halves of an entry are editable over HTTP without a code change: `PUT /platforms/ios/risks/{risk_id}` replaces the metadata fields (any of `name`, `description`, `goal`, `tactic`; anything else is a 422), and `PUT /platforms/ios/risks/{risk_id}/demonstration` replaces the demonstration. Neither touches the run.
+Both halves of an entry are editable over HTTP without a code change: `PUT /platforms/ios/risks/{risk_id}` replaces the metadata fields (any of `name`, `description`, `tactic`; anything else is a 422), and `PUT /platforms/ios/risks/{risk_id}/demonstration` replaces the demonstration. Neither touches the run.
 
 A missing or unreadable `risks.yaml` is treated as "no entries" rather than an error. The catalogue endpoint is what a dashboard uses to list an app's tests at all, so a read failure there would show an app with *no tests* — a far worse outcome than showing tests with empty descriptions. The file is gitignored and machine-local, so its absence is a normal state on a fresh checkout, not a defect.
 
@@ -140,7 +140,7 @@ A demonstration step can also carry screenshots from the playbook, cited relativ
 ## Adding An iOS Risk
 
 1. Add a new class under `mobile_playbook/platforms/ios/risks/`.
-2. Subclass `Risk` and set a unique `risk_id`, plus `description`/`goal` describing the risk and what the test demonstrates.
+2. Subclass `Risk` and set a unique `risk_id`; the displayed text comes from the playbook document or the YAML entry, never from the class.
 3. Reuse artifact providers, Appium operations, and report writing where possible.
 4. Add mocked pytest coverage for device and external-tool behavior.
 

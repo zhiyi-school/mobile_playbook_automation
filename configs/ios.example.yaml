@@ -17,7 +17,7 @@ runner:
   stop_on_first_failure: false
   app_install_timeout_ms: 480000
   launch_wait_seconds: 5
-  work_dir: "work/ios"
+  work_dir: "artifacts/work/ios"
   permission_alerts:
     enabled: true
     action: "dismiss"

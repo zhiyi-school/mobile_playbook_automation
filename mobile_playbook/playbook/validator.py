@@ -11,11 +11,13 @@ from mobile_playbook.playbook import catalogue, controls, markdown, source
 
 ERROR_CODES = frozenset(
     {
+        "conflicting_mitre_annotation",
         "control_without_risk",
         "cross_risk_control_link",
         "duplicate_document_id",
         "duplicate_generated_step_id",
         "duplicate_step_id",
+        "malformed_mitre_annotation",
         "malformed_step_id",
         "missing_control_file",
         "missing_image",

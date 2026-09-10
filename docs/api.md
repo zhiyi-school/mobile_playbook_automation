@@ -37,7 +37,7 @@ dashboard database — that is the sync worker's job alone
 
 ## Security model
 
-The automation API is intended for localhost or a trusted lab network. It can start tests on attached devices, write YAML config, accept IPA/APK uploads, and serve report/evidence files from `reports/` and `work/`, so do not expose the FastAPI server directly to the internet.
+The automation API is intended for localhost or a trusted lab network. It can start tests on attached devices, write YAML config, accept IPA/APK uploads, and serve report/evidence files from `artifacts/reports/` and `artifacts/work/`, so do not expose the FastAPI server directly to the internet.
 
 For anything beyond localhost or a trusted LAN, put it behind a VPN or authenticated reverse proxy that handles user auth, TLS, request-size limits, and access logging. Keep `CORS_ALLOWED_ORIGINS` to the exact dashboard origins that should call it; wildcard origins are rejected at startup.
 
@@ -84,7 +84,7 @@ CLI process's working directory.
 ## Report root and evidence contract
 
 The API has one report root. `REPORTS_DIR` selects it, defaulting to
-`<repository>/reports`; a relative value is anchored to the repository and an
+`<repository>/artifacts/reports`; a relative value is anchored to the repository and an
 absolute value is used as given. Run creation, report listing and lookup, history,
 SARIF, sync state and ledgers, and `.job_registry.json` all use this root. The
 policy is unchanged when the server starts from another working directory.
@@ -93,7 +93,7 @@ policy is unchanged when the server starts from another working directory.
 and `label`. It does not persist a download handle or file size. When summary or
 history is served, the API reads that row, discovers files in its `report_path`,
 keeps only artifacts that still exist under the configured report root or the
-installation's `work/` root, de-duplicates them, and adds `ref` and `size_bytes`
+installation's `artifacts/work/` root, de-duplicates them, and adds `ref` and `size_bytes`
 to the response. This enrichment is read-only: historical report files are not
 rewritten. A missing artifact is omitted from summary/history; a previously issued
 reference to a file that is now missing returns `404`.
@@ -210,7 +210,7 @@ a retest already in a terminal state is left alone.
 ```bash
 SUPABASE_URL=https://dashboard.example.supabase.co \
 SUPABASE_SERVICE_ROLE_KEY=replace_with_service_role_key \
-python -m mobile_playbook.dashboard_sync --reports-dir reports
+python -m mobile_playbook.dashboard_sync --reports-dir artifacts/reports
 ```
 
 Report folders produced before the manifest existed are skipped, because their
@@ -264,7 +264,7 @@ download filename, and because it can generate the document on demand.
 | `test_id` (the risk id) | `rule.id` and `result.ruleId` |
 | Risk name | `rule.name` |
 | Risk description | `rule.shortDescription.text` |
-| Risk description + goal | `rule.fullDescription.text` |
+| Risk description | `rule.fullDescription.text` |
 | `summary` | `result.message.text` |
 | `verdict` | `result.kind` / `result.level` |
 | run timestamp | `automationDetails.id` as `mobile-playbook/<run_timestamp>`, and `run.properties.run_timestamp` |
@@ -438,11 +438,11 @@ report contents, or filesystem paths.
 - `queue_depth` above zero with `worker_state: "idle"` and a stale
   `last_success_at` — nothing is draining the queue. Confirm the recovery sweep
   with `launchctl print gui/$(id -u)/com.mobile-playbook.dashboard-sync`, and
-  read `work/dashboard-sync.log` for the last pass's output.
+  read `artifacts/work/dashboard-sync.log` for the last pass's output.
 - `last_error` set — the last pass ran and something failed. The per-run
   `sync-status` for each affected run names the specific failure.
 - Credentials are the usual cause of a pass that starts and immediately exits 2;
-  that shows up in `work/dashboard-sync.log`, not in this endpoint.
+  that shows up in `artifacts/work/dashboard-sync.log`, not in this endpoint.
 
 ### Retrying one run
 
@@ -611,7 +611,7 @@ derived/icons/<ARTIFACT_ID>.png        normalized icon
 ```
 
 `<ARTIFACT_ID>` is the build's SHA-256, so two uploads of the same file share one
-entry and re-extraction is free. `derived/` is set by `ARTIFACT_STORE_DIR` and
+entry and re-extraction is free. `artifacts/derived/` is set by `ARTIFACT_STORE_DIR` and
 defaults to `<repository root>/derived` — see
 [configuration.md](configuration.md#artifact_store_dir) for persistence and
 retention.
@@ -824,8 +824,9 @@ Each risk in `GET /platforms/{platform}/risks` gains three fields:
 {
   "risk_id": "example-feature-01-risk-01",
   "name": "Example risk",
-  "description": "Example risk description",
-  "goal": "Example security goal",
+  "description": "Example risk description. (MITRE ATT&CK: ***Discovery*** - TA0032).",
+  "tactic": "Discovery",
+  "tactic_id": "TA0032",
   "controls_available": true,
   "controls_error": null,
   "controls": [
@@ -1016,8 +1017,8 @@ error.
 | Method & Path | Purpose |
 | --- | --- |
 | `GET /health` | Liveness check. |
-| `GET /platforms/{platform}/risks` | Every risk's full metadata — `risk_id`, `name`, `description`, `goal`, `tactic`, `is_blocking`, `automation_available`, `demonstration`, and platform-specific requirement fields. The displayed text comes from `configs/split/{platform}/risks.yaml`, not from the risk's Python class. `platform` is `ios` or `android`. See [Risk Metadata](ios/risks.md#risk-metadata). |
-| `PUT /platforms/{platform}/risks/{risk_id}` | Replace a risk's displayed metadata in `configs/split/{platform}/risks.yaml`. Body may contain any of `name`, `description`, `goal`, `tactic`; any other field is a 422. Returns the stored values. It never affects what the automation run itself does. |
+| `GET /platforms/{platform}/risks` | Every risk's full metadata — `risk_id`, `name`, `description`, `tactic`, `tactic_id`, `is_blocking`, `automation_available`, `demonstration`, and platform-specific requirement fields. The displayed text comes from the risk's playbook document where one exists, falling back to `configs/split/{platform}/risks.yaml`; never from the risk's Python class. `platform` is `ios` or `android`. See [Risk Metadata](ios/risks.md#risk-metadata). |
+| `PUT /platforms/{platform}/risks/{risk_id}` | Replace a risk's displayed metadata in `configs/split/{platform}/risks.yaml`. Body may contain any of `name`, `description`, `tactic`; any other field is a 422. These are the fallback values, used where the playbook document says nothing. Returns the stored values. It never affects what the automation run itself does. |
 | `PUT /platforms/{platform}/risks/{risk_id}/demonstration` | Replace a risk's `demonstration` content — the "how to demonstrate this" setup/steps a dashboard shows, stored in `configs/split/{platform}/risks.yaml`. Body is the full `demonstration` array; it never affects what the automation run itself does. Each image's derived `url`/`exists` are stripped before writing, so a GET's response can be PUT straight back. |
 | `GET /platforms/{platform}/playbook/images/{image_path}` | One screenshot referenced by a demonstration step, resolved under that platform's `playbook_dir`. See [Playbook images](#playbook-images). |
 | `GET /platforms/{platform}/features` | Every feature_id referenced by that platform's risks, with its `name`/`description` from `configs/split/{platform}/features.yaml`. `feature_id` here has no platform prefix (e.g. `"feature-01"`). |
@@ -1110,7 +1111,7 @@ Resolution happens when `cors_allowed_origins()` is called rather than at module
    trusted-network use. Internet-accessible deployments need authentication and
    TLS in front of this service, preferably at a reverse proxy or VPN boundary.
 2. **Evidence and report access is filesystem based.** The path helpers
-   constrain reads to `reports/`, `work/`, or configured playbook image
+   constrain reads to `artifacts/reports/`, `artifacts/work/`, or configured playbook image
    directories, but there is no per-user authorisation and a protected
    deployment should still treat these as sensitive assessment artifacts.
 3. **Single-host worker assumptions.** The sync lock, processed ledger and
@@ -1126,7 +1127,7 @@ Resolution happens when `cors_allowed_origins()` is called rather than at module
    checked mechanically.
 6. **No API versioning.** Paths are unversioned, so a breaking change would
    break clients silently.
-7. **No retention or pruning** of `reports/` and `work/`. Both grow without
+7. **No retention or pruning** of `artifacts/reports/` and `artifacts/work/`. Both grow without
    bound and hold sensitive data.
 8. **One run per platform, one host.** No queue, no horizontal scaling; the
    attached device is the hard constraint.

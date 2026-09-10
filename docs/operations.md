@@ -45,7 +45,7 @@ The dashboard is eventually consistent by design.
 ```bash
 SUPABASE_URL=https://dashboard.example.supabase.co \
 SUPABASE_SERVICE_ROLE_KEY=<SERVICE_ROLE_KEY> \
-python -m mobile_playbook.dashboard_sync --reports-dir reports
+python -m mobile_playbook.dashboard_sync --reports-dir artifacts/reports
 ```
 
 Useful flags:
@@ -81,7 +81,7 @@ logs a Supabase error and nothing runs.
 | --- | --- | --- |
 | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | — | required; the queue lives in the dashboard database |
 | `AUTOMATION_API_URL` / `--api-url` | `http://127.0.0.1:8000` | where readiness is asked and runs are started |
-| `REPORTS_DIR` / `--reports-dir` | `reports` | report root passed as the API `out_dir` compatibility assertion; it must resolve to the API's configured `REPORTS_DIR` |
+| `REPORTS_DIR` / `--reports-dir` | `artifacts/reports` | report root passed as the API `out_dir` compatibility assertion; it must resolve to the API's configured `REPORTS_DIR` |
 | `ASSESSMENT_WORKER_ID` / `--worker-id` | host name plus a random suffix | identifies the lease holder |
 | `ASSESSMENT_WORKER_POLL_SECONDS` / `--poll-seconds` | `15` | how often an empty queue is checked |
 | `ASSESSMENT_WORKER_LEASE_SECONDS` / `--lease-seconds` | `900` | how long a claim is held before another worker may recover it |
@@ -253,12 +253,12 @@ Read `/sync/status` first, then:
 | Symptom | Cause | Action |
 | --- | --- | --- |
 | `enabled: false` | automatic triggering is off for the API process | check `DASHBOARD_SYNC_AUTO_TRIGGER` in the environment and `.env` |
-| `queue_depth` > 0, `worker_state: "idle"`, stale `last_success_at` | nothing is draining the queue | check the launchd agent's activation class; read `work/dashboard-sync.log` |
+| `queue_depth` > 0, `worker_state: "idle"`, stale `last_success_at` | nothing is draining the queue | check the launchd agent's activation class; read `artifacts/work/dashboard-sync.log` |
 | `last_error` set | the last pass ran and something failed | read the per-run `sync-status` for each affected run |
-| pass starts and exits 2 | missing credentials | `work/dashboard-sync.log`, not this endpoint |
+| pass starts and exits 2 | missing credentials | `artifacts/work/dashboard-sync.log`, not this endpoint |
 | a run stays `not_required` | its manifest is not `completed`, or it predates the manifest | expected; use `--allow-legacy-report` deliberately for historical folders |
 
-`work/dashboard-sync.log` accumulates every detached worker's output and is the
+`artifacts/work/dashboard-sync.log` accumulates every detached worker's output and is the
 first place to look for anything the endpoints do not explain.
 
 ## Retrying one run

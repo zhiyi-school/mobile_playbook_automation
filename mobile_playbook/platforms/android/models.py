@@ -4,6 +4,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from mobile_playbook.storage import android_work_dir
+
 from mobile_playbook.reporting.serialization import SerializableDataclass
 
 
@@ -21,7 +23,7 @@ class AndroidDeviceConfig(SerializableDataclass):
 
 @dataclass
 class AndroidRunnerConfig(SerializableDataclass):
-    work_dir: Path = Path("work/android")
+    work_dir: Path = field(default_factory=android_work_dir)
     auto_grant_permissions: bool = False
     launch_wait_seconds: float = 4
 

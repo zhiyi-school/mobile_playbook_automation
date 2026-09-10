@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 from mobile_playbook.platforms.android.config import parse_config
 from mobile_playbook.platforms.android.results import normalize_android_result
+from mobile_playbook.storage import android_work_dir
 from mobile_playbook.platforms.android.risks import get_risk, known_risks
 from mobile_playbook.platforms.android.runner import AndroidPlatformRunner
 from mobile_playbook.reporting.report_writer import ReportWriter
@@ -33,7 +34,7 @@ def test_android_config_respects_an_explicit_repackaging_work_dir():
 def test_android_config_falls_back_to_default_repackaging_work_dir_when_unset():
     config = parse_config({})
 
-    assert config.repackaging["work_dir"] == "work/android/repackaging"
+    assert config.repackaging["work_dir"] == str(android_work_dir() / "repackaging")
 
 
 def test_android_config_accepts_structured_apps():

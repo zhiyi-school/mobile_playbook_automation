@@ -24,7 +24,7 @@ ipa_static_analysis:
 traffic_interception:
   burp:
     proxy_url: "http://127.0.0.1:8080"
-    capture_path: "work/ios/traffic_interception/capture.jsonl"
+    capture_path: "artifacts/work/ios/traffic_interception/capture.jsonl"
   expected_hosts:
     - "REPLACE_WITH_APP_API_HOSTNAME"
   capture_timeout_seconds: 30
@@ -37,7 +37,7 @@ keystroke_collection:
   keyboard_app:
     bundle_id: "com.example.LocalKeyboard"
     keyboard_extension_bundle_id: "com.example.LocalKeyboard.KeyboardExtension"
-    ipa: "intake/ios/ipas/LocalKeyboard.ipa"
+    ipa: "artifacts/intake/ios/ipas/LocalKeyboard.ipa"
     install: true
     launch: true
     uninstall_after_test: false

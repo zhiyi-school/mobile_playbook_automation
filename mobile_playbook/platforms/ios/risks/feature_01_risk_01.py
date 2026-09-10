@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from pathlib import Path
+
+from mobile_playbook.storage import ios_work_dir
 from typing import Any
 
 from mobile_playbook.core.config_files import merge_dicts
@@ -47,7 +49,7 @@ class Feature01Risk01(Risk):
                 global_config,
                 device_client,
                 report_writer.run_timestamp,
-                Path(app_config.artifact.get("workspace_dir") or "work/ios/acquired"),
+                Path(app_config.artifact.get("workspace_dir") or ios_work_dir() / "acquired"),
             )
             result.artifact_result = acquisition
             if acquisition.status == "INSTALLED_APP_VERIFIED":

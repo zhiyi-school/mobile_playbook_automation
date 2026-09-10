@@ -13,7 +13,7 @@ and [android/reports-and-troubleshooting.md](android/reports-and-troubleshooting
 | What happened during one test? | `reports/<RUN_TIMESTAMP>/<PLATFORM>/<APP_ID>/<RISK_ID>/<CASE_ID>/logs.txt` and `report.json` |
 | What happened moment to moment? | `reports/<RUN_TIMESTAMP>/events.jsonl`, or `GET /runs/<RUN_ID>/events` live |
 | Did the dashboard get it? | `GET /runs/<RUN_ID>/sync-status` |
-| Is the sync worker healthy? | `GET /sync/status`, then `work/dashboard-sync.log` |
+| Is the sync worker healthy? | `GET /sync/status`, then `artifacts/work/dashboard-sync.log` |
 | What did the API do? | its stdout — `mobile_playbook.*` records are formatted by the API's log config |
 
 Report contents are real assessment data. Treat them as sensitive and do not
@@ -38,7 +38,7 @@ paste them into issue trackers unredacted.
 | `POST /runs` returns `422` | an unknown app or risk was selected | `GET /platforms/{platform}/risks`, `GET /config/{platform}/apps` |
 | A run stays `running` forever | a hung device or Appium session; the backend has no timeout | restart the API; on reload, still-`running` records are rewritten to `failed` with "Interrupted by API server restart" |
 | A new run cannot start after a hang | the platform claim is still held in-process | restarting the API releases it |
-| Run failed before any risk executed | device, Appium or artifact setup | `run_manifest.json`'s `error`, then `work/<platform>/` logs |
+| Run failed before any risk executed | device, Appium or artifact setup | `run_manifest.json`'s `error`, then `artifacts/work/<platform>/` logs |
 | A risk reports `Inconclusive` | the check could not reach a verdict — not a crash | read that test's `logs.txt`; this is a normal outcome |
 | Two runs in the same second | both reserved a timestamp | the second takes a `-2` suffix; folders never merge |
 
@@ -77,7 +77,7 @@ paste them into issue trackers unredacted.
 | SSE returns `404` | same | use `GET /reports/<RUN_TIMESTAMP>/summary` for CLI-started runs |
 | A report endpoint returns `404` for a run that exists | the run directory or the requested file is absent | `GET /reports` lists what is on disk |
 | `GET /reports/{ts}/sarif` returns `404` | no completed manifest, or no results feed | SARIF is only generated for completed runs |
-| Evidence link 404s | the file is outside `reports/` and `work/` | path helpers refuse anything outside those roots by design |
+| Evidence link 404s | the file is outside `artifacts/reports/` and `artifacts/work/` | path helpers refuse anything outside those roots by design |
 
 ## Getting a clean reproduction
 

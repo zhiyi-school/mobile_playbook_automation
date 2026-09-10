@@ -8,7 +8,6 @@ class AndroidRisk:
     #: Displayed text, owned by configs/split/android/risks.yaml — subclasses
     #: leave these alone. See docs/android/risks.md#risk-metadata.
     description: str = ""
-    goal: str = ""
     tactic: str | None = None
     is_blocking: bool = False
     test_case_id: str = ""

@@ -10,7 +10,7 @@ device:
     poll_interval_seconds: 1
 
 runner:
-  work_dir: "work/android"
+  work_dir: "artifacts/work/android"
   auto_grant_permissions: false
 
 include:

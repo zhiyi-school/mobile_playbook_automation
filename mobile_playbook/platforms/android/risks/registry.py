@@ -37,7 +37,6 @@ def list_risks() -> list[dict]:
                 "feature_id": risk.feature_id,
                 "name": risk.name,
                 "description": risk.description,
-                "goal": risk.goal,
                 "is_blocking": risk.is_blocking,
                 "tactic": risk.tactic,
                 "requires_device": risk.requires_device,

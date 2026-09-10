@@ -10,13 +10,13 @@ from mobile_playbook.playbook import catalogue, controls, markdown, source
 
 RISK = """## example-feature-01-risk-01
 
+### Title
+
+An example risk title
+
 ### Description
 
-An example risk description for the placeholder application.
-
-### Goal
-
-As a result, this could lead to _**Discovery**_ - an example security goal.
+An example risk description for the placeholder application. (MITRE ATT&CK: ***Discovery*** - TA0032).
 
 ### Demonstration
 
@@ -184,10 +184,16 @@ class TestCatalogueShape:
         assert set(index["controls"]) == {"ios-feature-01-risk-01-control-01"}
         assert index["controls"]["ios-feature-01-risk-01-control-01"]["risk_id"] == "ios-feature-01-risk-01"
 
-    def test_carries_the_risk_description_and_goal(self, playbook):
+    def test_carries_the_risk_title_and_description(self, playbook):
         risk = catalogue.get("ios")["risks"]["ios-feature-01-risk-01"]
+        assert risk["title"] == "An example risk title"
         assert risk["description"].startswith("An example risk description")
-        assert "example security goal" in risk["goal"]
+        assert "goal" not in risk
+
+    def test_takes_the_mitre_tactic_from_the_description(self, playbook):
+        risk = catalogue.get("ios")["risks"]["ios-feature-01-risk-01"]
+        assert risk["tactic"] == "Discovery"
+        assert risk["tactic_id"] == "TA0032"
 
     def test_a_clean_playbook_produces_no_warnings(self, playbook):
         assert catalogue.get("ios")["warnings"] == []
@@ -923,7 +929,7 @@ class TestHeadingSteps:
         control = build_control(tmp_path, monkeypatch, HEADING_CONTROL)
         rendered = [block.get("text") for block in control["intro"]]
 
-        for structural in ("Description", "Demonstration", "Remediation", "References", "Goal"):
+        for structural in ("Title", "Description", "Demonstration", "Remediation", "References"):
             assert structural not in rendered
 
     def test_an_unknown_section_heading_stays_visible(self, tmp_path, monkeypatch):
@@ -1044,13 +1050,13 @@ class TestHeadingStepIds:
 class TestHeadingRiskDemonstration:
     HEADING_RISK = """## example-feature-01-risk-01
 
+### Title
+
+An example risk title
+
 ### Description
 
-An example risk description for the placeholder application.
-
-### Goal
-
-As a result, this could lead to _**Discovery**_ - an example security goal.
+An example risk description for the placeholder application. (MITRE ATT&CK: ***Discovery*** - TA0032).
 
 ### Demonstration
 
@@ -1110,6 +1116,151 @@ References:
     def test_a_risk_without_a_demonstration_section_offers_nothing(self, tmp_path, monkeypatch):
         risk = build_risk(tmp_path, monkeypatch, RISK.replace("### Demonstration", "### Ignored"))
         assert risk["demonstration"] == []
+
+
+class TestMitreAnnotation:
+    def _risk_with_description(self, tmp_path, monkeypatch, description: str) -> dict:
+        return build_risk(
+            tmp_path,
+            monkeypatch,
+            RISK.replace(
+                "An example risk description for the placeholder application. "
+                "(MITRE ATT&CK: ***Discovery*** - TA0032).",
+                description,
+            ),
+        )
+
+    @pytest.mark.parametrize(
+        "annotation",
+        [
+            "(MITRE ATT&CK: ***Discovery*** - TA0032)",
+            "(MITRE ATT&CK: _**Discovery**_ - TA0032)",
+            "(MITRE ATT&CK: **Discovery** - TA0032)",
+            "(MITRE ATT&CK: Discovery - TA0032)",
+            "(mitre att&ck: *Discovery* \u2013 ta0032)",
+        ],
+    )
+    def test_reads_the_tactic_through_any_combination_of_emphasis(self, tmp_path, monkeypatch, annotation):
+        risk = self._risk_with_description(tmp_path, monkeypatch, f"An example description. {annotation}.")
+
+        assert risk["tactic"] == "Discovery"
+        assert risk["tactic_id"] == "TA0032"
+
+    def test_never_infers_a_tactic_a_description_does_not_name(self, tmp_path, monkeypatch):
+        risk = self._risk_with_description(
+            tmp_path,
+            monkeypatch,
+            "As a result, this could lead to _**Discovery**_ - an example security outcome.",
+        )
+
+        assert risk["tactic"] is None
+        assert risk["tactic_id"] is None
+
+    def test_ignores_an_annotation_outside_the_description(self, tmp_path, monkeypatch):
+        risk = build_risk(
+            tmp_path,
+            monkeypatch,
+            RISK.replace(
+                "An example security demonstration step that security performs, not the developer.",
+                "An example step. (MITRE ATT&CK: ***Collection*** - TA0035).",
+            ),
+        )
+
+        assert risk["tactic"] == "Discovery"
+        assert risk["tactic_id"] == "TA0032"
+
+    def test_reports_a_malformed_annotation_rather_than_guessing(self, tmp_path, monkeypatch):
+        index = build_catalogue(
+            tmp_path,
+            monkeypatch,
+            risk=RISK.replace("(MITRE ATT&CK: ***Discovery*** - TA0032)", "(MITRE ATT&CK: Discovery)"),
+        )
+        risk = index["risks"]["ios-feature-01-risk-01"]
+
+        assert risk["tactic"] is None
+        assert warning_codes(index, "malformed_mitre_annotation")
+
+    def test_reports_two_conflicting_annotations_rather_than_choosing(self, tmp_path, monkeypatch):
+        index = build_catalogue(
+            tmp_path,
+            monkeypatch,
+            risk=RISK.replace(
+                "(MITRE ATT&CK: ***Discovery*** - TA0032)",
+                "(MITRE ATT&CK: ***Discovery*** - TA0032) and (MITRE ATT&CK: ***Collection*** - TA0035)",
+            ),
+        )
+        risk = index["risks"]["ios-feature-01-risk-01"]
+
+        assert risk["tactic"] is None
+        conflicts = warning_codes(index, "conflicting_mitre_annotation")
+        assert conflicts and "Collection (TA0035)" in conflicts[0]["message"]
+
+    def test_a_repeated_identical_annotation_is_not_a_conflict(self, tmp_path, monkeypatch):
+        risk = self._risk_with_description(
+            tmp_path,
+            monkeypatch,
+            "First (MITRE ATT&CK: ***Discovery*** - TA0032). Again (MITRE ATT&CK: **Discovery** - TA0032).",
+        )
+
+        assert risk["tactic"] == "Discovery"
+
+
+class TestRiskTitle:
+    def test_the_title_section_names_the_risk(self, tmp_path, monkeypatch):
+        assert build_risk(tmp_path, monkeypatch, RISK)["title"] == "An example risk title"
+
+    def test_a_risk_without_a_title_section_is_reported(self, tmp_path, monkeypatch):
+        index = build_catalogue(
+            tmp_path,
+            monkeypatch,
+            risk=RISK.replace("### Title\n\nAn example risk title\n\n", ""),
+        )
+
+        assert index["risks"]["ios-feature-01-risk-01"]["title"] == ""
+        assert warning_codes(index, "missing_title")
+
+    def test_the_title_is_not_repeated_as_body_prose(self, tmp_path, monkeypatch):
+        control = CONTROL.replace(
+            "## example-feature-01-risk-01-control-01\n",
+            "## example-feature-01-risk-01-control-01\n\n### Title\n\nAn example control title\n",
+        )
+        index = build_catalogue(tmp_path, monkeypatch, control=control)
+        record = index["controls"]["ios-feature-01-risk-01-control-01"]
+
+        assert record["title"] == "An example control title"
+        assert all("An example control title" != block.get("text") for block in record["intro"])
+
+
+class TestDemonstrationContent:
+    def test_keeps_authored_blocks_in_the_order_they_were_written(self, tmp_path, monkeypatch):
+        risk = build_risk(tmp_path, monkeypatch, TestHeadingRiskDemonstration.HEADING_RISK)
+        steps = [block for block in risk["demonstration"] if block["type"] == "steps"][0]
+
+        assert [block["type"] for block in steps["items"][0]["content"]] == ["code"]
+        assert [block["type"] for block in steps["items"][1]["content"]] == ["image"]
+
+    def test_keeps_the_language_label_of_a_code_block(self, tmp_path, monkeypatch):
+        risk = build_risk(tmp_path, monkeypatch, TestHeadingRiskDemonstration.HEADING_RISK)
+        steps = [block for block in risk["demonstration"] if block["type"] == "steps"][0]
+        code = [block for block in steps["items"][0]["content"] if block["type"] == "code"][0]
+
+        assert code["language"] == "shell"
+        assert code["text"] == "example --prepare"
+
+    def test_keeps_a_caption_with_the_image_it_describes(self, tmp_path, monkeypatch):
+        risk = build_risk(tmp_path, monkeypatch, TestHeadingRiskDemonstration.HEADING_RISK)
+        steps = [block for block in risk["demonstration"] if block["type"] == "steps"][0]
+        image = [block for block in steps["items"][1]["content"] if block["type"] == "image"][0]
+
+        assert image["caption"] == "Example demonstration screenshot"
+        assert image["width"] == "400"
+
+    def test_still_offers_the_flat_command_and_image_lists(self, tmp_path, monkeypatch):
+        risk = build_risk(tmp_path, monkeypatch, TestHeadingRiskDemonstration.HEADING_RISK)
+        steps = [block for block in risk["demonstration"] if block["type"] == "steps"][0]
+
+        assert steps["items"][0]["commands"] == ["example --prepare"]
+        assert steps["items"][1]["images"][0]["path"] == "attachments/example_risk_ss1.png"
 
 
 class TestParserWarnings:

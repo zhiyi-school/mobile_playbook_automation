@@ -12,12 +12,10 @@ from mobile_playbook.platforms.android.config import ConfigError as AndroidConfi
 from mobile_playbook.platforms.android.config import load_config as load_android_config
 from mobile_playbook.platforms.android.permissions import is_installed as android_is_installed
 from mobile_playbook.api.job_registry import registry
+from mobile_playbook.storage import ios_intake_dir
 from mobile_playbook.orchestration.platform_runner import requires_device
 from mobile_playbook.platforms.android.risks import get_risk as get_android_risk
-from mobile_playbook.platforms.ios.artifacts.intake_ipa import (
-    DEFAULT_INTAKE_DIR,
-    resolve_intake_ipa,
-)
+from mobile_playbook.platforms.ios.artifacts.intake_ipa import resolve_intake_ipa
 from mobile_playbook.platforms.ios.config import load_config as load_ios_config
 from mobile_playbook.platforms.ios.preflight import connected_device_udids
 from mobile_playbook.platforms.ios.risks import get_risk as get_ios_risk
@@ -36,7 +34,7 @@ def _stage(stage_id: str, label: str, state: str, detail: str | None = None) -> 
 
 def _intake_dir(artifact: dict) -> Path:
     configured = (artifact or {}).get("intake_dir")
-    return Path(configured).expanduser() if configured else DEFAULT_INTAKE_DIR
+    return Path(configured).expanduser() if configured else ios_intake_dir()
 
 
 def _overall_status(stages: list[Stage]) -> str:

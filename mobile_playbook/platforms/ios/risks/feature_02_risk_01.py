@@ -5,6 +5,8 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+from mobile_playbook.storage import ios_work_dir
+
 from mobile_playbook.core.config_files import merge_dicts
 from mobile_playbook.orchestration.appium_process import tcp_reachable
 from mobile_playbook.platforms.ios.artifacts.registry import get_provider
@@ -37,7 +39,7 @@ class Feature02Risk01(Risk):
                 result.errors.append(f"Burp proxy not reachable at {proxy_url}. Start Burp Suite and confirm its listener matches this URL.")
                 return result
 
-            capture_path = Path(str(burp_config.get("capture_path") or "work/ios/traffic_interception/capture.jsonl"))
+            capture_path = Path(str(burp_config.get("capture_path") or ios_work_dir() / "traffic_interception" / "capture.jsonl"))
             start_line = capture_line_count(capture_path)
 
             acquisition = self._prepare_app(app_config, global_config, device_client, report_writer.run_timestamp)
@@ -126,7 +128,7 @@ class Feature02Risk01(Risk):
             global_config,
             device_client,
             run_timestamp,
-            Path(app_config.artifact.get("workspace_dir") or "work/ios/acquired"),
+            Path(app_config.artifact.get("workspace_dir") or ios_work_dir() / "acquired"),
         )
 
     def _exercise_app(self, device_client, exercise_config: dict) -> list[dict]:

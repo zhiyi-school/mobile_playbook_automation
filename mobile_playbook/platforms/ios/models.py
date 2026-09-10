@@ -4,6 +4,8 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+from mobile_playbook.storage import ios_work_dir
+
 
 ARTIFACT_STATUSES = {
     "ACQUIRED",
@@ -103,7 +105,7 @@ class RunnerConfig(SerializableDataclass):
     stop_on_first_failure: bool = False
     app_install_timeout_ms: int = 480000
     launch_wait_seconds: int = 5
-    work_dir: Path = Path("work/ios")
+    work_dir: Path = field(default_factory=ios_work_dir)
     permission_alerts: dict[str, Any] = field(default_factory=dict)
 
 

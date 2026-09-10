@@ -97,6 +97,7 @@ def config_root(tmp_path, monkeypatch):
     )
 
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("INTAKE_DIR", str(tmp_path / "intake"))
     return tmp_path
 
 
