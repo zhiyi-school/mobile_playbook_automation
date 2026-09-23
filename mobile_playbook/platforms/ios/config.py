@@ -193,6 +193,14 @@ def collect_config_errors(config: GlobalConfig, dry_run: bool = False) -> list[s
                 burp = effective.get("burp") or {}
                 if not str(burp.get("proxy_url") or "").strip():
                     errors.append(f"{label}.risks.{risk_id}.burp.proxy_url is required")
+                health_max_age = burp.get("health_max_age_seconds", 300)
+                try:
+                    health_max_age = float(health_max_age)
+                except (TypeError, ValueError):
+                    errors.append(f"{label}.risks.{risk_id}.burp.health_max_age_seconds must be a non-negative number")
+                else:
+                    if health_max_age < 0:
+                        errors.append(f"{label}.risks.{risk_id}.burp.health_max_age_seconds must be non-negative")
     return errors
 
 

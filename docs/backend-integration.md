@@ -227,9 +227,13 @@ curl http://127.0.0.1:8080/reports/<RUN_TIMESTAMP>/summary
 ```
 
 Both return the run's `dashboard_results.json`: one normalised row per
-(app, risk, test case), each with `verdict`, `severity`, `summary`, `evidence`
-and `report_path`. `/runs/...` returns `409` while the run is still executing
-and `500` with the error if it failed; `/reports/...` works for any run on disk.
+(app, risk, test case), each with `status`, `verdict`, `severity`, `summary`,
+`evidence` and `report_path`. `status` is the precise automation outcome;
+`verdict` is the three-way security conclusion (`At Risk`, `Reduced Risk`, or
+`Inconclusive`). Capture diagnostic statuses remain `Inconclusive`; only
+`RISK_EXISTS` confirms the traffic-interception risk. `/runs/...` returns `409`
+while the run is still executing and `500` with the error if it failed;
+`/reports/...` works for any run on disk.
 
 **`dashboard_results.json` is the canonical normalised feed.** Build your
 integration on it.

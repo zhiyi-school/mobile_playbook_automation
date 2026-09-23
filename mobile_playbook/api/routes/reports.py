@@ -17,8 +17,8 @@ SARIF_MEDIA_TYPE = "application/sarif+json"
 def secure_filename(value: str) -> str:
     return safe_filename(value, "run", basename=False, strip_leading_dots=False)
 @router.get("/reports")
-def list_reports() -> list[str]:
-    return reports_service.list_report_timestamps()
+def list_reports(status: str | None = None) -> list[str]:
+    return reports_service.list_report_timestamps(status)
 
 
 @router.get("/reports/{run_timestamp}/summary", response_model=list[ReportResultResponse])

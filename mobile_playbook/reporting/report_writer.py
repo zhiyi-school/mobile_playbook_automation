@@ -7,7 +7,7 @@ from typing import Any, Callable
 
 from mobile_playbook.reporting.dashboard_export import write_dashboard_results
 from mobile_playbook.reporting.messages import clean_message
-from mobile_playbook.reporting.run_events import append_event
+from mobile_playbook.reporting.run_events import append_event, read_events
 
 
 class ReportWriter:
@@ -78,4 +78,27 @@ class ReportWriter:
                 f"| {result.app_id} | {result.risk_id} | {result.test_case_id} | "
                 f"{result.artifact_source} | {result.verdict} | {notes} | [{report_path}/]({report_path}/) |"
             )
+        warnings = _preflight_warnings(self.run_dir)
+        if warnings:
+            lines.extend(["", "## Preflight warnings", ""])
+            for warning in warnings:
+                app_ids = ", ".join(str(value) for value in warning.get("app_ids") or [])
+                scope = f" ({app_ids})" if app_ids else ""
+                lines.append(f"- `{warning.get('code', '')}`{scope}: {warning.get('message', '')}")
         (self.run_dir / "summary.md").write_text("\n".join(lines) + "\n")
+
+
+def _preflight_warnings(run_dir: Path) -> list[dict[str, Any]]:
+    events, _ = read_events(run_dir)
+    warnings: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, tuple[str, ...]]] = set()
+    for event in events:
+        if event.get("type") != "preflight_warning":
+            continue
+        app_ids = tuple(str(value) for value in (event.get("app_ids") or []))
+        key = (str(event.get("code") or ""), str(event.get("risk_id") or ""), app_ids)
+        if key in seen:
+            continue
+        seen.add(key)
+        warnings.append(event)
+    return warnings

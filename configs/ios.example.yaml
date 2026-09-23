@@ -21,6 +21,8 @@ runner:
   permission_alerts:
     enabled: true
     action: "dismiss"
+    accept_if_text_contains:
+      - "find and connect to devices on your local network"
     wait_seconds: 2
     max_alerts: 3
 

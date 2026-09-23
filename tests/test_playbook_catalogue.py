@@ -190,6 +190,36 @@ class TestCatalogueShape:
         assert risk["description"].startswith("An example risk description")
         assert "goal" not in risk
 
+    def test_a_two_paragraph_description_keeps_the_break_between_them(self, tmp_path, monkeypatch):
+        risk = build_risk(
+            tmp_path,
+            monkeypatch,
+            RISK.replace(
+                "An example risk description for the placeholder application. "
+                "(MITRE ATT&CK: ***Discovery*** - TA0032).",
+                "The first paragraph of the description.\n\n"
+                "The second paragraph. (MITRE ATT&CK: ***Discovery*** - TA0032).",
+            ),
+        )
+
+        assert risk["description"] == (
+            "The first paragraph of the description.\n\n"
+            "The second paragraph. (MITRE ATT&CK: ***Discovery*** - TA0032)."
+        )
+        assert risk["tactic"] == "Discovery"
+
+    def test_a_single_paragraph_description_carries_no_break(self, playbook):
+        assert "\n" not in catalogue.get("ios")["risks"]["ios-feature-01-risk-01"]["description"]
+
+    def test_a_multi_line_title_is_still_one_line(self, tmp_path, monkeypatch):
+        risk = build_risk(
+            tmp_path,
+            monkeypatch,
+            RISK.replace("An example risk title", "An example risk title\n\nStray second line"),
+        )
+
+        assert risk["title"] == "An example risk title"
+
     def test_takes_the_mitre_tactic_from_the_description(self, playbook):
         risk = catalogue.get("ios")["risks"]["ios-feature-01-risk-01"]
         assert risk["tactic"] == "Discovery"

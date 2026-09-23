@@ -135,7 +135,7 @@ def resign(ipa_path: Path, out_path: Path, udid: str, team_id: str) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--ipa", default="intake/ios/ipas/LocalKeyboard.ipa", type=Path)
+    parser.add_argument("--ipa", default="artifacts/intake/ios/ipas/LocalKeyboard.ipa", type=Path)
     parser.add_argument("--out", default=None, type=Path, help="defaults to overwriting --ipa")
     parser.add_argument("--udid", required=True, help="device.udid from configs/ios.yaml")
     parser.add_argument("--team-id", required=True, help="device.team_id from configs/ios.yaml")

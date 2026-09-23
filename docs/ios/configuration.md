@@ -44,6 +44,8 @@ device:
 
 This is checked once when a run connects to the device, and again before every single test — if Appium was running fine but crashes partway through a run, the next test's check notices it's unreachable, restarts it, reconnects, and the run continues with the remaining apps/risks rather than every subsequent test failing the same way. Appium is started once and left running for the rest of the run (and afterward) — it is not stopped between tests. Every launch attempt (including restarts after a crash) is appended to `appium.log` in that run's report directory, so what happened and why is inspectable after the fact.
 
+`python -m mobile_playbook.api` also checks this setting before starting the API server. If that backend process starts Appium, it stops its Appium process group during graceful shutdown; an Appium instance that was already running remains untouched. Cleanup cannot be guaranteed after `SIGKILL`, power loss, or a system crash.
+
 ### Automatic unlock
 
 Same two points — right after connecting, and again before every test — also check whether the device's screen is locked and unlock it if so, logged as a `device_unlocked` event in that run's `events.jsonl` when it actually had to do anything. This is a no-op (and reported as `was_locked: false`) if the screen was already unlocked.
@@ -139,13 +141,24 @@ iOS risk IDs are prefixed `ios-feature...`. To configure a risk for an app:
 
 ### Traffic interception
 
-`ios-feature-02-risk-01` needs a device already configured to proxy through Burp Suite with Burp's CA trusted — that's a one-time, manual, per-device setup this framework doesn't automate (see [Risks](risks.md#ios-feature-02-risk-01) for why, and what it needs from a companion Burp extension). Once that's done:
+`ios-feature-02-risk-01` configures the selected Wi-Fi network's proxy through the iOS Settings UI immediately before the risk and applies the configured proxy cleanup afterward. Enabling the risk means resistance to the locally trusted interception CA is expected; installing the CA is a test prerequisite, not itself a vulnerability (see [Risks](risks.md#ios-feature-02-risk-01)).
 
 ```yaml
 traffic_interception:
   burp:
-    proxy_url: "http://127.0.0.1:8080"
-    capture_path: "work/ios/traffic_interception/capture.jsonl"
+    proxy_url: "http://127.0.0.1:8081"
+    capture_path: "artifacts/work/ios/traffic_interception/capture.jsonl"
+    health_max_age_seconds: 300
+  device_setup:
+    mode: "appium_ui"
+    wifi_ssid: "REPLACE_WITH_TEST_WIFI_NAME"
+    proxy_host: "auto"
+    proxy_port: 8081
+    ca_download_url: "http://burp/cert"
+    ca_display_name: "PortSwigger CA"
+    configure_ca_if_missing: true
+    proxy_cleanup_mode: "off"
+    navigation_timeout_seconds: 20
   expected_hosts:
     - "api.example.com"
   capture_timeout_seconds: 30
@@ -154,9 +167,15 @@ traffic_interception:
     accessibility_ids: []
 ```
 
-`burp.proxy_url` is checked for reachability before the risk runs. `expected_hosts` filters `capture_path`'s entries down to this app's own traffic; leave it empty to accept any newly-captured entry (useful for a first test, but noisier if anything else is also proxied through the same Burp instance at the time).
+`burp.proxy_url` is checked from the Mac before the risk runs, so a loopback URL is appropriate when Burp runs locally. `device_setup.proxy_host` controls the address written to the iPhone: `auto` detects the Mac's current routable LAN address for every run, while a loopback, unspecified, or link-local address is rejected. `collection.advertised_host` under `keystroke_collection` accepts the same values. `wifi_ssid` must name the test network, `proxy_port` must match a Burp listener bound to all interfaces, `ca_download_url` and `ca_display_name` identify Burp's CA, `configure_ca_if_missing` controls whether a missing CA is downloaded and installed, `proxy_cleanup_mode` selects `off` to disable the proxy after the risk or `restore` to reinstate the original proxy settings, and `navigation_timeout_seconds` bounds each Settings UI navigation step.
 
-A device-wide manual proxy also intercepts iOS's own traffic to Apple's certificate/app-verification servers, which WebDriverAgent needs to reach to confirm its Developer App certificate is legitimate — with everything routed through Burp, that verification can fail and the device reports it can't verify/trust the app (see [Reports and Troubleshooting](reports-and-troubleshooting.md) for that error). Point the device's Wi-Fi proxy at a PAC (Proxy Auto-Configuration) file instead of a manual `host:port` to avoid this — it routes Apple's own domains direct while everything else, including the app under test, still goes through Burp.
+The iPhone must use the English UI unless localized selectors are added, must have no passcode, and must already trust WebDriverAgent. Burp must be running with its listener bound to all interfaces. Certificate installation is attempted only when the configured CA is not already fully trusted. Settings accessibility labels can change between iOS releases, so selector updates may be required after an iOS upgrade. Navigation failures save a screenshot and page source in the risk report directory.
+
+`burp.capture_path` is optional: unset, it follows `WORK_DIR` to `artifacts/work/ios/traffic_interception/capture.jsonl`, and a value set here resolves against the repository root rather than the working directory the run started from. `burp.health_max_age_seconds` defaults to 300 when omitted and rejects negative values. A successful `tools/check_burp_interception.py` canary writes a sibling health record by replacing the capture suffix with `.health.json` (for example, `capture.jsonl` becomes `capture.health.json`). Before a selected traffic-interception risk runs, preflight compares that record's proxy, path, device, and age. These warnings do not abort the run.
+
+`expected_hosts` filters `capture_path`'s entries down to this app's own traffic. Each value is normalized from a hostname or URL, then matches only that exact hostname or its subdomains; `api.example.com.evil.test` and `notapi.example.com` do not match `api.example.com`. An empty list accepts any newly captured valid HTTPS exchange and can therefore attribute unrelated device traffic to the app, so configure the application's exact hosts for a meaningful result. Only entries explicitly marked `https` can produce `RISK_EXISTS`; plain HTTP and entries from an outdated extension that omit `scheme` cannot. The capture extension stores exchange metadata and body lengths, not raw headers, cookies, authorization values, request bodies, or response bodies.
+
+A device-wide proxy can also intercept iOS's own traffic to Apple's certificate/app-verification servers, which WebDriverAgent needs to confirm its Developer App certificate. The existing PAC endpoint remains available as an optional manual alternative that routes Apple service domains directly while proxying other traffic through Burp.
 
 The API server generates this PAC file for you from the current `traffic_interception.burp.proxy_url` — no separate file to host or keep in sync:
 
@@ -164,7 +183,13 @@ The API server generates this PAC file for you from the current `traffic_interce
 GET /platforms/ios/traffic-interception/proxy.pac
 ```
 
-On the device: Settings > Wi-Fi > (i) next to the network > Configure Proxy > Automatic > URL, and point it at `http://<this-machine's-IP>:8080/platforms/ios/traffic-interception/proxy.pac`. If `burp.proxy_url` is a loopback address (`127.0.0.1`, since it's written from this server's own point of view rather than the phone's), the endpoint auto-detects this machine's LAN IP and substitutes it — override with `?proxy_host=<ip>` if that guess is wrong (multiple network interfaces, VPN, etc). Without this, the one-off alternative is to turn the proxy off just long enough to launch/trust the app once, then back on for the capture run — that trust is generally cached until the provisioning profile next rotates.
+For manual PAC setup, use Settings > Wi-Fi > Configure Proxy > Automatic and enter `http://<this-machine's-IP>:8080/platforms/ios/traffic-interception/proxy.pac`. If `burp.proxy_url` is loopback, the endpoint substitutes the detected LAN IP; use `?proxy_host=<ip>` when that detection is unsuitable.
+
+### Keystroke collection
+
+`ios-feature-04-risk-01` runs a command-and-control server on the Mac that the keyboard app on the iPhone connects back to. `collection.bind_host` is what that server binds to and stays `0.0.0.0` so the iPhone can reach it; `collection.advertised_host` is only the address typed into the keyboard app's server-URL field, and the two are not interchangeable.
+
+`collection.advertised_host` takes the same values as `device_setup.proxy_host`: `auto` detects the Mac's current routable LAN address for every run, an explicit address is used as written, and a loopback, unspecified, or link-local address is rejected. A value still left as `REPLACE_WITH_MAC_LAN_IP`, or left empty, falls back to the URL the server bound to. An unreachable value here surfaces later as a pairing timeout rather than an immediate error, which is why the rejection rules are strict.
 
 ## Split iOS Configs
 

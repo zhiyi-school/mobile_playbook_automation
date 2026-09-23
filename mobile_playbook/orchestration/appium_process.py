@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 import shlex
+import signal
 import socket
 import subprocess
 import time
@@ -59,7 +61,12 @@ def ensure_appium_running(appium_server_url: str, auto_start_config: dict[str, A
         log_handle.write(f"\n--- launching {' '.join(command)} at {datetime.now().astimezone().isoformat()} ---\n")
         log_handle.flush()
         try:
-            process = subprocess.Popen(command, stdout=log_handle, stderr=subprocess.STDOUT)
+            process = subprocess.Popen(
+                command,
+                stdout=log_handle,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+            )
         except OSError as exc:
             return AppiumStartResult(status="FAILED", error=f"Could not start Appium ({command[0]}): {exc}", log_path=log_path)
 
@@ -84,6 +91,18 @@ def ensure_appium_running(appium_server_url: str, auto_start_config: dict[str, A
         log_tail=_tail(log_path),
         log_path=log_path,
     )
+
+
+def stop_appium(process: subprocess.Popen, timeout: float = 10) -> None:
+    if process.poll() is not None:
+        return
+
+    os.killpg(process.pid, signal.SIGTERM)
+    try:
+        process.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        os.killpg(process.pid, signal.SIGKILL)
+        process.wait(timeout=timeout)
 
 
 def _tail(log_path: Path, lines: int = 40) -> str:

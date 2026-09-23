@@ -15,6 +15,7 @@ NAMED_ARTIFACTS: list[tuple[str, str, str]] = [
     ("critical_findings.json", "report", "Critical findings data"),
     ("ipa_analysis.json", "report", "IPA analysis"),
     ("package_inventory.json", "report", "Package inventory"),
+    ("burp_capture.json", "report", "Burp capture results"),
     ("target_screen.png", "screenshot", "Target screen"),
     ("target_page_source.xml", "page_source", "Target page source"),
     ("target_text_field_candidates.json", "report", "Text field candidates"),

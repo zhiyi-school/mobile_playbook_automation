@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import tempfile
 from collections.abc import Mapping
 from pathlib import Path
@@ -10,6 +11,33 @@ from typing import Any
 MANIFEST_NAME = "run_manifest.json"
 COMPLETED = "completed"
 FAILED = "failed"
+
+
+_GIT_REVISION: str | None = None
+_GIT_REVISION_READ = False
+
+
+def git_revision() -> str | None:
+    """The short HEAD of the checkout this process is running from; None when unavailable."""
+    global _GIT_REVISION, _GIT_REVISION_READ
+    if _GIT_REVISION_READ:
+        return _GIT_REVISION
+    _GIT_REVISION_READ = True
+    try:
+        completed = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=Path(__file__).resolve().parents[2],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        _GIT_REVISION = completed.stdout.strip() or None if completed.returncode == 0 else None
+    except (OSError, subprocess.SubprocessError):
+        _GIT_REVISION = None
+    return _GIT_REVISION
+
+
+_git_revision = git_revision
 
 
 def manifest_path(run_dir: Path) -> Path:
@@ -27,6 +55,8 @@ def write_manifest(
     started_at: str | None = None,
     completed_at: str | None = None,
     error: str | None = None,
+    config_fingerprint: str | None = None,
+    keyboard_ipa_sha256: str | None = None,
 ) -> Path:
     payload = {
         "run_timestamp": run_timestamp,
@@ -39,6 +69,11 @@ def write_manifest(
         "started_at": started_at,
         "completed_at": completed_at,
         "error": error,
+        "provenance": {
+            "code_revision": _git_revision(),
+            "config_fingerprint": config_fingerprint,
+            "keyboard_ipa_sha256": keyboard_ipa_sha256,
+        },
     }
     path = manifest_path(run_dir)
     path.parent.mkdir(parents=True, exist_ok=True)

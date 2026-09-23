@@ -95,8 +95,16 @@ def ios_work_dir() -> Path:
     return work_root() / "ios"
 
 
+def ios_capture_path() -> Path:
+    return ios_work_dir() / "traffic_interception" / "capture.jsonl"
+
+
 def android_work_dir() -> Path:
     return work_root() / "android"
+
+
+def resolve_under_repository(value: str | Path) -> Path:
+    return _absolute(str(value)).resolve()
 
 
 def resolve_recorded_path(recorded: str | Path) -> Path:

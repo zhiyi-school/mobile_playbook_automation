@@ -116,6 +116,19 @@ def test_a_single_result_produces_a_valid_sarif_document(tmp_path):
     assert len(document["runs"][0]["tool"]["driver"]["rules"]) == 1
 
 
+def test_capture_diagnostic_is_review_without_a_level_and_preserves_status():
+    status = "CAPTURE_PIPELINE_SILENT"
+    document = build_sarif(
+        [_row(status=status, verdict="Inconclusive", severity="info")],
+        run_timestamp="2026-01-01_00-00-00",
+    )
+
+    result = document["runs"][0]["results"][0]
+    assert result["kind"] == "review"
+    assert result["level"] == "none"
+    assert result["properties"]["status"] == status
+
+
 def test_a_completed_run_with_no_results_is_still_a_valid_empty_report(tmp_path):
     document = build_from_run_dir(_run_dir(tmp_path, rows=[]))
 

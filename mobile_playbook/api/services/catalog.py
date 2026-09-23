@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import socket
 from urllib.parse import urlparse
 
 from fastapi import HTTPException
@@ -8,6 +7,7 @@ from fastapi import HTTPException
 from mobile_playbook.api import config_editor, playbook_assets
 from mobile_playbook.api.models import Platform
 from mobile_playbook.api.services import playbook as playbook_service
+from mobile_playbook.core import network
 from mobile_playbook.platforms.android.risks import list_risks as list_android_risks
 from mobile_playbook.platforms.ios.risks import list_risks as list_ios_risks
 
@@ -45,15 +45,6 @@ def _apply_playbook_overview(risk: dict, overview: dict | None) -> None:
         risk["tactic_id"] = overview.get("tactic_id")
 
 
-def detect_lan_ip() -> str:
-    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
-        try:
-            sock.connect(("8.8.8.8", 80))
-            return sock.getsockname()[0]
-        except OSError:
-            return "127.0.0.1"
-
-
 def traffic_interception_pac(platform: Platform, proxy_host: str | None = None) -> str:
     risk_id = TRAFFIC_INTERCEPTION_RISK_ID.get(platform)
     if risk_id is None:
@@ -66,7 +57,7 @@ def traffic_interception_pac(platform: Platform, proxy_host: str | None = None) 
     parsed = urlparse(proxy_url)
     host = proxy_host or parsed.hostname or "127.0.0.1"
     if not proxy_host and host in {"127.0.0.1", "localhost", "0.0.0.0"}:
-        host = detect_lan_ip()
+        host = network.detect_lan_ip()
     port = parsed.port or 8080
 
     direct_conditions = " ||\n      ".join(f'shExpMatch(host, "{pattern}")' for pattern in PAC_DIRECT_HOST_PATTERNS)

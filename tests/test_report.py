@@ -2,9 +2,100 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from mobile_playbook.platforms.ios.models import RiskRunResult
 from mobile_playbook.report import ReportWriter
 from mobile_playbook.platforms.ios.results import normalize_ios_result
+from mobile_playbook.reporting.run_events import append_event
+
+
+@pytest.mark.parametrize(
+    ("status", "severity", "summary"),
+    [
+        (
+            "CAPTURE_PIPELINE_SILENT",
+            "info",
+            "No capture activity was observed; this could mean a broken pipeline, no app request, or a blocked TLS handshake.",
+        ),
+        (
+            "CAPTURE_DATA_INVALID",
+            "info",
+            "New capture data existed but could not be parsed.",
+        ),
+        (
+            "CAPTURE_SOURCE_CHANGED",
+            "info",
+            "The capture file was replaced or truncated during the test.",
+        ),
+        (
+            "CAPTURE_SOURCE_UNAVAILABLE",
+            "info",
+            "The capture file could not be read.",
+        ),
+        (
+            "TRAFFIC_INTERCEPTION_NOT_OBSERVED",
+            "low",
+            "Valid traffic was captured, but none matched the configured hosts.",
+        ),
+    ],
+)
+def test_capture_diagnostic_contract(status, severity, summary):
+    result = RiskRunResult(
+        "run1",
+        "start",
+        "end",
+        "app",
+        "App",
+        "bid",
+        "bid.test",
+        "ios-feature-02-risk-01",
+        "feature2",
+        "traffic_interception",
+        "burp_capture",
+        "local_ipa",
+        final_status=status,
+    )
+
+    normalized = normalize_ios_result(result)
+
+    assert normalized.status == status
+    assert normalized.verdict == "Inconclusive"
+    assert normalized.severity == severity
+    assert normalized.summary == summary
+
+
+def test_intercepted_https_result_contract():
+    result = RiskRunResult(
+        "run1",
+        "start",
+        "end",
+        "app",
+        "App",
+        "bid",
+        "bid.test",
+        "ios-feature-02-risk-01",
+        "feature2",
+        "traffic_interception",
+        "burp_capture",
+        "local_ipa",
+        final_status="RISK_EXISTS",
+        verdict="At Risk",
+        launch_result={
+            "capture_summary": {
+                "matched_count": 1,
+                "hosts": ["api.example.com"],
+            }
+        },
+    )
+
+    normalized = normalize_ios_result(result)
+
+    assert normalized.verdict == "At Risk"
+    assert normalized.severity == "high"
+    assert normalized.summary == (
+        "1 decrypted request(s) captured through Burp (api.example.com)"
+    )
 
 
 def test_report_generation(tmp_path):
@@ -68,3 +159,21 @@ def test_report_summary_cleans_multiline_errors(tmp_path):
     assert raw_error in (report_dir / "logs.txt").read_text()
     report_json = json.loads((report_dir / "report.json").read_text())
     assert raw_error in report_json["errors"]
+
+
+def test_report_summary_lists_each_preflight_warning_once(tmp_path):
+    writer = ReportWriter(tmp_path, "run1")
+    fields = {
+        "code": "BURP_HEALTH_MISSING",
+        "risk_id": "ios-feature-02-risk-01",
+        "message": "No Burp canary health record exists; run the interception check before the scan.",
+        "app_ids": ["app-one"],
+    }
+    append_event(writer.run_dir, "preflight_warning", **fields)
+    append_event(writer.run_dir, "preflight_warning", **fields)
+
+    writer.write_summary()
+
+    summary = (writer.run_dir / "summary.md").read_text()
+    assert "## Preflight warnings" in summary
+    assert summary.count("BURP_HEALTH_MISSING") == 1

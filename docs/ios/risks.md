@@ -32,30 +32,40 @@ Reports include:
 
 ## ios-feature-02-risk-01
 
-`ios-feature-02-risk-01` demonstrates whether the app's network traffic can be intercepted and read in cleartext through an operator-controlled MITM proxy (Burp Suite), which indicates the app does not enforce certificate/public-key pinning.
+`ios-feature-02-risk-01` demonstrates whether matching HTTPS traffic can be decrypted through an operator-controlled MITM proxy using a locally trusted interception CA. A finding means no effective certificate or public-key pinning was observed for that exchange. It does not mean HTTPS itself is broken.
 
-This risk assumes the device has already been configured to route its traffic through Burp and trust Burp's CA — that setup is device-level, one-time, and outside this framework's control (see [Configuration](configuration.md#traffic-interception)). The framework itself only checks that Burp's proxy port is reachable, then drives the app and reads what a companion Burp extension captured.
+This risk assumes the device has already been configured to route its traffic through Burp and trust Burp's CA — installing and trusting that CA is a test prerequisite, not itself a vulnerability. That setup is device-level, one-time, and outside this framework's control (see [Configuration](configuration.md#traffic-interception)). The framework itself only checks that Burp's proxy port is reachable, then drives the app and reads what a companion Burp extension captured.
 
 Workflow:
 
 1. Check that `traffic_interception.burp.proxy_url` is configured and reachable.
-2. Install and launch the target app IPA.
-3. Optionally tap through a configured list of accessibility IDs to exercise the app and generate traffic.
-4. Wait `exercise.exercise_wait_seconds` for the app to make network calls.
-5. Read any new lines appended to `burp.capture_path` since this test started, filtering to `expected_hosts` if configured.
+2. Acquire and install the target app IPA.
+3. Snapshot the capture file's byte offset immediately before launching the app. Pre-existing entries are ignored.
+4. Launch the app, optionally tap through configured accessibility IDs, and wait `exercise.exercise_wait_seconds` for app requests.
+5. Poll only bytes appended after the snapshot, retaining an incomplete trailing JSONL record for the next poll and filtering complete valid HTTPS records to `expected_hosts` when configured.
 
-`RISK_EXISTS` means decrypted HTTP traffic matching `expected_hosts` was captured through Burp during the exercise window — the app's traffic can be read by anyone who can MITM the connection, i.e. no effective certificate/public-key pinning.
+`RISK_EXISTS` means matching HTTPS traffic and its completed response were captured in decrypted form through Burp during the exercise window. For that exchange, resistance to a locally trusted interception CA was expected but no effective certificate or public-key pinning was observed. This is the only status for this risk that confirms an application risk and produces an `At Risk` verdict. Plain HTTP, entries without an explicit scheme, unrelated hosts, and failed TLS handshakes do not produce this finding.
 
-`TRAFFIC_INTERCEPTION_NOT_OBSERVED` means nothing matching was captured. This is reported as `Inconclusive`, not `Reduced Risk` — Burp's HTTP-message log only shows requests that completed a decrypted handshake, so this framework cannot distinguish "the app refused the MITM'd connection (pinning worked)" from "the app just didn't make a network call during this window." Treat a run of `Inconclusive` results here as a prompt to review the raw Burp proxy history manually, not as proof of pinning.
+The other capture outcomes remain `Inconclusive`:
 
-The dashboard-facing `summary`/`evidence` fields (in `dashboard_results.json`, via `GET /runs/{run_id}/summary`) go beyond the bare `final_status` for this risk specifically: `summary` reads as e.g. `"14 decrypted request(s) captured through Burp (api.example.com, ...)"` when traffic was captured, and `evidence` includes a `capture_log` entry pointing at that run's `burp_capture.json` — the full list of captured host/method/path/status_code entries.
+- `TRAFFIC_INTERCEPTION_NOT_OBSERVED`: no valid HTTPS capture matched the configured hosts.
+- `CAPTURE_PIPELINE_SILENT`: no capture activity was observed; the pipeline may be broken, the app may not have made a request, or a TLS handshake may have been blocked.
+- `CAPTURE_DATA_INVALID`: new capture data existed but could not be parsed.
+- `CAPTURE_SOURCE_CHANGED`: the capture file was replaced or truncated during the test.
+- `CAPTURE_SOURCE_UNAVAILABLE`: the capture file could not be read.
+
+Silence alone proves neither pipeline failure nor certificate/public-key pinning. Treat every `Inconclusive` result as a prompt to inspect the capture pipeline and raw Burp history, not as proof that the application resisted interception.
+
+The dashboard-facing `summary`/`evidence` fields (in `dashboard_results.json`, via `GET /runs/{run_id}/summary`) go beyond the bare `final_status` for this risk specifically: `summary` reads as e.g. `"14 decrypted request(s) captured through Burp (api.example.com, ...)"` when matching HTTPS was captured, and `evidence` includes a `report` entry named "Burp capture results" pointing at that run's `burp_capture.json`. That file contains matched HTTPS metadata only. The extension records method, URL components, status, body lengths, and stated response content type; it does not store raw headers, cookies, authorization values, request bodies, or response bodies. Unmatched request contents are not persisted in either `burp_capture.json` or `report.json`.
+
+The `launch_result.capture_summary` object in `report.json` records `new_line_count`, `valid_entry_count`, `malformed_entry_count`, `https_entry_count`, `non_https_entry_count`, `matched_count`, `matched_https_count`, `unmatched_entry_count`, `created_during_window`, `source_changed`, `source_unavailable`, `trailing_partial_line`, `expected_hosts`, `hosts`, and `evidence_path`. These aggregate diagnostics describe the capture window without retaining unmatched request details.
 
 ### Capturing Burp's traffic into `capture.jsonl`
 
-This risk doesn't talk to Burp's own APIs — Burp has no simple built-in "give me proxy history" endpoint. Instead, a small companion Burp extension (loaded once into Burp, like any other Burp extension) should append one JSON object per decrypted HTTP request to `burp.capture_path`, at least including a `host` field:
+This risk doesn't talk to Burp's own APIs — Burp has no simple built-in "give me proxy history" endpoint. Instead, a small companion Burp extension (loaded once into Burp, like any other Burp extension) appends one metadata-only JSON object per completed exchange to `burp.capture_path`:
 
 ```json
-{"host": "api.example.com", "method": "GET", "path": "/profile", "status_code": 200}
+{"schema_version": 1, "scheme": "https", "host": "api.example.com", "port": 443, "method": "GET", "path": "/profile", "status_code": 200, "request_body_length": 0, "response_body_length": 1234, "response_content_type": "JSON"}
 ```
 
 This mirrors how this framework already exposes evidence to itself elsewhere (`events.jsonl`, `appium.log`) — a plain append-only file that both sides agree on, rather than a live API integration.
@@ -65,7 +75,7 @@ This mirrors how this framework already exposes evidence to itself elsewhere (`e
 1. Download a standalone Jython JAR from `https://www.jython.org/download`.
 2. In Burp Suite, open Extender > Options > Python Environment and point it at that JAR.
 3. Open Extender > Extensions > Add, choose extension type `Python`, and select `tools/burp_traffic_capture_extension.py`.
-4. Update `CAPTURE_PATH` in the extension to match `traffic_interception.burp.capture_path`; an absolute path is safest because Burp's working directory is not guaranteed to be this repo.
+4. Compare the capture file the extension prints when it loads with the one [tools/check_burp_interception.py](#checking-the-whole-chain-before-a-batch-of-runs) prints when it runs — both halves must name the same path. The extension resolves it on its own, as `artifacts/work/ios/traffic_interception/capture.jsonl` under the repository it was loaded from, so nothing in the file needs editing. It is dependency-free and does not read the backend's storage settings, so set `MPA_BURP_CAPTURE_PATH` to an absolute path when Burp runs somewhere that path does not exist, or when `WORK_DIR` puts the capture file elsewhere. If it cannot locate the repository it records nothing and says so in the Extender output.
 
 It hasn't been exercised against a real Burp Suite instance; treat it as a starting point to verify, not a guaranteed-working drop-in.
 
@@ -77,7 +87,7 @@ Device proxy configuration, CA trust, and the capture extension are all set up o
 python tools/check_burp_interception.py --config configs/ios.yaml
 ```
 
-It checks Burp's proxy is reachable, opens a known test URL (`https://example.com` by default) on the device via `mobile: deepLink` (no need to interact with Safari's address bar UI), and confirms that host actually shows up in the capture file — i.e. the full proxy → CA trust → extension chain is genuinely intercepting, not just configured-looking. `PASS` means you can trust `Inconclusive` results from here on as meaning "pinning likely worked," not "the setup is broken." `FAILED` points at which of the three pieces to check.
+It checks Burp's proxy is reachable, opens a known HTTPS test URL (`https://example.com` by default) on the device via `mobile: deepLink` (no need to interact with Safari's address bar UI), and confirms that a matching HTTPS exchange shows up in the capture file — i.e. the full proxy → CA trust → extension chain is genuinely decrypting traffic, not just configured-looking. On `PASS`, it atomically writes the capture file's sibling `.health.json` record with the verification time, normalized proxy, canonical capture path, canary host, valid-entry count, hashed device UDID, and tool version. A selected traffic-interception run compares that record's proxy, path, device, and age during preflight and reports any mismatch or stale state as a non-blocking warning. A fresh record proves only that the canary worked at that recorded time; it does not make a later `Inconclusive` application result proof of pinning, because the capture source, app activity, or handshake outcome may differ during the later run. `FAILED` does not create or update the record and points at which part of the chain to check.
 
 ## ios-feature-04-risk-01
 

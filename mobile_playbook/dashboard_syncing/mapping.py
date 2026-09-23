@@ -116,11 +116,13 @@ def sync_assessment(
 ) -> dict[str, Any]:
     run_timestamp = str(rows[0]["run_timestamp"])
     run_key = f"{run_timestamp}::{app_id}"
+    tested = {str(row["test_id"]) for row in rows if row.get("test_id")}
+    tested.update(store.test_ids_for_application(application_id))
     fields = {
         "application_id": application_id,
         "status": "completed",
         "total_tests": total_tests(rows, risk_counts),
-        "completed_tests": len({str(row["test_id"]) for row in rows}),
+        "completed_tests": len(tested),
         "updated_at": now(),
     }
     existing = store.find_assessment_by_external_id(run_key)

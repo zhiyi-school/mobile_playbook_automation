@@ -14,6 +14,7 @@ from mobile_playbook.api.downloads import (
 )
 from mobile_playbook.api.settings import REPORTS_ROOT, REPOSITORY_ROOT, WORK_ROOT
 from mobile_playbook.reporting.evidence import decode_ref, normalize_evidence
+from mobile_playbook.reporting.run_manifest import read_manifest
 from mobile_playbook.reporting.sarif_writer import build_from_run_dir, sarif_path, write_sarif
 
 def evidence_roots() -> dict[str, Path]:
@@ -83,10 +84,24 @@ def read_sarif(run_timestamp: str) -> dict:
     return document
 
 
-def list_report_timestamps() -> list[str]:
+def list_report_timestamps(status: str | None = None) -> list[str]:
     if not REPORTS_ROOT.is_dir():
         return []
-    return sorted((p.name for p in REPORTS_ROOT.iterdir() if p.is_dir()), reverse=True)
+    names = sorted((p.name for p in REPORTS_ROOT.iterdir() if p.is_dir()), reverse=True)
+    if status is None:
+        return names
+    return [
+        name
+        for name in names
+        if _manifest_status(REPORTS_ROOT / name) == status
+    ]
+
+
+def _manifest_status(run_dir: Path) -> str:
+    manifest = read_manifest(run_dir)
+    if manifest is None:
+        return "completed"
+    return str(manifest.get("status") or "unknown")
 
 
 def report_file_path(run_timestamp: str, file_path: str) -> Path:

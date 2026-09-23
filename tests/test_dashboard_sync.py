@@ -103,6 +103,13 @@ class FakeStore:
     def find_finding_by_external_id(self, external_id: str) -> dict[str, Any] | None:
         return _find(self.findings, external_id=external_id)
 
+    def test_ids_for_application(self, application_id: str) -> list[str]:
+        return [
+            str(row["test_id"])
+            for row in self.findings
+            if row.get("application_id") == application_id and row.get("test_id")
+        ]
+
     def create_finding(self, fields: Mapping[str, Any]) -> dict[str, Any]:
         if self.find_finding_by_external_id(str(fields["external_id"])) is not None:
             return {"_conflicted": True}
@@ -202,6 +209,74 @@ def test_sync_dashboard_results_is_idempotent_for_same_run():
     assert len(store.findings) == 1
     assert len(store.finding_history) == 1
     assert len(store.activity_log) == 1
+
+
+def test_a_single_risk_rerun_keeps_the_application_s_whole_coverage():
+    store = FakeStore()
+    store.applications.append(
+        {"id": "app_1", "external_id": "example_app", "name": "Example Banking App", "platform": "ios"}
+    )
+    full = [
+        {**_row(), "test_id": f"example_risk_{index:02d}", "test_name": f"Example Risk {index:02d}"}
+        for index in range(1, 13)
+    ]
+
+    sync_dashboard_results(full, store, triggered_by="user_1", risk_counts={"ios": 12})
+    rerun = [
+        {**_row("2026-01-02_00-00-00"), "test_id": "example_risk_01", "test_name": "Example Risk 01"}
+    ]
+    sync_dashboard_results(rerun, store, triggered_by="user_1", risk_counts={"ios": 12})
+
+    assert len(store.assessments) == 2
+    by_key = {row["external_id"]: row for row in store.assessments}
+    assert by_key["2026-01-01_00-00-00::example_app"]["completed_tests"] == 12
+    # The re-run touched one risk, but the application's coverage is still complete.
+    assert by_key["2026-01-02_00-00-00::example_app"]["completed_tests"] == 12
+    assert by_key["2026-01-02_00-00-00::example_app"]["total_tests"] == 12
+
+
+def test_a_first_run_counts_only_what_it_actually_tested():
+    store = FakeStore()
+    store.applications.append(
+        {"id": "app_1", "external_id": "example_app", "name": "Example Banking App", "platform": "ios"}
+    )
+    rows = [
+        {**_row(), "test_id": f"example_risk_{index:02d}", "test_name": f"Example Risk {index:02d}"}
+        for index in range(1, 4)
+    ]
+
+    sync_dashboard_results(rows, store, triggered_by="user_1", risk_counts={"ios": 12})
+
+    assert store.assessments[0]["completed_tests"] == 3
+    assert store.assessments[0]["total_tests"] == 12
+
+
+def test_coverage_is_counted_per_application_not_across_them():
+    store = FakeStore()
+    store.applications.extend(
+        [
+            {"id": "app_1", "external_id": "example_app", "name": "Example Banking App", "platform": "ios"},
+            {"id": "app_2", "external_id": "other_app", "name": "Other App", "platform": "ios"},
+        ]
+    )
+    sync_dashboard_results(
+        [
+            {**_row(), "test_id": f"example_risk_{index:02d}", "test_name": f"Example Risk {index:02d}"}
+            for index in range(1, 6)
+        ],
+        store,
+        triggered_by="user_1",
+        risk_counts={"ios": 12},
+    )
+    sync_dashboard_results(
+        [{**_row("2026-01-02_00-00-00", verdict="At Risk"), "app_id": "other_app", "app_name": "Other App", "test_id": "example_risk_01"}],
+        store,
+        triggered_by="user_1",
+        risk_counts={"ios": 12},
+    )
+
+    by_key = {row["external_id"]: row for row in store.assessments}
+    assert by_key["2026-01-02_00-00-00::other_app"]["completed_tests"] == 1
 
 
 def test_sync_dashboard_results_conditionally_adopts_placeholder_after_race():

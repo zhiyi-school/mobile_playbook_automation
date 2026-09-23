@@ -7,6 +7,8 @@ from pathlib import Path
 from mobile_playbook.storage import ios_work_dir
 from urllib.parse import urlparse
 
+from mobile_playbook.core.network import resolve_lan_host
+from mobile_playbook.platforms.ios import keyboard_resign
 from mobile_playbook.platforms.ios.artifacts.registry import get_provider
 from mobile_playbook.platforms.ios.control_server import CommandControlServer
 from mobile_playbook.platforms.ios.models import ArtifactAcquisitionResult, CleanupResult, RiskRunResult
@@ -32,8 +34,9 @@ class Feature04KeyboardRiskBase(Risk):
         advertised = control.get("advertised_host")
         if not advertised or str(advertised).startswith("REPLACE_WITH"):
             return base_url
+        host = resolve_lan_host(str(advertised), label="collection.advertised_host")
         parsed = urlparse(base_url)
-        return f"{parsed.scheme}://{advertised}:{parsed.port}"
+        return f"{parsed.scheme}://{host}:{parsed.port}"
 
     def _install_or_verify_keyboard_app(self, keyboard_config: dict, global_config, device_client) -> dict:
         bundle_id = keyboard_config.get("bundle_id")
@@ -41,12 +44,29 @@ class Feature04KeyboardRiskBase(Risk):
         if not bundle_id and not ipa:
             return {"status": "ARTIFACT_REQUIRED", "errors": ["keyboard_app.bundle_id or ipa is required"]}
         if ipa and bool(keyboard_config.get("install", True)):
-            install = device_client.install_app(Path(ipa).expanduser(), global_config.runner.app_install_timeout_ms)
+            ipa_path = Path(ipa).expanduser()
+            resign_config = keyboard_config.get("resign") or {}
+            auto_resign = bool(resign_config.get("enabled", False))
+            timeout_ms = global_config.runner.app_install_timeout_ms
+            attempts: list[dict] = []
+            if auto_resign and keyboard_resign.signature_expired(ipa_path):
+                attempts.append(self._resign_keyboard_ipa(ipa_path, global_config, resign_config, "PROFILE_EXPIRED"))
+            install = device_client.install_app(ipa_path, timeout_ms)
+            if (
+                auto_resign
+                and not attempts
+                and install.status != "INSTALLED"
+                and keyboard_resign.is_verification_failure(install.errors)
+            ):
+                attempts.append(self._resign_keyboard_ipa(ipa_path, global_config, resign_config, "INSTALL_REJECTED"))
+                if attempts[-1]["status"] == "RESIGNED":
+                    install = device_client.install_app(ipa_path, timeout_ms)
             return {
                 "status": install.status,
                 "ipa_path": str(install.ipa_path) if install.ipa_path else None,
                 "bundle_id": bundle_id,
                 "installed_by_risk": install.status == "INSTALLED",
+                "resign_attempts": attempts,
                 "errors": install.errors,
             }
         if bundle_id:
@@ -61,6 +81,15 @@ class Feature04KeyboardRiskBase(Risk):
                 "errors": [] if installed else [f"Keyboard app is not installed: {bundle_id}"],
             }
         return {"status": "SKIPPED", "installed_by_risk": False}
+
+    def _resign_keyboard_ipa(self, ipa_path: Path, global_config, resign_config: dict, trigger: str) -> dict:
+        result = keyboard_resign.resign(
+            ipa_path,
+            global_config.device.udid,
+            global_config.device.team_id,
+            timeout_seconds=int(resign_config.get("timeout_seconds", 900)),
+        )
+        return {"trigger": trigger, "status": result.status, "errors": result.errors}
 
     def _configure_keyboard_server_url(self, device_client, keyboard_config: dict, device_reachable_base_url: str) -> dict | None:
         server_setup = keyboard_config.get("server_setup") or {}
@@ -344,12 +373,15 @@ class Feature04KeyboardRiskBase(Risk):
             Path(app_config.artifact.get("workspace_dir") or ios_work_dir() / "acquired"),
         )
 
-    def _handle_permission_alerts(self, device_client, global_config) -> list[dict]:
+    def _handle_permission_alerts(self, device_client, global_config, overrides: dict | None = None) -> list[dict]:
         handler = getattr(device_client, "handle_permission_alerts", None)
         if not handler:
             return [{"status": "UNSUPPORTED", "reason": "device client does not support permission alert handling"}]
+        config = dict(global_config.runner.permission_alerts or {})
+        if overrides:
+            config.update(overrides)
         try:
-            return handler(global_config.runner.permission_alerts)
+            return handler(config)
         except Exception as exc:
             return [{"status": "FAILED", "error": str(exc)}]
 
@@ -372,35 +404,42 @@ class Feature04KeyboardRiskBase(Risk):
             )
         removed: list[str] = []
         errors: list[str] = []
-        try:
-            if installed_target_by_risk and device_client.is_installed(app_config.bundle_id):
-                if device_client.remove_app(app_config.bundle_id):
-                    removed.append(app_config.bundle_id)
+        verification: dict[str, Any] = {}
+
+        def _remove(label: str, bundle_id: str) -> None:
+            try:
+                if not device_client.is_installed(bundle_id):
+                    verification[bundle_id] = {"requested": False, "verified": True}
+                    return
+                outcome = device_client.remove_app_verified(bundle_id)
+                verification[bundle_id] = outcome
+                if outcome["verified"]:
+                    removed.append(bundle_id)
                 else:
-                    errors.append(f"Could not remove target app {app_config.bundle_id}")
-            keyboard_bundle_id = keyboard_config.get("bundle_id")
-            if (
-                installed_keyboard_by_risk
-                and bool(keyboard_config.get("uninstall_after_test", False))
-                and keyboard_bundle_id
-                and device_client.is_installed(keyboard_bundle_id)
-            ):
-                if device_client.remove_app(keyboard_bundle_id):
-                    removed.append(keyboard_bundle_id)
-                else:
-                    errors.append(f"Could not remove keyboard app {keyboard_bundle_id}")
-            return CleanupResult(
-                status="CLEANUP_FAILED" if errors else "CLEANED",
-                removed=bool(removed),
-                errors=errors,
-                metadata={
-                    "removed_bundle_ids": removed,
-                    "installed_target_by_risk": installed_target_by_risk,
-                    "installed_keyboard_by_risk": installed_keyboard_by_risk,
-                },
-            )
-        except Exception as exc:
-            return CleanupResult(status="CLEANUP_FAILED", errors=[str(exc)])
+                    errors.append(f"{label} {bundle_id} still present after removal")
+            except Exception as exc:
+                errors.append(f"{label} {bundle_id} cleanup raised: {exc}")
+
+        if installed_target_by_risk:
+            _remove("target app", app_config.bundle_id)
+
+        keyboard_bundle_id = keyboard_config.get("bundle_id")
+        # Not gated on installed_keyboard_by_risk: a leftover from a crashed run
+        # must be removed, or the next run branches on stale device state.
+        if keyboard_bundle_id and bool(keyboard_config.get("uninstall_after_test", False)):
+            _remove("keyboard app", keyboard_bundle_id)
+
+        return CleanupResult(
+            status="CLEANUP_FAILED" if errors else "CLEANED",
+            removed=bool(removed),
+            errors=errors,
+            metadata={
+                "removed_bundle_ids": removed,
+                "verification": verification,
+                "installed_target_by_risk": installed_target_by_risk,
+                "installed_keyboard_by_risk": installed_keyboard_by_risk,
+            },
+        )
 
     def _artifact_status_to_final(self, status: str) -> str:
         mapping = {

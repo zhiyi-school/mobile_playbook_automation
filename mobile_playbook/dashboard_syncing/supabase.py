@@ -101,6 +101,10 @@ class SupabaseRestStore:
     def find_finding_by_external_id(self, external_id: str) -> dict[str, Any] | None:
         return self._single("findings", {"external_id": f"eq.{external_id}", "select": "*"})
 
+    def test_ids_for_application(self, application_id: str) -> list[str]:
+        rows = self._get("findings", {"application_id": f"eq.{application_id}", "select": "test_id"})
+        return [str(row["test_id"]) for row in rows if row.get("test_id")]
+
     def find_retest_by_external_run_id(self, run_timestamp: str) -> dict[str, Any] | None:
         # Several requests may be outstanding for one risk, so a run must name
         # exactly one of them; two matches is a data fault, not a row to pick from.

@@ -23,8 +23,19 @@ ipa_static_analysis:
 
 traffic_interception:
   burp:
-    proxy_url: "http://127.0.0.1:8080"
+    proxy_url: "http://127.0.0.1:8081"
     capture_path: "artifacts/work/ios/traffic_interception/capture.jsonl"
+    health_max_age_seconds: 300
+  device_setup:
+    mode: "appium_ui"
+    wifi_ssid: "REPLACE_WITH_TEST_WIFI_NAME"
+    proxy_host: "auto"
+    proxy_port: 8081
+    ca_download_url: "http://burp/cert"
+    ca_display_name: "PortSwigger CA"
+    configure_ca_if_missing: true
+    restore_proxy_after_test: true
+    navigation_timeout_seconds: 20
   expected_hosts:
     - "REPLACE_WITH_APP_API_HOSTNAME"
   capture_timeout_seconds: 30
@@ -38,6 +49,9 @@ keystroke_collection:
     bundle_id: "com.example.LocalKeyboard"
     keyboard_extension_bundle_id: "com.example.LocalKeyboard.KeyboardExtension"
     ipa: "artifacts/intake/ios/ipas/LocalKeyboard.ipa"
+    resign:
+      enabled: true
+      timeout_seconds: 900
     install: true
     launch: true
     uninstall_after_test: false
@@ -47,10 +61,19 @@ keystroke_collection:
       save_button_accessibility_id: null
   collection:
     bind_host: "0.0.0.0"
-    advertised_host: "REPLACE_WITH_MAC_LAN_IP"
+    advertised_host: "auto"
     port: 8765
     pair_timeout_seconds: 120
-    keyboard_setup_wait_seconds: 0
+    network_alert_wait_seconds: 10
+    keyboard_setup_wait_seconds: 2
+    keyboard_setup:
+      mode: "appium_ui"
+      keyboard_display_names:
+        - "Local Keyboard"
+        - "LocalKeyboard"
+      require_full_access: true
+      navigation_timeout_seconds: 20
+      probe_timeout_seconds: 2
     evidence_source: "local_app_ui"
     evidence_timeout_seconds: 30
     probe_text: "hello"

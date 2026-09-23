@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import signal
 import socket
+import subprocess
 import sys
 
 import pytest
 
-from mobile_playbook.orchestration.appium_process import ensure_appium_running, tcp_reachable
+import mobile_playbook.orchestration.appium_process as appium_process
+from mobile_playbook.orchestration.appium_process import ensure_appium_running, stop_appium, tcp_reachable
 
 
 def _free_port() -> int:
@@ -107,3 +110,80 @@ def test_log_accumulates_across_multiple_attempts(tmp_path):
     )
     text = log_path.read_text()
     assert text.count("--- launching") == 2
+
+
+def test_started_process_uses_a_new_session(monkeypatch, tmp_path):
+    reachability = iter([False, True])
+    monkeypatch.setattr(appium_process, "tcp_reachable", lambda *args, **kwargs: next(reachability))
+    popen_kwargs = {}
+
+    class Process:
+        def poll(self):
+            return None
+
+    def popen(command, **kwargs):
+        popen_kwargs.update(kwargs)
+        return Process()
+
+    monkeypatch.setattr(appium_process.subprocess, "Popen", popen)
+
+    result = ensure_appium_running(
+        "http://127.0.0.1:4723",
+        {"enabled": True, "command": ["appium"], "wait_seconds": 1},
+        tmp_path / "appium.log",
+    )
+
+    assert result.status == "STARTED"
+    assert popen_kwargs["start_new_session"] is True
+
+
+def test_stop_appium_terminates_backend_owned_process_group(monkeypatch):
+    signals = []
+
+    class Process:
+        pid = 123
+
+        def poll(self):
+            return None
+
+        def wait(self, timeout):
+            assert timeout == 4
+
+    monkeypatch.setattr(appium_process.os, "killpg", lambda pid, sig: signals.append((pid, sig)))
+
+    stop_appium(Process(), timeout=4)
+
+    assert signals == [(123, signal.SIGTERM)]
+
+
+def test_stop_appium_ignores_already_exited_process(monkeypatch):
+    class Process:
+        def poll(self):
+            return 0
+
+    monkeypatch.setattr(appium_process.os, "killpg", lambda *args: pytest.fail("should not signal"))
+
+    stop_appium(Process())
+
+
+def test_stop_appium_escalates_to_sigkill_after_timeout(monkeypatch):
+    signals = []
+    waits = []
+
+    class Process:
+        pid = 456
+
+        def poll(self):
+            return None
+
+        def wait(self, timeout):
+            waits.append(timeout)
+            if len(waits) == 1:
+                raise subprocess.TimeoutExpired(cmd="appium", timeout=timeout)
+
+    monkeypatch.setattr(appium_process.os, "killpg", lambda pid, sig: signals.append((pid, sig)))
+
+    stop_appium(Process(), timeout=2)
+
+    assert signals == [(456, signal.SIGTERM), (456, signal.SIGKILL)]
+    assert waits == [2, 2]

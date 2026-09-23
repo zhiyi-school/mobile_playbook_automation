@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Protocol
+from typing import TYPE_CHECKING, Any, Callable, Protocol
 
 from mobile_playbook.orchestration.scheduler import reserve_run_timestamp
 from mobile_playbook.reporting.messages import clean_message
@@ -12,6 +12,9 @@ from mobile_playbook.reporting.run_manifest import COMPLETED, FAILED, write_mani
 from mobile_playbook.reporting.sarif_writer import write_sarif
 
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from mobile_playbook.platforms.ios.preflight import IosPreflightWarning
 
 
 @dataclass(frozen=True)
@@ -46,6 +49,9 @@ class PlatformRunner(Protocol):
     def iter_enabled_tests(self, config: Any, selected_tests: set[str] | None, selected_apps: set[str] | None):
         ...
 
+    def preflight_warnings(self, config: Any, planned_tests: list[tuple[Any, str]]) -> list[IosPreflightWarning]:
+        ...
+
     def run_test(self, app: Any, test_id: str, config: Any, device_client: Any, report_writer: Any) -> None:
         ...
 
@@ -66,9 +72,29 @@ def run_platform(
     artifacts: dict[str, str] = {}
     failure: BaseException | None = None
     try:
+        planned_tests = list(
+            platform_runner.iter_enabled_tests(config, options.selected_tests, options.selected_apps)
+        )
+        warning_checker = getattr(platform_runner, "preflight_warnings", None)
+        warnings = warning_checker(config, planned_tests) if warning_checker is not None else []
+        seen_warnings: set[tuple[str, str, tuple[str, ...]]] = set()
+        for warning in warnings:
+            key = (warning.code, warning.risk_id, tuple(warning.app_ids))
+            if key in seen_warnings:
+                continue
+            seen_warnings.add(key)
+            logger.warning("%s: %s", warning.code, warning.message)
+            append_event(
+                writer.run_dir,
+                "preflight_warning",
+                code=warning.code,
+                risk_id=warning.risk_id,
+                message=warning.message,
+                app_ids=list(warning.app_ids),
+            )
         if platform_runner.requires_device(config, options.selected_tests, options.selected_apps):
             client = platform_runner.connect_device(config, writer.run_dir)
-        for app, test_id in platform_runner.iter_enabled_tests(config, options.selected_tests, options.selected_apps):
+        for app, test_id in planned_tests:
             if client is not None:
                 client = platform_runner.ensure_device_healthy(config, client, writer.run_dir)
             append_event(writer.run_dir, "risk_started", app_id=getattr(app, "id", app), risk_id=test_id)

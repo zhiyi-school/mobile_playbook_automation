@@ -149,6 +149,13 @@ This returns the same `dashboard_results.json` content the run wrote to disk. Th
 curl http://127.0.0.1:8080/reports/<RUN_TIMESTAMP>/summary
 ```
 
+In each result row, `status` is the precise automation outcome and `verdict` is
+the three-way security conclusion: `At Risk`, `Reduced Risk`, or
+`Inconclusive`. Capture diagnostic statuses such as `CAPTURE_PIPELINE_SILENT`,
+`CAPTURE_DATA_INVALID`, `CAPTURE_SOURCE_CHANGED`, and
+`CAPTURE_SOURCE_UNAVAILABLE` remain `Inconclusive`; only `RISK_EXISTS`
+confirms the traffic-interception risk.
+
 ## Watching a run's progress live
 
 `GET /runs/{run_id}` only ever reports one of three coarse states (`running`/`completed`/`failed`) — enough to know when a run is done, but nothing about what it's doing while it runs, which can be minutes for a config with several apps and risks. `GET /runs/{run_id}/events` streams that in real time over Server-Sent Events instead of needing to poll:
@@ -158,6 +165,8 @@ curl -N http://127.0.0.1:8080/runs/<RUN_TIMESTAMP>/events
 ```
 
 ```text
+data: {"type": "preflight_warning", "timestamp": "...", "code": "BURP_HEALTH_STALE", "risk_id": "ios-feature-02-risk-01", "message": "The Burp canary health record is stale; rerun the interception check.", "app_ids": ["example-app"]}
+
 data: {"type": "risk_started", "timestamp": "...", "app_id": "example-app", "risk_id": "ios-feature-01-risk-01"}
 
 data: {"type": "risk_completed", "timestamp": "...", "app_id": "example-app", "risk_id": "ios-feature-01-risk-01", "verdict": "At Risk", "final_status": "IPA_ANALYSIS_COMPLETE"}
@@ -167,7 +176,7 @@ data: {"type": "appium_recovery", "timestamp": "...", "message": "ios: Appium se
 data: {"type": "done", "status": "completed", "error": null}
 ```
 
-Every `risk_started`/`risk_completed` event comes from the same run loop that writes each test's `report.json`, and `appium_recovery` fires from the same mid-run health check that restarts Appium after a crash (see [Appium auto-start](ios/configuration.md#appium-auto-start)) — so this is the same information already available in `summary.md`/`appium.log` after the fact, just pushed live instead of read after the run finishes. The stream ends with a `"done"` event once `GET /runs/{run_id}` would report anything other than `"running"`, then closes; a browser can consume it directly with `new EventSource(url)`.
+Every `risk_started`/`risk_completed` event comes from the same run loop that writes each test's `report.json`, and `appium_recovery` fires from the same mid-run health check that restarts Appium after a crash (see [Appium auto-start](ios/configuration.md#appium-auto-start)) — so this is the same information already available in `summary.md`/`appium.log` after the fact, just pushed live instead of read after the run finishes. A `preflight_warning` is a non-blocking run-level diagnostic: `code` is its stable machine-readable identifier, `risk_id` identifies the affected risk, `message` is the path-safe human-readable action, and `app_ids` lists the selected apps sharing that effective configuration. The stream ends with a `"done"` event once `GET /runs/{run_id}` would report anything other than `"running"`, then closes; a browser can consume it directly with `new EventSource(url)`.
 
 These events are read from `reports/{run_id}/events.jsonl`, appended to as the run progresses — a client that connects late still gets every event from the start (each poll re-reads the whole file), and any number of clients can watch the same run independently.
 

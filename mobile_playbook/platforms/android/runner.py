@@ -62,6 +62,9 @@ class AndroidPlatformRunner:
     def iter_enabled_tests(self, config, selected_tests: set[str] | None, selected_apps: set[str] | None):
         yield from iter_enabled_tests(config, selected_tests, selected_apps, get_risk)
 
+    def preflight_warnings(self, config, planned_tests):
+        return []
+
     def run_test(self, app, test_id: str, config, device_client, report_writer) -> None:
         risk = get_risk(test_id)
         if risk is None:

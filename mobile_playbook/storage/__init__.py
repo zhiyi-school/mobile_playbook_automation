@@ -7,11 +7,13 @@ from mobile_playbook.storage.paths import (
     artifacts_root,
     derived_root,
     intake_root,
+    ios_capture_path,
     ios_intake_dir,
     ios_work_dir,
     location,
     reports_root,
     resolve_recorded_path,
+    resolve_under_repository,
     work_root,
 )
 
@@ -24,10 +26,12 @@ __all__ = [
     "artifacts_root",
     "derived_root",
     "intake_root",
+    "ios_capture_path",
     "ios_intake_dir",
     "ios_work_dir",
     "location",
     "reports_root",
     "resolve_recorded_path",
+    "resolve_under_repository",
     "work_root",
 ]

@@ -5,14 +5,24 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from mobile_playbook.storage import ios_work_dir
+from mobile_playbook.storage import ios_capture_path, ios_work_dir, resolve_under_repository
 
 from mobile_playbook.core.config_files import merge_dicts
 from mobile_playbook.orchestration.appium_process import tcp_reachable
 from mobile_playbook.platforms.ios.artifacts.registry import get_provider
-from mobile_playbook.platforms.ios.burp_capture import capture_line_count, read_new_capture_entries
+from mobile_playbook.platforms.ios.burp_capture import (
+    CaptureCursor,
+    CaptureObservation,
+    poll_capture,
+    snapshot_capture,
+)
 from mobile_playbook.platforms.ios.models import ArtifactAcquisitionResult, CleanupResult, RiskRunResult
 from mobile_playbook.platforms.ios.risks.base import Risk
+from mobile_playbook.platforms.ios.traffic_interception_setup import (
+    TrafficInterceptionSetupError,
+    prepare_traffic_interception,
+    restore_traffic_interception,
+)
 
 
 class Feature02Risk01(Risk):
@@ -28,6 +38,7 @@ class Feature02Risk01(Risk):
         burp_config = risk_config.get("burp") or {}
         exercise_config = risk_config.get("exercise") or {}
         installed_target_by_risk = False
+        setup_state = None
         try:
             proxy_url = str(burp_config.get("proxy_url") or "")
             if not proxy_url:
@@ -39,8 +50,8 @@ class Feature02Risk01(Risk):
                 result.errors.append(f"Burp proxy not reachable at {proxy_url}. Start Burp Suite and confirm its listener matches this URL.")
                 return result
 
-            capture_path = Path(str(burp_config.get("capture_path") or ios_work_dir() / "traffic_interception" / "capture.jsonl"))
-            start_line = capture_line_count(capture_path)
+            configured_capture_path = burp_config.get("capture_path")
+            capture_path = resolve_under_repository(configured_capture_path) if configured_capture_path else ios_capture_path()
 
             acquisition = self._prepare_app(app_config, global_config, device_client, report_writer.run_timestamp)
             result.artifact_result = acquisition
@@ -58,10 +69,25 @@ class Feature02Risk01(Risk):
                     result.errors.extend(install.errors)
                     return result
 
+            result.launch_result = result.launch_result or {}
+            try:
+                setup_state = prepare_traffic_interception(
+                    device_client,
+                    risk_config.get("device_setup") or {},
+                    report_dir,
+                )
+                result.launch_result["device_setup"] = setup_state
+            except TrafficInterceptionSetupError as exc:
+                setup_state = exc.state
+                result.launch_result["device_setup"] = exc.state
+                result.final_status = exc.status
+                return result
+
             bundle_id = app_config.bundle_id
+            capture_cursor = snapshot_capture(capture_path)
             try:
                 app_launch = device_client.launch_app(bundle_id)
-                result.launch_result = {"app_launch": app_launch}
+                result.launch_result["app_launch"] = app_launch
                 alerts = list(device_client.handle_permission_alerts(global_config.runner.permission_alerts))
                 time.sleep(float(global_config.runner.launch_wait_seconds))
                 alerts.extend(device_client.handle_permission_alerts(global_config.runner.permission_alerts))
@@ -77,26 +103,55 @@ class Feature02Risk01(Risk):
             if exercise_wait > 0:
                 time.sleep(exercise_wait)
 
-            expected_hosts = [str(host).lower() for host in (risk_config.get("expected_hosts") or [])]
+            expected_hosts = [str(host) for host in (risk_config.get("expected_hosts") or [])]
             capture_timeout = float(risk_config.get("capture_timeout_seconds", 30))
-            capture = self._collect_capture(capture_path, start_line, expected_hosts, capture_timeout, report_dir)
+            capture = self._collect_capture(capture_cursor, expected_hosts, capture_timeout, report_dir)
             result.launch_result["capture_summary"] = capture["summary"]
 
-            if capture["status"] == "DECRYPTED_TRAFFIC_OBSERVED":
-                result.final_status = "RISK_EXISTS"
+            result.final_status = self._capture_final_status(capture["summary"])
+            if result.final_status == "RISK_EXISTS":
                 result.verdict = "At Risk"
-            else:
-                result.final_status = "TRAFFIC_INTERCEPTION_NOT_OBSERVED"
-                result.errors.append("No proxied traffic matching this app was observed through Burp during the exercise window.")
             return result
         except Exception as exc:
             result.final_status = "FAILED"
             result.errors.append(str(exc))
             return result
         finally:
+            if setup_state is not None:
+                try:
+                    restored = restore_traffic_interception(device_client, setup_state, report_dir)
+                    result.launch_result = result.launch_result or {}
+                    device_setup = result.launch_result.setdefault("device_setup", setup_state)
+                    device_setup["restore"] = restored
+                except TrafficInterceptionSetupError as exc:
+                    result.final_status = "DEVICE_PROXY_RESTORE_FAILED"
+                    result.verdict = "Inconclusive"
+                    result.launch_result = result.launch_result or {}
+                    device_setup = result.launch_result.setdefault("device_setup", setup_state)
+                    device_setup["restore"] = exc.state
             result.cleanup_result = self._cleanup(app_config, global_config, device_client, installed_target_by_risk)
             result.timestamp_end = datetime.now(timezone.utc).isoformat()
             report_writer.write_result(result, report_dir)
+
+    def _capture_final_status(self, summary: dict) -> str:
+        if summary["matched_https_count"] > 0:
+            return "RISK_EXISTS"
+        if summary["source_unavailable"]:
+            return "CAPTURE_SOURCE_UNAVAILABLE"
+        if summary["source_changed"]:
+            return "CAPTURE_SOURCE_CHANGED"
+        if (
+            summary["valid_entry_count"] == 0
+            and (
+                summary["new_line_count"] > 0
+                or summary["malformed_entry_count"] > 0
+                or summary["trailing_partial_line"]
+            )
+        ):
+            return "CAPTURE_DATA_INVALID"
+        if summary["valid_entry_count"] > 0:
+            return "TRAFFIC_INTERCEPTION_NOT_OBSERVED"
+        return "CAPTURE_PIPELINE_SILENT"
 
     def _base_result(self, run_timestamp: str, app_config) -> RiskRunResult:
         return RiskRunResult(
@@ -146,30 +201,55 @@ class Feature02Risk01(Risk):
 
     def _collect_capture(
         self,
-        capture_path: Path,
-        start_line: int,
+        cursor: CaptureCursor,
         expected_hosts: list[str],
         timeout_seconds: float,
         report_dir: Path,
     ) -> dict:
         deadline = time.monotonic() + timeout_seconds
-        matched: list[dict] = []
+        aggregate = CaptureObservation(matched_entries=[])
         while True:
-            matched = read_new_capture_entries(capture_path, start_line, expected_hosts)
-            if matched or time.monotonic() >= deadline:
+            cursor, observed = poll_capture(cursor, expected_hosts)
+            aggregate.matched_entries.extend(observed.matched_entries)
+            aggregate.new_line_count += observed.new_line_count
+            aggregate.valid_entry_count += observed.valid_entry_count
+            aggregate.malformed_entry_count += observed.malformed_entry_count
+            aggregate.https_entry_count += observed.https_entry_count
+            aggregate.non_https_entry_count += observed.non_https_entry_count
+            aggregate.unmatched_entry_count += observed.unmatched_entry_count
+            aggregate.created_during_window |= observed.created_during_window
+            aggregate.source_changed |= observed.source_changed
+            aggregate.source_unavailable |= observed.source_unavailable
+            aggregate.trailing_partial_line = observed.trailing_partial_line
+            if (
+                aggregate.matched_entries
+                or aggregate.source_changed
+                or aggregate.source_unavailable
+                or time.monotonic() >= deadline
+            ):
                 break
-            time.sleep(1)
+            time.sleep(min(1, max(0, deadline - time.monotonic())))
         evidence_path = report_dir / "burp_capture.json"
-        evidence_path.write_text(json.dumps(matched, indent=2, sort_keys=True))
-        status = "DECRYPTED_TRAFFIC_OBSERVED" if matched else "NO_TRAFFIC_CAPTURED"
+        evidence_path.write_text(json.dumps(aggregate.matched_entries, indent=2, sort_keys=True))
         return {
-            "status": status,
             "summary": {
-                "matched_count": len(matched),
-                "capture_path": str(capture_path),
-                "evidence_path": str(evidence_path),
+                "new_line_count": aggregate.new_line_count,
+                "valid_entry_count": aggregate.valid_entry_count,
+                "malformed_entry_count": aggregate.malformed_entry_count,
+                "https_entry_count": aggregate.https_entry_count,
+                "non_https_entry_count": aggregate.non_https_entry_count,
+                "matched_count": len(aggregate.matched_entries),
+                "matched_https_count": len(aggregate.matched_entries),
+                "unmatched_entry_count": aggregate.unmatched_entry_count,
+                "created_during_window": aggregate.created_during_window,
+                "source_changed": aggregate.source_changed,
+                "source_unavailable": aggregate.source_unavailable,
+                "trailing_partial_line": aggregate.trailing_partial_line,
                 "expected_hosts": expected_hosts,
-                "hosts": sorted({str(entry["host"]) for entry in matched if entry.get("host")}),
+                "hosts": sorted(
+                    {str(entry["host"]) for entry in aggregate.matched_entries if entry.get("host")}
+                ),
+                "evidence_path": str(evidence_path),
             },
         }
 

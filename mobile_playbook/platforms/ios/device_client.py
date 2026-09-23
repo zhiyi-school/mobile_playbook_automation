@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 from mobile_playbook.platforms.ios.models import InstallResult
@@ -80,6 +81,16 @@ class AppiumDeviceClient:
     def remove_app(self, bundle_id: str) -> bool:
         return bool(self._execute("removeApp", {"bundleId": bundle_id}))
 
+    def remove_app_verified(self, bundle_id: str, timeout_seconds: float = 20.0) -> dict:
+        """Remove, then poll until the app is actually gone."""
+        requested = self.remove_app(bundle_id)
+        deadline = time.monotonic() + timeout_seconds
+        while time.monotonic() < deadline:
+            if not self.is_installed(bundle_id):
+                return {"requested": requested, "verified": True}
+            time.sleep(1.0)
+        return {"requested": requested, "verified": False}
+
     def terminate_app(self, bundle_id: str) -> bool:
         return bool(self._execute("terminateApp", {"bundleId": bundle_id}))
 
@@ -96,6 +107,176 @@ class AppiumDeviceClient:
 
     def launch_app(self, bundle_id: str) -> dict:
         return {"result": self._execute("launchApp", {"bundleId": bundle_id})}
+
+    def activate_app(self, bundle_id: str) -> dict:
+        return {"result": self._execute("activateApp", {"bundleId": bundle_id})}
+
+    def find_element_by_label(self, labels: list[str], timeout_seconds: float):
+        if self.driver is None:
+            raise RuntimeError("Appium session is not connected")
+        from appium.webdriver.common.appiumby import AppiumBy
+        from selenium.webdriver.support.ui import WebDriverWait
+
+        predicate = self._label_predicate(labels)
+        return WebDriverWait(self.driver, timeout_seconds).until(
+            lambda driver: driver.find_element(AppiumBy.IOS_PREDICATE, predicate)
+        )
+
+    def find_switch_by_label(self, labels: list[str], timeout_seconds: float):
+        if self.driver is None:
+            raise RuntimeError("Appium session is not connected")
+        from appium.webdriver.common.appiumby import AppiumBy
+        from selenium.webdriver.support.ui import WebDriverWait
+
+        predicate = (
+            "type == 'XCUIElementTypeSwitch' AND "
+            f"({self._label_predicate(labels)})"
+        )
+        return WebDriverWait(self.driver, timeout_seconds).until(
+            lambda driver: driver.find_element(AppiumBy.IOS_PREDICATE, predicate)
+        )
+
+    def tap_switch_by_label(self, labels: list[str], timeout_seconds: float):
+        element = self.find_switch_by_label(labels, timeout_seconds)
+        return self._tap_element_with_fallback(element)
+
+    def tap_label(self, labels: list[str], timeout_seconds: float) -> dict:
+        element = self.find_element_by_label(labels, timeout_seconds)
+        tap_method = self._tap_element_with_fallback(element)
+        return {
+            "labels": labels,
+            "tapped": True,
+            "tap_method": tap_method,
+            "element": self._element_summary(element, 0),
+        }
+
+    def tap_row_label(self, labels: list[str], timeout_seconds: float) -> dict:
+        if self.driver is None:
+            raise RuntimeError("Appium session is not connected")
+        from appium.webdriver.common.appiumby import AppiumBy
+        from selenium.webdriver.support.ui import WebDriverWait
+
+        predicate = (
+            "(type == 'XCUIElementTypeCell' OR type == 'XCUIElementTypeButton') AND "
+            f"({self._label_predicate(labels)})"
+        )
+        element = WebDriverWait(self.driver, timeout_seconds).until(
+            lambda driver: driver.find_element(AppiumBy.IOS_PREDICATE, predicate)
+        )
+        tap_method = self._tap_element_with_fallback(element)
+        return {
+            "labels": labels,
+            "tapped": True,
+            "tap_method": tap_method,
+            "element": self._element_summary(element, 0),
+        }
+
+    def has_label(self, labels: list[str], timeout_seconds: float) -> bool:
+        if self.driver is None:
+            raise RuntimeError("Appium session is not connected")
+        from appium.webdriver.common.appiumby import AppiumBy
+        from selenium.webdriver.support.ui import WebDriverWait
+
+        predicate = (
+            "(type == 'XCUIElementTypeCell' OR type == 'XCUIElementTypeStaticText') AND "
+            f"({self._label_predicate(labels)})"
+        )
+        try:
+            WebDriverWait(self.driver, timeout_seconds).until(
+                lambda driver: driver.find_element(AppiumBy.IOS_PREDICATE, predicate)
+            )
+        except Exception:
+            return False
+        return True
+
+    def tap_navigation_back(self, timeout_seconds: float) -> dict:
+        if self.driver is None:
+            raise RuntimeError("Appium session is not connected")
+        from appium.webdriver.common.appiumby import AppiumBy
+        from selenium.webdriver.support.ui import WebDriverWait
+
+        element = WebDriverWait(self.driver, timeout_seconds).until(
+            lambda driver: driver.find_element(
+                AppiumBy.IOS_CLASS_CHAIN,
+                "**/XCUIElementTypeNavigationBar/**/XCUIElementTypeButton[1]",
+            )
+        )
+        tap_method = self._tap_element_with_fallback(element)
+        return {
+            "tapped": True,
+            "tap_method": tap_method,
+            "element": self._element_summary(element, 0),
+        }
+
+    def set_visible_text_field(self, label: str, value: str) -> dict:
+        if self.driver is None:
+            raise RuntimeError("Appium session is not connected")
+        from appium.webdriver.common.appiumby import AppiumBy
+        from selenium.webdriver.support.ui import WebDriverWait
+
+        text_types = ", ".join(f"'{class_name}'" for class_name in self.TEXT_FIELD_CLASS_NAMES)
+        predicate = (
+            f"type IN {{{text_types}}} AND visible == true AND enabled == true AND "
+            f"({self._label_predicate([label])})"
+        )
+        element = WebDriverWait(self.driver, 10).until(
+            lambda driver: driver.find_element(AppiumBy.IOS_PREDICATE, predicate)
+        )
+        self._tap_element_with_fallback(element)
+        try:
+            element.clear()
+        except Exception:
+            current = element.get_attribute("value") or ""
+            if current:
+                element.send_keys("\b" * len(str(current)))
+        element.send_keys(value)
+        return {"label": label, "value": value}
+
+    def element_value_by_label(self, labels: list[str]) -> str | None:
+        try:
+            element = self.find_element_by_label(labels, 1)
+        except Exception:
+            return None
+        value = element.get_attribute("value")
+        return str(value) if value is not None else None
+
+    def save_diagnostics(self, directory: Path, prefix: str) -> dict:
+        directory = Path(directory)
+        directory.mkdir(parents=True, exist_ok=True)
+        screenshot_path = directory / f"{prefix}.png"
+        source_path = directory / f"{prefix}.xml"
+        diagnostics: dict = {}
+        errors = []
+        try:
+            self.screenshot(screenshot_path)
+            diagnostics["screenshot_path"] = str(screenshot_path)
+        except Exception as exc:
+            errors.append(f"screenshot: {exc}")
+        try:
+            source_path.write_text(self.page_source())
+            diagnostics["page_source_path"] = str(source_path)
+        except Exception as exc:
+            errors.append(f"page_source: {exc}")
+        if errors:
+            diagnostics["errors"] = errors
+        return diagnostics
+
+    @staticmethod
+    def _label_predicate(labels: list[str]) -> str:
+        values = [str(label).strip() for label in labels if str(label).strip()]
+        if not values:
+            raise ValueError("at least one accessibility label is required")
+        conditions = []
+        for value in values:
+            escaped = value.replace("\\", "\\\\").replace("'", "\\'")
+            conditions.extend(
+                [
+                    f"label == '{escaped}'",
+                    f"name == '{escaped}'",
+                    f"value == '{escaped}'",
+                ]
+            )
+        return " OR ".join(conditions)
 
     def unlock(self) -> dict:
         was_locked = self.driver.is_locked()
@@ -119,10 +300,11 @@ class AppiumDeviceClient:
         wait_seconds = float(config.get("wait_seconds", 2))
         action = str(config.get("action", "dismiss")).lower()
         action = action if action in {"dismiss", "accept", "alert_only"} else "dismiss"
+        accept_if = [str(v).strip().lower() for v in (config.get("accept_if_text_contains") or []) if str(v).strip()]
         results: list[dict] = []
         deadline = time.monotonic() + wait_seconds
         while len(results) < max_alerts and time.monotonic() <= deadline:
-            result = self._handle_one_permission_alert(action)
+            result = self._handle_one_permission_alert(action, accept_if)
             if result["status"] == "NO_ALERT":
                 if results:
                     break
@@ -134,32 +316,64 @@ class AppiumDeviceClient:
             time.sleep(0.2)
         return results or [{"status": "NO_ALERT"}]
 
-    def _handle_one_permission_alert(self, action: str) -> dict:
+    def _handle_one_permission_alert(self, action: str, accept_if: list[str] | None = None) -> dict:
         try:
             alert = self.driver.switch_to.alert
             text = getattr(alert, "text", "") or ""
-            if action == "alert_only":
-                return {"status": "ALERT_PRESENT", "action": action, "text": text}
-            if action == "accept":
-                alert.accept()
-                return {"status": "HANDLED", "action": action, "text": text, "button": "accept"}
+            effective = self._effective_alert_action(action, text, accept_if)
+            if effective == "alert_only":
+                return {"status": "ALERT_PRESENT", "action": effective, "text": text}
+            if effective == "accept":
+                try:
+                    button = self._tap_permission_alert_button(prefer_negative=False)
+                    button.update({"status": "HANDLED", "action": effective, "text": text})
+                    return button
+                except Exception:
+                    alert.accept()
+                    return {"status": "HANDLED", "action": effective, "text": text, "button": "accept"}
             try:
                 button = self._tap_permission_alert_button(prefer_negative=True)
-                button.update({"status": "HANDLED", "action": action, "text": text})
+                button.update({"status": "HANDLED", "action": effective, "text": text})
                 return button
             except Exception:
                 alert.dismiss()
-                return {"status": "HANDLED", "action": action, "text": text, "button": "dismiss"}
+                return {"status": "HANDLED", "action": effective, "text": text, "button": "dismiss"}
         except Exception:
             try:
-                if action == "alert_only":
+                text = self._alert_text()
+                effective = self._effective_alert_action(action, text, accept_if)
+                if effective == "alert_only":
                     button = self._find_permission_alert_button(prefer_negative=True)
-                    return {"status": "ALERT_PRESENT", "action": action, "button": button}
-                button = self._tap_permission_alert_button(prefer_negative=(action != "accept"))
-                button.update({"status": "HANDLED", "action": action})
+                    return {"status": "ALERT_PRESENT", "action": effective, "button": button}
+                button = self._tap_permission_alert_button(prefer_negative=(effective != "accept"))
+                button.update({"status": "HANDLED", "action": effective, "text": text})
                 return button
             except Exception:
                 return {"status": "NO_ALERT"}
+
+    @staticmethod
+    def _effective_alert_action(action: str, text: str, accept_if: list[str] | None) -> str:
+        if accept_if and text and any(needle in text.lower() for needle in accept_if):
+            return "accept"
+        return action
+
+    def _alert_text(self) -> str:
+        from selenium.webdriver.common.by import By
+
+        finders = (
+            lambda: self.driver.find_element(By.CLASS_NAME, "XCUIElementTypeAlert").find_elements(
+                By.CLASS_NAME, "XCUIElementTypeStaticText"
+            ),
+            lambda: self.driver.find_elements(By.CLASS_NAME, "XCUIElementTypeStaticText"),
+        )
+        for finder in finders:
+            try:
+                joined = " ".join(element.text or "" for element in finder()).strip()
+            except Exception:
+                continue
+            if joined:
+                return joined
+        return ""
 
     def _tap_permission_alert_button(self, prefer_negative: bool) -> dict:
         button = self._find_permission_alert_button(prefer_negative)
@@ -197,7 +411,11 @@ class AppiumDeviceClient:
             for button, summary in summaries:
                 label = " ".join(str(summary.get(key) or "") for key in ("label", "name", "value")).strip()
                 normalized = label.lower()
-                if label and any(candidate in normalized for candidate in labels):
+                if not label:
+                    continue
+                if labels is positive_labels and any(candidate in normalized for candidate in negative_labels):
+                    continue
+                if any(candidate in normalized for candidate in labels):
                     summary["button"] = label
                     summary["matched_by"] = "permission_alert_button"
                     summary["element"] = button

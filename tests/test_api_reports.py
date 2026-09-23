@@ -169,3 +169,146 @@ def test_summary_response_model_preserves_extension_fields(monkeypatch, tmp_path
 
     assert status == 200
     assert json.loads(body)[0]["future_field"] == {"value": 1}
+
+
+def _run_with_status(root, timestamp: str, status: str | None):
+    run_dir = root / timestamp
+    run_dir.mkdir(parents=True)
+    if status is not None:
+        (run_dir / "run_manifest.json").write_text(json.dumps({"status": status}))
+    return run_dir
+
+
+def test_listing_reports_without_a_status_returns_every_run(monkeypatch, tmp_path):
+    root = tmp_path / "reports"
+    monkeypatch.setattr(reports_service, "REPORTS_ROOT", root)
+    _run_with_status(root, "2026-01-01_00-00-00", "completed")
+    _run_with_status(root, "2026-01-02_00-00-00", "running")
+    _run_with_status(root, "2026-01-03_00-00-00", "failed")
+
+    assert reports_service.list_report_timestamps() == [
+        "2026-01-03_00-00-00",
+        "2026-01-02_00-00-00",
+        "2026-01-01_00-00-00",
+    ]
+
+
+def test_listing_reports_by_status_keeps_only_matching_runs(monkeypatch, tmp_path):
+    root = tmp_path / "reports"
+    monkeypatch.setattr(reports_service, "REPORTS_ROOT", root)
+    _run_with_status(root, "2026-01-01_00-00-00", "completed")
+    _run_with_status(root, "2026-01-02_00-00-00", "running")
+    _run_with_status(root, "2026-01-03_00-00-00", "completed")
+
+    assert reports_service.list_report_timestamps("completed") == [
+        "2026-01-03_00-00-00",
+        "2026-01-01_00-00-00",
+    ]
+    assert reports_service.list_report_timestamps("running") == ["2026-01-02_00-00-00"]
+    assert reports_service.list_report_timestamps("cancelled") == []
+
+
+def test_a_run_predating_manifests_is_treated_as_completed(monkeypatch, tmp_path):
+    root = tmp_path / "reports"
+    monkeypatch.setattr(reports_service, "REPORTS_ROOT", root)
+    _run_with_status(root, "2026-01-01_00-00-00", None)
+
+    assert reports_service.list_report_timestamps("completed") == ["2026-01-01_00-00-00"]
+
+
+def test_a_manifest_with_no_status_is_unknown_rather_than_completed(monkeypatch, tmp_path):
+    root = tmp_path / "reports"
+    monkeypatch.setattr(reports_service, "REPORTS_ROOT", root)
+    run_dir = root / "2026-01-01_00-00-00"
+    run_dir.mkdir(parents=True)
+    (run_dir / "run_manifest.json").write_text(json.dumps({"run_timestamp": "2026-01-01_00-00-00"}))
+
+    assert reports_service.list_report_timestamps("completed") == []
+    assert reports_service.list_report_timestamps("unknown") == ["2026-01-01_00-00-00"]
+
+
+def test_an_unreadable_manifest_falls_back_to_completed(monkeypatch, tmp_path):
+    root = tmp_path / "reports"
+    monkeypatch.setattr(reports_service, "REPORTS_ROOT", root)
+    run_dir = root / "2026-01-01_00-00-00"
+    run_dir.mkdir(parents=True)
+    (run_dir / "run_manifest.json").write_text("{ not json")
+
+    assert reports_service.list_report_timestamps("completed") == ["2026-01-01_00-00-00"]
+
+
+def test_the_route_passes_the_status_through(monkeypatch, tmp_path):
+    root = tmp_path / "reports"
+    monkeypatch.setattr(reports_service, "REPORTS_ROOT", root)
+    _run_with_status(root, "2026-01-01_00-00-00", "completed")
+    _run_with_status(root, "2026-01-02_00-00-00", "running")
+
+    assert api_reports.list_reports() == ["2026-01-02_00-00-00", "2026-01-01_00-00-00"]
+    assert api_reports.list_reports("completed") == ["2026-01-01_00-00-00"]
+
+
+def test_listing_reports_says_nothing_when_the_directory_is_absent(monkeypatch, tmp_path):
+    monkeypatch.setattr(reports_service, "REPORTS_ROOT", tmp_path / "absent")
+
+    assert reports_service.list_report_timestamps() == []
+    assert reports_service.list_report_timestamps("completed") == []
+
+
+def test_the_manifest_records_the_provenance_of_the_run(tmp_path):
+    from mobile_playbook.reporting import run_manifest
+
+    run_dir = tmp_path / "2026-01-01_00-00-00"
+    run_manifest.write_manifest(
+        run_dir,
+        run_timestamp="2026-01-01_00-00-00",
+        platform="ios",
+        attempted=[{"app_id": "example_app", "risk_id": "example_risk"}],
+        status="completed",
+        config_fingerprint="sha256:examplefingerprint",
+        keyboard_ipa_sha256="sha256:examplekeyboard",
+    )
+
+    provenance = json.loads((run_dir / "run_manifest.json").read_text())["provenance"]
+    assert provenance["config_fingerprint"] == "sha256:examplefingerprint"
+    assert provenance["keyboard_ipa_sha256"] == "sha256:examplekeyboard"
+    assert provenance["code_revision"] == run_manifest.git_revision()
+
+
+def test_a_manifest_written_without_hashes_still_carries_the_revision(tmp_path):
+    from mobile_playbook.reporting import run_manifest
+
+    run_dir = tmp_path / "2026-01-01_00-00-00"
+    run_manifest.write_manifest(
+        run_dir,
+        run_timestamp="2026-01-01_00-00-00",
+        platform="ios",
+        attempted=[],
+        status="completed",
+    )
+
+    provenance = json.loads((run_dir / "run_manifest.json").read_text())["provenance"]
+    assert provenance["config_fingerprint"] is None
+    assert provenance["keyboard_ipa_sha256"] is None
+
+
+def test_an_unavailable_git_checkout_reports_no_revision(monkeypatch):
+    from mobile_playbook.reporting import run_manifest
+
+    monkeypatch.setattr(run_manifest, "_GIT_REVISION_READ", False)
+    monkeypatch.setattr(run_manifest, "_GIT_REVISION", None)
+    monkeypatch.setattr(
+        run_manifest.subprocess, "run", lambda *args, **kwargs: (_ for _ in ()).throw(OSError("no git"))
+    )
+
+    assert run_manifest.git_revision() is None
+
+
+def test_the_health_endpoint_names_the_code_it_is_running():
+    from mobile_playbook.api import app as api_app
+    from mobile_playbook.reporting import run_manifest
+
+    payload = api_app.health()
+
+    assert payload["status"] == "ok"
+    assert payload["code_revision"] == run_manifest.git_revision()
+    assert payload["started_at"] == api_app._STARTED_AT

@@ -1,10 +1,18 @@
 from __future__ import annotations
 
+import json
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
 
-from mobile_playbook.platforms.ios.preflight import _parse_connected_udids, check_ios_preflight
+from mobile_playbook.platforms.ios.burp_health import health_record_path, write_health_record
+from mobile_playbook.platforms.ios.config import ConfigError, validate_config
+from mobile_playbook.platforms.ios.preflight import (
+    _parse_connected_udids,
+    check_ios_preflight,
+    check_traffic_interception_preflight,
+)
 from mobile_playbook.platforms.ios.runner import IosPlatformRunner
 
 XCTRACE_OUTPUT = """\
@@ -94,3 +102,214 @@ def test_connect_device_raises_a_clean_error_without_opening_an_appium_session(m
 
     with pytest.raises(RuntimeError, match="00008120-0001110834E1A01E"):
         IosPlatformRunner().connect_device(_config())
+
+
+def _traffic_config(capture_path, *, expected_hosts=("api.example.com",), max_age=300):
+    return SimpleNamespace(
+        device=SimpleNamespace(udid="device-1"),
+        traffic_interception={
+            "burp": {
+                "proxy_url": "HTTP://LOCALHOST:8080/",
+                "capture_path": str(capture_path),
+                "health_max_age_seconds": max_age,
+            },
+            "expected_hosts": list(expected_hosts),
+        },
+    )
+
+
+def _traffic_app(app_id="app-one", *, enabled=True, override=None):
+    risk = {"enabled": enabled}
+    risk.update(override or {})
+    return SimpleNamespace(id=app_id, risks={"ios-feature-02-risk-01": risk})
+
+
+def _warning_codes(warnings):
+    return {warning.code for warning in warnings}
+
+
+def _write_fresh_health(capture_path, proxy_url="http://localhost:8080", device_udid="device-1"):
+    capture_path.write_text('{"host":"example.com"}\n')
+    return write_health_record(
+        capture_path=capture_path,
+        proxy_url=proxy_url,
+        canary_host="example.com",
+        valid_entry_count=1,
+        device_udid=device_udid,
+    )
+
+
+def test_traffic_preflight_ignores_unselected_and_disabled_risks(tmp_path):
+    config = _traffic_config(tmp_path / "capture.jsonl")
+    enabled = _traffic_app()
+    disabled = _traffic_app(enabled=False)
+
+    assert check_traffic_interception_preflight(config, [(enabled, "ios-feature-01-risk-01")]) == []
+    assert check_traffic_interception_preflight(config, [(disabled, "ios-feature-02-risk-01")]) == []
+
+
+def test_fresh_matching_health_record_has_no_health_warning(tmp_path, monkeypatch):
+    capture_path = tmp_path / "capture.jsonl"
+    config = _traffic_config(capture_path)
+    _write_fresh_health(capture_path)
+    monkeypatch.setattr("mobile_playbook.platforms.ios.preflight._tcp_reachable", lambda *args, **kwargs: True)
+
+    warnings = check_traffic_interception_preflight(config, [(_traffic_app(), "ios-feature-02-risk-01")])
+
+    assert not (_warning_codes(warnings) & {"BURP_HEALTH_MISSING", "BURP_HEALTH_STALE", "BURP_HEALTH_MISMATCH"})
+
+
+@pytest.mark.parametrize(
+    ("state", "expected_code"),
+    [
+        ("missing", "BURP_HEALTH_MISSING"),
+        ("stale", "BURP_HEALTH_STALE"),
+        ("proxy_mismatch", "BURP_HEALTH_MISMATCH"),
+        ("device_mismatch", "BURP_HEALTH_MISMATCH"),
+        ("invalid", "BURP_HEALTH_MISMATCH"),
+    ],
+)
+def test_traffic_preflight_reports_health_record_state(tmp_path, monkeypatch, state, expected_code):
+    capture_path = tmp_path / "capture.jsonl"
+    config = _traffic_config(capture_path)
+    capture_path.write_text('{"host":"example.com"}\n')
+    if state != "missing":
+        record_path = _write_fresh_health(capture_path)
+        record = json.loads(record_path.read_text())
+        if state == "stale":
+            record["verified_at"] = (datetime.now(timezone.utc) - timedelta(seconds=301)).isoformat()
+        elif state == "proxy_mismatch":
+            record["proxy_url"] = "http://other-proxy:8080"
+        elif state == "device_mismatch":
+            record["device_udid_sha256"] = "incorrect"
+        elif state == "invalid":
+            record["valid_entry_count"] = 0
+        record_path.write_text(json.dumps(record))
+    monkeypatch.setattr("mobile_playbook.platforms.ios.preflight._tcp_reachable", lambda *args, **kwargs: True)
+
+    warnings = check_traffic_interception_preflight(config, [(_traffic_app(), "ios-feature-02-risk-01")])
+
+    assert expected_code in _warning_codes(warnings)
+
+
+@pytest.mark.parametrize(
+    ("condition", "expected_code"),
+    [
+        ("proxy", "BURP_PROXY_UNREACHABLE"),
+        ("directory", "BURP_CAPTURE_PATH_IS_DIRECTORY"),
+        ("unreadable", "BURP_CAPTURE_UNREADABLE"),
+        ("missing_parent", "BURP_CAPTURE_PARENT_MISSING"),
+        ("unwritable_parent", "BURP_CAPTURE_PARENT_UNWRITABLE"),
+    ],
+)
+def test_traffic_preflight_reports_environment_warnings(
+    tmp_path,
+    monkeypatch,
+    condition,
+    expected_code,
+):
+    capture_path = tmp_path / "capture.jsonl"
+
+    if condition == "directory":
+        capture_path.mkdir()
+    elif condition == "missing_parent":
+        capture_path = tmp_path / "missing" / "capture.jsonl"
+    elif condition != "unwritable_parent":
+        capture_path.write_text("")
+
+    monkeypatch.setattr(
+        "mobile_playbook.platforms.ios.preflight._tcp_reachable",
+        lambda *args, **kwargs: condition != "proxy",
+    )
+    if condition == "unreadable":
+        monkeypatch.setattr(
+            "mobile_playbook.platforms.ios.preflight._capture_readable",
+            lambda path: False,
+        )
+    if condition == "unwritable_parent":
+        monkeypatch.setattr(
+            "mobile_playbook.platforms.ios.preflight._path_writable",
+            lambda path: False,
+        )
+
+    warnings = check_traffic_interception_preflight(
+        _traffic_config(capture_path),
+        [(_traffic_app(), "ios-feature-02-risk-01")],
+    )
+
+    assert expected_code in _warning_codes(warnings)
+
+
+def test_empty_expected_hosts_warns_without_failing_preflight(tmp_path, monkeypatch):
+    capture_path = tmp_path / "capture.jsonl"
+    config = _traffic_config(capture_path, expected_hosts=())
+    _write_fresh_health(capture_path)
+    monkeypatch.setattr("mobile_playbook.platforms.ios.preflight._tcp_reachable", lambda *args, **kwargs: True)
+    monkeypatch.setattr("mobile_playbook.platforms.ios.preflight.connected_device_udids", lambda: {"device-1"})
+
+    warnings = check_traffic_interception_preflight(config, [(_traffic_app(), "ios-feature-02-risk-01")])
+    result = check_ios_preflight(
+        SimpleNamespace(device=SimpleNamespace(udid="device-1", team_id="TEAM", appium_server_url="http://appium"))
+    )
+
+    assert "BURP_EXPECTED_HOSTS_EMPTY" in _warning_codes(warnings)
+    assert result.ok
+
+
+def test_shared_effective_capture_configuration_is_checked_once(tmp_path, monkeypatch):
+    capture_path = tmp_path / "capture.jsonl"
+    config = _traffic_config(capture_path)
+    _write_fresh_health(capture_path)
+    calls = []
+    monkeypatch.setattr(
+        "mobile_playbook.platforms.ios.preflight._tcp_reachable",
+        lambda *args, **kwargs: calls.append(args[0]) or True,
+    )
+
+    warnings = check_traffic_interception_preflight(
+        config,
+        [
+            (_traffic_app("app-one"), "ios-feature-02-risk-01"),
+            (_traffic_app("app-two"), "ios-feature-02-risk-01"),
+        ],
+    )
+
+    assert calls == ["HTTP://LOCALHOST:8080/"]
+    assert warnings == []
+
+
+def test_per_app_capture_overrides_are_checked_separately(tmp_path, monkeypatch):
+    first_path = tmp_path / "first.jsonl"
+    second_path = tmp_path / "second.jsonl"
+    config = _traffic_config(first_path)
+    _write_fresh_health(first_path)
+    _write_fresh_health(second_path)
+    calls = []
+    monkeypatch.setattr(
+        "mobile_playbook.platforms.ios.preflight._tcp_reachable",
+        lambda *args, **kwargs: calls.append(args[0]) or True,
+    )
+
+    warnings = check_traffic_interception_preflight(
+        config,
+        [
+            (_traffic_app("app-one"), "ios-feature-02-risk-01"),
+            (
+                _traffic_app("app-two", override={"burp": {"capture_path": str(second_path)}}),
+                "ios-feature-02-risk-01",
+            ),
+        ],
+    )
+
+    assert len(calls) == 2
+    assert warnings == []
+
+
+def test_negative_health_max_age_is_rejected(global_config):
+    global_config.traffic_interception = {
+        "burp": {"proxy_url": "http://127.0.0.1:8080", "health_max_age_seconds": -1}
+    }
+    global_config.apps[0].risks = {"ios-feature-02-risk-01": {"enabled": True}}
+
+    with pytest.raises(ConfigError, match="health_max_age_seconds must be non-negative"):
+        validate_config(global_config, dry_run=True)

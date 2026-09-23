@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from mobile_playbook.api.cors import cors_allowed_origins
 from mobile_playbook.api.routes import artifacts, catalog, config, playbook, reports, runs, sync
+from mobile_playbook.reporting import run_manifest
+
+_STARTED_AT = datetime.now(timezone.utc).isoformat()
 
 app = FastAPI(
     title="Mobile Playbook Automation API",
@@ -39,4 +44,8 @@ app.include_router(sync.router)
 
 @app.get("/health")
 def health() -> dict:
-    return {"status": "ok"}
+    return {
+        "status": "ok",
+        "code_revision": run_manifest.git_revision(),
+        "started_at": _STARTED_AT,
+    }

@@ -10,17 +10,20 @@ from mobile_playbook.platforms.ios.models import RiskRunResult
 
 CATEGORY_BY_RISK = {
     "ios-feature-01-risk-01": "static_analysis",
+    "ios-feature-02-risk-01": "network_security",
     "ios-feature-04-risk-01": "keyboard_security",
 }
 
 TEST_NAME_BY_RISK = {
     "ios-feature-01-risk-01": "IPA Static Analysis Exposure",
+    "ios-feature-02-risk-01": "TLS Traffic Interception Exposure",
     "ios-feature-04-risk-01": "Custom Keyboard Keystroke Collection",
 }
 
 SEVERITY_BY_STATUS = {
     "RISK_EXISTS": "high",
     "KEYSTROKE_COLLECTION_NOT_OBSERVED": "low",
+    "TRAFFIC_INTERCEPTION_NOT_OBSERVED": "low",
     "CUSTOM_KEYBOARD_NOT_AVAILABLE": "low",
     "IPA_ANALYSIS_COMPLETE": "info",
     "FAILED": "medium",
@@ -28,6 +31,28 @@ SEVERITY_BY_STATUS = {
     "INSTALL_FAILED": "medium",
     "LAUNCH_FAILED": "medium",
     "PAIRING_TIMEOUT": "medium",
+    "PROXY_NOT_CONFIGURED": "medium",
+    "PROXY_UNREACHABLE": "medium",
+    "DEVICE_PROXY_SETUP_FAILED": "info",
+    "CA_INSTALLATION_FAILED": "info",
+    "CA_TRUST_FAILED": "info",
+    "DEVICE_PROXY_RESTORE_FAILED": "info",
+    "CAPTURE_PIPELINE_SILENT": "info",
+    "CAPTURE_DATA_INVALID": "info",
+    "CAPTURE_SOURCE_CHANGED": "info",
+    "CAPTURE_SOURCE_UNAVAILABLE": "info",
+}
+
+CAPTURE_STATUS_SUMMARIES = {
+    "DEVICE_PROXY_SETUP_FAILED": "The iPhone proxy could not be configured.",
+    "CA_INSTALLATION_FAILED": "The Burp CA could not be installed on the iPhone.",
+    "CA_TRUST_FAILED": "The Burp CA could not be fully trusted on the iPhone.",
+    "DEVICE_PROXY_RESTORE_FAILED": "The original iPhone proxy settings could not be restored.",
+    "CAPTURE_PIPELINE_SILENT": "No capture activity was observed; this could mean a broken pipeline, no app request, or a blocked TLS handshake.",
+    "CAPTURE_DATA_INVALID": "New capture data existed but could not be parsed.",
+    "CAPTURE_SOURCE_CHANGED": "The capture file was replaced or truncated during the test.",
+    "CAPTURE_SOURCE_UNAVAILABLE": "The capture file could not be read.",
+    "TRAFFIC_INTERCEPTION_NOT_OBSERVED": "Valid traffic was captured, but none matched the configured hosts.",
 }
 
 
@@ -72,6 +97,9 @@ def _summary(result: RiskRunResult) -> str:
 
 
 def _traffic_interception_summary(result: RiskRunResult) -> str:
+    status_summary = CAPTURE_STATUS_SUMMARIES.get(result.final_status)
+    if status_summary:
+        return status_summary
     capture_summary = (result.launch_result or {}).get("capture_summary") or {}
     count = capture_summary.get("matched_count", 0)
     if not count:
@@ -97,7 +125,7 @@ def _evidence(result: RiskRunResult) -> list[Evidence]:
         capture_summary = (result.launch_result or {}).get("capture_summary") or {}
         evidence_path = capture_summary.get("evidence_path")
         if evidence_path:
-            paths.append(("capture_log", Path(evidence_path), "Burp captured traffic"))
+            paths.append(("report", Path(evidence_path), "Burp capture results"))
     evidence = []
     seen = set()
     for kind, path, label in paths:

@@ -525,7 +525,7 @@ def _section_text(blocks: list[dict[str, Any]], heading: str) -> str:
             parts.append(str(block.get("text") or ""))
             if heading == TITLE:
                 break
-    return " ".join(parts).strip()
+    return ("\n\n".join(parts) if heading != TITLE else " ".join(parts)).strip()
 
 
 def _control_links(blocks: list[dict[str, Any]]) -> list[dict[str, str]]:
