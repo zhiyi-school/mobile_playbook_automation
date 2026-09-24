@@ -1,11 +1,25 @@
 from __future__ import annotations
 
+import os
 import shutil
+import stat
 import zipfile
 from pathlib import Path, PurePosixPath
 
 
 IGNORED_NAMES = {"__MACOSX", ".DS_Store"}
+
+
+def _entry_mode(info: zipfile.ZipInfo) -> int:
+    return (info.external_attr >> 16) & 0xFFFF
+
+
+def _symlink_stays_within(dest_dir: Path, link_path: Path, link_target: str) -> bool:
+    if os.path.isabs(link_target):
+        return False
+    resolved = os.path.normpath(link_path.parent / link_target)
+    base = str(dest_dir.resolve())
+    return resolved == base or resolved.startswith(base + os.sep)
 
 
 def is_safe_member_name(member_name: str) -> bool:
@@ -33,12 +47,23 @@ def safe_extract_zip(zip_path: Path, dest_dir: Path) -> None:
             if not parts or parts[0] in IGNORED_NAMES or parts[-1] in IGNORED_NAMES:
                 continue
             target = _safe_target(dest_dir, info.filename)
+            mode = _entry_mode(info)
             if info.is_dir():
                 target.mkdir(parents=True, exist_ok=True)
-            else:
-                target.parent.mkdir(parents=True, exist_ok=True)
-                with zf.open(info) as src, target.open("wb") as dst:
-                    shutil.copyfileobj(src, dst)
+                continue
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if stat.S_ISLNK(mode):
+                link_target = zf.read(info).decode()
+                if not _symlink_stays_within(dest_dir, target, link_target):
+                    raise ValueError(f"Unsafe symlink target: {info.filename} -> {link_target}")
+                if target.is_symlink() or target.exists():
+                    target.unlink()
+                os.symlink(link_target, target)
+                continue
+            with zf.open(info) as src, target.open("wb") as dst:
+                shutil.copyfileobj(src, dst)
+            if mode:
+                os.chmod(target, stat.S_IMODE(mode))
 
 
 def locate_payload_app(extract_dir: Path) -> Path:

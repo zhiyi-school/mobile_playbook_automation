@@ -19,7 +19,11 @@ from mobile_playbook.orchestration.platform_runner import (
 )
 from mobile_playbook.platforms.ios.device import AppiumDeviceClient
 from mobile_playbook.platforms.ios.models import RiskRunResult
-from mobile_playbook.platforms.ios.preflight import check_ios_preflight, check_traffic_interception_preflight
+from mobile_playbook.platforms.ios.preflight import (
+    check_ios_preflight,
+    check_repackaging_preflight,
+    check_traffic_interception_preflight,
+)
 from mobile_playbook.platforms.ios.risks import get_risk
 from mobile_playbook.reporting.run_events import append_event
 
@@ -83,7 +87,7 @@ class IosPlatformRunner:
         yield from iter_enabled_tests(config, selected_tests, selected_apps, get_risk)
 
     def preflight_warnings(self, config, planned_tests):
-        return check_traffic_interception_preflight(config, planned_tests)
+        return check_traffic_interception_preflight(config, planned_tests) + check_repackaging_preflight(config, planned_tests)
 
     def run_test(self, app, test_id: str, config, device_client, report_writer) -> None:
         risk = get_risk(test_id)

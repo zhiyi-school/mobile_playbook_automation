@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import subprocess
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -19,10 +20,12 @@ from mobile_playbook.platforms.ios.burp_health import (
 )
 from mobile_playbook.platforms.ios.config import effective_risk_config
 from mobile_playbook.platforms.ios.models import AppConfig
+from mobile_playbook.platforms.ios.mutations.repackage import resolve_insert_dylib
 from mobile_playbook.storage import ios_capture_path, resolve_under_repository
 
 DEVICES_SECTION = "Devices"
 TRAFFIC_INTERCEPTION_RISK_ID = "ios-feature-02-risk-01"
+REPACKAGING_RISK_ID = "ios-feature-01-risk-02"
 DEFAULT_HEALTH_MAX_AGE_SECONDS = 300
 
 
@@ -95,6 +98,48 @@ def check_traffic_interception_preflight(
     warnings: list[IosPreflightWarning] = []
     for group in grouped.values():
         warnings.extend(_traffic_interception_warnings(config, group))
+    return warnings
+
+
+def check_repackaging_preflight(
+    config,
+    planned_tests: list[tuple[AppConfig, str]],
+) -> list[IosPreflightWarning]:
+    app_ids: list[str] = []
+    for app, risk_id in planned_tests:
+        if risk_id != REPACKAGING_RISK_ID:
+            continue
+        if not ((getattr(app, "risks", {}) or {}).get(risk_id) or {}).get("enabled", False):
+            continue
+        app_ids.append(str(app.id))
+    if not app_ids:
+        return []
+    ids = tuple(sorted(set(app_ids)))
+    effective = effective_risk_config(config, REPACKAGING_RISK_ID, {})
+    insert_dylib = resolve_insert_dylib(effective.get("insert_dylib_path"))
+    warnings: list[IosPreflightWarning] = []
+    insert_dylib_found = (
+        Path(insert_dylib).exists() if os.sep in insert_dylib else shutil.which(insert_dylib) is not None
+    )
+    if not insert_dylib_found:
+        warnings.append(
+            IosPreflightWarning(
+                "INSERT_DYLIB_UNAVAILABLE",
+                f"insert_dylib could not be found ('{insert_dylib}'); vendor it under tools/insert_dylib/ "
+                "or set repackaging.insert_dylib_path. Repackaging reports DYLIB_INJECTION_FAILED without it.",
+                REPACKAGING_RISK_ID,
+                ids,
+            )
+        )
+    if shutil.which("codesign") is None:
+        warnings.append(
+            IosPreflightWarning(
+                "CODESIGN_UNAVAILABLE",
+                "'codesign' is not on PATH; repackaging cannot re-sign the build and reports RESIGN_FAILED.",
+                REPACKAGING_RISK_ID,
+                ids,
+            )
+        )
     return warnings
 
 

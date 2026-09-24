@@ -21,6 +21,30 @@ ipa_static_analysis:
     max_keys: 5
     test_address: "Singapore"
 
+repackaging:
+  frida:
+    dylib_path: "tools/Frida/FridaGadget.dylib"
+    config_path: "tools/Frida/FridaGadget.config"
+  # Vendored at tools/insert_dylib/ and resolved by repo path; set an absolute path to override. See docs/ios/configuration.md#repackaging.
+  insert_dylib_path: null
+  resign:
+    # Optional; when unset a matching profile is auto-discovered from the workstation's installed profiles. See docs/ios/configuration.md#repackaging.
+    provisioning_profile: null
+    # Optional; rename the repackaged build to one bundle id you own a dev profile for (free-account path). See docs/ios/configuration.md#repackaging.
+    rewrite_bundle_id: null
+    auto_provision: true                # mint/renew the profile via Xcode automatic signing when none valid
+    profile_expiry_margin_seconds: 3600 # treat a profile expiring within this window as invalid and regenerate
+  tamper_markers:
+    - "Tamper detected"
+    - "Integrity check failed"
+    - "Jailbreak detected"
+  exercise:
+    sample_window_seconds: 15
+    sample_interval_seconds: 1
+    tap_text_field: false
+    button_label_contains: []
+  restore_original_after_test: true
+
 traffic_interception:
   burp:
     proxy_url: "http://127.0.0.1:8081"

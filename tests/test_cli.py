@@ -139,6 +139,7 @@ def test_run_all_isolates_one_platform_failure_from_the_other(monkeypatch, globa
 def test_ios_registry_only_exposes_current_risks():
     assert known_risks() == {
         "ios-feature-01-risk-01",
+        "ios-feature-01-risk-02",
         "ios-feature-02-risk-01",
         "ios-feature-04-risk-01",
         "ios-feature-99-risk-01",

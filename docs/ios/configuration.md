@@ -136,8 +136,41 @@ iOS risk IDs are prefixed `ios-feature...`. To configure a risk for an app:
        fallback_to_builtin: true
    ```
 
-   See `configs/split/ios/risk_settings.example.yaml` for the rest of this and `traffic_interception`/`keystroke_collection`'s fields, and [Risks](risks.md) for what each field controls.
+   See `configs/split/ios/risk_settings.example.yaml` for the rest of this and `repackaging`/`traffic_interception`/`keystroke_collection`'s fields, and [Risks](risks.md) for what each field controls.
 3. Only add more fields under the app's own `risks.<risk_id>` entry when this one app needs to differ from those shared defaults — nest just the field being changed. Anything left unset there falls back to the global file; see [Global Risk Settings](#global-risk-settings) for how the two are merged.
+
+### Repackaging
+
+`ios-feature-01-risk-02` reads its shared defaults from the `repackaging` global settings block:
+
+```yaml
+repackaging:
+  frida:
+    dylib_path: "tools/Frida/FridaGadget.dylib"
+    config_path: "tools/Frida/FridaGadget.config"
+    script: null
+    attach_timeout_seconds: 15
+  insert_dylib_path: null
+  resign:
+    identity: null
+    provisioning_profile: null
+  tamper_markers:
+    - "Tamper detected"
+    - "Integrity check failed"
+    - "Jailbreak detected"
+  exercise:
+    sample_window_seconds: 15
+    sample_interval_seconds: 1
+    tap_text_field: false
+    button_label_contains: []
+  restore_original_after_test: true
+```
+
+`frida.dylib_path`/`frida.config_path` are the gadget injected into the bundle, resolved relative to the repository root (override to point elsewhere). `frida.script` is an optional Frida JS file loaded once the repackaged build is running: attaching to the gadget and running it is the dynamic proof that the injected code loaded, and is required before an `At Risk` verdict — a failed attach leaves the run `GADGET_ATTACH_FAILED` (Inconclusive), so `frida` must be installed for a real device run. `insert_dylib_path` is optional: leave it `null` and the tool is used from its vendored location `tools/insert_dylib/`, resolved by repository-relative path with no PATH entry required (set an absolute path only to override).
+
+`resign.identity` is the `codesign` identity; leave it `null` and it is resolved from `device.team_id` by keychain lookup (the SHA-1 of the team's Apple Development certificate). `resign.provisioning_profile` is the `.mobileprovision` used to embed entitlements and re-sign for the device; leave it `null` and a matching profile is auto-discovered from `~/Library/MobileDevice/Provisioning Profiles` (the first whose team, `application-identifier`, provisioned devices, expiry, and signing certificate match this app, device, and identity). A valid profile for the target bundle ID is an operational prerequisite; when none is configured or discovered the run is `RESIGN_FAILED` (Inconclusive). `tamper_markers` are merged with the app's `expected_behavior.source_not_contains` for the UI scan. `exercise` controls the sampling window and the sensitive path driven on both passes, and `restore_original_after_test` reinstalls the clean build afterward. See [Risks](risks.md#ios-feature-01-risk-02) for the evidence channels and the three-way verdict.
+
+`resign.rewrite_bundle_id` (optional): install the repackaged build under a single bundle id you own a development profile for, instead of the app's real id. This is the free-account path — one registered App ID is reused for every app: each app is renamed to it, tested, then uninstalled so the id is free for the next. It avoids the free-account App-ID quota, but because the app runs under a different identity, a launch failure may be the rename rather than a tamper defense — so verify any `Reduced Risk` against the baseline evidence. Leave `null` to keep each app's real id (needs a wildcard profile / paid account).
 
 ### Traffic interception
 
@@ -215,7 +248,7 @@ Included paths are resolved relative to the entry-point file — here, that's `c
 
 ### Global Risk Settings
 
-`ipa_static_analysis`, `traffic_interception`, and `keystroke_collection` each hold one risk's shared default settings — the analyzer config for `ios-feature-01-risk-01`, the Burp proxy config for `ios-feature-02-risk-01`, the keyboard-collection config for `ios-feature-04-risk-01` — used by every app that enables that risk. An app's own `risks.<risk_id>` entry in `apps.yaml` only needs `enabled: true`; any field nested under it there overrides the shared default for that app alone, merged recursively (so, for example, an app can override just `collection.auto_navigation.accessibility_ids` without repeating the rest of `collection`). See [Risks](risks.md) for what each field controls.
+`ipa_static_analysis`, `repackaging`, `traffic_interception`, and `keystroke_collection` each hold one risk's shared default settings — the analyzer config for `ios-feature-01-risk-01`, the repackaging config for `ios-feature-01-risk-02`, the Burp proxy config for `ios-feature-02-risk-01`, the keyboard-collection config for `ios-feature-04-risk-01` — used by every app that enables that risk. An app's own `risks.<risk_id>` entry in `apps.yaml` only needs `enabled: true`; any field nested under it there overrides the shared default for that app alone, merged recursively (so, for example, an app can override just `collection.auto_navigation.accessibility_ids` without repeating the rest of `collection`). See [Risks](risks.md) for what each field controls.
 
 `configs/split/ios/risk_settings.example.yaml` shows all three risks' settings together in one file for easier reading, but the real (git-ignored) config keeps them as separate files, one per risk, matching the `include:` map above.
 

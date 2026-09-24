@@ -26,6 +26,7 @@ LOCAL_IPA_SOURCES = {"local_ipa", "ci_artifact", "vendor_ipa", "xcode_archive_ex
 # by) whatever the app's own `risks.<risk_id>` entry specifies.
 RISK_GLOBAL_SETTINGS_FIELD = {
     "ios-feature-01-risk-01": "ipa_static_analysis",
+    "ios-feature-01-risk-02": "repackaging",
     "ios-feature-02-risk-01": "traffic_interception",
     "ios-feature-04-risk-01": "keystroke_collection",
 }
@@ -125,6 +126,7 @@ def parse_config(raw: dict[str, Any], config_path: Path | None = None) -> Global
         ipa_static_analysis=raw.get("ipa_static_analysis") or {},
         keystroke_collection=raw.get("keystroke_collection") or {},
         traffic_interception=raw.get("traffic_interception") or {},
+        repackaging=raw.get("repackaging") or {},
         config_path=config_path,
     )
 

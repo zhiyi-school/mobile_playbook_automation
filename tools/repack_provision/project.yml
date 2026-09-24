@@ -1,0 +1,21 @@
+name: RepackProvision
+options:
+  createIntermediateGroups: true
+targets:
+  RepackProvision:
+    type: application
+    platform: iOS
+    deploymentTarget: "14.0"
+    sources: [App]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.iosrisk.repack.2
+        CODE_SIGN_STYLE: Automatic
+        GENERATE_INFOPLIST_FILE: YES
+        MARKETING_VERSION: "1.0"
+        CURRENT_PROJECT_VERSION: "1"
+schemes:
+  RepackProvision:
+    build:
+      targets:
+        RepackProvision: all

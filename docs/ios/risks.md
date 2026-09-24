@@ -30,6 +30,29 @@ Reports include:
 
 `IPA_ANALYSIS_COMPLETE` means the IPA was acquired, unpacked, and inventoried for static-analysis exposure.
 
+## ios-feature-01-risk-02
+
+`ios-feature-01-risk-02` demonstrates whether a supplied IPA can be repackaged — code injected, re-signed, and installed — and still run as if untouched, which would mean no effective tamper, integrity, or anti-repackaging control is in force. It is a device-based test: it needs a physical device, the supplied IPA from the app's `artifact` config (`installed_app_reference` is rejected, since a black-box install cannot be repackaged), `codesign` on the workstation, `insert_dylib` (vendored in-repo under `tools/insert_dylib/`), `frida` (for the gadget-attach confirmation), and a valid provisioning profile for the target bundle ID (configured, or auto-discovered from the workstation's installed profiles). Resigning an arbitrary app for a real device without that profile fails, and that is reported as `RESIGN_FAILED` (Inconclusive), never as a defense.
+
+Workflow:
+
+1. Acquire the supplied IPA and install it unchanged as a clean baseline.
+2. Exercise and observe the baseline across a sampling window. If the baseline never reaches a drivable foreground state there is nothing to compare against, so the run is `BASELINE_FAILED`.
+3. Unpack the IPA, copy the Frida Gadget from `tools/Frida/` into the bundle's `Frameworks/`, and inject a load command into the main executable with `insert_dylib` (vendored in-repo under `tools/insert_dylib/`).
+4. Embed the provisioning profile (configured `resign.provisioning_profile`, or one auto-discovered from `~/Library/MobileDevice/Provisioning Profiles` that matches this app, device, and identity), re-sign the modified bundle (nested code first, then the app, then `codesign --verify --deep --strict`), repackage it into an IPA, and install it.
+5. Exercise and observe the repackaged build the same way, then diff it against the baseline.
+6. When the diff shows equivalence, attach to the injected Frida Gadget and load the configured `frida.script` to confirm the injected code runs before returning `At Risk`; a failed attach is `GADGET_ATTACH_FAILED` (Inconclusive).
+
+Evidence is collected on several channels for both passes and written into the report directory: app-state-over-time sampling (`query_app_state` polling), a UI tamper-marker scan of the page source against the configured `tamper_markers` merged with the app's `expected_behavior.source_not_contains`, an exercised sensitive path, a reachable-state fingerprint used for the diff, a screenshot, a screen recording (best-effort over Appium), and a best-effort device log. `baseline_comparison.json` records both observations and the divergence list.
+
+The verdict is three-way:
+
+- `REPACKAGING_SURVIVED` (**At Risk**): a validly re-signed build installs, launches, and is equivalent to the clean baseline across the exercised flow and sampling window, with no tamper signal on any channel — and the injected Frida Gadget was then attached to and the configured script loaded, confirming the injected code actually runs.
+- `REPACKAGING_BLOCKED` (**Reduced Risk**): a validly re-signed build installs, but some channel shows a control reacting — including non-blocking behavior such as running but surfacing a tamper marker, logging out, disabling a feature, or terminating mid-window. The divergence list explains which channel diverged.
+- Inconclusive: `ARTIFACT_NOT_FOUND`, `DYLIB_INJECTION_FAILED`, `REPACK_FAILED`, `RESIGN_FAILED`, `INSTALL_FAILED`, `BASELINE_FAILED`, or `GADGET_ATTACH_FAILED` — the run never reached a judgable state, or an environment/tooling prerequisite was missing (a failed signing, install, or gadget attach is here, never a defense). An Inconclusive result is never counted as a defense.
+
+Missing or failed evidence on a single channel does not prove a defense: only a divergence from the clean baseline does. Silence is treated as equivalence only when the baseline itself was drivable and every channel agreed.
+
 ## ios-feature-02-risk-01
 
 `ios-feature-02-risk-01` demonstrates whether matching HTTPS traffic can be decrypted through an operator-controlled MITM proxy using a locally trusted interception CA. A finding means no effective certificate or public-key pinning was observed for that exchange. It does not mean HTTPS itself is broken.

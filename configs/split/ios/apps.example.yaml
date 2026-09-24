@@ -19,6 +19,8 @@ apps:
     risks:
       ios-feature-01-risk-01:
         enabled: true
+      ios-feature-01-risk-02:
+        enabled: false
       ios-feature-02-risk-01:
         enabled: false
         expected_hosts:

@@ -56,6 +56,13 @@ FINAL_STATUSES = {
     "CAPTURE_SOURCE_CHANGED",
     "CAPTURE_SOURCE_UNAVAILABLE",
     "TRAFFIC_INTERCEPTION_NOT_OBSERVED",
+    "REPACKAGING_SURVIVED",
+    "REPACKAGING_BLOCKED",
+    "DYLIB_INJECTION_FAILED",
+    "REPACK_FAILED",
+    "RESIGN_FAILED",
+    "BASELINE_FAILED",
+    "GADGET_ATTACH_FAILED",
     "CLEANUP_FAILED",
     "FAILED",
 }
@@ -154,6 +161,7 @@ class GlobalConfig(SerializableDataclass):
     ipa_static_analysis: dict[str, Any] = field(default_factory=dict)
     keystroke_collection: dict[str, Any] = field(default_factory=dict)
     traffic_interception: dict[str, Any] = field(default_factory=dict)
+    repackaging: dict[str, Any] = field(default_factory=dict)
     config_path: Path | None = None
 
 
