@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from mobile_playbook.storage import ios_work_dir
@@ -19,6 +20,8 @@ from mobile_playbook.platforms.ios.models import (
 )
 from mobile_playbook.platforms.ios.risks.registry import get_risk, known_risks
 
+logger = logging.getLogger(__name__)
+
 LOCAL_IPA_SOURCES = {"local_ipa", "ci_artifact", "vendor_ipa", "xcode_archive_export"}
 
 # Maps a risk ID to the GlobalConfig field holding its shared, cross-app default
@@ -36,7 +39,17 @@ RISK_GLOBAL_SETTINGS_FIELD = {
 def effective_risk_config(config: GlobalConfig, risk_id: str, risk_config: dict[str, Any] | None) -> dict[str, Any]:
     field_name = RISK_GLOBAL_SETTINGS_FIELD.get(risk_id)
     global_defaults = getattr(config, field_name, {}) if field_name else {}
-    return merge_dicts(global_defaults or {}, risk_config or {})
+    merged = merge_dicts(global_defaults or {}, risk_config or {})
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug(
+            "ios config: effective config for %s from global %s: global keys %s, app keys %s, merged keys %s",
+            risk_id,
+            field_name,
+            list(global_defaults or {}),
+            list(risk_config or {}),
+            list(merged),
+        )
+    return merged
 
 
 class ConfigError(Exception):
@@ -59,12 +72,16 @@ def _require(mapping: dict[str, Any], key: str, label: str, errors: list[str]) -
 
 def load_config(path: Path, dry_run: bool = False) -> GlobalConfig:
     path = Path(path)
+    logger.debug("ios config: loading %s (dry_run=%s)", path, dry_run)
     try:
         raw = load_yaml_config(path)
     except ValueError as exc:
+        logger.debug("ios config: could not load %s: %s", path, exc, exc_info=True)
         raise ConfigError([str(exc)]) from exc
+    logger.debug("ios config: loaded top-level sections %s", list(raw) if isinstance(raw, dict) else type(raw).__name__)
     config = parse_config(raw, path)
     validate_config(config, dry_run=dry_run)
+    logger.debug("ios config: %s loaded and validated with %s app(s)", path, len(config.apps))
     return config
 
 
@@ -101,6 +118,20 @@ def parse_config(raw: dict[str, Any], config_path: Path | None = None) -> Global
                 cisos=cisos,
             )
         )
+        logger.debug(
+            "ios config: parsed app %s bundle_id=%s test_bundle_id=%s source=%s risks=%s",
+            apps[-1].id,
+            apps[-1].bundle_id,
+            apps[-1].test_bundle_id,
+            apps[-1].artifact.get("source") if isinstance(apps[-1].artifact, dict) else None,
+            list(apps[-1].risks) if isinstance(apps[-1].risks, dict) else None,
+        )
+    logger.debug(
+        "ios config: parsed %s app(s); device udid=%s appium=%s",
+        len(apps),
+        device_raw.get("udid", ""),
+        device_raw.get("appium_server_url", ""),
+    )
     return GlobalConfig(
         device=DeviceConfig(
             udid=device_raw.get("udid", ""),
@@ -136,7 +167,9 @@ def parse_config(raw: dict[str, Any], config_path: Path | None = None) -> Global
 def validate_config(config: GlobalConfig, dry_run: bool = False) -> None:
     errors = collect_config_errors(config, dry_run=dry_run)
     if errors:
+        logger.debug("ios config: validation failed with %s error(s): %s", len(errors), errors)
         raise ConfigError(errors)
+    logger.debug("ios config: validation passed")
 
 
 def collect_config_errors(config: GlobalConfig, dry_run: bool = False) -> list[str]:
@@ -175,10 +208,13 @@ def collect_config_errors(config: GlobalConfig, dry_run: bool = False) -> list[s
                 errors.append(f"{label}.artifact.ipa is required for {source}")
         for risk_id, risk_config in app.risks.items():
             if risk_id not in known_risks():
+                logger.debug("ios config: %s has unknown risk %s", label, risk_id)
                 errors.append(f"{label}.risks.{risk_id} is unknown")
                 continue
             if not risk_config or not risk_config.get("enabled", False):
+                logger.debug("ios config: %s risk %s disabled, skipping risk validation", label, risk_id)
                 continue
+            logger.debug("ios config: validating %s risk %s", label, risk_id)
             risk = get_risk(risk_id)
             effective = effective_risk_config(config, risk_id, risk_config)
             if risk_id == "ios-feature-04-risk-01":
@@ -203,7 +239,8 @@ def collect_config_errors(config: GlobalConfig, dry_run: bool = False) -> list[s
                 capture = effective.get("capture") or {}
                 try:
                     window = float(capture.get("capture_window_seconds", 12))
-                except (TypeError, ValueError):
+                except (TypeError, ValueError) as exc:
+                    logger.debug("ios config: %s capture_window_seconds not numeric: %s", label, exc, exc_info=True)
                     window = 0
                 if window <= 0:
                     errors.append(f"{label}.risks.{risk_id}.capture.capture_window_seconds must be greater than 0")
@@ -216,11 +253,13 @@ def collect_config_errors(config: GlobalConfig, dry_run: bool = False) -> list[s
                 health_max_age = burp.get("health_max_age_seconds", 300)
                 try:
                     health_max_age = float(health_max_age)
-                except (TypeError, ValueError):
+                except (TypeError, ValueError) as exc:
+                    logger.debug("ios config: %s health_max_age_seconds not numeric: %s", label, exc, exc_info=True)
                     errors.append(f"{label}.risks.{risk_id}.burp.health_max_age_seconds must be a non-negative number")
                 else:
                     if health_max_age < 0:
                         errors.append(f"{label}.risks.{risk_id}.burp.health_max_age_seconds must be non-negative")
+    logger.debug("ios config: collected %s config error(s) (dry_run=%s)", len(errors), dry_run)
     return errors
 
 
@@ -232,6 +271,12 @@ def _auto_fill_bundle_ids(config: GlobalConfig, errors: list[str]) -> None:
             from mobile_playbook.platforms.ios.artifacts.intake_ipa import resolve_for_app
 
             resolution = resolve_for_app(app)
+            logger.debug(
+                "ios config: %s intake resolution ambiguous=%s match=%s",
+                label,
+                resolution.ambiguous,
+                getattr(resolution.match, "bundle_id", None),
+            )
             if resolution.ambiguous:
                 found = ", ".join(sorted({build.bundle_id for build in resolution.candidates}))
                 errors.append(
@@ -248,8 +293,16 @@ def _auto_fill_bundle_ids(config: GlobalConfig, errors: list[str]) -> None:
         elif source in LOCAL_IPA_SOURCES:
             ipa = app.artifact.get("ipa") or app.artifact.get("path")
             metadata = _inspect_metadata_if_available(ipa)
+            logger.debug("ios config: %s IPA %s metadata available=%s", label, ipa, bool(metadata))
             if metadata:
                 bundle_id = metadata.get("bundle_id")
+                logger.debug(
+                    "ios config: %s IPA bundle_id=%s (configured bundle_id=%s test_bundle_id=%s)",
+                    label,
+                    bundle_id,
+                    app.bundle_id,
+                    app.test_bundle_id,
+                )
                 if bundle_id:
                     if not app.bundle_id:
                         app.bundle_id = bundle_id
@@ -283,6 +336,11 @@ def _auto_fill_companion_bundle_id(companion_app: dict[str, Any] | None) -> None
     metadata = _inspect_metadata_if_available(companion_app.get("ipa"))
     if metadata and metadata.get("bundle_id"):
         companion_app["bundle_id"] = metadata["bundle_id"]
+        logger.debug(
+            "ios config: companion app bundle_id %s inferred from %s", metadata["bundle_id"], companion_app.get("ipa")
+        )
+    else:
+        logger.debug("ios config: companion app bundle_id not inferred from %s", companion_app.get("ipa"))
 
 
 def _inspect_metadata_if_available(ipa: Any) -> dict[str, Any] | None:
@@ -290,8 +348,10 @@ def _inspect_metadata_if_available(ipa: Any) -> dict[str, Any] | None:
         return None
     path = Path(str(ipa)).expanduser()
     if not path.exists() or not path.is_file():
+        logger.debug("ios config: IPA %s not present as a file, skipping metadata", path)
         return None
     try:
         return inspect_ipa_metadata(path)
-    except Exception:
+    except Exception as exc:
+        logger.debug("ios config: IPA metadata inspection failed for %s: %s", path, exc, exc_info=True)
         return None

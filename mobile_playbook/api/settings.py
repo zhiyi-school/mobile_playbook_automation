@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 from typing import Any
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 ENV_FILE = REPOSITORY_ROOT / ".env"
+logger = logging.getLogger(__name__)
 
 #: Only these may be read from .env. Everything else in that file — the Supabase
 #: service-role key above all — stays out of the API process entirely.
@@ -30,10 +32,13 @@ class DisallowedSettingError(KeyError):
 def env_setting(name: str, env_path: Path | None = None) -> str | None:
     """Resolve one allowlisted setting: shell environment, then .env, then `None`."""
     if name not in ALLOWED_ENV_KEYS:
+        logger.debug("api: setting %s is not allowlisted; refusing to read it.", name)
         raise DisallowedSettingError(f"{name} is not readable from .env by the API process")
     value = os.environ.get(name)
     if value is not None:
+        logger.debug("api: setting %s taken from the process environment.", name)
         return value
+    logger.debug("api: setting %s not in the process environment; checking the env file.", name)
     return read_env_file_value(env_path if env_path is not None else ENV_FILE, name)
 
 
@@ -41,7 +46,8 @@ def read_env_file_value(path: Path, wanted_key: str) -> str | None:
     """Parse one key out of a .env file without importing any other key into the process."""
     try:
         lines = Path(path).read_text().splitlines()
-    except OSError:
+    except OSError as exc:
+        logger.debug("api: env file %s unreadable while looking up %s: %s", path, wanted_key, type(exc).__name__)
         return None
     for line in lines:
         stripped = line.strip()
@@ -53,7 +59,9 @@ def read_env_file_value(path: Path, wanted_key: str) -> str | None:
         value = value.strip()
         if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
             value = value[1:-1]
+        logger.debug("api: setting %s found in env file %s.", wanted_key, path)
         return value
+    logger.debug("api: setting %s not present in env file %s.", wanted_key, path)
     return None
 
 
@@ -62,6 +70,7 @@ def repository_path_setting(name: str, default: str, env_path: Path | None = Non
     path = Path(configured).expanduser()
     if not path.is_absolute():
         path = REPOSITORY_ROOT / path
+    logger.debug("api: path setting %s resolved to %s.", name, path.resolve())
     return path.resolve()
 
 

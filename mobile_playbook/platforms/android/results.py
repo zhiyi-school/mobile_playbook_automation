@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 
 from mobile_playbook.reporting.status_mapper import Evidence, TestResult
 from mobile_playbook.platforms.android.models import AndroidRiskRunResult
 
+logger = logging.getLogger(__name__)
+
 
 def normalize_android_result(result: AndroidRiskRunResult) -> TestResult:
+    logger.debug("android results: normalizing %s/%s (%s) status=%s verdict=%s evidence=%s", result.app_id, result.risk_id, result.test_case_id, result.final_status, result.verdict, len(result.evidence))
     return TestResult(
         run_timestamp=result.run_timestamp,
         platform="android",
@@ -42,5 +46,6 @@ def _duration_seconds(start: str | None, end: str | None) -> float | None:
         return None
     try:
         return round((datetime.fromisoformat(end) - datetime.fromisoformat(start)).total_seconds(), 3)
-    except ValueError:
+    except ValueError as exc:
+        logger.debug("android results: unparseable timestamps start=%r end=%r: %s", start, end, exc)
         return None

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
@@ -34,17 +35,20 @@ class AndroidPlatformRunner:
 
     def connect_device(self, config, run_dir: Path | None = None):
         log_dir = run_dir or android_work_dir()
+        logger.debug("android runner: connecting device (appium=%s, adb_path=%s, serial=%s, appium log dir=%s)", config.device.appium_server_url, getattr(config.device, "adb_path", None), getattr(config.device, "adb_serial", None), log_dir)
         outcome = ensure_appium_running(config.device.appium_server_url, getattr(config.device, "appium_auto_start", None), log_dir / "appium.log")
         message = appium_start_message(self.platform, config.device.appium_server_url, outcome)
         if message is not None:
             logger.info("%s", message)
         if outcome.status == "FAILED":
+            logger.debug("android runner: Appium start failed: %s (log tail %s chars)", getattr(outcome, "error", None), len(getattr(outcome, "log_tail", None) or ""))
             detail = f" Appium log tail:\n{outcome.log_tail}" if outcome.log_tail else ""
             raise RuntimeError(f"android: {outcome.error}{detail}")
         adb = AdbClient(config.device.adb_path, config.device.adb_serial)
         return AndroidDeviceClient(config, adb).connect()
 
     def close_device(self, device_client) -> None:
+        logger.debug("android runner: closing device client %s", type(device_client).__name__)
         device_client.quit()
 
     def ensure_device_healthy(self, config, device_client, run_dir: Path | None = None):
@@ -68,16 +72,27 @@ class AndroidPlatformRunner:
     def run_test(self, app, test_id: str, config, device_client, report_writer) -> None:
         risk = get_risk(test_id)
         if risk is None:
+            logger.debug("android runner: skip %s for app %s (risk not registered)", test_id, getattr(app, "id", app))
             return
         failure_result = self._failure_result_template(app, test_id, risk, report_writer)
+        started = time.monotonic()
         try:
+            logger.debug("android runner: preflight for %s/%s requires=%s", app.id, test_id, getattr(risk, "requires", []))
             preflight = check_android_preflight(config, device_client.adb, getattr(risk, "requires", []))
+            logger.debug("android runner: preflight for %s/%s ok=%s errors=%s warnings=%s", app.id, test_id, getattr(preflight, "ok", None), getattr(preflight, "errors", None), getattr(preflight, "warnings", None))
             if not preflight.ok:
                 raise RuntimeError("; ".join(preflight.errors))
             if config.runner.auto_grant_permissions:
-                grant_all(device_client.adb, app.package_name)
+                logger.debug("android runner: auto-granting permissions for %s", app.package_name)
+                grant_result = grant_all(device_client.adb, app.package_name)
+                logger.debug("android runner: grant result for %s: %s", app.package_name, grant_result)
+            else:
+                logger.debug("android runner: auto_grant_permissions disabled; not granting for %s", app.package_name)
+            logger.debug("android runner: running %s (%s) for app %s package %s", test_id, type(risk).__name__, app.id, app.package_name)
             risk.run(app, config, device_client, report_writer)
+            logger.debug("android runner: %s for app %s returned after %.2fs", test_id, app.id, time.monotonic() - started)
         except Exception as exc:
+            logger.debug("android runner: %s for app %s failed after %.2fs: %s", test_id, app.id, time.monotonic() - started, exc, exc_info=True)
             self._record_failure(failure_result, report_writer, exc)
 
     def _failure_result_template(self, app, test_id: str, risk, report_writer) -> AndroidRiskRunResult:
@@ -105,6 +120,7 @@ class AndroidPlatformRunner:
             failure_result.test_case_id,
             platform="android",
         )
+        logger.debug("android runner: recording FAILED result for %s/%s (%s) in %s: %s", failure_result.app_id, failure_result.risk_id, failure_result.test_case_id, report_dir, exc)
         report_writer.write_result(
             replace(failure_result, timestamp_start=now, timestamp_end=now, errors=[str(exc)]),
             report_dir,

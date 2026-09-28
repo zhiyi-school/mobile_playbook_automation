@@ -58,6 +58,9 @@ def _ios_configuration(app: dict) -> tuple[str, str | None, str | None]:
     artifact = app.get("artifact") or {}
     source = artifact.get("source") or ""
     bundle_id = app.get("bundle_id") or artifact.get("expected_bundle_id") or None
+    logger.debug(
+        "api: checking iOS configuration for app %r (source=%r, bundle_id=%r).", app.get("id"), source, bundle_id
+    )
 
     if source == "intake_ipa":
         resolution = resolve_intake_ipa(
@@ -73,7 +76,9 @@ def _ios_configuration(app: dict) -> tuple[str, str | None, str | None]:
             )
             return "failed", "More than one app build matches this app.", None
         if resolution.match is None:
+            logger.debug("api: no intake build matches app %r yet.", app.get("id"))
             return "in_progress", "Waiting for the app build to be provided.", None
+        logger.debug("api: intake build for app %r resolved to bundle %s.", app.get("id"), resolution.match.bundle_id)
         return "done", None, resolution.match.bundle_id
 
     if source in _LOCAL_IPA_SOURCES:
@@ -81,11 +86,14 @@ def _ios_configuration(app: dict) -> tuple[str, str | None, str | None]:
         if not ipa or not Path(ipa).expanduser().exists():
             logger.warning("App %r has no readable build at its configured path.", app.get("id"))
             return "in_progress", "Waiting for the app build to be provided.", bundle_id
+        logger.debug("api: local build for app %r found at %s.", app.get("id"), ipa)
         return "done", None, bundle_id
 
     if source == "installed_app_reference":
         if not bundle_id:
+            logger.debug("api: installed-app reference for %r has no bundle id.", app.get("id"))
             return "failed", "This app's test configuration is incomplete.", None
+        logger.debug("api: installed-app reference for %r uses bundle %s.", app.get("id"), bundle_id)
         return "done", None, bundle_id
 
     logger.warning("App %r has an unsupported artifact source %r.", app.get("id"), source)
@@ -96,32 +104,39 @@ def _android_adb() -> AdbClient:
     try:
         config = load_android_config(config_editor.ENTRY_FILES["android"], dry_run=True)
         return AdbClient(adb_path=config.device.adb_path, serial=config.device.adb_serial)
-    except (AndroidConfigError, OSError):
+    except (AndroidConfigError, OSError) as exc:
+        logger.debug("api: Android config unavailable for adb (%s); using the default client.", type(exc).__name__)
         return AdbClient()
 
 
 def _android_device(adb: AdbClient) -> str:
     """`connected`, `no_device`, or `unreachable` — never the serial itself."""
     if not adb.is_available():
+        logger.debug("api: adb is not available; Android device unreachable.")
         return "unreachable"
     state_code, state_out, _ = adb.run(["get-state"])
+    logger.debug("api: adb get-state exited %s (state=%r).", state_code, state_out.strip())
     return "connected" if state_code == 0 and state_out.strip() == "device" else "no_device"
 
 
 def _android_configuration(app: dict) -> tuple[str, str | None, str | None]:
     package_name = app.get("package_name") or None
+    logger.debug("api: checking Android configuration for app %r (package=%r).", app.get("id"), package_name)
     if not package_name:
         return "failed", "This app's test configuration is incomplete.", None
 
     adb = _android_adb()
     device = _android_device(adb)
+    logger.debug("api: Android device state for app %r is %s.", app.get("id"), device)
     if device == "unreachable":
         return "unknown", "The test device could not be reached.", package_name
     if device == "no_device":
         return "unknown", "No test device is currently connected.", package_name
 
     if android_is_installed(adb, package_name):
+        logger.debug("api: package %s is installed on the device.", package_name)
         return "done", None, package_name
+    logger.debug("api: package %s is not installed on the device yet.", package_name)
     return "in_progress", "Waiting for the app to be installed on the test device.", package_name
 
 
@@ -143,6 +158,7 @@ def _setup_stages(platform: str, app: dict | None) -> tuple[list[Stage], str | N
     ]
 
     if not registered:
+        logger.debug("api: %s app is not registered yet; configuration stage pending.", platform)
         stages.append(
             _stage("configuration_applied", "Configuration is being applied", "pending")
         )
@@ -167,6 +183,7 @@ def _setup_stages(platform: str, app: dict | None) -> tuple[list[Stage], str | N
             detail,
         )
     )
+    logger.debug("api: setup stages for %s app %r: %s.", platform, app.get("id"), [s["state"] for s in stages])
     return stages, resolved_id
 
 
@@ -200,20 +217,28 @@ def _ios_device_ready() -> bool:
     try:
         config = load_ios_config(config_editor.ENTRY_FILES["ios"], dry_run=True)
     except Exception:
+        logger.debug("api: iOS config unreadable for device probe; treating device as ready.", exc_info=True)
         return True
     udid = getattr(getattr(config, "device", None), "udid", "") or ""
     if not udid:
+        logger.debug("api: no iOS device udid configured; treating device as ready.")
         return True
     connected = connected_device_udids(timeout=_DEVICE_PROBE_TIMEOUT_SECONDS)
+    logger.debug(
+        "api: iOS device probe saw %d device(s); configured device present=%s.", len(connected), udid in connected
+    )
     return not connected or udid in connected
 
 
 def _device_required(platform: str, app: dict | None) -> bool:
     if app is None:
+        logger.debug("api: %s app unknown; assuming a device is required.", platform)
         return True
     enabled = [risk for risk, settings in (app.get("risks") or {}).items() if (settings or {}).get("enabled")]
     if not enabled:
+        logger.debug("api: app %r has no enabled risks; assuming a device is required.", app.get("id"))
         return True
+    logger.debug("api: checking device requirement for app %r with risks %s.", app.get("id"), sorted(enabled))
     try:
         if platform == "ios":
             config = load_ios_config(config_editor.ENTRY_FILES["ios"], dry_run=True)
@@ -221,6 +246,9 @@ def _device_required(platform: str, app: dict | None) -> bool:
         config = load_android_config(config_editor.ENTRY_FILES["android"], dry_run=True)
         return requires_device(config, set(enabled), {app.get("id")}, get_android_risk)
     except Exception:
+        logger.debug(
+            "api: device requirement check failed for app %r; assuming required.", app.get("id"), exc_info=True
+        )
         return True
 
 
@@ -257,6 +285,15 @@ def _readiness(platform: str, app: dict | None, stages: list[Stage]) -> dict:
     blocker = config_blocker or device_blocker or (None if platform_available else "platform_busy")
     runnable = configuration_ready and device_ready and platform_available and blocker is None
     retryable, detail = BLOCKERS.get(blocker, (True, None)) if blocker else (True, None)
+    logger.debug(
+        "api: %s readiness config_ready=%s device_needed=%s device_ready=%s platform_available=%s blocker=%s.",
+        platform,
+        configuration_ready,
+        device_needed,
+        device_ready,
+        platform_available,
+        blocker,
+    )
     return {
         "configuration_ready": configuration_ready,
         "device_required": device_needed,
@@ -291,9 +328,11 @@ def _config_failure(platform: str, app_id: str, detail: str) -> dict:
 def describe(platform: str, app_id: str) -> dict:
     """Setup report for one app. See docs/api.md#is-an-app-ready-to-test."""
     detail = "The test configuration needs attention before this app can be tested."
+    logger.debug("api: describing setup for %s app %r.", platform, app_id)
     try:
         apps = config_editor.list_ios_apps() if platform == "ios" else config_editor.list_android_apps()
     except Exception as exc:
+        logger.debug("api: listing %s apps failed.", platform, exc_info=True)
         logger.error("Config for platform %s could not be read: %s", platform, exc)
         return _config_failure(platform, app_id, detail)
 
@@ -307,8 +346,10 @@ def describe(platform: str, app_id: str) -> dict:
         return _config_failure(platform, app_id, detail)
 
     app = next((entry for entry in apps if entry.get("id") == app_id), None)
+    logger.debug("api: %s app %r found in config=%s.", platform, app_id, app is not None)
     stages, bundle_id = _setup_stages(platform, app)
     status = _overall_status(stages)
+    logger.debug("api: %s app %r setup status %s.", platform, app_id, status)
     return {
         "app_id": app_id,
         "platform": platform,

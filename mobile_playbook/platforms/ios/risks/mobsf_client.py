@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import secrets
 import shlex
@@ -14,6 +15,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
+from mobile_playbook.logging_setup import redacted
 from mobile_playbook.platforms.ios.models import ArtifactAcquisitionResult
 from mobile_playbook.platforms.ios.risks.critical_markdown import mobsf_critical_findings, sort_flags_by_severity
 from mobile_playbook.platforms.ios.risks.ipa_inventory import is_interesting_resource
@@ -23,6 +25,8 @@ from mobile_playbook.platforms.ios.risks.sensitive_findings import (
     test_google_api_key_reuse,
 )
 
+logger = logging.getLogger(__name__)
+
 
 def analyze_with_mobsf(
     ipa_path: Path,
@@ -31,18 +35,29 @@ def analyze_with_mobsf(
     risk_config: dict[str, Any],
 ) -> dict[str, Any]:
     analyzer_config = risk_config.get("analyzer") or {}
+    logger.debug("ios mobsf: analyzing %s (bundle_id=%s, analyzer_config_keys=%s)", ipa_path, acquisition.bundle_id, sorted(str(key) for key in analyzer_config))
+    started = time.monotonic()
     mobsf = mobsf_scan(ipa_path, analyzer_config)
     report = mobsf["report"]
+    logger.debug("ios mobsf: scan finished in %.2fs, hash=%s, report_keys=%s", time.monotonic() - started, mobsf.get("hash"), len(report) if isinstance(report, dict) else 0)
     sensitive_config = risk_config.get("sensitive_scan") or {}
     reveal_sensitive_values = bool(sensitive_config.get("reveal_values", False))
     api_key_reuse_config = risk_config.get("api_key_reuse_test") or {}
     api_key_reuse_enabled = bool(api_key_reuse_config.get("enabled", False))
+    logger.debug("ios mobsf: reveal_sensitive_values=%s, api_key_reuse_enabled=%s", reveal_sensitive_values, api_key_reuse_enabled)
     sensitive_findings = extract_mobsf_sensitive_findings(report, reveal_sensitive_values)
     api_key_reuse_tests = test_google_api_key_reuse(sensitive_findings, api_key_reuse_config, reveal_sensitive_values) if api_key_reuse_enabled else []
     public_findings = public_sensitive_findings(sensitive_findings)
     findings = extract_mobsf_findings(report)
     info_plist = mobsf_info_plist(report)
     mobsf_package_inventory = mobsf_inventory(report)
+    logger.debug(
+        "ios mobsf: %s sensitive finding(s), %s api key reuse test(s), %s normalized finding(s), inventory counts=%s",
+        len(sensitive_findings),
+        len(api_key_reuse_tests),
+        len(findings),
+        mobsf_package_inventory["counts"],
+    )
     summary = {
         "analysis_provider": "mobsf",
         "app_bundle": first_present(report, "file_name", "app_file", "name") or ipa_path.name,
@@ -87,6 +102,7 @@ def analyze_with_mobsf(
     if api_key_reuse_tests:
         reusable = sum(1 for item in api_key_reuse_tests if item["status"] == "REUSABLE_FROM_WORKSTATION")
         summary["findings"].append(f"Google API key external reuse test completed: {reusable}/{len(api_key_reuse_tests)} key(s) appeared reusable from this workstation.")
+    logger.debug("ios mobsf: summary findings=%s", summary["findings"])
     return {
         "summary": summary,
         "inventory": mobsf_package_inventory,
@@ -99,18 +115,30 @@ def mobsf_scan(ipa_path: Path, analyzer_config: dict[str, Any]) -> dict[str, Any
     base_url = str(analyzer_config.get("mobsf_url") or analyzer_config.get("url") or "http://127.0.0.1:8000").rstrip("/")
     timeout = float(analyzer_config.get("timeout_seconds", 120))
     auto_start_config = analyzer_config.get("auto_start") or {}
+    logger.debug(
+        "ios mobsf: base_url=%s timeout=%ss auto_start enabled=%s generate_api_key=%s stop_after_scan=%s",
+        base_url,
+        timeout,
+        bool(auto_start_config.get("enabled", False)),
+        bool(auto_start_config.get("generate_api_key", False)),
+        bool(auto_start_config.get("stop_after_scan", False)),
+    )
     server_already_running = mobsf_is_reachable(base_url, timeout=2)
     generated_api_key = False
     api_key = mobsf_api_key(analyzer_config)
     if not server_already_running and not api_key and bool(auto_start_config.get("generate_api_key", False)):
         api_key = secrets.token_urlsafe(32)
         generated_api_key = True
+    logger.debug("ios mobsf: server_already_running=%s api_key_present=%s generated_api_key=%s", server_already_running, bool(api_key), generated_api_key)
     if not api_key:
+        logger.debug("ios mobsf: no API key available; aborting scan")
         raise RuntimeError("MobSF API key missing. Set MOBSF_API_KEY, analyzer.api_key, or enable analyzer.auto_start.generate_api_key.")
 
     process = maybe_start_mobsf(base_url, analyzer_config, api_key, server_already_running)
     auto_started = process is not None
+    logger.debug("ios mobsf: auto_started=%s pid=%s", auto_started, getattr(process, "pid", None))
     try:
+        logger.debug("ios mobsf: uploading %s", ipa_path)
         upload = mobsf_post(
             base_url,
             "/api/v1/upload",
@@ -120,9 +148,11 @@ def mobsf_scan(ipa_path: Path, analyzer_config: dict[str, Any]) -> dict[str, Any
         )
         file_hash = str(upload.get("hash") or "")
         if not file_hash:
+            logger.debug("ios mobsf: upload response had no hash, keys=%s", sorted(str(key) for key in upload) if isinstance(upload, dict) else type(upload).__name__)
             raise RuntimeError(f"MobSF upload did not return a hash: {upload}")
         scan_type = str(upload.get("scan_type") or "ipa")
         file_name = str(upload.get("file_name") or ipa_path.name)
+        logger.debug("ios mobsf: upload returned hash=%s scan_type=%s file_name=%s", file_hash, scan_type, file_name)
         mobsf_post(
             base_url,
             "/api/v1/scan",
@@ -130,6 +160,7 @@ def mobsf_scan(ipa_path: Path, analyzer_config: dict[str, Any]) -> dict[str, Any
             data={"hash": file_hash, "scan_type": scan_type, "file_name": file_name},
             timeout=timeout,
         )
+        logger.debug("ios mobsf: scan requested for hash=%s; fetching report_json", file_hash)
         report = mobsf_post(
             base_url,
             "/api/v1/report_json",
@@ -149,13 +180,16 @@ def mobsf_scan(ipa_path: Path, analyzer_config: dict[str, Any]) -> dict[str, Any
         }
     finally:
         if process is not None and bool(auto_start_config.get("stop_after_scan", False)):
+            logger.debug("ios mobsf: stop_after_scan set; terminating auto-started MobSF pid=%s", getattr(process, "pid", None))
             terminate_process(process)
 
 
 def mobsf_api_key(analyzer_config: dict[str, Any]) -> str:
     if analyzer_config.get("api_key"):
+        logger.debug("ios mobsf: using API key from analyzer.api_key")
         return str(analyzer_config["api_key"])
     env_name = str(analyzer_config.get("api_key_env") or "MOBSF_API_KEY")
+    logger.debug("ios mobsf: reading API key from environment variable %s (set=%s)", env_name, bool(os.environ.get(env_name)))
     return os.environ.get(env_name, "")
 
 
@@ -166,16 +200,20 @@ def maybe_start_mobsf(
     server_already_running: bool,
 ) -> subprocess.Popen | None:
     if server_already_running:
+        logger.debug("ios mobsf: server already reachable at %s; not auto-starting", base_url)
         return None
     auto_start = analyzer_config.get("auto_start") or {}
     if not bool(auto_start.get("enabled", False)):
+        logger.debug("ios mobsf: server not reachable at %s and auto_start disabled", base_url)
         return None
     command = auto_start.get("command")
     if not command:
+        logger.debug("ios mobsf: auto_start enabled but command is empty")
         raise RuntimeError("MobSF auto_start.enabled is true but auto_start.command is empty.")
     if isinstance(command, str):
         command = shlex.split(command)
     if not isinstance(command, list) or not all(isinstance(part, str) and part for part in command):
+        logger.debug("ios mobsf: auto_start command has invalid type %s", type(command).__name__)
         raise RuntimeError("MobSF auto_start.command must be a non-empty command list or command string.")
 
     env = os.environ.copy()
@@ -184,16 +222,31 @@ def maybe_start_mobsf(
     for key, value in (auto_start.get("env") or {}).items():
         env[str(key)] = str(value)
 
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug(
+            "ios mobsf: auto-starting MobSF executable=%s arg_count=%s api_key_env=%s extra_env_keys=%s",
+            command[0],
+            len(command) - 1,
+            env_name,
+            sorted(str(key) for key in (auto_start.get("env") or {})),
+        )
     process = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env)
     wait_seconds = float(auto_start.get("wait_seconds", 90))
     poll_interval = float(auto_start.get("poll_interval_seconds", 1))
-    deadline = time.monotonic() + wait_seconds
+    logger.debug("ios mobsf: started pid=%s; waiting up to %ss (poll every %ss) for %s", getattr(process, "pid", None), wait_seconds, poll_interval, base_url)
+    started = time.monotonic()
+    deadline = started + wait_seconds
+    attempts = 0
     while time.monotonic() < deadline:
+        attempts += 1
         if process.poll() is not None:
+            logger.debug("ios mobsf: auto-start process exited with %s after %s poll(s)", getattr(process, "returncode", None), attempts)
             raise RuntimeError(f"MobSF auto-start command exited before the server was ready: {command[0]}")
         if mobsf_is_reachable(base_url, timeout=2):
+            logger.debug("ios mobsf: server ready after %s poll(s) in %.2fs", attempts, time.monotonic() - started)
             return process
         time.sleep(poll_interval)
+    logger.debug("ios mobsf: auto-start timed out after %s poll(s); terminating pid=%s", attempts, getattr(process, "pid", None))
     terminate_process(process)
     raise RuntimeError(f"MobSF auto-start timed out after {wait_seconds:g}s waiting for {base_url}")
 
@@ -201,22 +254,29 @@ def maybe_start_mobsf(
 def mobsf_is_reachable(base_url: str, timeout: float) -> bool:
     try:
         with urllib.request.urlopen(base_url, timeout=timeout) as response:
+            logger.debug("ios mobsf: GET %s -> %s", base_url, getattr(response, "status", 200))
             return int(getattr(response, "status", 200)) < 500
     except urllib.error.HTTPError as exc:
+        logger.debug("ios mobsf: GET %s -> HTTP %s", base_url, exc.code, exc_info=True)
         return exc.code < 500
-    except Exception:
+    except Exception as exc:
+        logger.debug("ios mobsf: GET %s unreachable: %s", base_url, exc, exc_info=True)
         return False
 
 
 def terminate_process(process: subprocess.Popen) -> None:
     if process.poll() is not None:
+        logger.debug("ios mobsf: process pid=%s already exited with %s", getattr(process, "pid", None), getattr(process, "returncode", None))
         return
+    logger.debug("ios mobsf: terminating process pid=%s", getattr(process, "pid", None))
     process.terminate()
     try:
         process.wait(timeout=10)
-    except subprocess.TimeoutExpired:
+    except subprocess.TimeoutExpired as exc:
+        logger.debug("ios mobsf: pid=%s did not exit after terminate; killing: %s", getattr(process, "pid", None), exc, exc_info=True)
         process.kill()
         process.wait(timeout=10)
+    logger.debug("ios mobsf: process pid=%s exited with %s", getattr(process, "pid", None), getattr(process, "returncode", None))
 
 
 def mobsf_post(
@@ -236,15 +296,30 @@ def mobsf_post(
         body = urllib.parse.urlencode({key: str(value) for key, value in (data or {}).items()}).encode("utf-8")
         headers["Content-Type"] = "application/x-www-form-urlencoded"
     request = urllib.request.Request(f"{base_url}{endpoint}", data=body, headers=headers, method="POST")
+    logger.debug(
+        "ios mobsf: POST %s%s content_type=%s body_bytes=%s data=%s files=%s timeout=%ss",
+        base_url,
+        endpoint,
+        headers["Content-Type"].split(";", 1)[0],
+        len(body),
+        redacted(data or {}),
+        sorted(files) if files else [],
+        timeout,
+    )
+    started = time.monotonic()
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
             response_body = response.read()
+            logger.debug("ios mobsf: POST %s -> %s, %s byte(s) in %.2fs", endpoint, getattr(response, "status", None), len(response_body), time.monotonic() - started)
     except urllib.error.HTTPError as exc:
+        logger.debug("ios mobsf: POST %s -> HTTP %s after %.2fs", endpoint, exc.code, time.monotonic() - started, exc_info=True)
         error_body = exc.read(64 * 1024).decode("utf-8", errors="replace")
+        logger.debug("ios mobsf: POST %s error body length=%s", endpoint, len(error_body))
         raise RuntimeError(f"MobSF {endpoint} failed with HTTP {exc.code}: {error_body}") from exc
     try:
         return json.loads(response_body.decode("utf-8", errors="replace"))
     except Exception as exc:
+        logger.debug("ios mobsf: POST %s response is not JSON (%s byte(s)): %s", endpoint, len(response_body), exc, exc_info=True)
         raise RuntimeError(f"MobSF {endpoint} did not return JSON") from exc
 
 
@@ -279,6 +354,7 @@ def mobsf_info_plist(report: dict[str, Any]) -> dict[str, Any]:
     permissions = mobsf_permissions(report)
     ats = first_present(report, "ats_analysis", "app_transport_security") or info.get("NSAppTransportSecurity") or {}
     schemes = mobsf_url_schemes(report, info)
+    logger.debug("ios mobsf: info_plist present=%s permissions=%s url_schemes=%s ats_present=%s", bool(info), len(permissions), schemes, bool(ats))
     return {
         "CFBundleIdentifier": first_present(report, "bundle_id", "packagename") or info.get("CFBundleIdentifier"),
         "CFBundleShortVersionString": first_present(report, "version", "app_version") or info.get("CFBundleShortVersionString"),
@@ -297,6 +373,13 @@ def mobsf_inventory(report: dict[str, Any]) -> dict[str, Any]:
     plugins = sorted({path for path in file_items if ".appex" in path or "/PlugIns/" in path})
     suffixes: Counter[str] = Counter(Path(path).suffix.lower() or "<none>" for path in file_items)
     resource_samples = [path for path in file_items if is_interesting_resource(Path(path))][:50]
+    logger.debug(
+        "ios mobsf: inventory files=%s frameworks=%s plugins=%s resource_samples=%s",
+        len(file_items),
+        len(frameworks),
+        len(plugins),
+        len(resource_samples),
+    )
     return {
         "counts": {
             "files": len(file_items),
@@ -380,6 +463,13 @@ def extract_mobsf_findings(report: dict[str, Any]) -> list[dict[str, Any]]:
             continue
         seen.add(key)
         deduped.append(finding)
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug(
+            "ios mobsf: extracted %s finding(s), %s after dedupe, by severity=%s",
+            len(findings),
+            len(deduped),
+            dict(Counter(item["severity"] for item in deduped)),
+        )
     return sort_flags_by_severity(deduped)
 
 

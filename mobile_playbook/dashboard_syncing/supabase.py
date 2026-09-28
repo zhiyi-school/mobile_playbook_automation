@@ -9,13 +9,16 @@ from urllib import error, parse, request
 
 from mobile_playbook.dashboard_syncing.contracts import SupabaseRestError
 from mobile_playbook.dashboard_syncing.identity import now
+from mobile_playbook.logging_setup import redacted
 
 logger = logging.getLogger(__name__)
 
 
 def _is_conflict(exc: Exception) -> bool:
     message = str(exc)
-    return "with 409" in message or "duplicate key" in message
+    conflict = "with 409" in message or "duplicate key" in message
+    logger.debug("dashboard sync: Supabase error classified as conflict=%s.", conflict)
+    return conflict
 
 
 def _escape_like(value: str) -> str:
@@ -32,10 +35,16 @@ class SupabaseRestStore:
     def from_env(cls) -> "SupabaseRestStore":
         supabase_url = os.environ.get("SUPABASE_URL") or os.environ.get("DASHBOARD_SUPABASE_URL")
         service_role_key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+        logger.debug(
+            "dashboard sync: Supabase URL from %s; service-role key present=%s.",
+            "SUPABASE_URL" if os.environ.get("SUPABASE_URL") else "DASHBOARD_SUPABASE_URL",
+            bool(service_role_key),
+        )
         if not supabase_url:
             raise SupabaseRestError("SUPABASE_URL or DASHBOARD_SUPABASE_URL must be set")
         if not service_role_key:
             raise SupabaseRestError("SUPABASE_SERVICE_ROLE_KEY must be set")
+        logger.debug("dashboard sync: Supabase store targets %s.", supabase_url.rstrip("/"))
         return cls(supabase_url, service_role_key)
 
     def find_application_by_external_id(self, external_id: str) -> dict[str, Any] | None:
@@ -90,6 +99,7 @@ class SupabaseRestStore:
             {"id": f"eq.{assessment_id}", "external_id": "like.manual::*", "select": "*"},
             fields,
         )
+        logger.debug("dashboard sync: placeholder assessment %s claimed=%s.", assessment_id, bool(rows))
         return rows[0] if rows else None
 
     def update_assessment(self, assessment_id: str, fields: Mapping[str, Any]) -> dict[str, Any]:
@@ -109,6 +119,7 @@ class SupabaseRestStore:
         # Several requests may be outstanding for one risk, so a run must name
         # exactly one of them; two matches is a data fault, not a row to pick from.
         rows = self._get("retest_runs", {"external_test_run_id": f"eq.{run_timestamp}", "select": "*", "limit": "2"})
+        logger.debug("dashboard sync: %d retest row(s) linked to run %s.", len(rows), run_timestamp)
         if not rows:
             return None
         if len(rows) > 1:
@@ -131,8 +142,10 @@ class SupabaseRestStore:
         try:
             rows = self._post("findings", {"select": "*"}, fields)
         except SupabaseRestError as exc:
+            logger.debug("dashboard sync: finding insert failed: %s", exc)
             if not _is_conflict(exc):
                 raise
+            logger.debug("dashboard sync: finding insert conflicted; treating it as already present.")
             return {"_conflicted": True}
         if not rows:
             raise SupabaseRestError("Supabase returned no finding after insert")
@@ -163,13 +176,18 @@ class SupabaseRestStore:
             {"p_worker_id": worker_id, "p_lease_seconds": lease_seconds},
         )
         row = rows[0] if rows else None
+        logger.debug(
+            "dashboard sync: worker %s claim returned %s.", worker_id, row.get("id") if row and row.get("id") else None
+        )
         return row if row and row.get("id") else None
 
     def recover_expired_assessment_run_leases(self) -> int:
         rows = self._post("rpc/recover_expired_assessment_run_leases", {}, {})
         if not rows:
+            logger.debug("dashboard sync: lease recovery returned no rows.")
             return 0
         recovered = rows[0]
+        logger.debug("dashboard sync: lease recovery returned %r.", recovered)
         return recovered if isinstance(recovered, int) else 0
 
     def update_assessment_run_request(self, request_id: str, fields: Mapping[str, Any]) -> dict[str, Any]:
@@ -179,6 +197,7 @@ class SupabaseRestStore:
         try:
             self._post(table, {}, fields, prefer="return=minimal")
         except SupabaseRestError as exc:
+            logger.debug("dashboard sync: append to %s failed: %s", table, exc)
             if not _is_conflict(exc):
                 raise
             logger.debug("dashboard sync: %s row already present for sync_key.", table)
@@ -190,6 +209,7 @@ class SupabaseRestStore:
     def _update_one(self, table: str, filters: Mapping[str, str], fields: Mapping[str, Any]) -> dict[str, Any]:
         rows = self._patch(table, {**filters, "select": "*"}, fields)
         if not rows:
+            logger.debug("dashboard sync: update of %s matched no row (filters %s).", table, redacted(filters))
             raise SupabaseRestError(f"Supabase returned no {table} row after update")
         return rows[0]
 
@@ -201,6 +221,7 @@ class SupabaseRestStore:
             prefer="resolution=merge-duplicates,return=representation",
         )
         if not rows:
+            logger.debug("dashboard sync: upsert into %s on %s returned no row.", table, conflict_target)
             raise SupabaseRestError(f"Supabase returned no {table} row after upsert")
         return rows[0]
 
@@ -244,19 +265,42 @@ class SupabaseRestStore:
         if prefer is not None:
             headers["Prefer"] = prefer
         req = request.Request(url, data=body, headers=headers, method=method)
+        logger.debug(
+            "dashboard sync: Supabase %s %s params=%s fields=%s body=%d bytes headers=%s.",
+            method,
+            table,
+            redacted(params),
+            sorted(payload) if payload is not None else None,
+            len(body) if body is not None else 0,
+            sorted(headers),
+        )
         try:
             with request.urlopen(req, timeout=30) as response:
                 content = response.read()
+                logger.debug(
+                    "dashboard sync: Supabase %s %s -> %s (%d bytes).",
+                    method,
+                    table,
+                    getattr(response, "status", None),
+                    len(content or b""),
+                )
         except error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")
+            logger.debug(
+                "dashboard sync: Supabase %s %s -> HTTP %s (%d-byte error body).", method, table, exc.code, len(detail)
+            )
             raise SupabaseRestError(f"Supabase {method} {table} failed with {exc.code}: {detail}") from exc
         except error.URLError as exc:
+            logger.debug("dashboard sync: Supabase %s %s transport error: %s", method, table, exc.reason)
             raise SupabaseRestError(f"Supabase {method} {table} failed: {exc.reason}") from exc
         if not content:
             return []
         data = json.loads(content)
         if isinstance(data, list):
+            logger.debug("dashboard sync: Supabase %s %s returned %d row(s).", method, table, len(data))
             return data
         if isinstance(data, dict):
+            logger.debug("dashboard sync: Supabase %s %s returned one object.", method, table)
             return [data]
+        logger.debug("dashboard sync: Supabase %s %s returned %s JSON.", method, table, type(data).__name__)
         raise SupabaseRestError(f"Supabase {method} {table} returned unexpected JSON")

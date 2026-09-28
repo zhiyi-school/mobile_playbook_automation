@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
 from importlib.metadata import PackageNotFoundError, version as package_version
@@ -40,6 +41,7 @@ SEVERITY_LEVEL: dict[str, str] = {
     "info": "note",
 }
 DEFAULT_FAIL_LEVEL = "error"
+logger = logging.getLogger(__name__)
 
 
 def verdict_kind_and_level(verdict: str, severity: Any = None) -> tuple[str, str]:
@@ -55,6 +57,7 @@ def tool_version() -> str:
     try:
         return package_version("mobile-playbook-automation")
     except PackageNotFoundError:
+        logger.debug("reporting: package metadata unavailable; using an unknown tool version.")
         return "0.0.0+unknown"
 
 
@@ -101,6 +104,9 @@ def build_sarif(
         run["invocations"] = [invocation]
     if manifest is not None:
         run["properties"]["platform"] = str(manifest.get("platform") or "")
+    logger.debug(
+        "reporting: built SARIF for %s with %d rule(s) and %d result(s).", run_timestamp, len(rule_ids), len(ordered)
+    )
     return {"version": SARIF_VERSION, "$schema": SARIF_SCHEMA, "runs": [run]}
 
 
@@ -112,13 +118,16 @@ def build_from_run_dir(
     path = Path(run_dir)
     manifest = read_manifest(path)
     if not is_completed(manifest):
+        logger.debug("reporting: %s has no completed manifest; no SARIF.", path)
         return None
     results_path = path / RESULTS_NAME
     try:
         rows = json.loads(results_path.read_text())
-    except (OSError, json.JSONDecodeError):
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.debug("reporting: %s unreadable for SARIF (%s).", results_path, type(exc).__name__)
         return None
     if not isinstance(rows, list):
+        logger.debug("reporting: %s is not a list; no SARIF.", results_path)
         return None
     return build_sarif(
         [row for row in rows if isinstance(row, Mapping)],
@@ -134,9 +143,12 @@ def write_sarif(
 ) -> Path | None:
     document = build_from_run_dir(run_dir, rule_metadata)
     if document is None:
+        logger.debug("reporting: nothing to write as SARIF for %s.", run_dir)
         return None
     path = sarif_path(run_dir)
-    path.write_text(dumps(document), encoding="utf-8")
+    text = dumps(document)
+    path.write_text(text, encoding="utf-8")
+    logger.debug("reporting: wrote SARIF %s (%d characters).", path, len(text))
     return path
 
 
@@ -328,8 +340,10 @@ def _risk_yaml_metadata(platform: str) -> dict[str, dict[str, Any]]:
 
         data = yaml.safe_load(path.read_text())
     except Exception:
+        logger.debug("reporting: risk metadata %s unavailable for SARIF.", path, exc_info=True)
         return {}
     if not isinstance(data, Mapping):
+        logger.debug("reporting: risk metadata %s is not a mapping.", path)
         return {}
     metadata: dict[str, dict[str, Any]] = {}
     for risk_id, entry in data.items():
@@ -338,6 +352,7 @@ def _risk_yaml_metadata(platform: str) -> dict[str, dict[str, Any]]:
         fields = {field: entry[field] for field in RISK_METADATA_FIELDS if entry.get(field)}
         if fields:
             metadata[str(risk_id)] = fields
+    logger.debug("reporting: %d risk metadata override(s) from %s.", len(metadata), path)
     return metadata
 
 
@@ -352,6 +367,8 @@ def _platform_risks(platform: str) -> list[dict[str, Any]]:
 
             return list(list_risks())
     except Exception:
+        logger.debug("reporting: listing %s risks for SARIF failed.", platform, exc_info=True)
         return []
+    logger.debug("reporting: no risk catalogue for platform %r.", platform)
     return []
 

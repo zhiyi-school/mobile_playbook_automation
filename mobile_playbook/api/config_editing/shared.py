@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import logging
 import re
 import threading
 from pathlib import Path
@@ -48,24 +49,30 @@ rt_yaml.indent(mapping=2, sequence=4, offset=2)
 _locks_guard = threading.Lock()
 _locks: dict[Path, threading.Lock] = {}
 _APP_ERROR_PREFIX = re.compile(r"^apps\[([^\]]+)\]")
+logger = logging.getLogger(__name__)
 
 
 def lock_for(path: Path) -> threading.Lock:
     with _locks_guard:
         if path not in _locks:
+            logger.debug("api: creating config edit lock for %s.", path)
             _locks[path] = threading.Lock()
         return _locks[path]
 
 
 def load_with_errors(platform: str):
     entry_path = ENTRY_FILES[platform]
+    logger.debug("api: loading %s config from %s for validation.", platform, entry_path)
     try:
         raw = load_yaml_config(entry_path)
         config = parse_android_config(raw, entry_path) if platform == "android" else parse_ios_config(raw, entry_path)
     except (AndroidConfigError, IosConfigError, ValueError, OSError) as exc:
+        logger.debug("api: %s config %s failed to parse (%s).", platform, entry_path, type(exc).__name__, exc_info=True)
         return None, [str(exc)]
     collect = collect_android_errors if platform == "android" else collect_ios_errors
-    return config, list(collect(config, dry_run=False))
+    errors = list(collect(config, dry_run=False))
+    logger.debug("api: %s config %s has %d validation error(s).", platform, entry_path, len(errors))
+    return config, errors
 
 
 def config_errors(platform: str) -> list[str]:
@@ -83,7 +90,9 @@ def app_config_errors(platform: str) -> dict[str, list[str]]:
 def load_and_validate(platform: str, baseline: list[str] | None = None) -> None:
     introduced = [error for error in config_errors(platform) if error not in (baseline or [])]
     if introduced:
+        logger.debug("api: %s edit introduced %d new validation error(s).", platform, len(introduced))
         raise HTTPException(status_code=422, detail=introduced)
+    logger.debug("api: %s edit validated (baseline %d error(s)).", platform, len(baseline or []))
 
 
 def plain(value: Any) -> Any:
@@ -115,14 +124,18 @@ def merge_into_commented(node: Any, updates: dict) -> None:
 
 def write_whole_file_validated(path: Path, mutate: Callable[[Any], None], platform: str) -> Any:
     with lock_for(path):
+        logger.debug("api: editing %s (%s) under lock.", path, platform)
         original_text = path.read_text()
         baseline = config_errors(platform)
         data = rt_yaml.load(original_text)
         mutate(data)
-        path.write_text(rt_dump(data))
+        rendered = rt_dump(data)
+        path.write_text(rendered)
+        logger.debug("api: wrote %d characters to %s; validating.", len(rendered), path)
         try:
             load_and_validate(platform, baseline)
         except HTTPException:
+            logger.debug("api: validation failed for %s; restoring original contents.", path)
             path.write_text(original_text)
             raise
         return data

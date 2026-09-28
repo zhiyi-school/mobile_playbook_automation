@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import fcntl
 import json
+import logging
 import re
 from contextlib import contextmanager
 from datetime import datetime
@@ -27,6 +28,7 @@ WORKER_STATE_NAME = ".dashboard_sync_worker.json"
 COUNT_FIELDS = ("applications", "assessments", "findings", "history", "activity")
 
 _JWT = re.compile(r"ey[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]+")
+logger = logging.getLogger(__name__)
 
 
 def empty_counts() -> dict[str, int]:
@@ -45,16 +47,20 @@ def status_path(run_dir: Path) -> Path:
 def read_status(run_dir: Path) -> dict[str, Any] | None:
     try:
         data = json.loads(status_path(run_dir).read_text())
-    except (OSError, json.JSONDecodeError):
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.debug("sync status: no readable status at %s (%s).", status_path(run_dir), type(exc).__name__)
         return None
     if not isinstance(data, dict) or data.get("status") not in STATUSES:
+        logger.debug("sync status: ignoring malformed status file %s.", status_path(run_dir))
         return None
+    logger.debug("sync status: %s recorded as %s.", Path(run_dir).name, data.get("status"))
     return _normalized(data)
 
 
 def mark_queued(run_dir: Path) -> dict[str, Any]:
     def mutate(current: dict[str, Any] | None) -> dict[str, Any] | None:
         if current is not None and current["status"] in PENDING_STATUSES:
+            logger.debug("sync status: %s already %s; not re-queuing.", Path(run_dir).name, current["status"])
             return None
         now = _now()
         attempt = int(current["attempt"]) + 1 if current else 1
@@ -143,6 +149,7 @@ def describe(reports_dir: Path, run_timestamp: str) -> dict[str, Any]:
     recorded = read_status(run_dir)
     if recorded is not None:
         return {**recorded, "run_timestamp": run_timestamp}
+    logger.debug("sync status: no recorded status for %s; deriving one.", run_timestamp)
     return {
         **_base(run_dir),
         "run_timestamp": run_timestamp,
@@ -169,6 +176,7 @@ def pending_run_timestamps(reports_dir: Path) -> list[str]:
         recorded = read_status(child)
         if recorded is not None and recorded["status"] in PENDING_STATUSES:
             pending.append(child.name)
+    logger.debug("sync status: %d pending run(s) under %s.", len(pending), root)
     return pending
 
 
@@ -180,9 +188,13 @@ def read_worker_state(reports_dir: Path) -> dict[str, Any]:
     empty = {"last_success_at": None, "last_failure_at": None, "last_error": None}
     try:
         data = json.loads(worker_state_path(reports_dir).read_text())
-    except (OSError, json.JSONDecodeError):
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.debug(
+            "sync status: worker state %s unavailable (%s).", worker_state_path(reports_dir), type(exc).__name__
+        )
         return empty
     if not isinstance(data, dict):
+        logger.debug("sync status: worker state %s is not a mapping.", worker_state_path(reports_dir))
         return empty
     return {key: data.get(key) if isinstance(data.get(key), str) else None for key in empty}
 
@@ -196,15 +208,18 @@ def record_worker_pass(reports_dir: Path, succeeded: bool, error: str | None = N
         state["last_failure_at"] = now
         state["last_error"] = safe_error(error) if error else None
     write_atomic(worker_state_path(reports_dir), json.dumps(state, indent=2, sort_keys=True))
+    logger.debug("sync status: recorded worker pass succeeded=%s in %s.", succeeded, worker_state_path(reports_dir))
     return state
 
 
 def _derived_status(reports_dir: Path, run_dir: Path) -> str:
     manifest = read_manifest(run_dir)
     if manifest is None:
+        logger.debug("sync status: %s has no manifest; deriving from the ledger.", run_dir.name)
         # Legacy folders are skipped unless explicitly imported, so none is expected.
         return COMPLETED if _in_ledger(reports_dir, run_dir) else NOT_REQUIRED
     if not is_completed(manifest):
+        logger.debug("sync status: %s manifest is %s; sync not required.", run_dir.name, manifest.get("status"))
         return NOT_REQUIRED
     return COMPLETED if _in_ledger(reports_dir, run_dir) else QUEUED
 
@@ -248,10 +263,18 @@ def _update(run_dir: Path, mutate: Callable[[dict[str, Any] | None], dict[str, A
         current = read_status(path)
         updated = mutate(current)
         if updated is None:
+            logger.debug("sync status: %s unchanged (%s).", path.name, current["status"] if current else None)
             return current if current is not None else describe(path.parent, path.name)
         updated["last_updated_at"] = _now()
         payload = _normalized(updated)
         write_atomic(status_path(path), json.dumps(payload, indent=2, sort_keys=True))
+        logger.debug(
+            "sync status: %s %s -> %s (attempt %d).",
+            path.name,
+            current["status"] if current else None,
+            payload["status"],
+            payload["attempt"],
+        )
         return payload
 
 
@@ -261,10 +284,12 @@ def _status_lock(run_dir: Path) -> Iterator[None]:
     handle = (Path(run_dir) / STATUS_LOCK_NAME).open("w")
     try:
         fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        logger.debug("sync status: acquired status lock for %s.", Path(run_dir).name)
         try:
             yield
         finally:
             fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            logger.debug("sync status: released status lock for %s.", Path(run_dir).name)
     finally:
         handle.close()
 

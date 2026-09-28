@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from fastapi import HTTPException
@@ -16,6 +17,7 @@ from mobile_playbook.platforms.android.risks import list_risks as list_android_r
 from mobile_playbook.platforms.ios.risks import list_risks as list_ios_risks
 
 RISK_METADATA_FIELDS = ("name", "description", "tactic")
+logger = logging.getLogger(__name__)
 
 
 def known_feature_ids(platform: str) -> list[str]:
@@ -41,8 +43,10 @@ def list_features(platform: str) -> list[dict]:
 
 def put_feature(platform: str, feature_id: str, updates: dict) -> dict:
     if feature_id not in known_feature_ids(platform):
+        logger.debug("api: %s feature %s unknown; responding 404.", platform, feature_id)
         raise HTTPException(status_code=404, detail=f"Unknown feature_id: {feature_id}")
     path = FEATURES_FILES[platform]
+    logger.debug("api: updating feature %s in %s with keys %s.", feature_id, path, sorted(updates))
 
     def mutate(data: Any) -> None:
         if not isinstance(data.get(feature_id), dict):
@@ -57,6 +61,7 @@ def put_feature(platform: str, feature_id: str, updates: dict) -> dict:
 def require_known_risk(platform: str, risk_id: str) -> None:
     known = list_ios_risks() if platform == "ios" else list_android_risks()
     if risk_id not in {risk["risk_id"] for risk in known}:
+        logger.debug("api: %s risk %s unknown; responding 404.", platform, risk_id)
         raise HTTPException(status_code=404, detail=f"Unknown risk_id: {risk_id}")
 
 
@@ -64,8 +69,10 @@ def risk_entry(platform: str, risk_id: str) -> dict:
     try:
         data = plain(rt_yaml.load(RISK_FILES[platform].read_text()) or {})
     except OSError:
+        logger.debug("api: risk file %s unreadable; no entry for %s.", RISK_FILES[platform], risk_id, exc_info=True)
         return {}
     entry = data.get(risk_id)
+    logger.debug("api: risk entry %s in %s present=%s.", risk_id, RISK_FILES[platform], isinstance(entry, dict))
     return entry if isinstance(entry, dict) else {}
 
 
@@ -79,8 +86,10 @@ def put_risk_metadata(platform: str, risk_id: str, updates: dict) -> dict:
     require_known_risk(platform, risk_id)
     unknown = sorted(set(updates) - set(RISK_METADATA_FIELDS))
     if unknown:
+        logger.debug("api: risk %s update has unknown fields %s; responding 422.", risk_id, unknown)
         raise HTTPException(status_code=422, detail=f"Unknown risk fields: {', '.join(unknown)}")
     path = RISK_FILES[platform]
+    logger.debug("api: updating risk metadata %s in %s with keys %s.", risk_id, path, sorted(updates))
 
     def mutate(data: Any) -> None:
         if not isinstance(data.get(risk_id), dict):
@@ -99,6 +108,7 @@ def get_risk_demonstration(platform: str, risk_id: str) -> list:
 def put_risk_demonstration(platform: str, risk_id: str, demonstration: list) -> list:
     require_known_risk(platform, risk_id)
     path = RISK_FILES[platform]
+    logger.debug("api: replacing demonstration for %s in %s with %d block(s).", risk_id, path, len(demonstration))
 
     def mutate(data: Any) -> None:
         if not isinstance(data.get(risk_id), dict):

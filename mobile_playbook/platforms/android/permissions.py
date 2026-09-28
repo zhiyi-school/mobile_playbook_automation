@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 
 from mobile_playbook.platforms.android.adb import AdbClient
 
+logger = logging.getLogger(__name__)
 
 SPECIAL_PERMISSION_OPS = {
     "android.permission.SYSTEM_ALERT_WINDOW": "SYSTEM_ALERT_WINDOW",
@@ -34,29 +36,36 @@ class GrantResult:
 
 def is_installed(adb: AdbClient, package: str) -> bool:
     code, out, _ = adb.run(["shell", "pm", "list", "packages", package])
-    return code == 0 and any(line.strip() == f"package:{package}" for line in out.splitlines())
+    installed = code == 0 and any(line.strip() == f"package:{package}" for line in out.splitlines())
+    logger.debug("android permissions: %s installed=%s (pm list exit %s)", package, installed, code)
+    return installed
 
 
 def declared_permissions(adb: AdbClient, package: str) -> list[str]:
     code, out, _ = adb.run(["shell", "dumpsys", "package", package])
     if code != 0 or not out:
+        logger.debug("android permissions: dumpsys package %s gave exit %s with %s chars; no permissions", package, code, len(out or ""))
         return []
     permissions: set[str] = set()
     for raw in out.splitlines():
         line = raw.strip()
         if line.startswith("android.permission."):
             permissions.add(line.split(":", 1)[0].strip())
+    logger.debug("android permissions: %s declares %s permissions: %s", package, len(permissions), sorted(permissions))
     return sorted(permissions)
 
 
 def grant_all(adb: AdbClient, package: str) -> GrantResult:
     result = GrantResult(package=package)
+    logger.debug("android permissions: granting all declared permissions for %s", package)
     try:
         if not is_installed(adb, package):
+            logger.debug("android permissions: %s not installed or device unreachable; skipping", package)
             result.error = "not installed / device unreachable - skipped"
             return result
         permissions = declared_permissions(adb, package)
         if not permissions:
+            logger.debug("android permissions: %s declares no android.permission.*", package)
             result.error = "no android.permission.* declared"
             return result
         for permission in permissions:
@@ -66,9 +75,12 @@ def grant_all(adb: AdbClient, package: str) -> GrantResult:
             else:
                 code, out, err = adb.run(["shell", "pm", "grant", package, permission])
                 bucket = result.granted if _grant_succeeded(code, out, err) else result.skipped
+            logger.debug("android permissions: %s %s -> %s (exit %s, out head=%r, err head=%r)", package, permission, "skipped" if bucket is result.skipped else "granted", code, (out or "")[:200], (err or "")[:200])
             bucket.append(permission)
     except Exception as exc:
+        logger.debug("android permissions: granting for %s failed: %s", package, exc, exc_info=True)
         result.error = f"error while granting: {exc}"
+    logger.debug("android permissions: %s granted=%s special=%s skipped=%s error=%s", package, len(result.granted), len(result.special), len(result.skipped), result.error)
     return result
 
 

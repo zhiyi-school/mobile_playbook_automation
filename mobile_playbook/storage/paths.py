@@ -12,6 +12,7 @@ working directory. See docs/storage.md.
 
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 
@@ -28,11 +29,13 @@ LOCATION_ENV = {
 }
 
 LOCATION_NAMES = tuple(LOCATION_ENV)
+logger = logging.getLogger(__name__)
 
 
 def _setting(name: str) -> str | None:
     value = os.environ.get(name)
     if value is not None and value.strip():
+        logger.debug("storage: %s set in the process environment.", name)
         return value
     # Goes through the API's allowlist, so no other .env key can be read here.
     from mobile_playbook.api import settings
@@ -55,16 +58,23 @@ def _contained(child: Path, parent: Path) -> bool:
 
 def artifacts_root() -> Path:
     configured = _setting(ARTIFACTS_DIR_ENV)
-    return (_absolute(configured) if configured else DEFAULT_ARTIFACTS_DIR).resolve()
+    root = (_absolute(configured) if configured else DEFAULT_ARTIFACTS_DIR).resolve()
+    logger.debug("storage: artifacts root %s (configured=%s).", root, bool(configured))
+    return root
 
 
 def location(name: str) -> Path:
     if name not in LOCATION_ENV:
+        logger.debug("storage: unknown location %r requested.", name)
         raise KeyError(f"unknown storage location: {name}")
     configured = _setting(LOCATION_ENV[name])
     if configured:
-        return _absolute(configured).resolve()
-    return (artifacts_root() / name).resolve()
+        resolved = _absolute(configured).resolve()
+        logger.debug("storage: %s location %s from %s.", name, resolved, LOCATION_ENV[name])
+        return resolved
+    resolved = (artifacts_root() / name).resolve()
+    logger.debug("storage: %s location %s under the artifacts root.", name, resolved)
+    return resolved
 
 
 def intake_root() -> Path:
@@ -117,6 +127,7 @@ def resolve_recorded_path(recorded: str | Path) -> Path:
     """
     path = Path(recorded).expanduser()
     if not path.is_absolute():
+        logger.debug("storage: recorded path %s is relative; unchanged.", path)
         return path
     for name in LOCATION_NAMES:
         legacy = (REPOSITORY_ROOT / name).resolve()
@@ -124,7 +135,10 @@ def resolve_recorded_path(recorded: str | Path) -> Path:
             continue
         current = location(name)
         if current == legacy:
+            logger.debug("storage: recorded path %s already under the current %s location.", path, name)
             return path
         moved = current / path.relative_to(legacy)
+        logger.debug("storage: legacy %s path %s maps to %s (exists=%s).", name, path, moved, moved.exists())
         return moved if moved.exists() else path
+    logger.debug("storage: recorded path %s is outside every legacy location; unchanged.", path)
     return path

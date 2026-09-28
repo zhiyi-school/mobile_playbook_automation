@@ -2,16 +2,29 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 from pathlib import Path
 from typing import Any
 
 from mobile_playbook.playbook import catalogue
+
+logger = logging.getLogger(__name__)
 
 
 def preview(old_root: Path, new_root: Path, platform: str) -> dict[str, Any]:
     old = catalogue.build(platform, Path(old_root).resolve(), overrides={})
     new = catalogue.build(platform, Path(new_root).resolve(), overrides={})
     control_ids = sorted(set(old["controls"]) | set(new["controls"]))
+    logger.debug(
+        "playbook identity preview: %s old %s (%s controls, revision %s) vs new %s (%s controls, revision %s)",
+        platform,
+        old_root,
+        len(old["controls"]),
+        old.get("revision"),
+        new_root,
+        len(new["controls"]),
+        new.get("revision"),
+    )
     controls = []
     for control_id in control_ids:
         before = old["controls"].get(control_id)
@@ -36,6 +49,31 @@ def preview(old_root: Path, new_root: Path, platform: str) -> dict[str, Any]:
                 "added": sorted(set(new_steps) - set(old_steps)),
             }
         )
+        entry = controls[-1]
+        logger.debug(
+            "playbook identity preview: control %s %s: %s preserved, %s removed, %s added",
+            control_id,
+            entry["status"],
+            len(entry["preserved"]),
+            len(entry["removed"]),
+            len(entry["added"]),
+        )
+        if logger.isEnabledFor(logging.DEBUG):
+            for item in entry["preserved"]:
+                logger.debug(
+                    "playbook identity preview: control %s step %s matched by exact key (%s -> %s id), hash %s -> %s, content_changed=%s",
+                    control_id,
+                    item["step_key"],
+                    item["old_source"],
+                    item["new_source"],
+                    _content_hash(before, item["step_key"]),
+                    _content_hash(after, item["step_key"]),
+                    item["content_changed"],
+                )
+            for key in entry["removed"]:
+                logger.debug("playbook identity preview: control %s step %s unmatched, no step with that key in the new root", control_id, key)
+            for key in entry["added"]:
+                logger.debug("playbook identity preview: control %s step %s unmatched, no step with that key in the old root", control_id, key)
     return {
         "platform": platform,
         "old_root": str(Path(old_root).resolve()),
@@ -68,7 +106,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--platform", required=True, choices=("ios", "android"))
     parser.add_argument("--format", choices=("text", "json"), default="text")
     args = parser.parse_args(argv)
+    logger.debug("playbook identity preview: cli old=%s new=%s platform=%s format=%s", args.old_root, args.new_root, args.platform, args.format)
     result = preview(args.old_root, args.new_root, args.platform)
+    if result["errors"] and logger.isEnabledFor(logging.DEBUG):
+        logger.debug("playbook identity preview: identity errors %s", [(item.get("code"), item.get("path")) for item in result["errors"]])
     if args.format == "json":
         print(json.dumps(result, indent=2, sort_keys=True))
     else:

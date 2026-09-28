@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -7,6 +8,8 @@ from typing import Any
 from mobile_playbook.reporting.messages import clean_message
 from mobile_playbook.reporting.status_mapper import Evidence, TestResult
 from mobile_playbook.platforms.ios.models import RiskRunResult
+
+logger = logging.getLogger(__name__)
 
 CATEGORY_BY_RISK = {
     "ios-feature-01-risk-01": "static_analysis",
@@ -64,6 +67,15 @@ CAPTURE_STATUS_SUMMARIES = {
 
 
 def normalize_ios_result(result: RiskRunResult) -> TestResult:
+    logger.debug(
+        "ios results: normalizing %s/%s status=%s verdict=%s severity=%s errors=%s",
+        result.app_id,
+        result.risk_id,
+        result.final_status,
+        result.verdict,
+        SEVERITY_BY_STATUS.get(result.final_status, "info"),
+        len(result.errors or []),
+    )
     return TestResult(
         run_timestamp=result.run_timestamp,
         platform="ios",
@@ -163,6 +175,10 @@ def _evidence(result: RiskRunResult) -> list[Evidence]:
             continue
         seen.add(value)
         evidence.append(Evidence(kind=kind, path=value, label=label))
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug(
+            "ios results: %s/%s evidence %s", result.app_id, result.risk_id, [(item.kind, item.path) for item in evidence]
+        )
     return evidence
 
 
@@ -172,6 +188,7 @@ def _duration_seconds(start: str | None, end: str | None) -> float | None:
     try:
         start_dt = datetime.fromisoformat(start)
         end_dt = datetime.fromisoformat(end)
-    except ValueError:
+    except ValueError as exc:
+        logger.debug("ios results: could not parse duration from %r to %r: %s", start, end, exc, exc_info=True)
         return None
     return round((end_dt - start_dt).total_seconds(), 3)

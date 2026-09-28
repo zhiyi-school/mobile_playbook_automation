@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import base64
+import logging
 from pathlib import Path
 from typing import Any
 
 from mobile_playbook.storage.paths import resolve_recorded_path
+
+logger = logging.getLogger(__name__)
 
 # Named artifacts first; anything else is still offered, labelled from its suffix.
 NAMED_ARTIFACTS: list[tuple[str, str, str]] = [
@@ -55,13 +58,16 @@ def decode_ref(ref: str) -> tuple[str, str] | None:
     try:
         padded = ref + "=" * (-len(ref) % 4)
         root, _, relative = base64.urlsafe_b64decode(padded.encode()).decode().partition("\n")
-    except (ValueError, UnicodeDecodeError):
+    except (ValueError, UnicodeDecodeError) as exc:
+        logger.debug("reporting: evidence ref is not valid base64 text (%s).", type(exc).__name__)
         return None
     if not root or not relative:
+        logger.debug("reporting: evidence ref lacks a root or path.")
         return None
     # A NUL or control character reaches the filesystem call as a ValueError,
     # not as a rejection, so it is refused before it gets there.
     if any(ord(ch) < 32 or ch == "\x7f" for ch in root + relative):
+        logger.debug("reporting: evidence ref contains control characters; rejected.")
         return None
     return root, relative
 
@@ -73,7 +79,9 @@ def _reference(path: Path, roots: dict[str, Path]) -> tuple[str, str] | None:
             relative = path.resolve().relative_to(root)
         except (ValueError, OSError):
             continue
+        logger.debug("reporting: evidence %s is under root %s.", path, name)
         return f"{name}/{relative.as_posix()}", encode_ref(name, str(relative))
+    logger.debug("reporting: evidence %s is outside roots %s.", path, sorted(roots))
     return None
 
 
@@ -81,10 +89,13 @@ def report_dir_evidence(report_dir: Path) -> list[dict[str, Any]]:
     """Every file the test wrote, named artifacts first. Missing directories yield nothing."""
     try:
         if not report_dir.is_dir():
+            logger.debug("reporting: report directory %s missing; no directory evidence.", report_dir)
             return []
         present = {entry.name: entry for entry in report_dir.iterdir() if entry.is_file()}
     except OSError:
+        logger.debug("reporting: report directory %s unreadable.", report_dir, exc_info=True)
         return []
+    logger.debug("reporting: %d file(s) in %s.", len(present), report_dir)
 
     items: list[dict[str, Any]] = []
     for name, kind, label in NAMED_ARTIFACTS:
@@ -129,15 +140,19 @@ def normalize_evidence(
             candidate = resolve_recorded_path(candidate)
         try:
             if not candidate.is_file():
+                logger.debug("reporting: evidence %s is not a file; skipped.", candidate)
                 continue
             key = str(candidate.resolve())
         except OSError:
+            logger.debug("reporting: evidence %s could not be inspected; skipped.", candidate, exc_info=True)
             continue
         if key in seen:
+            logger.debug("reporting: evidence %s already listed; skipped.", key)
             continue
 
         reference = _reference(candidate, allowed) if allowed else None
         if allowed and reference is None:
+            logger.debug("reporting: evidence %s dropped; outside every allowed root.", candidate)
             continue
         seen.add(key)
         path, ref = reference if reference else (raw or candidate.name, "")
@@ -150,4 +165,5 @@ def normalize_evidence(
                 "size_bytes": candidate.stat().st_size,
             }
         )
+    logger.debug("reporting: normalized %d evidence item(s) (%d declared).", len(merged), len(declared or []))
     return merged

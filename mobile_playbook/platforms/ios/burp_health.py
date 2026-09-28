@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import tempfile
 from datetime import datetime, timezone
@@ -11,6 +12,8 @@ from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 from mobile_playbook import __version__
+
+logger = logging.getLogger(__name__)
 
 HEALTH_SCHEMA_VERSION = 1
 
@@ -59,6 +62,14 @@ def write_health_record(
         "device_udid_sha256": device_udid_hash(device_udid),
         "tool_version": _tool_version(),
     }
+    logger.debug(
+        "ios burp health: writing %s (proxy=%s canary_host=%s valid_entries=%s tool_version=%s)",
+        destination,
+        record["proxy_url"],
+        record["canary_host"],
+        record["valid_entry_count"],
+        record["tool_version"],
+    )
     temporary_path: Path | None = None
     try:
         with tempfile.NamedTemporaryFile(
@@ -74,8 +85,10 @@ def write_health_record(
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temporary_path, destination)
+        logger.debug("ios burp health: wrote %s", destination)
     finally:
         if temporary_path is not None and temporary_path.exists():
+            logger.debug("ios burp health: removing leftover temporary file %s", temporary_path)
             temporary_path.unlink()
     return destination
 
@@ -83,13 +96,27 @@ def write_health_record(
 def read_health_record(capture_path: Path) -> dict[str, Any] | None:
     try:
         value = json.loads(health_record_path(capture_path).read_text())
-    except (OSError, json.JSONDecodeError):
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.debug("ios burp health: no readable health record for %s: %s", capture_path, exc, exc_info=True)
         return None
-    return value if isinstance(value, dict) else None
+    if not isinstance(value, dict):
+        logger.debug("ios burp health: health record for %s is not an object (%s)", capture_path, type(value).__name__)
+        return None
+    logger.debug(
+        "ios burp health: read record for %s (schema=%s verified_at=%s proxy=%s canary_host=%s valid_entries=%s)",
+        capture_path,
+        value.get("schema_version"),
+        value.get("verified_at"),
+        value.get("proxy_url"),
+        value.get("canary_host"),
+        value.get("valid_entry_count"),
+    )
+    return value
 
 
 def _tool_version() -> str:
     try:
         return package_version("mobile-playbook-automation")
-    except PackageNotFoundError:
+    except PackageNotFoundError as exc:
+        logger.debug("ios burp health: package metadata unavailable, using __version__: %s", exc, exc_info=True)
         return __version__

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import logging
 from urllib.parse import urlparse
 
 from mobile_playbook.core.network import resolve_lan_host
 from mobile_playbook.platforms.ios.control_server import CommandControlServer
 from mobile_playbook.platforms.ios.risks.companion_app_base import CompanionAppRiskBase
+
+logger = logging.getLogger(__name__)
 
 
 class Feature04KeyboardRiskBase(CompanionAppRiskBase):
@@ -17,20 +20,32 @@ class Feature04KeyboardRiskBase(CompanionAppRiskBase):
         self.server_factory = server_factory
 
     def _start_server(self, control: dict) -> CommandControlServer:
+        logger.debug(
+            "%s: starting collection server bind_host=%s port=%s token_configured=%s enqueue_requires_token=%s",
+            getattr(self, "risk_id", type(self).__name__),
+            control.get("bind_host", "0.0.0.0"),
+            control.get("port", 8765),
+            bool(control.get("token")),
+            bool(control.get("enqueue_requires_token", False)),
+        )
         server = self.server_factory(
             host=control.get("bind_host", "0.0.0.0"),
             port=int(control.get("port", 8765)),
             token=control.get("token"),
             enqueue_requires_token=bool(control.get("enqueue_requires_token", False)),
         )
-        return server.start()
+        started = server.start()
+        logger.debug("%s: collection server started at %s", getattr(self, "risk_id", type(self).__name__), getattr(started, "base_url", None))
+        return started
 
     def _device_reachable_base_url(self, base_url: str, control: dict) -> str:
         advertised = control.get("advertised_host")
         if not advertised or str(advertised).startswith("REPLACE_WITH"):
+            logger.debug("%s: no advertised_host configured (%s); device uses %s", getattr(self, "risk_id", type(self).__name__), advertised, base_url)
             return base_url
         host = resolve_lan_host(str(advertised), label="collection.advertised_host")
         parsed = urlparse(base_url)
+        logger.debug("%s: advertised_host %s resolved to %s for base_url %s", getattr(self, "risk_id", type(self).__name__), advertised, host, base_url)
         return f"{parsed.scheme}://{host}:{parsed.port}"
 
     def _install_or_verify_keyboard_app(self, keyboard_config: dict, global_config, device_client) -> dict:
@@ -40,15 +55,18 @@ class Feature04KeyboardRiskBase(CompanionAppRiskBase):
         server_setup = keyboard_config.get("server_setup") or {}
         field_id = server_setup.get("server_url_input_accessibility_id")
         if not field_id:
+            logger.debug("%s: keyboard server_setup has no server_url_input_accessibility_id; skipping URL setup", getattr(self, "risk_id", type(self).__name__))
             return None
         value = server_setup.get("value") or device_reachable_base_url
         clear_first = bool(server_setup.get("clear_first", True))
+        logger.debug("%s: setting keyboard server URL %s into accessibility_id=%s clear_first=%s", getattr(self, "risk_id", type(self).__name__), value, field_id, clear_first)
         result = {
             "server_url": value,
             "field": device_client.set_text_by_accessibility_id(field_id, value, clear_first=clear_first),
         }
         save_button_id = server_setup.get("save_button_accessibility_id")
         if save_button_id:
+            logger.debug("%s: tapping keyboard server save button accessibility_id=%s", getattr(self, "risk_id", type(self).__name__), save_button_id)
             result["save_button"] = device_client.tap_by_accessibility_id(save_button_id)
         return result
 
@@ -67,26 +85,39 @@ class Feature04KeyboardRiskBase(CompanionAppRiskBase):
         if expected:
             selection_config["expected_source_contains"] = expected
         selector = getattr(device_client, "ensure_keyboard_selected", None)
+        logger.debug(
+            "%s: selecting custom keyboard enabled=%s expected_source_contains=%s supported=%s",
+            getattr(self, "risk_id", type(self).__name__),
+            selection_config.get("enabled"),
+            expected,
+            bool(selector),
+        )
         if not selector:
             return {"status": "UNSUPPORTED", "reason": "device client does not support keyboard selection"}
         try:
-            return selector(selection_config)
+            selection = selector(selection_config)
         except Exception as exc:
+            logger.debug("%s: keyboard selection raised: %s", getattr(self, "risk_id", type(self).__name__), exc, exc_info=True)
             return {"status": "FAILED", "error": str(exc)}
+        logger.debug("%s: keyboard selection result status=%s", getattr(self, "risk_id", type(self).__name__), selection.get("status") if isinstance(selection, dict) else selection)
+        return selection
 
     def _focused_field_custom_keyboard_blocker(self, focus_result: dict) -> str | None:
         element_type = str(focus_result.get("element_type") or "")
         if element_type == "XCUIElementTypeSecureTextField":
+            logger.debug("%s: focused field is a secure text field; custom keyboard blocked", getattr(self, "risk_id", type(self).__name__))
             return (
                 "A text field was found and focused, but it is a secure text field. "
                 "iOS does not allow third-party custom keyboards in secure text fields, so LocalKeyboard cannot be used there."
             )
         keyboard_type = str((focus_result.get("element") or {}).get("keyboard_type") or "")
         if keyboard_type and keyboard_type.lower() in {"phonepad", "numberpad", "decimalpad"}:
+            logger.debug("%s: focused field keyboard_type=%s blocks custom keyboard", getattr(self, "risk_id", type(self).__name__), keyboard_type)
             return (
                 f"A text field was found and focused, but its keyboard type is {keyboard_type}. "
                 "The custom keyboard may not be available for this input type."
             )
+        logger.debug("%s: focused field element_type=%s keyboard_type=%s allows custom keyboard", getattr(self, "risk_id", type(self).__name__), element_type, keyboard_type)
         return None
 
     def _keyboard_selection_allows_test(self, keyboard_selection: dict) -> bool:
@@ -94,6 +125,7 @@ class Feature04KeyboardRiskBase(CompanionAppRiskBase):
 
     def _keyboard_selection_error(self, keyboard_selection: dict) -> str:
         status = keyboard_selection.get("status")
+        logger.debug("%s: keyboard selection not usable, status=%s", getattr(self, "risk_id", type(self).__name__), status)
         if status == "NOT_CONFIRMED":
             expected = keyboard_selection.get("expected_source_contains") or []
             return (
@@ -113,6 +145,14 @@ class Feature04KeyboardRiskBase(CompanionAppRiskBase):
         next_count = int(snapshot.get("next_request_count") or 0)
         unauthorized_count = int(snapshot.get("unauthorized_next_count") or 0)
         keyboard_status = (keyboard_selection or {}).get("status")
+        logger.debug(
+            "%s: queue not consumed next_requests=%s unauthorized=%s queued=%s keyboard_status=%s",
+            getattr(self, "risk_id", type(self).__name__),
+            next_count,
+            unauthorized_count,
+            snapshot.get("queued_count"),
+            keyboard_status,
+        )
         if next_count == 0:
             return (
                 "Queued input was not consumed because the keyboard never called /next while the server was running. "

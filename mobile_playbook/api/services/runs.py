@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import threading
 from pathlib import Path
 
@@ -34,16 +35,21 @@ PLATFORM_RUNNERS = {
 }
 
 KNOWN_RISKS_BY_PLATFORM = {"ios": known_ios_risks, "android": known_android_risks}
+logger = logging.getLogger(__name__)
 
 
 def api_out_dir(requested: str | None) -> Path:
     if requested is None:
+        logger.debug("api: no out_dir requested; using %s.", REPORTS_ROOT)
         return REPORTS_ROOT
     path = Path(requested).expanduser()
     if not path.is_absolute():
         path = REPOSITORY_ROOT / path
     resolved = path.resolve()
     if resolved != REPORTS_ROOT.resolve():
+        logger.debug(
+            "api: out_dir %r resolves to %s, not the report root %s; responding 422.", requested, resolved, REPORTS_ROOT
+        )
         raise HTTPException(
             status_code=422,
             detail="out_dir must identify the API's configured report root",
@@ -62,20 +68,27 @@ def report_writer_factory(platform: Platform):
 
 def execute_run(run_timestamp: str, platform: Platform, config, options: RunOptions) -> None:
     runner_cls, _ = PLATFORM_RUNNERS[platform]
+    logger.debug("api: executing %s run %s with %s.", platform, run_timestamp, runner_cls.__name__)
     try:
         outcome = run_platform(
             config, runner_cls(), options, report_writer_factory(platform), run_timestamp=run_timestamp
         )
     except Exception as exc:
+        logger.debug("api: %s run %s raised.", platform, run_timestamp, exc_info=True)
         registry.mark_failed(run_timestamp, clean_message(str(exc)))
     else:
+        logger.debug("api: %s run %s finished in %s.", platform, run_timestamp, outcome.run_dir)
         registry.mark_completed(run_timestamp, outcome.run_dir)
     finally:
+        logger.debug("api: run %s cleanup: releasing %s and triggering dashboard sync.", run_timestamp, platform)
         registry.release_platform(platform)
         trigger_dashboard_sync(options.out_dir, run_timestamp)
 
 
 def create_run(body: RunRequest) -> dict:
+    logger.debug(
+        "api: creating %s run from %s (apps=%r, risks=%r).", body.platform, body.config_path, body.apps, body.risks
+    )
     config = load_config_or_400(body.platform, body.config_path)
 
     selected_risks = selected_csv(body.risks)
@@ -84,9 +97,11 @@ def create_run(body: RunRequest) -> dict:
         validate_app_selection(config.apps, selected_apps)
         validate_risk_selection(KNOWN_RISKS_BY_PLATFORM[body.platform](), selected_risks)
     except ValueError as exc:
+        logger.debug("api: run selection rejected: %s", exc)
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     if not registry.try_claim_platform(body.platform):
+        logger.debug("api: %s platform busy; responding 409.", body.platform)
         raise HTTPException(status_code=409, detail=f"A {body.platform} run is already in progress")
 
     try:
@@ -100,7 +115,9 @@ def create_run(body: RunRequest) -> dict:
             target=execute_run, args=(run_timestamp, body.platform, config, options), daemon=True
         )
         thread.start()
+        logger.debug("api: run %s started on thread %s.", run_timestamp, thread.name)
     except Exception:
+        logger.debug("api: starting %s run failed; releasing platform.", body.platform, exc_info=True)
         registry.release_platform(body.platform)
         raise
     return {"run_id": record.run_id, "platform": record.platform, "status": record.status}
@@ -113,14 +130,18 @@ def list_runs() -> list[dict]:
 def get_run(run_id: str) -> dict:
     record = registry.get(run_id)
     if record is None:
+        logger.debug("api: run %s unknown; responding 404.", run_id)
         raise HTTPException(status_code=404, detail=f"Unknown run_id: {run_id}")
+    logger.debug("api: run %s status %s.", run_id, record.status)
     return vars(record)
 
 
 def run_summary(run_id: str) -> list[dict]:
     record = registry.get(run_id)
     if record is None:
+        logger.debug("api: run %s unknown; responding 404.", run_id)
         raise HTTPException(status_code=404, detail=f"Unknown run_id: {run_id}")
+    logger.debug("api: summary for run %s with status %s.", run_id, record.status)
     if record.status == "running":
         raise HTTPException(status_code=409, detail="Run is still in progress")
     if record.status == "failed":

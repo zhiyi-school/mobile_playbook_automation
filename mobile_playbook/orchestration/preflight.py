@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import logging
 from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+logger = logging.getLogger(__name__)
 
 INCLUDE_KEYS = ("include", "includes")
 
@@ -42,18 +45,23 @@ def load_yaml_config(path: Path) -> dict[str, Any]:
     would not work for cross-file anchor references.
     """
     path = Path(path)
+    logger.debug("config: loading %s", path)
     with path.open("r") as handle:
         raw = yaml.safe_load(handle) or {}
     if not isinstance(raw, dict):
+        logger.debug("config: root of %s is %s, not a mapping", path, type(raw).__name__)
         raise ValueError(f"config root must be a mapping: {path}")
+    logger.debug("config: %s top-level sections=%s", path, list(raw))
     return resolve_config_includes(raw, path.parent)
 
 
 def resolve_config_includes(raw: dict[str, Any], base_dir: Path) -> dict[str, Any]:
     include_spec = _include_spec(raw)
     if not include_spec:
+        logger.debug("config: no includes under %s", base_dir)
         return {key: deepcopy(value) for key, value in raw.items() if key not in INCLUDE_KEYS}
     if not isinstance(include_spec, dict):
+        logger.debug("config: include spec is %s, not a mapping", type(include_spec).__name__)
         raise ValueError("include must be a mapping of config section to YAML file")
 
     resolved = {key: deepcopy(value) for key, value in raw.items() if key not in INCLUDE_KEYS}
@@ -61,8 +69,10 @@ def resolve_config_includes(raw: dict[str, Any], base_dir: Path) -> dict[str, An
         section_name = str(section)
         section_value = _load_include_section(Path(base_dir), section_name, include_path)
         if section_name in resolved:
+            logger.debug("config: merging included section %s under inline overrides", section_name)
             resolved[section_name] = merge_dicts(section_value, resolved[section_name])
         else:
+            logger.debug("config: using included section %s as-is", section_name)
             resolved[section_name] = section_value
     return resolved
 
@@ -77,15 +87,19 @@ def _include_spec(raw: dict[str, Any]) -> Any:
 def _load_include_section(base_dir: Path, section: str, include_path: Any) -> Any:
     paths = _section_include_paths(section, include_path)
     resolved_paths = [_resolve_include_path(base_dir, p) for p in paths]
+    logger.debug("config: section %s includes %s", section, [str(p) for p in resolved_paths])
     for path, original in zip(resolved_paths, paths):
         if not path.exists():
+            logger.debug("config: include for %s missing: %s (declared %s)", section, path, original)
             raise ValueError(f"included config file does not exist for {section} ({original}): {path}")
     combined_text = "\n".join(path.read_text() for path in resolved_paths)
     loaded = yaml.safe_load(combined_text)
     if loaded is None:
         loaded = {}
     if isinstance(loaded, dict) and section in loaded:
+        logger.debug("config: section %s loaded from wrapped mapping (%s chars of YAML)", section, len(combined_text))
         return deepcopy(loaded[section])
+    logger.debug("config: section %s loaded as raw %s (%s chars of YAML)", section, type(loaded).__name__, len(combined_text))
     return deepcopy(loaded)
 
 

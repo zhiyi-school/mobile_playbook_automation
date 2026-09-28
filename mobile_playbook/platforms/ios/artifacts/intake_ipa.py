@@ -5,6 +5,7 @@ See docs/ios/risks.md#artifact-sources and docs/api.md#is-an-app-ready-to-test.
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -12,6 +13,9 @@ from pathlib import Path
 from mobile_playbook.platforms.ios.artifacts.local_ipa import LocalIpaProvider
 from mobile_playbook.platforms.ios.ipa.plist_utils import inspect_ipa_metadata
 from mobile_playbook.platforms.ios.models import ArtifactAcquisitionResult
+
+logger = logging.getLogger(__name__)
+
 
 def _default_intake_dir() -> Path:
     from mobile_playbook.storage import ios_intake_dir
@@ -79,7 +83,8 @@ def _dir_signature(directory: Path) -> tuple:
     for path in sorted(directory.glob("*.ipa")):
         try:
             stat = path.stat()
-        except OSError:
+        except OSError as exc:
+            logger.debug("ios intake: cannot stat %s for signature: %s", path, exc, exc_info=True)
             continue
         entries.append((path.name, stat.st_mtime, stat.st_size))
     return tuple(entries)
@@ -89,6 +94,7 @@ def list_intake_ipas(intake_dir: Path | None = None) -> list[IntakeBuild]:
     """Every readable IPA in `intake_dir`, newest first. Unreadable files are skipped."""
     directory = intake_dir or _default_intake_dir()
     if not directory.is_dir():
+        logger.debug("ios intake: intake dir %s is not a directory; no builds", directory)
         return []
 
     # Cached on a stat-only signature: the config is revalidated on every load
@@ -96,17 +102,28 @@ def list_intake_ipas(intake_dir: Path | None = None) -> list[IntakeBuild]:
     signature = _dir_signature(directory)
     cached = _scan_cache.get(str(directory))
     if cached is not None and cached[0] == signature:
+        logger.debug("ios intake: scan cache hit for %s (%s ipa files, %s builds)", directory, len(signature), len(cached[1]))
         return cached[1]
 
+    logger.debug("ios intake: scanning %s (%s ipa files)", directory, len(signature))
     builds: list[IntakeBuild] = []
     for candidate in sorted(directory.glob("*.ipa")):
         try:
             metadata = inspect_ipa_metadata(candidate)
-        except Exception:
+        except Exception as exc:
+            logger.debug("ios intake: skipping unreadable ipa %s: %s", candidate, exc, exc_info=True)
             continue
         bundle_id = metadata.get("bundle_id")
         if not bundle_id:
+            logger.debug("ios intake: skipping %s; Info.plist has no CFBundleIdentifier", candidate)
             continue
+        logger.debug(
+            "ios intake: found %s bundle_id=%s display_name=%s version=%s",
+            candidate.name,
+            bundle_id,
+            metadata.get("display_name"),
+            _version_of(metadata),
+        )
         builds.append(
             IntakeBuild(
                 path=candidate,
@@ -118,6 +135,7 @@ def list_intake_ipas(intake_dir: Path | None = None) -> list[IntakeBuild]:
         )
     builds.sort(key=lambda build: build.modified_at, reverse=True)
     _scan_cache[str(directory)] = (signature, builds)
+    logger.debug("ios intake: scan of %s produced %s builds", directory, len(builds))
     return builds
 
 
@@ -142,12 +160,25 @@ def resolve_intake_ipa(
         candidates = [build for build in builds if normalize_app_name(build.display_name) == wanted]
         matched_on = "name"
     else:
+        logger.debug("ios intake: no bundle id or usable app name given; nothing to resolve")
         return IntakeResolution(None, False, [], None)
 
+    logger.debug(
+        "ios intake: resolving bundle_id=%s app_name=%s matched_on=%s -> %s candidates of %s builds",
+        bundle_id,
+        app_name,
+        matched_on,
+        len(candidates),
+        len(builds),
+    )
     if not candidates:
         return IntakeResolution(None, False, [], matched_on)
     if len({build.bundle_id for build in candidates}) > 1:
+        logger.debug(
+            "ios intake: ambiguous match for %s; bundle ids %s", app_name, sorted({build.bundle_id for build in candidates})
+        )
         return IntakeResolution(None, True, candidates, matched_on)
+    logger.debug("ios intake: selected newest build %s (version %s)", candidates[0].path, candidates[0].version)
     return IntakeResolution(candidates[0], False, candidates, matched_on)
 
 
@@ -182,9 +213,11 @@ class IntakeIpaProvider(LocalIpaProvider):
     def acquire(self, app_config, global_config, device_client, run_timestamp: str, out_dir: Path):
         artifact = dict(app_config.artifact or {})
         directory = _intake_dir(artifact)
+        logger.debug("ios artifacts[%s]: %s resolving from %s", app_config.id, self.source, directory)
         resolution = resolve_for_app(app_config)
 
         if resolution.ambiguous:
+            logger.debug("ios artifacts[%s]: intake resolution ambiguous (%s candidates)", app_config.id, len(resolution.candidates))
             found = ", ".join(sorted({build.bundle_id for build in resolution.candidates}))
             return ArtifactAcquisitionResult(
                 app_config.id,
@@ -200,6 +233,7 @@ class IntakeIpaProvider(LocalIpaProvider):
 
         if resolution.match is None:
             wanted = artifact.get("expected_bundle_id") or app_config.bundle_id or app_config.name
+            logger.debug("ios artifacts[%s]: no intake build for %s in %s", app_config.id, wanted, directory)
             return ArtifactAcquisitionResult(
                 app_config.id,
                 self.source,
@@ -218,5 +252,14 @@ class IntakeIpaProvider(LocalIpaProvider):
             app_config.bundle_id = resolution.match.bundle_id
         if not app_config.test_bundle_id:
             app_config.test_bundle_id = resolution.match.bundle_id
+        logger.debug(
+            "ios artifacts[%s]: intake resolved %s (bundle_id=%s, matched_on=%s); bundle_id=%s test_bundle_id=%s",
+            app_config.id,
+            resolution.match.path,
+            resolution.match.bundle_id,
+            resolution.matched_on,
+            app_config.bundle_id,
+            app_config.test_bundle_id,
+        )
 
         return super().acquire(app_config, global_config, device_client, run_timestamp, out_dir)

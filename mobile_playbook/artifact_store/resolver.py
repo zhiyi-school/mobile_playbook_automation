@@ -45,9 +45,12 @@ def _app_entry(platform: str, app_id: str) -> dict[str, Any] | None:
     try:
         apps = config_editor.list_ios_apps() if platform == "ios" else config_editor.list_android_apps()
     except Exception:
+        logger.debug("artifact store: listing %s apps failed.", platform, exc_info=True)
         logger.warning("Config for platform %s could not be read while resolving an icon.", platform)
         return None
-    return next((entry for entry in apps if entry.get("id") == app_id), None)
+    entry = next((entry for entry in apps if entry.get("id") == app_id), None)
+    logger.debug("artifact store: %s app %s configured=%s.", platform, app_id, entry is not None)
+    return entry
 
 
 def _existing(path_value: Any) -> Path | None:
@@ -69,10 +72,19 @@ def _resolve_ios(app: dict[str, Any]) -> Path | None:
             app_name=app.get("name"),
             intake_dir=intake_dir_for(artifact),
         )
+        logger.debug(
+            "artifact store: intake IPA for %r -> %s (ambiguous=%s).",
+            app.get("id"),
+            resolution.match.path if resolution.match else None,
+            resolution.ambiguous,
+        )
         return resolution.match.path if resolution.match else None
 
     if source in _LOCAL_IPA_SOURCES:
-        return _existing(artifact.get("ipa") or artifact.get("path"))
+        path = _existing(artifact.get("ipa") or artifact.get("path"))
+        logger.debug("artifact store: %s IPA for %r -> %s.", source, app.get("id"), path)
+        return path
+    logger.debug("artifact store: iOS app %r source %r has no local build.", app.get("id"), source)
     return None
 
 
@@ -82,21 +94,27 @@ def _resolve_android(app: dict[str, Any]) -> Path | None:
     artifact = app.get("artifact") or {}
     configured = _existing(artifact.get("apk") or artifact.get("path"))
     if configured is not None:
+        logger.debug("artifact store: Android app %r uses configured APK %s.", app.get("id"), configured)
         return configured
 
     package_name = app.get("package_name") or ""
     if package_name:
         acquired = ANDROID_WORKFLOW_APK_DIR / package_name.replace(".", "_") / "original" / "base.apk"
         if acquired.is_file():
+            logger.debug("artifact store: Android app %r uses acquired APK %s.", app.get("id"), acquired)
             return acquired
+        logger.debug("artifact store: no acquired APK at %s.", acquired)
 
     intake_dir = Path(artifact.get("intake_dir") or _android_intake_dir()).expanduser()
     if not intake_dir.is_dir():
+        logger.debug("artifact store: Android intake directory %s missing.", intake_dir)
         return None
     wanted = {normalize_app_name(package_name), normalize_app_name(app.get("name"))} - {""}
     for candidate in sorted(intake_dir.glob("*.apk")):
         if normalize_app_name(candidate.stem) in wanted:
+            logger.debug("artifact store: Android app %r matched intake APK %s.", app.get("id"), candidate)
             return candidate
+    logger.debug("artifact store: no intake APK in %s matches %s.", intake_dir, sorted(wanted))
     return None
 
 
@@ -112,10 +130,15 @@ def resolve_app_artifact(platform: str, app_id: str) -> AppArtifact | None:
 def app_icon(platform: str, app_id: str, force: bool = False) -> IconExtraction:
     """Icon state for a configured app. Extracts on first use, then serves from the store."""
     if _app_entry(platform, app_id) is None:
+        logger.debug("artifact store: icon unavailable; %s app %s is not configured.", platform, app_id)
         return IconExtraction(status=STATUS_UNAVAILABLE, reason=REASON_UNKNOWN_APP)
     artifact = resolve_app_artifact(platform, app_id)
     if artifact is None:
+        logger.debug("artifact store: icon unavailable; no build on disk for %s app %s.", platform, app_id)
         return IconExtraction(status=STATUS_UNAVAILABLE, reason="no_artifact_available")
+    logger.debug(
+        "artifact store: extracting icon for %s app %s from %s (force=%s).", platform, app_id, artifact.path, force
+    )
     return extract_icon(platform, artifact.path, force=force)
 
 
@@ -123,6 +146,7 @@ def app_icon_file(platform: str, app_id: str) -> tuple[Path, str] | None:
     """(file, artifact_id) for the icon endpoint, or `None` when there is nothing to serve."""
     extraction = app_icon(platform, app_id)
     if not extraction.available or not extraction.artifact_id:
+        logger.debug("artifact store: no icon file for %s app %s (status %s).", platform, app_id, extraction.status)
         return None
     path = store.resolve_icon_ref(extraction.storage_ref)
     return (path, extraction.artifact_id) if path else None
@@ -133,6 +157,7 @@ def app_icon_reference(platform: str, app_id: str, force: bool = False) -> dict[
     try:
         extraction = app_icon(platform, app_id, force=force)
     except Exception as exc:
+        logger.debug("artifact store: icon reference for %s app %s failed.", platform, app_id, exc_info=True)
         logger.warning("Icon reference for app %r could not be resolved: %s", app_id, type(exc).__name__)
         return {"artifact_sha256": None, "icon_ref": None, "icon_extraction_status": "failed"}
     return {
@@ -148,8 +173,10 @@ def configured_app_ids(platform: str) -> list[str]:
     try:
         apps = config_editor.list_ios_apps() if platform == "ios" else config_editor.list_android_apps()
     except Exception:
+        logger.debug("artifact store: listing %s app ids failed.", platform, exc_info=True)
         logger.warning("Config for platform %s could not be read.", platform)
         return []
+    logger.debug("artifact store: %d configured %s app(s).", len(apps), platform)
     return [str(entry["id"]) for entry in apps if entry.get("id")]
 
 
@@ -168,10 +195,12 @@ def artifact_digest_for_app_config(platform: str, app_config: Any) -> str | None
     view = _app_config_view(app_config)
     path = _resolve_ios(view) if platform == "ios" else _resolve_android(view)
     if path is None:
+        logger.debug("artifact store: no build on disk to digest for %s app %r.", platform, view["id"])
         return None
     try:
         return store.artifact_digest(path)
     except OSError:
+        logger.debug("artifact store: digest of %s failed.", path, exc_info=True)
         return None
 
 
@@ -182,6 +211,9 @@ def prepare_icon_for_app_config(platform: str, app_config: Any) -> str | None:
         return None
     view = _app_config_view(app_config)
     path = _resolve_ios(view) if platform == "ios" else _resolve_android(view)
+    logger.debug(
+        "artifact store: preparing icon for %s app %r from %s (digest %s).", platform, view["id"], path, digest[:12]
+    )
     if path is not None:
         extract_icon(platform, path, digest)
     return digest
@@ -190,9 +222,12 @@ def prepare_icon_for_app_config(platform: str, app_config: Any) -> str | None:
 def icon_reference_for_artifact(artifact_sha256: str) -> dict[str, Any] | None:
     """The stored reference for one exact build, or `None` when nothing was derived from it."""
     if not store.is_artifact_id(artifact_sha256):
+        logger.debug("artifact store: %r is not an artifact id.", artifact_sha256)
         return None
     if not store.icon_path(artifact_sha256).is_file():
+        logger.debug("artifact store: no stored icon for artifact %s.", artifact_sha256[:12])
         return None
+    logger.debug("artifact store: stored icon found for artifact %s.", artifact_sha256[:12])
     return {
         "artifact_sha256": artifact_sha256,
         "icon_ref": store.icon_ref(artifact_sha256),

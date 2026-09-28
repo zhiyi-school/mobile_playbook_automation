@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from mobile_playbook.storage import android_work_dir
 from typing import Any
 
+from mobile_playbook.logging_setup import REDACTED, redacted
 from mobile_playbook.orchestration.preflight import load_yaml_config
 from mobile_playbook.platforms.android.models import (
     AndroidAppConfig,
@@ -15,6 +17,7 @@ from mobile_playbook.platforms.android.models import (
 )
 from mobile_playbook.platforms.android.risks.registry import known_risks
 
+logger = logging.getLogger(__name__)
 
 class ConfigError(Exception):
     def __init__(self, errors: list[str]):
@@ -24,13 +27,16 @@ class ConfigError(Exception):
 
 def load_config(path: Path, dry_run: bool = False) -> AndroidGlobalConfig:
     path = Path(path)
+    logger.debug("android config: loading %s (dry_run=%s)", path, dry_run)
     try:
         raw = load_yaml_config(path)
         raw = _load_apps_file(raw, path.parent)
     except ValueError as exc:
+        logger.debug("android config: loading %s failed: %s", path, exc, exc_info=True)
         raise ConfigError([str(exc)]) from exc
     config = parse_config(raw, path)
     validate_config(config, dry_run=dry_run)
+    logger.debug("android config: loaded %s with %s apps", path, len(config.apps))
     return config
 
 
@@ -44,6 +50,11 @@ def parse_config(raw: dict[str, Any], config_path: Path | None = None) -> Androi
         repackaging_raw["work_dir"] = paths_raw.get("repackaging_work_dir") or str(android_work_dir() / "repackaging")
 
     apps = [_parse_app(item) for item in (raw.get("apps") or [])]
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug("android config: parsed sections=%s apps=%s", list(raw), [app.id for app in apps])
+        for section_name, section_value in (("device", device_raw), ("runner", runner_raw), ("screen_capture", raw.get("screen_capture")), ("tools", raw.get("tools"))):
+            logger.debug("android config: %s=%s", section_name, redacted(section_value) if isinstance(section_value, dict) else type(section_value).__name__)
+        logger.debug("android config: repackaging=%s", redacted({key: REDACTED if "pass" in str(key).lower() else value for key, value in repackaging_raw.items()}))
     return AndroidGlobalConfig(
         device=AndroidDeviceConfig(
             appium_server_url=device_raw.get("appium_server_url") or device_raw.get("appium_server", "http://127.0.0.1:4723"),
@@ -69,7 +80,9 @@ def parse_config(raw: dict[str, Any], config_path: Path | None = None) -> Androi
 def validate_config(config: AndroidGlobalConfig, dry_run: bool = False) -> None:
     errors = collect_config_errors(config, dry_run=dry_run)
     if errors:
+        logger.debug("android config: %s validation errors: %s", len(errors), errors)
         raise ConfigError(errors)
+    logger.debug("android config: validation passed")
 
 
 def collect_config_errors(config: AndroidGlobalConfig, dry_run: bool = False) -> list[str]:
@@ -97,12 +110,15 @@ def collect_config_errors(config: AndroidGlobalConfig, dry_run: bool = False) ->
 def _load_apps_file(raw: dict[str, Any], base_dir: Path) -> dict[str, Any]:
     apps_file = raw.get("apps_file")
     if not apps_file:
+        logger.debug("android config: no apps_file; using inline apps")
         return raw
     apps_path = Path(str(apps_file)).expanduser()
     if not apps_path.is_absolute():
         apps_path = (base_dir / apps_path).resolve()
     if not apps_path.exists():
+        logger.debug("android config: apps_file %s missing (resolved %s)", apps_file, apps_path)
         raise ValueError(f"apps file not found: {apps_path}")
+    logger.debug("android config: loading apps from %s", apps_path)
     loaded = load_yaml_config(apps_path)
     raw = dict(raw)
     raw["apps"] = loaded.get("apps", loaded) if isinstance(loaded, dict) else loaded
@@ -119,6 +135,7 @@ def _parse_app(item: Any) -> AndroidAppConfig:
             risks={risk_id: {"enabled": True} for risk_id in known_risks()},
         )
     if not isinstance(item, dict):
+        logger.debug("android config: app entry of type %s is not a mapping; using an empty app", type(item).__name__)
         return AndroidAppConfig(id="", name="", package_name="", risks={})
     package_name = item.get("package_name") or item.get("package") or item.get("bundle_id") or ""
     cisos = [

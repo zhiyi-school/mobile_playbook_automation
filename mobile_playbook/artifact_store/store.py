@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import tempfile
@@ -21,6 +22,7 @@ ARTIFACT_ID_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 ICON_REF_PATTERN = re.compile(r"^icons/([0-9a-f]{64})\.png$")
 
 _digest_cache: dict[tuple[str, int, float], str] = {}
+logger = logging.getLogger(__name__)
 
 
 def store_root() -> Path:
@@ -55,8 +57,10 @@ def resolve_icon_ref(ref: str | None) -> Path | None:
     """Map a stored logical reference back to a file, or `None` if it is not one we issued."""
     match = ICON_REF_PATTERN.match(str(ref or ""))
     if match is None:
+        logger.debug("artifact store: %r is not an issued icon reference.", ref)
         return None
     path = icon_path(match.group(1))
+    logger.debug("artifact store: icon reference %s -> %s (exists=%s).", ref, path, path.is_file())
     return path if path.is_file() else None
 
 
@@ -66,8 +70,11 @@ def artifact_digest(path: Path) -> str:
     key = (str(path.resolve()), stat.st_size, stat.st_mtime)
     cached = _digest_cache.get(key)
     if cached is None:
+        logger.debug("artifact store: digest cache miss for %s (%d bytes); hashing.", path, stat.st_size)
         cached = sha256_file(path)
         _digest_cache[key] = cached
+    else:
+        logger.debug("artifact store: digest cache hit for %s.", path)
     return cached
 
 
@@ -82,16 +89,21 @@ def write_atomic(path: Path, data: bytes) -> Path:
             os.fsync(stream.fileno())
         os.replace(temp_name, path)
     except BaseException:
+        logger.debug("artifact store: atomic write of %s failed; removing %s.", path, temp_name, exc_info=True)
         Path(temp_name).unlink(missing_ok=True)
         raise
+    logger.debug("artifact store: wrote %d bytes to %s.", len(data), path)
     return path
 
 
 def read_metadata(artifact_id: str) -> dict[str, Any] | None:
     try:
-        return json.loads(metadata_path(artifact_id).read_text())
-    except (OSError, ValueError):
+        metadata = json.loads(metadata_path(artifact_id).read_text())
+    except (OSError, ValueError) as exc:
+        logger.debug("artifact store: no readable metadata for %s (%s).", artifact_id, type(exc).__name__)
         return None
+    logger.debug("artifact store: read metadata for %s.", artifact_id)
+    return metadata
 
 
 def write_metadata(artifact_id: str, metadata: dict[str, Any]) -> Path:

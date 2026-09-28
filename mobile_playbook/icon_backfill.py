@@ -8,6 +8,7 @@ from typing import Any, Iterable
 from mobile_playbook.api.settings import ENV_FILE
 from mobile_playbook.artifact_store.resolver import app_icon_reference, configured_app_ids
 from mobile_playbook.env_file import load_env_file
+from mobile_playbook.logging_setup import log_level
 
 logger = logging.getLogger(__name__)
 
@@ -41,16 +42,22 @@ def _find_application(store: Any, app_id: str, platform: str) -> tuple[dict | No
     """Linked row first, then a single unlinked row by name. Never guesses between several."""
     linked = store.find_application_by_external_id_and_platform(app_id, platform)
     if linked is not None:
+        logger.debug("icon backfill: %s %s linked to application %s.", platform, app_id, linked.get("id"))
         return linked, None
 
     name = _configured_app_name(platform, app_id)
     finder = getattr(store, "find_unlinked_applications", None)
     if not name or finder is None:
+        logger.debug(
+            "icon backfill: %s %s skipped (name=%r, finder available=%s).", platform, app_id, name, finder is not None
+        )
         return None, "skipped"
     try:
         candidates = finder(name, platform)
     except Exception:
+        logger.debug("icon backfill: unlinked lookup for %s %s failed.", platform, app_id, exc_info=True)
         return None, "failed"
+    logger.debug("icon backfill: %d unlinked %s application(s) named %r.", len(candidates), platform, name)
     if len(candidates) > 1:
         return None, "ambiguous"
     return (candidates[0], None) if candidates else (None, "skipped")
@@ -81,12 +88,23 @@ def backfill_platform(
             continue
 
         reference = app_icon_reference(platform, app_id, force=force)
+        logger.debug(
+            "icon backfill: %s %s icon status %s (icon_ref set=%s, force=%s).",
+            platform,
+            app_id,
+            reference["icon_extraction_status"],
+            bool(reference.get("icon_ref")),
+            force,
+        )
         if reference["icon_extraction_status"] == "failed":
             counts = counts.plus(failed=1)
             continue
         counts = counts.plus(**({"linked": 1} if reference["icon_ref"] else {"unavailable": 1}))
         if not dry_run:
+            logger.debug("icon backfill: updating application %s.", application["id"])
             store.update_application(application["id"], reference)
+        else:
+            logger.debug("icon backfill: dry run; not updating application %s.", application["id"])
     return counts
 
 
@@ -115,14 +133,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--dry-run", action="store_true", help="Report what would change without writing.")
     args = parser.parse_args(argv)
 
-    logging.basicConfig(level=logging.INFO, format="%(message)s")
     load_env_file(ENV_FILE)
+    logging.basicConfig(level=log_level(), format="%(message)s")
+    logger.debug(
+        "icon backfill: platform=%s apps=%s force=%s dry_run=%s.", args.platform, args.apps, args.force, args.dry_run
+    )
 
     from mobile_playbook.dashboard_syncing.supabase import SupabaseRestStore
 
     try:
         store = SupabaseRestStore.from_env()
     except RuntimeError as exc:
+        logger.debug("icon backfill: store construction failed.", exc_info=True)
         logger.error("%s", exc)
         return 2
 

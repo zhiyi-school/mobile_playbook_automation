@@ -1,12 +1,19 @@
 from __future__ import annotations
 
+import logging
 import re
 import subprocess
+import time
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 def inspect_apk_metadata(apk_path: Path) -> dict:
-    return _parse_metadata(_badging(apk_path))
+    logger.debug("android apk tools: inspecting metadata of %s", apk_path)
+    metadata = _parse_metadata(_badging(apk_path))
+    logger.debug("android apk tools: metadata of %s: %s", apk_path, metadata)
+    return metadata
 
 
 def icon_resource_paths(apk_path: Path) -> list[str]:
@@ -14,13 +21,17 @@ def icon_resource_paths(apk_path: Path) -> list[str]:
     try:
         badging = _badging(apk_path)
     except RuntimeError:
+        logger.debug("android apk tools: no SDK tool could read icons of %s", apk_path, exc_info=True)
         return []
-    return _parse_icon_resources(badging)
+    icons = _parse_icon_resources(badging)
+    logger.debug("android apk tools: %s icon resources in %s: %s", len(icons), apk_path, icons)
+    return icons
 
 
 def _badging(apk_path: Path) -> str:
     apk_path = Path(apk_path)
     if not apk_path.is_file():
+        logger.debug("android apk tools: %s is not a file", apk_path)
         raise FileNotFoundError(apk_path)
 
     return _run_first_available([
@@ -33,13 +44,31 @@ def _badging(apk_path: Path) -> str:
 def _run_first_available(commands: list[list[str]]) -> str:
     errors = []
     for command in commands:
+        logger.debug("android apk tools: running argv=%s", command)
+        started = time.monotonic()
         try:
             completed = subprocess.run(command, capture_output=True, text=True, check=True)
+            logger.debug(
+                "android apk tools: %s exited 0 in %.2fs (stdout %s chars)",
+                command[0],
+                time.monotonic() - started,
+                len(completed.stdout or ""),
+            )
             return completed.stdout
         except FileNotFoundError as exc:
+            logger.debug("android apk tools: %s not found on PATH", command[0], exc_info=True)
             errors.append(str(exc))
         except subprocess.CalledProcessError as exc:
+            logger.debug(
+                "android apk tools: %s exited %s in %.2fs (stderr head=%r)",
+                command[0],
+                exc.returncode,
+                time.monotonic() - started,
+                (exc.stderr or "")[:200],
+                exc_info=True,
+            )
             errors.append((exc.stderr or exc.stdout or str(exc)).strip())
+    logger.debug("android apk tools: no SDK tool succeeded (%s attempts)", len(commands))
     raise RuntimeError("APK metadata inspection needs aapt, aapt2 or apkanalyzer on PATH: " + "; ".join(errors))
 
 

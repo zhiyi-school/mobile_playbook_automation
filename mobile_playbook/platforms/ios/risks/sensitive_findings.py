@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
+import time
+from collections import Counter
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -10,10 +13,14 @@ from typing import Any
 
 from mobile_playbook.platforms.ios.ipa.plist_utils import read_plist
 
+logger = logging.getLogger(__name__)
+
 
 def extract_mobsf_sensitive_findings(report: dict[str, Any], reveal_values: bool) -> list[dict[str, Any]]:
     text = json.dumps(report, sort_keys=True, ensure_ascii=False)
     findings = classify_sensitive_string("mobsf_report_json", text, reveal_values)
+    logger.debug("ios sensitive scan: mobsf report json is %s char(s); %s pattern finding(s)", len(text), len(findings))
+    pattern_count = len(findings)
     for key, value in flatten_value(report):
         if len(findings) >= 100:
             break
@@ -28,30 +35,51 @@ def extract_mobsf_sensitive_findings(report: dict[str, Any], reveal_values: bool
                     reveal_values=reveal_values,
                 )
             )
-    return dedupe_sensitive_findings(findings[:100])
+            logger.debug("ios sensitive scan: SENSITIVE_KEY_NAME match at %s (value length %s)", key, len(value))
+    deduped = dedupe_sensitive_findings(findings[:100])
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug(
+            "ios sensitive scan: mobsf report yielded %s pattern + %s key-name finding(s), %s after dedupe, by type=%s",
+            pattern_count,
+            len(findings) - pattern_count,
+            len(deduped),
+            dict(Counter(item.get("match_type") for item in deduped)),
+        )
+    return deduped
 
 
 def scan_sensitive_information(app_dir: Path, inventory: dict[str, Any], reveal_values: bool) -> list[dict[str, Any]]:
     findings: list[dict[str, Any]] = []
+    scanned: Counter[str] = Counter()
+    logger.debug("ios sensitive scan: scanning inventoried files under %s", app_dir)
     for item in inventory.get("files", []):
         if len(findings) >= 100:
+            logger.debug("ios sensitive scan: finding cap of 100 reached; stopping")
             break
         relative = Path(str(item.get("path", "")))
         if is_sensitive_scan_excluded(relative):
+            scanned["excluded"] += 1
             continue
         path = app_dir / relative
         suffix = str(item.get("suffix", ""))
         if suffix in {".plist", ".xcprivacy"}:
+            scanned["plist"] += 1
             findings.extend(scan_plist_for_sensitive_values(path, relative, reveal_values))
         elif suffix in {".json", ".xml", ".strings", ".txt", ".js", ".jsbundle", ".env", ".properties", ".yaml", ".yml", ".html"}:
+            scanned["text"] += 1
             findings.extend(scan_text_for_sensitive_values(path, relative, reveal_values))
+        else:
+            scanned["other"] += 1
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug("ios sensitive scan: files by kind=%s; %s finding(s), by type=%s", dict(scanned), len(findings[:100]), dict(Counter(item.get("match_type") for item in findings[:100])))
     return findings[:100]
 
 
 def scan_plist_for_sensitive_values(path: Path, relative: Path, reveal_values: bool) -> list[dict[str, Any]]:
     try:
         data = read_plist(path)
-    except Exception:
+    except Exception as exc:
+        logger.debug("ios sensitive scan: could not read plist %s: %s", relative, exc, exc_info=True)
         return []
     findings: list[dict[str, Any]] = []
     for key_path, value in flatten_value(data):
@@ -71,19 +99,25 @@ def scan_plist_for_sensitive_values(path: Path, relative: Path, reveal_values: b
                         reveal_values=reveal_values,
                     )
                 )
-    return dedupe_sensitive_findings(findings)
+    deduped = dedupe_sensitive_findings(findings)
+    if deduped and logger.isEnabledFor(logging.DEBUG):
+        logger.debug("ios sensitive scan: plist %s: %s finding(s) at %s", relative, len(deduped), [(item["match_type"], item["key_path"]) for item in deduped])
+    return deduped
 
 
 def scan_text_for_sensitive_values(path: Path, relative: Path, reveal_values: bool) -> list[dict[str, Any]]:
     max_size = 5 * 1024 * 1024
     try:
         if path.stat().st_size > max_size:
+            logger.debug("ios sensitive scan: skipping %s larger than %s bytes", relative, max_size)
             return []
         data = path.read_bytes()
         if b"\x00" in data[:4096]:
+            logger.debug("ios sensitive scan: skipping binary-looking %s (%s bytes)", relative, len(data))
             return []
         text = data.decode("utf-8", errors="ignore")
-    except Exception:
+    except Exception as exc:
+        logger.debug("ios sensitive scan: could not read %s: %s", relative, exc, exc_info=True)
         return []
     findings: list[dict[str, Any]] = []
     key_value_pattern = re.compile(
@@ -107,7 +141,10 @@ def scan_text_for_sensitive_values(path: Path, relative: Path, reveal_values: bo
                 )
             )
     findings.extend(classify_sensitive_string(str(relative), text, reveal_values))
-    return dedupe_sensitive_findings(findings[:50])
+    deduped = dedupe_sensitive_findings(findings[:50])
+    if deduped and logger.isEnabledFor(logging.DEBUG):
+        logger.debug("ios sensitive scan: %s (%s chars): %s finding(s) at %s", relative, len(text), len(deduped), [(item["match_type"], item["context"]) for item in deduped])
+    return deduped
 
 
 def classify_sensitive_string(
@@ -128,7 +165,9 @@ def classify_sensitive_string(
     for match_type, severity, pattern in patterns:
         for match in pattern.finditer(text):
             findings.append(sensitive_finding(path, match_type, match.group(0), severity, key_path=key_path, reveal_values=reveal_values))
+            logger.debug("ios sensitive scan: %s pattern matched in %s key_path=%s at offset %s", match_type, path, key_path, match.start())
             if len(findings) >= 10:
+                logger.debug("ios sensitive scan: pattern finding cap of 10 reached for %s", path)
                 return findings
     return findings
 
@@ -153,9 +192,17 @@ def test_google_api_key_reuse(
         keys.append((key, finding))
         if len(keys) >= max_keys:
             break
+    logger.debug(
+        "ios api key reuse: %s candidate Google API key(s) selected (max_keys=%s, timeout=%ss, test_address=%s)",
+        len(keys),
+        max_keys,
+        timeout_seconds,
+        test_address,
+    )
 
     results: list[dict[str, Any]] = []
     for key, finding in keys:
+        logger.debug("ios api key reuse: testing key from %s key_path=%s", finding.get("path"), finding.get("key_path"))
         result = test_google_geocode_key(key, timeout_seconds, test_address)
         result.update(
             {
@@ -168,6 +215,15 @@ def test_google_api_key_reuse(
                 "severity": api_key_reuse_status_severity(result["status"]),
             }
         )
+        logger.debug(
+            "ios api key reuse: key from %s -> status=%s severity=%s http_status=%s google_status=%s message=%s",
+            finding.get("path"),
+            result["status"],
+            result["severity"],
+            result.get("http_status"),
+            result.get("google_status"),
+            str(result.get("message") or "")[:200],
+        )
         results.append(result)
     return results
 
@@ -176,14 +232,18 @@ def test_google_geocode_key(api_key: str, timeout_seconds: float, address: str) 
     query = urllib.parse.urlencode({"address": address, "key": api_key})
     url = f"https://maps.googleapis.com/maps/api/geocode/json?{query}"
     request = urllib.request.Request(url, headers={"User-Agent": "mobile-playbook-automation/0.1"})
+    logger.debug("ios api key reuse: GET maps.googleapis.com/maps/api/geocode/json (timeout=%ss)", timeout_seconds)
+    started = time.monotonic()
     try:
         with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
             body = response.read(64 * 1024)
             status_code = int(getattr(response, "status", 200))
     except urllib.error.HTTPError as exc:
+        logger.debug("ios api key reuse: geocode returned HTTP %s", exc.code)
         status_code = exc.code
         body = exc.read(64 * 1024)
     except Exception as exc:
+        logger.debug("ios api key reuse: geocode request failed after %.2fs with %s", time.monotonic() - started, type(exc).__name__)
         return {
             "provider": "google_geocode",
             "status": "NETWORK_OR_TEST_ERROR",
@@ -192,9 +252,11 @@ def test_google_geocode_key(api_key: str, timeout_seconds: float, address: str) 
             "message": str(exc),
         }
 
+    logger.debug("ios api key reuse: geocode response HTTP %s, %s byte(s) in %.2fs", status_code, len(body), time.monotonic() - started)
     try:
         payload = json.loads(body.decode("utf-8", errors="replace"))
-    except Exception:
+    except Exception as exc:
+        logger.debug("ios api key reuse: geocode response is not JSON: %s", type(exc).__name__)
         payload = {}
     google_status = str(payload.get("status") or "")
     error_message = str(payload.get("error_message") or "")

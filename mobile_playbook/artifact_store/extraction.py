@@ -66,20 +66,27 @@ def _unavailable(reason: str, artifact_id: str | None = None) -> IconExtraction:
 
 def _read_member(zf: zipfile.ZipFile, name: str, max_bytes: int = png.MAX_SOURCE_BYTES) -> bytes | None:
     if not is_safe_member_name(name):
+        logger.debug("artifact store: unsafe archive member %r skipped.", name)
         logger.warning("Skipped an archive entry with an unsafe path.")
         return None
     try:
         info = zf.getinfo(name)
     except KeyError:
+        logger.debug("artifact store: archive member %s not present.", name)
         return None
     if info.file_size > max_bytes:
+        logger.debug(
+            "artifact store: archive member %s is %d bytes, over the %d-byte limit.", name, info.file_size, max_bytes
+        )
         return None
+    logger.debug("artifact store: reading archive member %s (%d bytes).", name, info.file_size)
     with zf.open(info) as handle:
         return handle.read(max_bytes + 1)
 
 
 def _best_icon(zf: zipfile.ZipFile, candidates: Iterable[_Candidate]) -> tuple[png.NormalizedPng, str] | None:
     ordered = sorted(candidates, key=lambda item: item.size, reverse=True)[:MAX_CANDIDATES]
+    logger.debug("artifact store: evaluating %d icon candidate(s).", len(ordered))
     best: tuple[png.NormalizedPng, str] | None = None
     for candidate in ordered:
         data = _read_member(zf, candidate.name)
@@ -87,10 +94,15 @@ def _best_icon(zf: zipfile.ZipFile, candidates: Iterable[_Candidate]) -> tuple[p
             continue
         try:
             normalized = png.normalize(data)
-        except png.UnsupportedImage:
+        except png.UnsupportedImage as exc:
+            logger.debug("artifact store: candidate %s is not a usable PNG: %s", candidate.name, exc)
             continue
+        logger.debug(
+            "artifact store: candidate %s normalized to %dx%d.", candidate.name, normalized.width, normalized.height
+        )
         if best is None or normalized.width > best[0].width:
             best = (normalized, candidate.name)
+    logger.debug("artifact store: best icon candidate %s.", best[1] if best else None)
     return best
 
 
@@ -143,6 +155,13 @@ def _ios_candidates(zf: zipfile.ZipFile, prefix: str, info: dict[str, Any]) -> t
         for item in root_files
         if any(PurePosixPath(item.filename).stem.lower().startswith(base) for base in base_names)
     ]
+    logger.debug(
+        "artifact store: %d root PNG(s), %d matching declared icon names %s, asset catalog=%s.",
+        len(root_files),
+        len(named),
+        sorted(base_names),
+        has_asset_catalog,
+    )
     if named:
         return named, has_asset_catalog
 
@@ -151,6 +170,7 @@ def _ios_candidates(zf: zipfile.ZipFile, prefix: str, info: dict[str, Any]) -> t
         for item in root_files
         if _IOS_FALLBACK_STEM.match(PurePosixPath(item.filename).stem)
     ]
+    logger.debug("artifact store: %d fallback icon candidate(s) by file name.", len(fallback))
     return fallback, has_asset_catalog
 
 
@@ -158,6 +178,7 @@ def _extract_ios_icon(artifact_path: Path) -> tuple[png.NormalizedPng | None, st
     with zipfile.ZipFile(artifact_path) as zf:
         names = zf.namelist()
         prefix = _payload_app_prefix(names)
+        logger.debug("artifact store: %s has %d member(s); app bundle prefix %s.", artifact_path, len(names), prefix)
         if prefix is None:
             return None, "no_app_bundle"
         info_name = f"{prefix}Info.plist"
@@ -168,7 +189,10 @@ def _extract_ios_icon(artifact_path: Path) -> tuple[png.NormalizedPng | None, st
                 loaded = plistlib.loads(raw_info)
                 info = loaded if isinstance(loaded, dict) else {}
             except Exception:
+                logger.debug("artifact store: %s could not be parsed.", info_name, exc_info=True)
                 info = {}
+        else:
+            logger.debug("artifact store: %s missing or unreadable.", info_name)
 
         candidates, has_asset_catalog = _ios_candidates(zf, prefix, info)
         if candidates:
@@ -179,12 +203,14 @@ def _extract_ios_icon(artifact_path: Path) -> tuple[png.NormalizedPng | None, st
                 return None, "unsupported_icon_format"
         if not has_asset_catalog:
             return None, "no_icon_in_bundle"
+        logger.debug("artifact store: falling back to the asset catalog in %s.", artifact_path)
         return None, _inspect_asset_catalog(zf, prefix, info)
 
 
 def _inspect_asset_catalog(zf: zipfile.ZipFile, prefix: str, info: dict[str, Any]) -> str:
     """Identify the catalog's primary icon. See docs/api.md#ios-asset-catalogs."""
     if not asset_catalog.assetutil_available():
+        logger.debug("artifact store: assetutil unavailable; cannot inspect the asset catalog.")
         return "asset_catalog_tool_unavailable"
 
     raw = _read_member(zf, f"{prefix}Assets.car", asset_catalog.MAX_CATALOG_BYTES)
@@ -195,8 +221,10 @@ def _inspect_asset_catalog(zf: zipfile.ZipFile, prefix: str, info: dict[str, Any
         car_path = Path(workspace) / "Assets.car"
         try:
             car_path.write_bytes(raw)
+            logger.debug("artifact store: wrote %d-byte asset catalog to %s.", len(raw), car_path)
             entries = asset_catalog.read_catalog(car_path)
         except OSError:
+            logger.debug("artifact store: asset catalog could not be staged.", exc_info=True)
             return "asset_catalog_unreadable"
 
     if entries is None:
@@ -217,9 +245,12 @@ def _android_declared_icons(artifact_path: Path) -> list[str]:
     from mobile_playbook.platforms.android import apk_tools
 
     try:
-        return apk_tools.icon_resource_paths(artifact_path)
+        declared = apk_tools.icon_resource_paths(artifact_path)
     except Exception:
+        logger.debug("artifact store: declared icon lookup failed for %s.", artifact_path, exc_info=True)
         return []
+    logger.debug("artifact store: %s declares icon resource(s) %s.", artifact_path, declared)
+    return declared
 
 
 def _android_declared_stems(declared: Iterable[str]) -> set[str]:
@@ -289,8 +320,15 @@ def _extract_android_icon(artifact_path: Path) -> tuple[png.NormalizedPng | None
         ]
         candidates = direct or _android_zip_candidates(zf, declared)
         only_xml = bool(declared) and all(name.lower().endswith(".xml") for name in declared)
+        logger.debug(
+            "artifact store: %d direct and %d total Android icon candidate(s); declared only XML=%s.",
+            len(direct),
+            len(candidates),
+            only_xml,
+        )
         if not candidates and only_xml:
             candidates = _android_adaptive_layers(zf, declared)
+            logger.debug("artifact store: %d adaptive icon layer candidate(s).", len(candidates))
         if not candidates:
             return None, "adaptive_icon_vector_only" if only_xml else "no_icon_in_archive"
         candidates.sort(key=lambda item: (_android_density_rank(item.name), item.size), reverse=True)
@@ -314,13 +352,16 @@ def extract_icon(
     try:
         resolved_id = artifact_id or store.artifact_digest(path)
     except OSError:
+        logger.debug("artifact store: %s could not be digested.", path, exc_info=True)
         return IconExtraction(status=STATUS_FAILED, reason="artifact_unreadable")
 
     cached = store.icon_path(resolved_id)
     cached_meta = store.read_metadata(resolved_id) or {}
     icon_meta = cached_meta.get("icon") or {}
+    logger.debug("artifact store: icon for %s artifact %s (force=%s).", platform, resolved_id[:12], force)
     if not force:
         if cached.is_file():
+            logger.debug("artifact store: icon cache hit at %s.", cached)
             return IconExtraction(
                 status=STATUS_AVAILABLE,
                 artifact_id=resolved_id,
@@ -330,21 +371,29 @@ def extract_icon(
             )
         remembered = _remembered_absence(icon_meta)
         if remembered is not None:
+            logger.debug(
+                "artifact store: remembered absence for %s (%s); not rescanning.", resolved_id[:12], remembered
+            )
             return IconExtraction(status=STATUS_UNAVAILABLE, reason=remembered, artifact_id=resolved_id)
+        logger.debug("artifact store: icon cache miss for %s.", resolved_id[:12])
 
     extractor = _EXTRACTORS.get(platform)
     if extractor is None:
+        logger.debug("artifact store: no icon extractor for platform %s.", platform)
         return _unavailable("unsupported_platform", resolved_id)
 
     try:
         normalized, reason = extractor(path)
     except (zipfile.BadZipFile, OSError, ValueError) as exc:
+        logger.debug("artifact store: icon extraction from %s raised.", path, exc_info=True)
         logger.warning("Icon extraction failed for a %s artifact: %s", platform, type(exc).__name__)
         return IconExtraction(status=STATUS_FAILED, reason="artifact_unreadable", artifact_id=resolved_id)
     except Exception as exc:
+        logger.debug("artifact store: icon extraction from %s raised unexpectedly.", path, exc_info=True)
         logger.warning("Icon extraction failed for a %s artifact: %s", platform, type(exc).__name__)
         return IconExtraction(status=STATUS_FAILED, reason="extraction_error", artifact_id=resolved_id)
 
+    logger.debug("artifact store: extractor for %s returned %s.", resolved_id[:12], reason)
     if normalized is None:
         absent = _unavailable(reason, resolved_id)
         _record_icon(platform, resolved_id, absent)
@@ -353,6 +402,7 @@ def extract_icon(
     try:
         store.write_atomic(cached, normalized.data)
     except OSError:
+        logger.debug("artifact store: icon write to %s failed.", cached, exc_info=True)
         logger.warning("Extracted icon could not be written to the artifact store.")
         return IconExtraction(status=STATUS_FAILED, reason="store_unwritable", artifact_id=resolved_id)
 
@@ -373,6 +423,7 @@ def _remembered_absence(icon_meta: dict[str, Any]) -> str | None:
         return None
     reason = icon_meta.get("reason")
     if not isinstance(reason, str) or reason in ENVIRONMENT_DEPENDENT_REASONS:
+        logger.debug("artifact store: recorded absence %r is environment-dependent or invalid; retrying.", reason)
         return None
     return reason
 
@@ -382,9 +433,11 @@ def _record_icon(platform: str, artifact_id: str, icon: IconExtraction) -> None:
     metadata = store.read_metadata(artifact_id) or {}
     metadata.update({"artifact_id": artifact_id, "sha256": artifact_id, "platform": platform})
     metadata["icon"] = icon.as_dict()
+    logger.debug("artifact store: recording icon status %s for %s.", icon.status, artifact_id[:12])
     try:
         store.write_metadata(artifact_id, metadata)
     except OSError:
+        logger.debug("artifact store: metadata write for %s failed.", artifact_id[:12], exc_info=True)
         logger.warning("Artifact metadata could not be written to the artifact store.")
 
 
@@ -418,9 +471,11 @@ def describe_artifact(platform: str, artifact_path: Path) -> dict[str, Any]:
 
     facts: dict[str, Any] = {"bundle_id": None, "display_name": None, "version": None}
     error: str | None = None
+    logger.debug("artifact store: describing %s artifact %s (%s).", platform, path, artifact_id[:12])
     try:
         facts = _ios_artifact_facts(path) if platform == "ios" else _android_artifact_facts(path)
     except Exception as exc:
+        logger.debug("artifact store: reading facts from %s failed.", path, exc_info=True)
         error = str(exc)
 
     icon = extract_icon(platform, path, artifact_id)
@@ -437,12 +492,14 @@ def describe_artifact(platform: str, artifact_path: Path) -> dict[str, Any]:
     try:
         store.write_metadata(artifact_id, metadata)
     except OSError:
+        logger.debug("artifact store: metadata write for %s failed.", artifact_id[:12], exc_info=True)
         logger.warning("Artifact metadata could not be written to the artifact store.")
     return metadata
 
 
 def cached_extraction(artifact_id: str, metadata: dict[str, Any] | None = None) -> IconExtraction | None:
     if not store.is_artifact_id(artifact_id) or not store.icon_path(artifact_id).is_file():
+        logger.debug("artifact store: no cached icon for %r.", artifact_id)
         return None
     icon_meta = ((metadata or store.read_metadata(artifact_id) or {}).get("icon")) or {}
     return replace(

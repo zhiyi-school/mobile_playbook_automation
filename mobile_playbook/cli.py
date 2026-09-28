@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import sys
 import threading
 import uuid
@@ -40,6 +41,7 @@ from mobile_playbook.platforms.ios.risks import list_risks
 from mobile_playbook.platforms.ios.runner import IosPlatformRunner
 
 _KNOWN_RISKS_BY_PLATFORM = {"ios": known_ios_risks, "android": known_android_risks}
+logger = logging.getLogger(__name__)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -95,6 +97,7 @@ def _validate_playbook(platform: str) -> int:
     from mobile_playbook.api.services import playbook as playbook_service
 
     report = playbook_service.status(platform)
+    logger.debug("cli: playbook status for %s readable=%s.", platform, report["readable"])
     print(f"platform:   {platform}")
     print(f"configured: {report['configured_path'] or '(not configured)'}")
     if not report["readable"]:
@@ -139,6 +142,7 @@ def main(argv: list[str] | None = None) -> int:
     if hasattr(args, "android_config"):
         load_env_file(Path(args.android_config).parent / ".env")
     configure_logging(args.verbose)
+    logger.debug("cli: command %s with options %s.", args.command, sorted(vars(args)))
     try:
         if args.command == "validate":
             if args.platform == "android":
@@ -166,6 +170,14 @@ def main(argv: list[str] | None = None) -> int:
             selected_apps = selected_app_csv(args.apps)
             validate_app_selection(config.apps, selected_apps)
             validate_risk_selection(_KNOWN_RISKS_BY_PLATFORM[args.platform](), selected)
+            logger.debug(
+                "cli: %s run selection risks=%s apps=%s dry_run=%s out=%s.",
+                args.platform,
+                sorted(selected) if selected else None,
+                sorted(selected_apps) if selected_apps else None,
+                args.dry_run,
+                args.out,
+            )
             if args.dry_run:
                 if args.platform == "android":
                     _print_android_dry_run(config, selected, selected_apps)
@@ -178,6 +190,7 @@ def main(argv: list[str] | None = None) -> int:
                     return _run_android(config, selected, selected_apps, out_dir)
                 return _run(config, selected, selected_apps, out_dir)
             finally:
+                logger.debug("cli: %s run finished; triggering dashboard sync for %s.", args.platform, out_dir)
                 trigger_dashboard_sync(out_dir)
         if args.command == "run-all":
             ios_config = load_config(Path(args.ios_config), dry_run=args.dry_run)
@@ -187,6 +200,13 @@ def main(argv: list[str] | None = None) -> int:
             validate_app_selection(ios_config.apps, selected_apps)
             validate_app_selection(android_config.apps, selected_apps)
             validate_risk_selection(known_ios_risks() | known_android_risks(), selected)
+            logger.debug(
+                "cli: run-all selection risks=%s apps=%s dry_run=%s out=%s.",
+                sorted(selected) if selected else None,
+                sorted(selected_apps) if selected_apps else None,
+                args.dry_run,
+                args.out,
+            )
             if args.dry_run:
                 _print_dry_run(ios_config, selected, selected_apps)
                 _print_android_dry_run(android_config, selected, selected_apps)
@@ -195,6 +215,7 @@ def main(argv: list[str] | None = None) -> int:
             try:
                 return _run_all(ios_config, android_config, selected, selected_apps, out_dir)
             finally:
+                logger.debug("cli: run-all finished; triggering dashboard sync for %s.", out_dir)
                 trigger_dashboard_sync(out_dir)
         if args.command == "acquire":
             config = load_config(Path(args.config), dry_run=False)
@@ -204,10 +225,12 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "inspect-ipa":
             return _inspect_ipa(Path(args.ipa))
     except (ConfigError, AndroidConfigError) as exc:
+        logger.debug("cli: %s failed with %d config error(s).", args.command, len(exc.errors))
         for error in exc.errors:
             print(f"CONFIG_INVALID: {error}", file=sys.stderr)
         return 2
     except Exception as exc:
+        logger.debug("cli: %s failed.", args.command, exc_info=True)
         print(f"FAILED: {clean_message(str(exc))}", file=sys.stderr)
         return 1
     return 1
@@ -292,10 +315,13 @@ def _run_all(
     outcomes: dict[str, tuple[int, Exception | None]] = {}
 
     def _invoke(name: str, fn) -> None:
+        logger.debug("cli: run-all %s thread starting.", name)
         try:
             outcomes[name] = (fn(), None)
         except Exception as exc:
+            logger.debug("cli: run-all %s thread raised.", name, exc_info=True)
             outcomes[name] = (1, exc)
+        logger.debug("cli: run-all %s thread finished with code %s.", name, outcomes[name][0])
 
     threads = [
         threading.Thread(
@@ -313,6 +339,7 @@ def _run_all(
         thread.join()
 
     exit_code = 0
+    logger.debug("cli: run-all outcomes %s.", {name: code for name, (code, _) in outcomes.items()})
     for name in ("ios", "android"):
         code, exc = outcomes[name]
         if exc is not None:
@@ -329,15 +356,19 @@ def _run_requires_device(config, selected_risks: set[str] | None, selected_apps:
 
 def _acquire(config, selected_apps: set[str] | None, out_dir: Path) -> int:
     run_timestamp = _new_run_timestamp(out_dir)
+    logger.debug("cli: acquiring artifacts for apps %s as %s into %s.", selected_apps, run_timestamp, out_dir)
     results = IosPlatformRunner().acquire_artifacts(config, selected_apps, run_timestamp, out_dir)
     Path(out_dir).mkdir(parents=True, exist_ok=True)
-    (Path(out_dir) / f"{run_timestamp}-acquire-results.json").write_text(json.dumps(results, indent=2, sort_keys=True))
+    results_path = Path(out_dir) / f"{run_timestamp}-acquire-results.json"
+    results_path.write_text(json.dumps(results, indent=2, sort_keys=True))
+    logger.debug("cli: wrote acquire results to %s.", results_path)
     return 0
 
 
 def _inspect_ipa(ipa_path: Path) -> int:
     metadata = inspect_ipa_metadata(ipa_path)
     temp_dir = Path("/tmp") / f"mobile-playbook-automation-inspect-{uuid.uuid4().hex[:8]}"
+    logger.debug("cli: unpacking %s into %s.", ipa_path, temp_dir)
     app_dir = unpack_ipa(ipa_path, temp_dir)
     binary = inspect_main_executable(app_dir)
     print(json.dumps({"ipa": str(ipa_path), "metadata": metadata, "binary_inspection": binary.to_dict()}, indent=2, sort_keys=True))

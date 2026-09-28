@@ -44,10 +44,13 @@ class JobRegistry:
 
     def _load(self) -> None:
         if self._persist_path is None or not self._persist_path.exists():
+            logger.debug("api: no persisted run registry at %s; starting empty.", self._persist_path)
             return
+        logger.debug("api: loading run registry from %s.", self._persist_path)
         try:
             raw = json.loads(self._persist_path.read_text())
         except (OSError, json.JSONDecodeError) as exc:
+            logger.debug("api: run registry read failed for %s.", self._persist_path, exc_info=True)
             logger.warning("api: could not read %s (%s) — starting with an empty run registry.", self._persist_path, exc)
             return
         interrupted = 0
@@ -55,6 +58,7 @@ class JobRegistry:
             try:
                 record = RunRecord(**data)
             except TypeError as exc:
+                logger.debug("api: run record %r could not be parsed.", run_id, exc_info=True)
                 logger.warning(
                     "api: skipping malformed run record %r in %s (%s).",
                     run_id,
@@ -63,6 +67,7 @@ class JobRegistry:
                 )
                 continue
             if record.status == "running":
+                logger.debug("api: recovering interrupted run %s (running -> failed).", record.run_id)
                 record.status = "failed"
                 record.error = INTERRUPTED_ERROR
                 record.completed_at = datetime.now().astimezone().isoformat()
@@ -75,6 +80,7 @@ class JobRegistry:
 
     def _save(self) -> None:
         if self._persist_path is None:
+            logger.debug("api: run registry has no persist path; skipping save.")
             return
         self._persist_path.parent.mkdir(parents=True, exist_ok=True)
         payload = {run_id: asdict(record) for run_id, record in self._records.items()}
@@ -84,24 +90,33 @@ class JobRegistry:
                 json.dump(payload, handle, indent=2, sort_keys=True)
             os.replace(tmp_path, self._persist_path)
         except BaseException:
+            logger.debug(
+                "api: run registry save to %s failed; removing %s.", self._persist_path, tmp_path, exc_info=True
+            )
             Path(tmp_path).unlink(missing_ok=True)
             raise
+        logger.debug("api: saved %d run record(s) to %s.", len(payload), self._persist_path)
 
     def try_claim_platform(self, platform: str) -> bool:
         """Claim one physical device platform for the current process."""
         with self._lock:
             if platform in self._busy_platforms:
+                logger.debug("api: platform %s is busy; claim refused.", platform)
                 return False
             self._busy_platforms.add(platform)
+            logger.debug("api: claimed platform %s.", platform)
             return True
 
     def release_platform(self, platform: str) -> None:
         with self._lock:
             self._busy_platforms.discard(platform)
+            logger.debug("api: released platform %s.", platform)
 
     def is_platform_busy(self, platform: str) -> bool:
         with self._lock:
-            return platform in self._busy_platforms
+            busy = platform in self._busy_platforms
+        logger.debug("api: platform %s busy=%s.", platform, busy)
+        return busy
 
     def create(
         self,
@@ -122,11 +137,15 @@ class JobRegistry:
         with self._lock:
             self._records[record.run_id] = record
             self._save()
+        logger.debug(
+            "api: run %s created (platform=%s, apps=%s, risks=%s, config=%s).", run_id, platform, apps, risks, config_path
+        )
         return record
 
     def mark_completed(self, run_id: str, run_dir: Path) -> None:
         with self._lock:
             record = self._records[run_id]
+            logger.debug("api: run %s %s -> completed (run_dir=%s).", run_id, record.status, run_dir)
             record.status = "completed"
             record.run_dir = str(run_dir)
             record.completed_at = datetime.now().astimezone().isoformat()
@@ -135,6 +154,7 @@ class JobRegistry:
     def mark_failed(self, run_id: str, error: str) -> None:
         with self._lock:
             record = self._records[run_id]
+            logger.debug("api: run %s %s -> failed (%s).", run_id, record.status, error)
             record.status = "failed"
             record.error = error
             record.completed_at = datetime.now().astimezone().isoformat()

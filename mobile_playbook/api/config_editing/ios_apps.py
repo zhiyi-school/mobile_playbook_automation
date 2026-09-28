@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 from copy import deepcopy
 
@@ -33,6 +34,7 @@ IOS_APP_FIELD_ORDER = (
     "risks",
     "cisos",
 )
+logger = logging.getLogger(__name__)
 
 
 def field_value_re(field: str) -> re.Pattern:
@@ -49,12 +51,14 @@ def unquote(value: str) -> str:
 def split_ios_app_blocks(apps_text: str) -> tuple[str, list[str]]:
     starts = [match.start() for match in APP_ITEM_START_RE.finditer(apps_text)]
     if not starts:
+        logger.debug("api: no app entries found in %d characters of iOS apps YAML.", len(apps_text))
         raise HTTPException(status_code=500, detail="Could not locate any app entries in configs/split/ios/apps.yaml")
     preamble = apps_text[: starts[0]]
     blocks = []
     for index, start in enumerate(starts):
         end = starts[index + 1] if index + 1 < len(starts) else len(apps_text)
         blocks.append(apps_text[start:end])
+    logger.debug("api: split iOS apps YAML into %d app block(s).", len(blocks))
     return preamble, blocks
 
 
@@ -83,10 +87,12 @@ def apply_ios_app_defaults(app: dict) -> dict:
     if not filled.get("expected_behavior"):
         default_check = ios_templates().get("x-default-launch-check")
         if default_check:
+            logger.debug("api: applying the default launch check to iOS app %r.", filled.get("id"))
             filled["expected_behavior"] = deepcopy(default_check)
     if not filled.get("test_bundle_id"):
         wda_bundle_id = get_section("ios", "device").get("updated_wda_bundle_id")
         if wda_bundle_id:
+            logger.debug("api: defaulting test_bundle_id of iOS app %r to %s.", filled.get("id"), wda_bundle_id)
             filled["test_bundle_id"] = wda_bundle_id
     ordered = {key: filled[key] for key in IOS_APP_FIELD_ORDER if key in filled}
     ordered.update({key: value for key, value in filled.items() if key not in ordered})
@@ -96,7 +102,9 @@ def apply_ios_app_defaults(app: dict) -> dict:
 def list_ios_apps() -> list[dict]:
     config, _ = load_with_errors("ios")
     if config is None:
+        logger.debug("api: iOS config unparseable; responding 422 to app listing.")
         raise HTTPException(status_code=422, detail=config_errors("ios"))
+    logger.debug("api: listed %d iOS app(s).", len(config.apps))
     return [app.to_dict() for app in config.apps]
 
 
@@ -112,14 +120,18 @@ def add_ios_app(app: dict) -> dict:
         _, blocks = split_ios_app_blocks(original_text)
         app = apply_ios_app_defaults(app)
         app_id = app.get("id") or ios_slugify(app.get("name") or "")
+        logger.debug("api: adding iOS app %s to %s (%d existing block(s)).", app_id, path, len(blocks))
         if any(ios_block_identity(block) == app_id for block in blocks):
+            logger.debug("api: iOS app %s already exists; responding 409.", app_id)
             raise HTTPException(status_code=409, detail={"message": f"App already exists: {app_id}", "app_id": app_id})
         path.write_text(original_text.rstrip("\n") + "\n" + render_ios_app_block(app))
         try:
             load_and_validate("ios", baseline)
         except HTTPException:
+            logger.debug("api: adding iOS app %s failed validation; restoring %s.", app_id, path)
             path.write_text(original_text)
             raise
+    logger.debug("api: added iOS app %s.", app_id)
     return {"id": app_id}
 
 
@@ -131,10 +143,13 @@ def edit_ios_app(app_id: str, updates: dict) -> dict:
         preamble, blocks = split_ios_app_blocks(original_text)
         target_index = next((i for i, block in enumerate(blocks) if ios_block_identity(block) == app_id), None)
         if target_index is None:
+            logger.debug("api: iOS app %s has no block in %s; responding 404.", app_id, path)
             raise HTTPException(status_code=404, detail=f"Unknown app_id: {app_id}")
         current = effective_ios_app(app_id)
         if current is None:
+            logger.debug("api: iOS app %s missing from the effective config; responding 404.", app_id)
             raise HTTPException(status_code=404, detail=f"Unknown app_id: {app_id}")
+        logger.debug("api: editing iOS app %s (block %d) with keys %s.", app_id, target_index, sorted(updates))
         merged = merge_dicts(current, updates)
         for key in APP_METADATA_KEYS & updates.keys():
             merged[key] = updates[key]
@@ -144,6 +159,7 @@ def edit_ios_app(app_id: str, updates: dict) -> dict:
         try:
             load_and_validate("ios", baseline)
         except HTTPException:
+            logger.debug("api: editing iOS app %s failed validation; restoring %s.", app_id, path)
             path.write_text(original_text)
             raise
     return effective_ios_app(app_id) or merged
@@ -156,11 +172,13 @@ def delete_ios_app(app_id: str) -> None:
         baseline = config_errors("ios")
         preamble, blocks = split_ios_app_blocks(original_text)
         remaining = [block for block in blocks if ios_block_identity(block) != app_id]
+        logger.debug("api: deleting iOS app %s from %s (%d -> %d).", app_id, path, len(blocks), len(remaining))
         if len(remaining) == len(blocks):
             raise HTTPException(status_code=404, detail=f"Unknown app_id: {app_id}")
         path.write_text(preamble + "".join(remaining))
         try:
             load_and_validate("ios", baseline)
         except HTTPException:
+            logger.debug("api: deleting iOS app %s failed validation; restoring %s.", app_id, path)
             path.write_text(original_text)
             raise

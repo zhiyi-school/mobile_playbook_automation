@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import logging
 import os
 
 from mobile_playbook.core.discovery import discover_plugins
 from mobile_playbook.platforms.ios.risks.base import Risk
+
+logger = logging.getLogger(__name__)
 
 _PACKAGE_NAME = __name__.rsplit(".", 1)[0]
 _PACKAGE_PATH = [os.path.dirname(__file__)]
@@ -14,7 +17,9 @@ _cache: dict[str, type[Risk]] | None = None
 def _registry() -> dict[str, type[Risk]]:
     global _cache
     if _cache is None:
+        logger.debug("ios risk registry: discovering risks in %s", _PACKAGE_NAME)
         _cache = discover_plugins(_PACKAGE_NAME, _PACKAGE_PATH, Risk, "risk_id")
+        logger.debug("ios risk registry: discovered %d risk(s): %s", len(_cache), sorted(_cache))
     return _cache
 
 
@@ -24,6 +29,7 @@ def known_risks() -> set[str]:
 
 def get_risk(risk_id: str) -> Risk | None:
     risk_type = _registry().get(risk_id)
+    logger.debug("ios risk registry: get_risk(%s) -> %s", risk_id, getattr(risk_type, "__name__", risk_type))
     return risk_type() if risk_type else None
 
 

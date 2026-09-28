@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 
 from fastapi import FastAPI
@@ -10,6 +11,7 @@ from mobile_playbook.api.routes import artifacts, catalog, config, playbook, rep
 from mobile_playbook.reporting import run_manifest
 
 _STARTED_AT = datetime.now(timezone.utc).isoformat()
+logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="Mobile Playbook Automation API",
@@ -44,6 +46,7 @@ app.include_router(sync.router)
 
 @app.get("/health")
 def health() -> dict:
+    logger.debug("api: GET /health.")
     return {
         "status": "ok",
         "code_revision": run_manifest.git_revision(),

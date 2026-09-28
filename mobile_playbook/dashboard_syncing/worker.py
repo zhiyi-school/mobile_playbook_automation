@@ -13,6 +13,7 @@ from mobile_playbook.dashboard_syncing.contracts import SupabaseRestError
 from mobile_playbook.dashboard_syncing.orchestrator import sync_reports
 from mobile_playbook.dashboard_syncing.supabase import SupabaseRestStore
 from mobile_playbook.env_file import load_env_file
+from mobile_playbook.logging_setup import log_level
 from mobile_playbook.sync_state import SyncBusy, single_instance
 
 logger = logging.getLogger(__name__)
@@ -55,11 +56,21 @@ def main(
         parser.error("--interval-seconds must be greater than 0")
     if args.lock_wait_seconds < 0:
         parser.error("--lock-wait-seconds must be greater than or equal to 0")
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     load_env_file(Path(".env"))
+    logging.basicConfig(level=log_level(), format="%(levelname)s %(name)s: %(message)s")
+    logger.debug(
+        "dashboard sync: worker starting (reports_dir=%s, runs=%s, interval=%s, lock_wait=%s, legacy=%s, force=%s).",
+        args.reports_dir,
+        args.run_timestamps,
+        args.interval_seconds,
+        args.lock_wait_seconds,
+        args.allow_legacy_report,
+        args.force,
+    )
     try:
         store = store_factory()
     except SupabaseRestError as exc:
+        logger.debug("dashboard sync: store construction failed.", exc_info=True)
         logger.error(
             "%s. Set it in the environment or in .env; the service-role key must never be committed "
             "or exposed to the frontend.",
@@ -69,7 +80,9 @@ def main(
     reports_dir = Path(args.reports_dir)
     while True:
         try:
+            logger.debug("dashboard sync: acquiring host lock in %s.", reports_dir)
             with single_instance(reports_dir, wait_seconds=args.lock_wait_seconds):
+                logger.debug("dashboard sync: host lock held; starting pass.")
                 summary = sync_reports(
                     reports_dir,
                     store,
@@ -78,13 +91,17 @@ def main(
                     allow_legacy_report=args.allow_legacy_report,
                     force=args.force,
                 )
+            logger.debug("dashboard sync: pass complete; host lock released.")
         except SyncBusy as exc:
+            logger.debug("dashboard sync: host lock busy: %s", exc)
             logger.info("dashboard sync: skipped, %s.", exc)
             if args.interval_seconds is None:
                 return 0
+            logger.debug("dashboard sync: retrying in %.1fs.", args.interval_seconds)
             time.sleep(args.interval_seconds)
             continue
         except Exception as exc:
+            logger.debug("dashboard sync: pass raised; recording a failed worker pass.", exc_info=True)
             sync_status.record_worker_pass(reports_dir, succeeded=False, error=str(exc))
             raise
         sync_status.record_worker_pass(
@@ -104,5 +121,7 @@ def main(
             summary.failed_reports,
         )
         if args.interval_seconds is None:
+            logger.debug("dashboard sync: one-shot worker exiting (failed reports=%d).", summary.failed_reports)
             return 1 if summary.failed_reports else 0
+        logger.debug("dashboard sync: sleeping %.1fs before the next pass.", args.interval_seconds)
         time.sleep(args.interval_seconds)

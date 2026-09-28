@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import logging
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
@@ -8,11 +9,13 @@ from typing import Any
 import uvicorn
 from uvicorn.config import LOGGING_CONFIG
 
+from mobile_playbook.logging_setup import log_level
 from mobile_playbook.orchestration.appium_process import ensure_appium_running, stop_appium
 from mobile_playbook.platforms.ios.config import load_config
 from mobile_playbook.storage import ios_work_dir
 
 MOBILE_PLAYBOOK_LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
+logger = logging.getLogger(__name__)
 
 
 def api_log_config() -> dict[str, Any]:
@@ -26,9 +29,10 @@ def api_log_config() -> dict[str, Any]:
         "formatter": "mobile_playbook",
         "stream": "ext://sys.stdout",
     }
+    level = logging.getLevelName(log_level())
     config["root"] = {"level": "INFO", "handlers": ["mobile_playbook"]}
     config.setdefault("loggers", {})["mobile_playbook"] = {
-        "level": "INFO",
+        "level": level,
         "handlers": ["mobile_playbook"],
         "propagate": False,
     }
@@ -42,6 +46,9 @@ def main() -> None:
     parser.add_argument("--reload", action="store_true")
     parser.add_argument("--ios-config", default="configs/ios.yaml")
     args = parser.parse_args()
+    logger.debug(
+        "api: starting on %s:%s (reload=%s, ios_config=%s).", args.host, args.port, args.reload, args.ios_config
+    )
 
     config = load_config(Path(args.ios_config), dry_run=False)
     result = ensure_appium_running(
@@ -49,6 +56,7 @@ def main() -> None:
         config.device.appium_auto_start,
         ios_work_dir() / "appium-api.log",
     )
+    logger.debug("api: Appium check at %s returned %s.", config.device.appium_server_url, result.status)
     if result.status == "FAILED":
         raise RuntimeError(result.error)
 
@@ -62,6 +70,7 @@ def main() -> None:
         )
     finally:
         if result.status == "STARTED" and result.process is not None:
+            logger.debug("api: stopping the Appium process started for this server.")
             stop_appium(result.process)
 
 

@@ -2,12 +2,16 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import re
+from collections import Counter
 from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlsplit
 
 from mobile_playbook.playbook import catalogue, controls, markdown, source
+
+logger = logging.getLogger(__name__)
 
 ERROR_CODES = frozenset(
     {
@@ -32,24 +36,43 @@ EXTERNAL_SCHEMES = frozenset({"http", "https", "mailto"})
 
 def validate(root: Path, platform: str) -> dict[str, Any]:
     root = Path(root).expanduser().resolve()
+    logger.debug("playbook validator: validating %s playbook at %s", platform, root)
     if not root.is_dir():
+        logger.debug("playbook validator: root %s is not a readable directory", root)
         return _result(root, platform, [_diagnostic("playbook_root_unreadable", "error", ".", None, f"Playbook root is not a readable directory: {root}")])
 
     built = catalogue.build(platform, root, overrides={})
     diagnostics = [_from_catalogue(item) for item in built["warnings"]]
+    logger.debug("playbook validator: catalogue produced %s diagnostics", len(diagnostics))
     for path in source.markdown_files(root):
         diagnostics.extend(_validate_document(root, platform, path))
+    collected = len(diagnostics)
     diagnostics = _deduplicate(diagnostics)
-    return _result(root, platform, diagnostics, built)
+    result = _result(root, platform, diagnostics, built)
+    logger.debug(
+        "playbook validator: %s diagnostics after deduplicating %s: %s errors, %s warnings",
+        len(diagnostics),
+        collected,
+        result["errors"],
+        result["warnings"],
+    )
+    if diagnostics and logger.isEnabledFor(logging.DEBUG):
+        logger.debug(
+            "playbook validator: diagnostic codes %s",
+            dict(Counter((item["severity"], item["code"]) for item in diagnostics)),
+        )
+    return result
 
 
 def _validate_document(root: Path, platform: str, path: Path) -> list[dict[str, Any]]:
     relative = source.relative_to_root(root, path)
     text = path.read_text(errors="replace")
+    logger.debug("playbook validator: checking %s (%s chars)", relative, len(text))
     document = controls.read_document(path)
     diagnostics: list[dict[str, Any]] = []
     identity_looks_managed = "-risk-" in document.identity or "-control-" in document.identity
     if identity_looks_managed and not catalogue.CONTROL_DOCUMENT.match(document.identity) and not catalogue.RISK_DOCUMENT.match(document.identity):
+        logger.debug("playbook validator: %s identity %s is neither a risk nor a control", relative, document.identity)
         diagnostics.append(
             _diagnostic(
                 "unrecognized_document_identity",
@@ -62,6 +85,7 @@ def _validate_document(root: Path, platform: str, path: Path) -> list[dict[str, 
 
     for line_number, line in enumerate(text.splitlines(), 1):
         if "playbook-step-id" in line.casefold() and markdown.STEP_ID_COMMENT.match(line.strip()) is None:
+            logger.debug("playbook validator: %s:%s malformed step id directive %r", relative, line_number, line.strip()[:200])
             diagnostics.append(
                 _diagnostic(
                     "malformed_step_id",
@@ -76,6 +100,7 @@ def _validate_document(root: Path, platform: str, path: Path) -> list[dict[str, 
     for line_number, line in enumerate(text.splitlines(), 1):
         for link in markdown.iter_links(line):
             diagnostics.extend(_validate_link(root, path, relative, line_number, link, anchors))
+    logger.debug("playbook validator: %s produced %s diagnostics (%s heading anchors)", relative, len(diagnostics), len(anchors))
     return diagnostics
 
 
@@ -93,22 +118,27 @@ def _validate_link(
     parsed = urlsplit(target)
     if parsed.scheme in EXTERNAL_SCHEMES:
         if parsed.scheme in {"http", "https"} and not parsed.netloc:
+            logger.debug("playbook validator: %s:%s malformed external URL %s", relative, line_number, target[:200])
             return [_diagnostic("invalid_external_url", "warning", relative, line_number, f"External URL is malformed: {target}")]
         return []
     if parsed.scheme or target.startswith("//"):
+        logger.debug("playbook validator: %s:%s unsupported link scheme %s", relative, line_number, parsed.scheme or "//")
         return [_diagnostic("unsupported_link_scheme", "warning", relative, line_number, f"Link scheme is not validated: {target}")]
 
     decoded_path = unquote(parsed.path)
     candidate_relative = Path(relative).parent / decoded_path if decoded_path else Path(relative)
     resolved = source.resolve_within(root, candidate_relative.as_posix())
     if resolved is None:
+        logger.debug("playbook validator: %s:%s reference %s leaves the root", relative, line_number, target[:200])
         return [_diagnostic("reference_outside_root", "error", relative, line_number, f"Reference leaves the playbook root: {target}")]
     if not resolved.is_file():
+        logger.debug("playbook validator: %s:%s referenced file %s does not exist", relative, line_number, resolved)
         return [_diagnostic("missing_local_link", "error", relative, line_number, f"Referenced file does not exist: {target}")]
     if parsed.fragment and resolved.suffix.lower() == ".md":
         anchors = current_anchors if resolved == document_path.resolve() else _heading_anchors(controls.read_document(resolved).blocks)
         wanted = unquote(parsed.fragment).casefold()
         if wanted not in anchors:
+            logger.debug("playbook validator: %s:%s anchor #%s not found in %s", relative, line_number, wanted, resolved)
             return [_diagnostic("missing_heading_anchor", "warning", relative, line_number, f"Heading anchor #{parsed.fragment} does not exist in {source.relative_to_root(root, resolved)}.")]
     return []
 
@@ -179,6 +209,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--format", choices=("text", "json"), default="text")
     parser.add_argument("--strict", action="store_true", help="Treat warnings as a failing result.")
     args = parser.parse_args(argv)
+    logger.debug("playbook validator: cli root=%s platform=%s format=%s strict=%s", args.root, args.platform, args.format, args.strict)
     result = validate(args.root, args.platform)
     if args.format == "json":
         print(json.dumps(result, indent=2, sort_keys=True))
@@ -187,7 +218,9 @@ def main(argv: list[str] | None = None) -> int:
             location = item["path"] + (f":{item['line']}" if item["line"] else "")
             print(f"{item['severity'].upper()} {item['code']} {location}: {item['message']}")
         print(f"{result['errors']} error(s), {result['warnings']} warning(s)")
-    return 1 if result["errors"] or (args.strict and result["warnings"]) else 0
+    exit_code = 1 if result["errors"] or (args.strict and result["warnings"]) else 0
+    logger.debug("playbook validator: exit code %s", exit_code)
+    return exit_code
 
 
 if __name__ == "__main__":

@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import re
 from pathlib import Path
 from typing import Any, NamedTuple
 
 from mobile_playbook.playbook import markdown, source
+
+logger = logging.getLogger(__name__)
 
 ACTIVE = "active"
 DEPRECATED = "deprecated"
@@ -58,6 +61,7 @@ def mitre_annotation(description: str) -> tuple[dict[str, str] | None, list[dict
             found.append((tactic, match.group("tactic_id").upper()))
 
     if not found:
+        logger.debug("playbook parser: MITRE ATT&CK named without a tactic and TA identifier")
         return None, [
             {
                 "code": "malformed_mitre_annotation",
@@ -67,8 +71,10 @@ def mitre_annotation(description: str) -> tuple[dict[str, str] | None, list[dict
     distinct = sorted(set(found))
     if len(distinct) > 1:
         detail = ", ".join(f"{tactic} ({tactic_id})" for tactic, tactic_id in distinct)
+        logger.debug("playbook parser: conflicting MITRE tactics: %s", detail)
         return None, [{"code": "conflicting_mitre_annotation", "message": detail}]
     tactic, tactic_id = distinct[0]
+    logger.debug("playbook parser: MITRE tactic %s (%s)", tactic, tactic_id)
     return {"tactic": tactic, "tactic_id": tactic_id}, []
 
 
@@ -127,6 +133,16 @@ def read_document(path: Path) -> Document:
     heading = heading_of(blocks)
     heading_id = document_id(heading) if heading else None
     file_id = document_id(path.stem)
+    logger.debug(
+        "playbook parser: read %s (%s bytes, %s blocks, front matter keys %s): heading id %s, file id %s, identity from %s",
+        path,
+        len(raw),
+        len(blocks),
+        sorted(map(str, front_matter)),
+        heading_id,
+        file_id,
+        "heading" if heading_id else "filename",
+    )
     return Document(path, raw, front_matter, blocks, heading_id, file_id, heading_id or file_id)
 
 
@@ -141,6 +157,7 @@ def parse_control(document: Document, root: Path) -> dict[str, Any]:
     archives = _collect_archives(blocks)
     description = _section_text(blocks, "description")
     if not description and split_sections(blocks).has_step_section:
+        logger.debug("playbook parser: control %s has step sections but no Description", control_id)
         parse_warnings.append({"code": "missing_description", "message": "no Description section"})
 
     marker_status, from_marker = infer_status(path.name, heading_id or "")
@@ -165,6 +182,29 @@ def parse_control(document: Document, root: Path) -> dict[str, Any]:
         "file_id": file_id,
         "parse_warnings": parse_warnings,
     }
+    logger.debug(
+        "playbook parser: control %s status %s (%s) revision %s: %s intro blocks, %s steps, %s references, %s archives",
+        control_id,
+        status,
+        record["status_source"],
+        record["playbook_revision"],
+        len(intro),
+        len(steps),
+        len(references),
+        len(archives),
+    )
+    if logger.isEnabledFor(logging.DEBUG):
+        for step in steps:
+            logger.debug(
+                "playbook parser: control %s step %s #%s (%s id) %r",
+                control_id,
+                step.get("step_key"),
+                step.get("number"),
+                step.get("step_id_source"),
+                str(step.get("step_title") or "")[:80],
+            )
+        if parse_warnings:
+            logger.debug("playbook parser: control %s parse warnings %s", control_id, [note.get("code") for note in parse_warnings])
     return record
 
 
@@ -172,6 +212,7 @@ def parse_risk(document: Document, root: Path) -> dict[str, Any]:
     path, raw, front_matter, blocks = document.path, document.raw, document.front_matter, document.blocks
     heading_id = document.heading_id
 
+    logger.debug("playbook parser: parsing risk %s from %s", document.identity, path)
     description = _section_text(blocks, "description")
     mitre, parse_warnings = mitre_annotation(description)
     return {
@@ -239,8 +280,10 @@ def _partition(
     if sections.has_step_section:
         body = sections.named.get(STEPS) or []
         steps, leading = _heading_steps(body, used_keys, notes)
+        logger.debug("playbook parser: step section with %s blocks, heading steps %s", len(body), "none" if steps is None else len(steps))
         if steps is None:
             steps, leading = _list_steps(body, used_keys, notes)
+            logger.debug("playbook parser: step section parsed as list steps: %s", len(steps))
             if not steps:
                 notes.append({"code": "empty_step_section", "message": "no numbered steps"})
         intro = _intro_blocks(_after_title(sections.named.get(TITLE) or []))
@@ -252,6 +295,7 @@ def _partition(
     # Legacy documents name no section: ordered lists before the references are the steps.
     body = _after_title(sections.named.get(TITLE) or []) + sections.loose
     steps, intro = _list_steps(body, used_keys, notes)
+    logger.debug("playbook parser: legacy document without step sections, %s list steps", len(steps))
     intro = _intro_blocks(_intro_blocks(sections.named.get(DESCRIPTION) or []) + intro)
     return intro, steps, references
 
@@ -316,6 +360,7 @@ def _heading_steps(
         number = int(heading.group(1))
         title = " ".join(heading.group(2).split()) or f"Step {len(steps) + 1}"
         if number in seen_numbers:
+            logger.debug("playbook parser: duplicate step number %s", number)
             warnings.append({"code": "duplicate_step_number", "path": str(number), "message": f"step number {number}"})
         seen_numbers.add(number)
 
@@ -323,6 +368,7 @@ def _heading_steps(
         candidate = declared or generated
         if candidate in used_keys:
             code = "duplicate_step_id" if declared else "duplicate_generated_step_id"
+            logger.debug("playbook parser: %s %s, assigning a suffixed key", code, candidate)
             warnings.append(
                 {"code": code, "path": candidate, "message": f"step id {candidate}"}
             )
@@ -371,6 +417,7 @@ def _list_steps(
                 candidate = declared or generated
                 if candidate in used_keys:
                     code = "duplicate_step_id" if declared else "duplicate_generated_step_id"
+                    logger.debug("playbook parser: %s %s, assigning a suffixed key", code, candidate)
                     warnings.append(
                         {"code": code, "path": candidate, "message": f"step id {candidate}"}
                     )
@@ -425,6 +472,7 @@ def _risk_demonstration(blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
     items = [_demonstration_step(step, label if index == 0 else None) for index, step in enumerate(steps)]
     if items:
         demonstration.append({"id": "steps-1", "type": "steps", "label": label, "items": items})
+    logger.debug("playbook parser: risk demonstration has %s steps and %s sections", len(items), len(demonstration))
     return demonstration
 
 

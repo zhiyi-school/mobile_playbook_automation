@@ -23,8 +23,11 @@ def auto_trigger_enabled(
 ) -> bool:
     environment = environ if environ is not None else os.environ
     value = environment.get(AUTO_TRIGGER_ENV)
+    source = "environment"
     if value is None:
         value = _env_file_value(env_path or REPOSITORY_ROOT / ".env", AUTO_TRIGGER_ENV) or "true"
+        source = "env file or default"
+    logger.debug("dashboard sync: %s=%r from %s.", AUTO_TRIGGER_ENV, value, source)
     return value.strip().lower() not in FALSE_VALUES
 
 
@@ -32,7 +35,8 @@ def _env_file_value(path: Path, wanted_key: str) -> str | None:
     """Read one non-secret setting without importing the whole .env into the API."""
     try:
         lines = path.read_text().splitlines()
-    except OSError:
+    except OSError as exc:
+        logger.debug("dashboard sync: env file %s unreadable for %s: %s", path, wanted_key, type(exc).__name__)
         return None
     for line in lines:
         stripped = line.strip()
@@ -44,7 +48,9 @@ def _env_file_value(path: Path, wanted_key: str) -> str | None:
         value = value.strip()
         if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
             value = value[1:-1]
+        logger.debug("dashboard sync: %s found in %s.", wanted_key, path)
         return value
+    logger.debug("dashboard sync: %s not present in %s.", wanted_key, path)
     return None
 
 
@@ -74,6 +80,7 @@ def trigger_dashboard_sync(reports_dir: Path, run_timestamp: str | None = None) 
     ]
     child_env = os.environ.copy()
     child_env["PYTHONUNBUFFERED"] = "1"
+    logger.debug("dashboard sync: launching %s (cwd=%s, log=%s).", command, REPOSITORY_ROOT, log_path)
 
     try:
         log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -88,6 +95,7 @@ def trigger_dashboard_sync(reports_dir: Path, run_timestamp: str | None = None) 
                 start_new_session=True,
             )
     except Exception as exc:
+        logger.debug("dashboard sync: post-run worker launch failed.", exc_info=True)
         logger.warning("dashboard sync: could not start the post-run worker: %s", exc)
         return None
 
@@ -102,8 +110,11 @@ def _mark_queued(run_dir: Path) -> None:
         from mobile_playbook.reporting.run_manifest import is_completed, read_manifest
 
         if is_completed(read_manifest(run_dir)):
+            logger.debug("dashboard sync: run %s completed; marking it queued.", run_dir.name)
             sync_status.mark_queued(run_dir)
         else:
+            logger.debug("dashboard sync: run %s did not complete; marking sync not required.", run_dir.name)
             sync_status.mark_not_required(run_dir, "the automation run did not complete")
     except Exception as exc:
+        logger.debug("dashboard sync: queued-status update for %s failed.", run_dir.name, exc_info=True)
         logger.warning("dashboard sync: could not record queued status for %s: %s", run_dir.name, exc)

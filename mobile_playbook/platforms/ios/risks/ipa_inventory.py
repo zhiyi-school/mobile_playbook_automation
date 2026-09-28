@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from collections import Counter
 from pathlib import Path
 from typing import Any
@@ -13,6 +14,8 @@ from mobile_playbook.platforms.ios.risks.sensitive_findings import (
     test_google_api_key_reuse,
 )
 
+logger = logging.getLogger(__name__)
+
 
 def analyze_package(
     app_dir: Path,
@@ -20,7 +23,13 @@ def analyze_package(
     binary_inspection,
     risk_config: dict[str, Any],
 ) -> dict[str, Any]:
+    logger.debug("ios ipa inventory: analyzing package %s", app_dir)
     info = read_info_plist(app_dir)
+    logger.debug(
+        "ios ipa inventory: Info.plist keys=%d CFBundleIdentifier=%s CFBundleShortVersionString=%s CFBundleVersion=%s CFBundleExecutable=%s",
+        len(info), info.get("CFBundleIdentifier"), info.get("CFBundleShortVersionString"), info.get("CFBundleVersion"),
+        info.get("CFBundleExecutable"),
+    )
     package_inventory = inventory(app_dir)
     sensitive_config = risk_config.get("sensitive_scan") or {}
     reveal_sensitive_values = bool(sensitive_config.get("reveal_values", False))
@@ -29,6 +38,10 @@ def analyze_package(
     permissions = sorted(k for k in info if k.endswith("UsageDescription"))
     schemes = url_schemes(info)
     ats = info.get("NSAppTransportSecurity") or {}
+    logger.debug(
+        "ios ipa inventory: permissions=%s url_schemes=%s ats_present=%s reveal_sensitive_values=%s api_key_reuse_enabled=%s",
+        permissions, schemes, bool(ats), reveal_sensitive_values, api_key_reuse_enabled,
+    )
     findings = [
         "IPA can be acquired and unpacked for local static analysis.",
         "Analyst can inspect Info.plist metadata, code signature metadata, frameworks, plugins, resources, and the app binary.",
@@ -45,12 +58,15 @@ def analyze_package(
         findings.append(f"Package includes {package_inventory['counts']['plugins']} app extension/plugin bundle(s).")
     if binary_inspection.status == "PROTECTED_OR_ENCRYPTED_BINARY":
         findings.append("Main executable appears protected/encrypted, but metadata and bundled resources remain analyzable.")
+    logger.debug("ios ipa inventory: binary inspection status=%s", binary_inspection.status)
     sensitive_findings = scan_sensitive_information(app_dir, package_inventory, reveal_sensitive_values)
+    logger.debug("ios ipa inventory: sensitive scan findings=%d", len(sensitive_findings))
     if sensitive_findings:
         findings.append(f"Potential sensitive information found in bundled resources: {len(sensitive_findings)} finding(s).")
     api_key_reuse_tests = test_google_api_key_reuse(sensitive_findings, api_key_reuse_config, reveal_sensitive_values) if api_key_reuse_enabled else []
     if api_key_reuse_tests:
         reusable = sum(1 for item in api_key_reuse_tests if item["status"] == "REUSABLE_FROM_WORKSTATION")
+        logger.debug("ios ipa inventory: api key reuse tests=%d reusable=%d", len(api_key_reuse_tests), reusable)
         findings.append(f"Google API key external reuse test completed: {reusable}/{len(api_key_reuse_tests)} key(s) appeared reusable from this workstation.")
     public_findings = public_sensitive_findings(sensitive_findings)
 
@@ -96,6 +112,7 @@ def analyze_package(
             "owasp_reference": "https://mas.owasp.org/MASTG/techniques/ios/MASTG-TECH-0058/",
         },
     }
+    logger.debug("ios ipa inventory: summary findings=%d public_sensitive_findings=%d", len(findings), len(public_findings))
     return {"summary": summary, "inventory": package_inventory, "critical_findings": critical_findings(summary, package_inventory)}
 
 
@@ -127,6 +144,10 @@ def inventory(app_dir: Path) -> dict[str, Any]:
                 "suffix": suffix,
             }
         )
+    logger.debug(
+        "ios ipa inventory: %s files=%d frameworks=%d plugins=%d resource_samples=%d suffixes=%d",
+        app_dir, len(files), len(frameworks), len(plugins), len(resource_samples), len(suffixes),
+    )
     return {
         "counts": {
             "files": len(files),

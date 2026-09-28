@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 def mobsf_critical_findings(summary: dict[str, Any], inventory: dict[str, Any]) -> dict[str, Any]:
@@ -9,6 +12,13 @@ def mobsf_critical_findings(summary: dict[str, Any], inventory: dict[str, Any]) 
     findings = summary.get("mobsf_findings") or []
     sensitive_findings = summary.get("sensitive_information_findings") or []
     api_key_reuse_tests = summary.get("api_key_reuse_test", {}).get("results") or []
+    logger.debug(
+        "ios critical findings (mobsf): inputs findings=%s sensitive=%s permissions=%s api_key_reuse_tests=%s",
+        len(findings),
+        len(sensitive_findings),
+        len(info.get("permissions") or []),
+        len(api_key_reuse_tests),
+    )
     flags: list[dict[str, Any]] = [
         {
             "id": "IPA_PACKAGE_ANALYZABLE",
@@ -23,6 +33,7 @@ def mobsf_critical_findings(summary: dict[str, Any], inventory: dict[str, Any]) 
         }
     ]
     high_medium = [item for item in findings if item.get("severity") in {"HIGH", "MEDIUM"}]
+    logger.debug("ios critical findings (mobsf): %s high/medium MobSF finding(s)", len(high_medium))
     if high_medium:
         flags.append(
             {
@@ -59,6 +70,13 @@ def mobsf_critical_findings(summary: dict[str, Any], inventory: dict[str, Any]) 
         )
     if api_key_reuse_tests:
         flags.append(api_key_reuse_flag(api_key_reuse_tests))
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug(
+            "ios critical findings (mobsf): %s flag(s) %s, highest severity %s",
+            len(flags),
+            [(flag["id"], flag["severity"]) for flag in flags],
+            highest_severity(flags),
+        )
     return {
         "app": {
             "display_name": summary.get("display_name"),
@@ -84,6 +102,21 @@ def critical_findings(summary: dict[str, Any], inventory: dict[str, Any]) -> dic
     candidate_resources = candidate_config_resources(inventory)
     sensitive_findings = summary.get("sensitive_information_findings") or []
     api_key_reuse_tests = summary.get("api_key_reuse_test", {}).get("results") or []
+    logger.debug(
+        "ios critical findings: inputs binary_status=%s permissions=%s url_schemes=%s ats_present=%s allows_arbitrary_loads=%s",
+        binary.get("status"),
+        len(permissions),
+        len(url_schemes),
+        bool(ats),
+        ats.get("NSAllowsArbitraryLoads") if isinstance(ats, dict) else None,
+    )
+    logger.debug(
+        "ios critical findings: inputs counts=%s candidate_resources=%s sensitive=%s api_key_reuse_tests=%s",
+        summary.get("counts"),
+        len(candidate_resources),
+        len(sensitive_findings),
+        len(api_key_reuse_tests),
+    )
     flags: list[dict[str, Any]] = [
         {
             "id": "IPA_PACKAGE_ANALYZABLE",
@@ -193,6 +226,13 @@ def critical_findings(summary: dict[str, Any], inventory: dict[str, Any]) -> dic
         )
     if api_key_reuse_tests:
         flags.append(api_key_reuse_flag(api_key_reuse_tests))
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug(
+            "ios critical findings: %s flag(s) %s, highest severity %s",
+            len(flags),
+            [(flag["id"], flag["severity"]) for flag in flags],
+            highest_severity(flags),
+        )
 
     return {
         "app": {
@@ -229,7 +269,9 @@ def critical_markdown(report: dict[str, Any]) -> str:
         evidence = "<br>".join(str(item) for item in evidence_items[:5])
         lines.append(f"| {flag['severity']} | {flag['title']} | {evidence} |")
     lines.append("")
-    return "\n".join(lines)
+    markdown = "\n".join(lines)
+    logger.debug("ios critical markdown: rendered %s flag row(s), %s char(s)", len(report["flags"]), len(markdown))
+    return markdown
 
 
 def candidate_config_resources(inventory: dict[str, Any]) -> list[str]:
@@ -244,12 +286,14 @@ def candidate_config_resources(inventory: dict[str, Any]) -> list[str]:
             continue
         if any(term in lower for term in interesting_terms):
             candidates.append(path)
+    logger.debug("ios critical findings: %s candidate config resource(s)", len(candidates))
     return sorted(candidates)
 
 
 def api_key_reuse_flag(results: list[dict[str, Any]]) -> dict[str, Any]:
     severity = highest_severity(results)
     reusable_count = sum(1 for item in results if item.get("status") == "REUSABLE_FROM_WORKSTATION")
+    logger.debug("ios critical findings: api key reuse flag from %s result(s), %s reusable, severity %s", len(results), reusable_count, severity)
     evidence = [
         f"{item['severity']} {item['status']} via {item['provider']} for {item.get('path')}: key={item['reported_key']}, google_status={item.get('google_status')}, message={item.get('message')}"
         for item in results[:10]

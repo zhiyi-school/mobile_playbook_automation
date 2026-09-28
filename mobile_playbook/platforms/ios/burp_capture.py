@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlsplit
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -44,11 +47,16 @@ def snapshot_capture(path: Path) -> CaptureCursor:
     resolved = path.expanduser().resolve(strict=False)
     try:
         stat_result = resolved.stat()
-    except FileNotFoundError:
+    except FileNotFoundError as exc:
+        logger.debug("ios burp capture: %s does not exist yet at snapshot: %s", resolved, exc, exc_info=True)
         return CaptureCursor(resolved, False, None, None, 0, 0, None)
-    except OSError:
+    except OSError as exc:
+        logger.debug("ios burp capture: cannot stat %s at snapshot: %s", resolved, exc, exc_info=True)
         return CaptureCursor(resolved, True, None, None, 0, 0, None)
     device, inode = _identity(stat_result)
+    logger.debug(
+        "ios burp capture: snapshot %s size=%s device=%s inode=%s", resolved, stat_result.st_size, device, inode
+    )
     return CaptureCursor(
         resolved,
         True,
@@ -90,23 +98,30 @@ def poll_capture(
     normalized_expected = [_normalize_host(value) for value in expected_hosts]
 
     if cursor.existed and cursor.device is None and cursor.inode is None and cursor.initial_mtime_ns is None:
+        logger.debug("ios burp capture: %s was unreadable at snapshot; source unavailable", cursor.path)
         observation.source_unavailable = True
         return cursor, observation
 
     try:
         path_stat = cursor.path.stat()
-    except FileNotFoundError:
+    except FileNotFoundError as exc:
+        logger.debug("ios burp capture: %s missing on poll (existed at snapshot=%s): %s", cursor.path, cursor.existed, exc, exc_info=True)
         observation.source_unavailable = cursor.existed
         return cursor, observation
-    except OSError:
+    except OSError as exc:
+        logger.debug("ios burp capture: cannot stat %s on poll: %s", cursor.path, exc, exc_info=True)
         observation.source_unavailable = True
         return cursor, observation
 
     device, inode = _identity(path_stat)
     if cursor.existed and _changed(cursor, device, inode):
+        logger.debug(
+            "ios burp capture: %s replaced (device %s->%s, inode %s->%s)", cursor.path, cursor.device, device, cursor.inode, inode
+        )
         observation.source_changed = True
         return cursor, observation
     if path_stat.st_size < cursor.offset:
+        logger.debug("ios burp capture: %s truncated (size %s < offset %s)", cursor.path, path_stat.st_size, cursor.offset)
         observation.source_changed = True
         return cursor, observation
 
@@ -115,21 +130,26 @@ def poll_capture(
             open_stat = os.fstat(handle.fileno())
             open_device, open_inode = _identity(open_stat)
             if _changed(cursor, open_device, open_inode):
+                logger.debug("ios burp capture: opened %s differs from snapshot identity", cursor.path)
                 observation.source_changed = True
                 return cursor, observation
             if device is not None and open_device is not None and device != open_device:
+                logger.debug("ios burp capture: %s device changed between stat and open", cursor.path)
                 observation.source_changed = True
                 return cursor, observation
             if inode is not None and open_inode is not None and inode != open_inode:
+                logger.debug("ios burp capture: %s inode changed between stat and open", cursor.path)
                 observation.source_changed = True
                 return cursor, observation
             if open_stat.st_size < cursor.offset:
+                logger.debug("ios burp capture: opened %s truncated (size %s < offset %s)", cursor.path, open_stat.st_size, cursor.offset)
                 observation.source_changed = True
                 return cursor, observation
             handle.seek(cursor.offset)
             appended = handle.read()
             offset = handle.tell()
-    except OSError:
+    except OSError as exc:
+        logger.debug("ios burp capture: reading %s failed: %s", cursor.path, exc, exc_info=True)
         observation.source_unavailable = True
         return cursor, observation
 
@@ -144,7 +164,8 @@ def poll_capture(
         try:
             decoded = record.rstrip(b"\r").decode("utf-8")
             entry = json.loads(decoded)
-        except (UnicodeDecodeError, json.JSONDecodeError):
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            logger.debug("ios burp capture: malformed record (%s bytes): %s", len(record), exc)
             observation.malformed_entry_count += 1
             continue
         if not isinstance(entry, dict):
@@ -168,6 +189,24 @@ def poll_capture(
         else:
             observation.unmatched_entry_count += 1
 
+    logger.debug(
+        "ios burp capture: poll %s read %s bytes offset %s->%s; lines=%s valid=%s malformed=%s https=%s non_https=%s "
+        "matched=%s unmatched=%s partial=%s created_during_window=%s expected_hosts=%s",
+        cursor.path,
+        len(appended),
+        cursor.offset,
+        offset,
+        observation.new_line_count,
+        observation.valid_entry_count,
+        observation.malformed_entry_count,
+        observation.https_entry_count,
+        observation.non_https_entry_count,
+        len(observation.matched_entries),
+        observation.unmatched_entry_count,
+        observation.trailing_partial_line,
+        observation.created_during_window,
+        normalized_expected,
+    )
     next_cursor = CaptureCursor(
         cursor.path,
         True,

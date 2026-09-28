@@ -3,19 +3,30 @@ from __future__ import annotations
 import argparse
 import difflib
 import json
+import logging
 from pathlib import Path
 from typing import Any
 
 from mobile_playbook.playbook import catalogue
+
+logger = logging.getLogger(__name__)
 
 
 def export_contract(root: Path, platform: str, control_id: str) -> dict[str, Any]:
     built = catalogue.build(platform, Path(root).expanduser().resolve(), overrides={})
     control = built["controls"].get(catalogue.canonical_id(control_id, platform))
     if control is None:
+        logger.debug("playbook contract: control %s not in catalogue with controls %s", control_id, sorted(built["controls"]))
         raise ValueError(f"Control not found: {control_id}")
     payload = dict(control)
     payload["has_source_archive"] = bool(control.get("source_download_url"))
+    logger.debug(
+        "playbook contract: exported %s revision %s with %s steps, has_source_archive=%s",
+        control.get("control_id"),
+        control.get("playbook_revision"),
+        control.get("step_count"),
+        payload["has_source_archive"],
+    )
     return payload
 
 
@@ -29,8 +40,10 @@ def main(argv: list[str] | None = None) -> int:
     destination.add_argument("--check", type=Path)
     args = parser.parse_args(argv)
     encoded = json.dumps(export_contract(args.root, args.platform, args.control_id), indent=2, sort_keys=True) + "\n"
+    logger.debug("playbook contract: encoded fixture is %s chars", len(encoded))
     if args.check:
         actual = args.check.read_text(encoding="utf-8") if args.check.is_file() else ""
+        logger.debug("playbook contract: checking against %s (%s chars, matches=%s)", args.check, len(actual), actual == encoded)
         if actual != encoded:
             print(
                 "".join(
@@ -46,6 +59,7 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         print(f"Playbook contract matches {args.check}")
     elif args.output:
+        logger.debug("playbook contract: writing fixture to %s", args.output)
         args.output.write_text(encoded)
     else:
         print(encoded, end="")

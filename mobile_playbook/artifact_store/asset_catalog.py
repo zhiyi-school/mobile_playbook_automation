@@ -46,11 +46,18 @@ def read_catalog(car_path: Path) -> list[dict[str, Any]] | None:
     """`assetutil --info` output, or `None` when it cannot be read."""
     path = Path(car_path)
     if not assetutil_available() or not path.is_file():
+        logger.debug(
+            "artifact store: asset catalog %s not inspected (assetutil=%s, file=%s).",
+            path,
+            assetutil_available(),
+            path.is_file(),
+        )
         return None
     if path.stat().st_size > MAX_CATALOG_BYTES:
         logger.warning("Asset catalog is larger than the inspection limit; skipping it.")
         return None
 
+    logger.debug("artifact store: running assetutil on %s (%d bytes).", path, path.stat().st_size)
     try:
         completed = subprocess.run(
             [str(ASSETUTIL_PATH), "--info", str(path)],
@@ -59,9 +66,15 @@ def read_catalog(car_path: Path) -> list[dict[str, Any]] | None:
             check=False,
         )
     except (OSError, subprocess.SubprocessError) as exc:
+        logger.debug("artifact store: assetutil failed for %s.", path, exc_info=True)
         logger.warning("Asset catalog inspection could not run: %s", type(exc).__name__)
         return None
 
+    logger.debug(
+        "artifact store: assetutil exited %d with %d bytes of output.",
+        completed.returncode,
+        len(completed.stdout or b""),
+    )
     if completed.returncode != 0 or not completed.stdout:
         return None
     if len(completed.stdout) > MAX_INFO_BYTES:
@@ -71,7 +84,11 @@ def read_catalog(car_path: Path) -> list[dict[str, Any]] | None:
     try:
         parsed = json.loads(completed.stdout.decode("utf-8", errors="replace"))
     except ValueError:
+        logger.debug("artifact store: assetutil output for %s is not JSON.", path, exc_info=True)
         return None
+    logger.debug(
+        "artifact store: asset catalog %s has %s entr(ies).", path, len(parsed) if isinstance(parsed, list) else "no"
+    )
     return [entry for entry in parsed if isinstance(entry, dict)] if isinstance(parsed, list) else None
 
 
@@ -109,5 +126,15 @@ def primary_icon_rendition(entries: list[dict[str, Any]], icon_name: str | None)
             )
         )
     if not candidates:
+        logger.debug("artifact store: no icon rendition among %d entr(ies) for %r.", len(entries), icon_name)
         return None
-    return max(candidates, key=lambda item: (item.width * item.height, item.scale))
+    chosen = max(candidates, key=lambda item: (item.width * item.height, item.scale))
+    logger.debug(
+        "artifact store: chose rendition %s %dx%d@%d from %d candidate(s).",
+        chosen.rendition_name,
+        chosen.width,
+        chosen.height,
+        chosen.scale,
+        len(candidates),
+    )
+    return chosen

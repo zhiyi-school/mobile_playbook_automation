@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import logging
 import struct
 import zlib
 from dataclasses import dataclass
 
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+logger = logging.getLogger(__name__)
 
 MAX_SOURCE_BYTES = 4 * 1024 * 1024
 MAX_DIMENSION = 2048
@@ -75,6 +77,16 @@ def normalize(data: bytes) -> NormalizedPng:
 
     header = next(body for kind, body in chunks if kind == b"IHDR")
     width, height, depth, color_type, interlace = _header(header)
+    logger.debug(
+        "artifact store: PNG %dx%d depth=%d color=%d interlace=%d cgbi=%s (%d bytes).",
+        width,
+        height,
+        depth,
+        color_type,
+        interlace,
+        b"CgBI" in kinds,
+        len(data),
+    )
     if width <= 0 or height <= 0:
         raise UnsupportedImage("PNG has no pixels")
     if width > MAX_DIMENSION or height > MAX_DIMENSION:
@@ -97,6 +109,7 @@ def normalize(data: bytes) -> NormalizedPng:
         raise UnsupportedImage("CgBI image data could not be decompressed") from exc
 
     pixels = _undo_cgbi(raw, width, height, interlace)
+    logger.debug("artifact store: converted CgBI PNG %dx%d to standard RGBA.", width, height)
     return NormalizedPng(_build_png(pixels, width, height), width, height)
 
 

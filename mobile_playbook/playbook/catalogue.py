@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
 import threading
+import time
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +16,8 @@ import yaml
 
 from mobile_playbook.playbook import controls as control_parser
 from mobile_playbook.playbook import source
+
+logger = logging.getLogger(__name__)
 
 CONTROL_OVERRIDE_FILES = {
     "ios": Path("configs/split/ios/controls.yaml"),
@@ -72,17 +77,27 @@ def get(platform: str, refresh: bool = False) -> dict[str, Any]:
     with _lock:
         cached = _cache.get(platform)
         if not refresh and cached is not None and cached[0] == signature:
+            logger.debug("playbook catalogue: cache hit for %s (%s source entries)", platform, len(signature))
             return cached[1]
+        logger.debug(
+            "playbook catalogue: cache miss for %s (refresh=%s, cached=%s, signature_changed=%s)",
+            platform,
+            refresh,
+            cached is not None,
+            cached is not None and cached[0] != signature,
+        )
         built = build(platform, root)
         _cache[platform] = (signature, built)
         return built
 
 
 def reload(platform: str) -> dict[str, Any]:
+    logger.debug("playbook catalogue: forced reload for %s", platform)
     return get(platform, refresh=True)
 
 
 def clear_cache(platform: str | None = None) -> None:
+    logger.debug("playbook catalogue: clearing cache for %s", platform or "all platforms")
     with _lock:
         if platform is None:
             _cache.clear()
@@ -97,6 +112,8 @@ def build(
 ) -> dict[str, Any]:
     warnings: list[dict[str, Any]] = []
     overrides = _load_overrides(platform) if overrides is None else overrides
+    logger.debug("playbook catalogue: building %s catalogue from %s with %s control overrides", platform, root, len(overrides))
+    started = time.monotonic()
 
     risk_records: dict[str, dict[str, Any]] = {}
     control_records: dict[str, dict[str, Any]] = {}
@@ -107,6 +124,7 @@ def build(
         try:
             document = control_parser.read_document(path)
         except (OSError, ValueError) as exc:
+            logger.debug("playbook catalogue: could not read %s: %s", relative, exc, exc_info=True)
             warnings.append(
                 {"code": "document_unreadable", "file": relative, "message": f"Could not read {relative}: {exc}"}
             )
@@ -116,8 +134,12 @@ def build(
         if CONTROL_DOCUMENT.match(document.identity):
             record = control_parser.parse_control(document, root)
             key = canonical_id(record["control_id"], platform)
+            logger.debug("playbook catalogue: %s is control %s (identity %s)", relative, key, document.identity)
             _note_identity(warnings, relative, document, key, platform)
             if key in control_records:
+                logger.debug(
+                    "playbook catalogue: duplicate control %s in %s, replacing %s", key, relative, control_records[key]["source_file"]
+                )
                 warnings.append(
                     {
                         "code": "duplicate_document_id",
@@ -131,8 +153,12 @@ def build(
         elif RISK_DOCUMENT.match(document.identity):
             record = control_parser.parse_risk(document, root)
             key = canonical_id(record["risk_id"], platform)
+            logger.debug("playbook catalogue: %s is risk %s (identity %s)", relative, key, document.identity)
             _note_identity(warnings, relative, document, key, platform)
             if key in risk_records:
+                logger.debug(
+                    "playbook catalogue: duplicate risk %s in %s, replacing %s", key, relative, risk_records[key]["source_file"]
+                )
                 warnings.append(
                     {
                         "code": "duplicate_document_id",
@@ -156,14 +182,38 @@ def build(
                         "message": f"{record['source_file']}: {_PARSE_MESSAGES[note['code']].format(detail=note.get('message'))}",
                     }
                 )
+            logger.debug(
+                "playbook catalogue: risk %s revision %s status %s tactic %s",
+                key,
+                record.get("playbook_revision"),
+                record.get("status"),
+                record.get("tactic_id"),
+            )
             risk_records[key] = record
+        else:
+            logger.debug("playbook catalogue: %s has identity %s, neither a risk nor a control", relative, document.identity)
 
     _link_controls(risk_records, control_records, platform, root, warnings)
 
+    revision = _catalogue_revision(risk_records, control_records)
+    logger.debug(
+        "playbook catalogue: built %s catalogue revision %s: %s documents, %s risks, %s controls, %s warnings in %.3fs",
+        platform,
+        revision,
+        len(documents),
+        len(risk_records),
+        len(control_records),
+        len(warnings),
+        time.monotonic() - started,
+    )
+    if warnings and logger.isEnabledFor(logging.DEBUG):
+        logger.debug(
+            "playbook catalogue: %s warning codes: %s", platform, dict(Counter(str(item.get("code")) for item in warnings))
+        )
     return {
         "platform": platform,
         "root": str(root),
-        "revision": _catalogue_revision(risk_records, control_records),
+        "revision": revision,
         "risks": risk_records,
         "controls": control_records,
         "warnings": warnings,
@@ -180,6 +230,8 @@ def _finalize_control(
     warnings: list[dict[str, Any]],
 ) -> dict[str, Any]:
     override = overrides.get(key, {})
+    if override:
+        logger.debug("playbook catalogue: control %s has config override keys %s", key, sorted(map(str, override)))
     override_status = control_parser.normalize_status(override.get("status"))
     if override_status:
         record["status"] = override_status
@@ -195,9 +247,12 @@ def _finalize_control(
     record["risk_id"] = risk_id_of_control(key)
     record["source_download_url"] = None
 
+    image_count = 0
     for block in _iter_blocks(record):
         if block.get("type") == "image":
+            image_count += 1
             _decorate_image(block, platform, key, root, record["source_file"], warnings)
+    logger.debug("playbook catalogue: control %s has %s images", key, image_count)
 
     for note in record.pop("parse_warnings", None) or []:
         warnings.append(
@@ -212,7 +267,16 @@ def _finalize_control(
 
     for step in record.get("steps") or []:
         step["content_hash"] = _step_content_hash(step)
+        logger.debug(
+            "playbook catalogue: control %s step %s (index %s, id source %s) content hash %s",
+            key,
+            step.get("step_key"),
+            step.get("step_index"),
+            step.get("step_id_source"),
+            step["content_hash"],
+        )
         if not str(step.get("text") or "").strip():
+            logger.debug("playbook catalogue: control %s step %s has no instruction text", key, step.get("step_key"))
             warnings.append(
                 {
                     "code": "empty_step",
@@ -227,6 +291,7 @@ def _finalize_control(
     for archive in record.get("source_archives") or []:
         resolved = source.resolve_within(root, archive["target"])
         exists = resolved is not None and resolved.is_file()
+        logger.debug("playbook catalogue: control %s source archive %s resolved to %s (exists=%s)", key, archive["target"], resolved, exists)
         if not exists:
             warnings.append(
                 {
@@ -240,6 +305,7 @@ def _finalize_control(
                 }
             )
         elif canonical_id(control_parser.document_id(Path(archive["target"]).stem), platform) != key:
+            logger.debug("playbook catalogue: control %s source archive %s was built for a different control", key, archive["target"])
             warnings.append(
                 {
                     "code": "mismatched_source_archive",
@@ -266,6 +332,17 @@ def _finalize_control(
     record["source_archives"] = resolved_archives
     record["source_download_url"] = next((a["url"] for a in resolved_archives if a["exists"]), None)
     record["step_count"] = len(record.get("steps") or [])
+    logger.debug(
+        "playbook catalogue: control %s status %s (%s) required=%s revision %s: %s steps, %s archives, download=%s",
+        key,
+        record.get("status"),
+        record.get("status_source"),
+        record.get("required"),
+        record.get("playbook_revision"),
+        record["step_count"],
+        len(resolved_archives),
+        record["source_download_url"],
+    )
     if record["step_count"] == 0 and record["status"] == control_parser.ACTIVE:
         warnings.append(
             {
@@ -299,6 +376,7 @@ def _decorate_image(
     block["url"] = asset_url(platform, control_id, path, _short_digest(resolved)) if exists else None
     block["exists"] = exists
     if not exists:
+        logger.debug("playbook catalogue: control %s image %s is missing (resolved to %s)", control_id, path, resolved)
         warnings.append(
             {
                 "code": "missing_image",
@@ -323,6 +401,7 @@ def _link_controls(
             key=lambda control: control["control_id"],
         )
         risk["controls"] = [control["control_id"] for control in owned]
+        logger.debug("playbook catalogue: risk %s owns controls %s", risk_id, risk["controls"])
         _validate_links(risk, control_records, platform, root, warnings)
         if not owned:
             warnings.append(
@@ -336,6 +415,7 @@ def _link_controls(
 
     for control in control_records.values():
         if control["risk_id"] and control["risk_id"] not in risk_records:
+            logger.debug("playbook catalogue: control %s names risk %s, which has no document", control["control_id"], control["risk_id"])
             warnings.append(
                 {
                     "code": "control_without_risk",
@@ -360,6 +440,7 @@ def _validate_links(
         target = link["target"]
         resolved = source.resolve_within(root, target)
         if resolved is None or not resolved.is_file():
+            logger.debug("playbook catalogue: risk %s links to missing control file %s", risk["risk_id"], target)
             warnings.append(
                 {
                     "code": "missing_control_file",
@@ -372,6 +453,7 @@ def _validate_links(
             continue
         target_id = canonical_id(control_parser.document_id(Path(target).stem), platform)
         label_id = canonical_id(control_parser.document_id(link["label"]), platform)
+        logger.debug("playbook catalogue: risk %s link %s -> control %s (label id %s)", risk["risk_id"], target, target_id, label_id)
         if label_id and CONTROL_DOCUMENT.match(label_id) and label_id != target_id:
             warnings.append(
                 {
@@ -386,6 +468,9 @@ def _validate_links(
                 }
             )
         if target_id in control_records and control_records[target_id]["risk_id"] != risk["risk_id"]:
+            logger.debug(
+                "playbook catalogue: risk %s links to %s owned by risk %s", risk["risk_id"], target_id, control_records[target_id]["risk_id"]
+            )
             warnings.append(
                 {
                     "code": "cross_risk_control_link",
@@ -408,6 +493,14 @@ def _note_identity(
     platform: str,
 ) -> None:
     heading_id, file_id = document.heading_id, document.file_id
+    logger.debug(
+        "playbook catalogue: %s identity %s from %s (heading %s, file %s)",
+        relative,
+        key,
+        "heading" if heading_id else "filename",
+        heading_id,
+        file_id,
+    )
     if heading_id and canonical_id(heading_id, platform) != canonical_id(file_id, platform):
         warnings.append(
             {
@@ -431,14 +524,19 @@ def _note_identity(
 def _load_overrides(platform: str) -> dict[str, dict[str, Any]]:
     path = CONTROL_OVERRIDE_FILES.get(platform)
     if path is None or not path.exists():
+        logger.debug("playbook catalogue: no control override file for %s at %s", platform, path)
         return {}
     try:
         data = yaml.safe_load(path.read_text()) or {}
-    except (OSError, yaml.YAMLError):
+    except (OSError, yaml.YAMLError) as exc:
+        logger.debug("playbook catalogue: could not read control overrides %s: %s", path, exc, exc_info=True)
         return {}
     if not isinstance(data, dict):
+        logger.debug("playbook catalogue: control overrides %s is not a mapping (%s)", path, type(data).__name__)
         return {}
-    return {str(key).lower(): value for key, value in data.items() if isinstance(value, dict)}
+    loaded = {str(key).lower(): value for key, value in data.items() if isinstance(value, dict)}
+    logger.debug("playbook catalogue: loaded %s control overrides from %s", len(loaded), path)
+    return loaded
 
 
 def _iter_blocks(record: dict[str, Any]):
@@ -460,7 +558,8 @@ def _short_digest(path: Path | None) -> str | None:
         return None
     try:
         return _digest(path)[7:19]
-    except OSError:
+    except OSError as exc:
+        logger.debug("playbook catalogue: could not digest %s: %s", path, exc, exc_info=True)
         return None
 
 

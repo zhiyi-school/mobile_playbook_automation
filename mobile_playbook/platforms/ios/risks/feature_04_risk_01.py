@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from mobile_playbook.core.config_files import merge_dicts
+from mobile_playbook.logging_setup import redacted
 from mobile_playbook.platforms.ios import keyboard_setup
 from mobile_playbook.platforms.ios.control_server import CommandControlServer
 from mobile_playbook.platforms.ios.models import BehaviorResult, RiskRunResult
@@ -33,7 +34,9 @@ class Feature04Risk01(Feature04KeyboardRiskBase):
         installed_target_by_risk = False
         result.launch_result = {}
         keyboard_bundle_id = keyboard_config.get("bundle_id")
+        logger.debug("ios-feature-04-risk-01[%s]: report_dir=%s evidence_source=%s keyboard_bundle_id=%s", app_config.id, report_dir, collection.get("evidence_source") or "local_app_ui", keyboard_bundle_id)
         preexisting = bool(keyboard_bundle_id and device_client.is_installed(keyboard_bundle_id))
+        logger.debug("ios-feature-04-risk-01[%s]: keyboard_preinstalled=%s require_clean_state=%s", app_config.id, preexisting, bool(keyboard_config.get("require_clean_state", True)))
         result.launch_result["starting_state"] = {
             "keyboard_preinstalled": preexisting,
             "require_clean_state": bool(keyboard_config.get("require_clean_state", True)),
@@ -41,7 +44,9 @@ class Feature04Risk01(Feature04KeyboardRiskBase):
         if preexisting and bool(keyboard_config.get("require_clean_state", True)):
             outcome = device_client.remove_app_verified(keyboard_bundle_id)
             result.launch_result["starting_state"]["reset"] = outcome
+            logger.debug("ios-feature-04-risk-01[%s]: starting-state reset of %s outcome=%s", app_config.id, keyboard_bundle_id, outcome)
             if not outcome["verified"]:
+                logger.debug("ios-feature-04-risk-01[%s]: verdict Inconclusive (DIRTY_STARTING_STATE)", app_config.id)
                 result.final_status = "DIRTY_STARTING_STATE"
                 result.verdict = "Inconclusive"
                 result.errors.append(
@@ -54,7 +59,9 @@ class Feature04Risk01(Feature04KeyboardRiskBase):
             logger.info("ios-feature-04-risk-01[%s]: installing/verifying keyboard app", app_config.id)
             keyboard_app_setup = self._install_or_verify_keyboard_app(keyboard_config, global_config, device_client)
             result.launch_result["keyboard_app"] = keyboard_app_setup
+            logger.debug("ios-feature-04-risk-01[%s]: keyboard app setup status=%s installed_by_risk=%s", app_config.id, keyboard_app_setup.get("status"), keyboard_app_setup.get("installed_by_risk"))
             if keyboard_app_setup.get("status") not in {"INSTALLED", "INSTALLED_APP_VERIFIED", "SKIPPED"}:
+                logger.debug("ios-feature-04-risk-01[%s]: stopping; keyboard app not ready", app_config.id)
                 result.final_status = "INSTALL_FAILED" if keyboard_app_setup.get("status") == "INSTALL_FAILED" else "ARTIFACT_REQUIRED"
                 result.errors.extend(keyboard_app_setup.get("errors") or [])
                 return result
@@ -72,13 +79,16 @@ class Feature04Risk01(Feature04KeyboardRiskBase):
                 "events_endpoint": f"{server.base_url}/events",
                 "event_note": "Keyboard collection evidence is expected through POST /events with the pairing token.",
             }
+            logger.debug("ios-feature-04-risk-01[%s]: collection server base_url=%s device_reachable_base_url=%s port=%s", app_config.id, server.base_url, device_reachable_base_url, server.port)
 
             keyboard_bundle_id = keyboard_config.get("bundle_id")
             if keyboard_bundle_id and bool(keyboard_config.get("launch", True)):
                 try:
+                    logger.debug("ios-feature-04-risk-01[%s]: launching keyboard host app %s", app_config.id, keyboard_bundle_id)
                     result.launch_result["keyboard_app_launch"] = device_client.launch_app(keyboard_bundle_id)
                     result.launch_result["keyboard_app_permission_alerts"] = self._handle_permission_alerts(device_client, global_config)
                 except Exception as exc:
+                    logger.debug("ios-feature-04-risk-01[%s]: keyboard host app launch failed: %s", app_config.id, exc, exc_info=True)
                     result.final_status = "LAUNCH_FAILED"
                     result.errors.append(f"Could not launch keyboard host app {keyboard_bundle_id}: {exc}")
                     return result
@@ -87,7 +97,9 @@ class Feature04Risk01(Feature04KeyboardRiskBase):
                 setup_result = self._configure_keyboard_server_url(device_client, keyboard_config, device_reachable_base_url)
                 if setup_result:
                     result.launch_result["keyboard_server_setup"] = setup_result
+                logger.debug("ios-feature-04-risk-01[%s]: keyboard server URL configured=%s", app_config.id, bool(setup_result))
             except Exception as exc:
+                logger.debug("ios-feature-04-risk-01[%s]: keyboard server URL setup failed: %s", app_config.id, exc, exc_info=True)
                 result.final_status = "FAILED"
                 result.errors.append(f"Could not configure keyboard server URL: {exc}")
                 return result
@@ -103,10 +115,13 @@ class Feature04Risk01(Feature04KeyboardRiskBase):
                 setup_config.setdefault(
                     "keyboard_extension_bundle_id", keyboard_config.get("keyboard_extension_bundle_id")
                 )
+                logger.debug("ios-feature-04-risk-01[%s]: preparing custom keyboard with setup_config=%s", app_config.id, redacted(setup_config))
                 result.launch_result["keyboard_setup"] = keyboard_setup.prepare_custom_keyboard(
                     device_client, setup_config, report_dir
                 )
             except keyboard_setup.KeyboardSetupError as exc:
+                logger.debug("ios-feature-04-risk-01[%s]: custom keyboard setup failed: %s", app_config.id, exc, exc_info=True)
+                logger.debug("ios-feature-04-risk-01[%s]: verdict Inconclusive (CUSTOM_KEYBOARD_NOT_AVAILABLE during setup)", app_config.id)
                 result.launch_result["keyboard_setup"] = exc.state
                 result.final_status = "CUSTOM_KEYBOARD_NOT_AVAILABLE"
                 result.verdict = "Inconclusive"
@@ -115,13 +130,16 @@ class Feature04Risk01(Feature04KeyboardRiskBase):
 
             setup_wait = float(collection.get("keyboard_setup_wait_seconds", 0))
             if setup_wait > 0:
+                logger.debug("ios-feature-04-risk-01[%s]: waiting %ss after keyboard setup", app_config.id, setup_wait)
                 time.sleep(setup_wait)
 
             activation = self._activate_keyboard_in_host_app(
                 device_client, global_config, collection, keyboard_config
             )
             result.launch_result["keyboard_activation"] = activation
+            logger.debug("ios-feature-04-risk-01[%s]: keyboard activation status=%s", app_config.id, activation["status"])
             if activation["status"] not in {"ACTIVATED", "SKIPPED"}:
+                logger.debug("ios-feature-04-risk-01[%s]: verdict Inconclusive (activation %s: %s)", app_config.id, activation["status"], activation.get("error"))
                 result.final_status = "CUSTOM_KEYBOARD_NOT_AVAILABLE"
                 result.verdict = "Inconclusive"
                 result.errors.append(activation.get("error", "Could not activate the custom keyboard"))
@@ -132,13 +150,17 @@ class Feature04Risk01(Feature04KeyboardRiskBase):
             if evidence_source == "server_events":
                 pair_timeout = float(collection.get("pair_timeout_seconds", 60))
                 logger.info("ios-feature-04-risk-01[%s]: waiting for /pair for up to %gs", app_config.id, pair_timeout)
-                if not server.wait_for_pair(pair_timeout):
+                pair_started = time.monotonic()
+                paired = server.wait_for_pair(pair_timeout)
+                logger.debug("ios-feature-04-risk-01[%s]: pairing paired=%s after %.2fs", app_config.id, paired, time.monotonic() - pair_started)
+                if not paired:
                     result.final_status = "PAIRING_TIMEOUT"
                     result.errors.append(f"The keyboard app did not call /pair within {pair_timeout:g} seconds")
                     return result
 
             acquisition = self._prepare_app(app_config, global_config, device_client, report_writer.run_timestamp)
             result.artifact_result = acquisition
+            logger.debug("ios-feature-04-risk-01[%s]: target acquisition status=%s ipa_path=%s", app_config.id, acquisition.status, acquisition.ipa_path)
             if acquisition.status not in {"ACQUIRED", "INSTALLED_APP_VERIFIED"}:
                 result.final_status = self._artifact_status_to_final(acquisition.status)
                 result.errors.extend(acquisition.errors)
@@ -148,6 +170,7 @@ class Feature04Risk01(Feature04KeyboardRiskBase):
                 install = device_client.install_app(acquisition.ipa_path, global_config.runner.app_install_timeout_ms)
                 result.install_result = install
                 installed_target_by_risk = install.status == "INSTALLED"
+                logger.debug("ios-feature-04-risk-01[%s]: target install status=%s errors=%s", app_config.id, install.status, install.errors)
                 if install.status != "INSTALLED":
                     result.final_status = "INSTALL_FAILED"
                     result.errors.extend(install.errors)
@@ -155,12 +178,15 @@ class Feature04Risk01(Feature04KeyboardRiskBase):
 
             bundle_id = app_config.bundle_id
             try:
+                logger.debug("ios-feature-04-risk-01[%s]: launching target app %s", app_config.id, bundle_id)
                 result.launch_result["app_launch"] = device_client.launch_app(bundle_id)
                 app_alerts = self._handle_permission_alerts(device_client, global_config)
                 time.sleep(float(global_config.runner.launch_wait_seconds))
                 app_alerts.extend(self._handle_permission_alerts(device_client, global_config))
                 result.launch_result["app_permission_alerts"] = app_alerts
+                logger.debug("ios-feature-04-risk-01[%s]: target app launched; %s permission alert result(s)", app_config.id, len(app_alerts))
             except Exception as exc:
+                logger.debug("ios-feature-04-risk-01[%s]: target app launch failed: %s", app_config.id, exc, exc_info=True)
                 result.final_status = "LAUNCH_FAILED"
                 result.errors.append(str(exc))
                 return result
@@ -169,8 +195,10 @@ class Feature04Risk01(Feature04KeyboardRiskBase):
                 focus_result = self._focus_text_field_with_navigation(device_client, report_dir, collection, global_config)
                 result.launch_result["text_field_focus"] = focus_result["focus"]
                 result.launch_result["target_app_navigation"] = focus_result["navigation"]
+                logger.debug("ios-feature-04-risk-01[%s]: text field focused after %s navigation entr(ies)", app_config.id, len(focus_result["navigation"]))
                 field_block = self._focused_field_custom_keyboard_blocker(focus_result["focus"])
                 if field_block:
+                    logger.debug("ios-feature-04-risk-01[%s]: verdict Reduced Risk (field blocks custom keyboard)", app_config.id)
                     result.final_status = "CUSTOM_KEYBOARD_NOT_AVAILABLE"
                     result.verdict = "Reduced Risk"
                     result.errors.append(field_block)
@@ -180,7 +208,9 @@ class Feature04Risk01(Feature04KeyboardRiskBase):
                 result.launch_result["keyboard_selection"] = keyboard_selection
                 if not self._keyboard_selection_allows_test(keyboard_selection):
                     result.launch_result["keyboard_selection_warning"] = self._keyboard_selection_error(keyboard_selection)
+                    logger.debug("ios-feature-04-risk-01[%s]: continuing with keyboard selection warning", app_config.id)
             except Exception as exc:
+                logger.debug("ios-feature-04-risk-01[%s]: text field focus/selection failed: %s", app_config.id, exc, exc_info=True)
                 result.final_status = "BEHAVIOR_FAILED"
                 result.errors.append(f"Could not focus a text field in {app_config.name}: {exc}")
                 self._capture_target_debug(device_client, report_dir)
@@ -188,8 +218,10 @@ class Feature04Risk01(Feature04KeyboardRiskBase):
 
             probe_text = self._probe_text(collection)
             try:
+                logger.debug("ios-feature-04-risk-01[%s]: typing probe text of length %s", app_config.id, len(probe_text))
                 type_result = self._type_probe_text(device_client, probe_text, collection)
             except Exception as exc:
+                logger.debug("ios-feature-04-risk-01[%s]: probe input failed: %s", app_config.id, exc, exc_info=True)
                 self._capture_target_debug(device_client, report_dir, suffix="-probe-input-failed")
                 result.final_status = "BEHAVIOR_FAILED"
                 result.errors.append(f"Could not type probe text into {app_config.name}: {exc}")
@@ -197,8 +229,10 @@ class Feature04Risk01(Feature04KeyboardRiskBase):
             result.launch_result["probe_input"] = type_result
             probe_evidence = self._capture_probe_evidence(device_client, report_dir, probe_text)
             result.launch_result["probe_evidence"] = probe_evidence
+            logger.debug("ios-feature-04-risk-01[%s]: probe evidence=%s", app_config.id, probe_evidence)
 
             evidence_timeout = float(collection.get("evidence_timeout_seconds") or collection.get("event_timeout_seconds", 30))
+            logger.debug("ios-feature-04-risk-01[%s]: verifying collection via %s for up to %ss", app_config.id, evidence_source, evidence_timeout)
             if evidence_source == "server_events":
                 behavior = self._verify_collection_event(server, report_dir, collection, probe_text, evidence_timeout)
             elif evidence_source == "local_app_ui":
@@ -218,22 +252,33 @@ class Feature04Risk01(Feature04KeyboardRiskBase):
                     metadata={"evidence_source": evidence_source},
                 )
             result.behavior_result = behavior
+            logger.debug(
+                "ios-feature-04-risk-01[%s]: behavior status=%s page_source=%s screenshot=%s errors=%s",
+                app_config.id,
+                behavior.status,
+                behavior.page_source_path,
+                behavior.screenshot_path,
+                behavior.errors,
+            )
             if probe_evidence.get("screenshot"):
                 behavior.metadata["keyboard_log_screenshot"] = (
                     str(behavior.screenshot_path) if behavior.screenshot_path else None
                 )
                 behavior.screenshot_path = Path(probe_evidence["screenshot"])
             if behavior.status != "PASS":
+                logger.debug("ios-feature-04-risk-01[%s]: verdict Reduced Risk (KEYSTROKE_COLLECTION_NOT_OBSERVED)", app_config.id)
                 result.final_status = "KEYSTROKE_COLLECTION_NOT_OBSERVED"
                 result.verdict = "Reduced Risk"
                 result.errors.extend(behavior.errors)
                 self._capture_target_debug(device_client, report_dir, suffix="-collection-not-observed")
                 return result
 
+            logger.debug("ios-feature-04-risk-01[%s]: verdict At Risk (RISK_EXISTS); evidence metadata keys=%s", app_config.id, sorted(behavior.metadata))
             result.final_status = "RISK_EXISTS"
             result.verdict = "At Risk"
             return result
         except Exception as exc:
+            logger.debug("ios-feature-04-risk-01[%s]: run raised: %s", app_config.id, exc, exc_info=True)
             result.final_status = "FAILED"
             result.errors.append(str(exc))
             return result
@@ -243,10 +288,13 @@ class Feature04Risk01(Feature04KeyboardRiskBase):
                 try:
                     result.launch_result["collection_server_snapshot"] = server.snapshot()
                 except Exception as exc:
+                    logger.debug("ios-feature-04-risk-01[%s]: collection server snapshot failed: %s", app_config.id, exc, exc_info=True)
                     result.errors.append(f"Could not snapshot the collection server: {exc}")
                 try:
                     server.stop()
+                    logger.debug("ios-feature-04-risk-01[%s]: collection server stopped", app_config.id)
                 except Exception as exc:
+                    logger.debug("ios-feature-04-risk-01[%s]: collection server stop failed: %s", app_config.id, exc, exc_info=True)
                     result.errors.append(f"Could not stop the collection server: {exc}")
             result.cleanup_result = self._cleanup(
                 app_config,
@@ -257,9 +305,18 @@ class Feature04Risk01(Feature04KeyboardRiskBase):
                 installed_keyboard_by_risk,
             )
             if result.cleanup_result.status == "CLEANUP_FAILED" and result.final_status == "RISK_EXISTS":
+                logger.debug("ios-feature-04-risk-01[%s]: cleanup failed after RISK_EXISTS; final status becomes CLEANUP_FAILED", app_config.id)
                 result.final_status = "CLEANUP_FAILED"
                 result.errors.extend(result.cleanup_result.errors)
             result.timestamp_end = datetime.now(timezone.utc).isoformat()
+            logger.debug(
+                "ios-feature-04-risk-01[%s]: finished final_status=%s verdict=%s cleanup=%s errors=%s",
+                app_config.id,
+                result.final_status,
+                result.verdict,
+                result.cleanup_result.status,
+                len(result.errors),
+            )
             report_writer.write_result(result, report_dir)
 
     def _base_result(self, run_timestamp: str, app_config) -> RiskRunResult:
@@ -283,29 +340,35 @@ class Feature04Risk01(Feature04KeyboardRiskBase):
         bundle_id = keyboard_config.get("bundle_id")
         field_id = (keyboard_config.get("server_setup") or {}).get("server_url_input_accessibility_id")
         if not bundle_id or not field_id:
+            logger.debug("ios-feature-04-risk-01: keyboard activation skipped (bundle_id=%s, field_id=%s)", bundle_id, field_id)
             return {
                 "status": "SKIPPED",
                 "reason": "keyboard_app.bundle_id and server_setup.server_url_input_accessibility_id are required to activate the keyboard",
             }
         state: dict = {"bundle_id": bundle_id, "accessibility_id": field_id}
+        logger.debug("ios-feature-04-risk-01: activating keyboard in host app %s via field %s", bundle_id, field_id)
         try:
             state["launch"] = device_client.launch_app(bundle_id)
             state["alerts"] = self._handle_permission_alerts(device_client, global_config)
             state["focus"] = device_client.tap_text_field({"accessibility_id": field_id})
         except Exception as exc:
+            logger.debug("ios-feature-04-risk-01: host app field focus failed: %s", exc, exc_info=True)
             state["status"] = "FOCUS_FAILED"
             state["error"] = f"Could not focus the keyboard host app field {field_id}: {exc}"
             return state
         settle = float(collection.get("keyboard_activation_settle_seconds", 1))
         if settle > 0:
+            logger.debug("ios-feature-04-risk-01: settling %ss before keyboard selection", settle)
             time.sleep(settle)
         selection = self._select_custom_keyboard(device_client, collection, keyboard_config)
         state["selection"] = selection
         if not self._keyboard_selection_allows_test(selection):
             state["status"] = "SELECTION_FAILED"
             state["error"] = self._keyboard_selection_error(selection)
+            logger.debug("ios-feature-04-risk-01: keyboard activation SELECTION_FAILED (selection status=%s)", selection.get("status"))
             return state
         state["status"] = "ACTIVATED"
+        logger.debug("ios-feature-04-risk-01: keyboard activated in host app %s", bundle_id)
         return state
 
     def _probe_text(self, collection: dict) -> str:
@@ -316,6 +379,7 @@ class Feature04Risk01(Feature04KeyboardRiskBase):
         if not typer:
             raise RuntimeError("device client does not support typing probe text")
         input_config = collection.get("input") or {}
+        logger.debug("ios-feature-04-risk-01: type_text input_config=%s", redacted(input_config))
         return typer(probe_text, input_config)
 
     def _capture_probe_evidence(self, device_client, report_dir: Path, probe_text: str) -> dict:
@@ -328,12 +392,16 @@ class Feature04Risk01(Feature04KeyboardRiskBase):
             page_source_path.write_text(source)
             evidence["page_source"] = str(page_source_path)
             evidence["probe_text_visible"] = probe_text.lower() in source.lower()
+            logger.debug("ios-feature-04-risk-01: wrote %s (%s chars), probe_text_visible=%s", page_source_path, len(source), evidence["probe_text_visible"])
         except Exception as exc:
+            logger.debug("ios-feature-04-risk-01: probe page source capture failed: %s", exc, exc_info=True)
             evidence["page_source_error"] = str(exc)
         try:
             device_client.screenshot(screenshot_path)
             evidence["screenshot"] = str(screenshot_path)
+            logger.debug("ios-feature-04-risk-01: wrote %s", screenshot_path)
         except Exception as exc:
+            logger.debug("ios-feature-04-risk-01: probe screenshot capture failed: %s", exc, exc_info=True)
             evidence["screenshot_error"] = str(exc)
         return evidence
 
@@ -346,14 +414,24 @@ class Feature04Risk01(Feature04KeyboardRiskBase):
         timeout_seconds: float,
     ) -> BehaviorResult:
         expected = str(collection.get("expected_collected_text") or probe_text)
-        deadline = time.monotonic() + timeout_seconds
+        started = time.monotonic()
+        deadline = started + timeout_seconds
         snapshot = server.snapshot()
+        polls = 0
         while time.monotonic() < deadline:
             snapshot = server.snapshot()
+            polls += 1
             matched = self._find_event_containing(snapshot.get("events") or [], expected)
             if matched is not None:
                 evidence_path = report_dir / "collection_events.json"
                 evidence_path.write_text(json.dumps(snapshot.get("events") or [], indent=2, sort_keys=True))
+                logger.debug(
+                    "ios-feature-04-risk-01: expected text found in server events after %s poll(s) in %.2fs; %s event(s) written to %s",
+                    polls,
+                    time.monotonic() - started,
+                    len(snapshot.get("events") or []),
+                    evidence_path,
+                )
                 return BehaviorResult(
                     status="PASS",
                     page_source_path=evidence_path,
@@ -362,6 +440,13 @@ class Feature04Risk01(Feature04KeyboardRiskBase):
             time.sleep(0.5)
         evidence_path = report_dir / "collection_events.json"
         evidence_path.write_text(json.dumps(snapshot.get("events") or [], indent=2, sort_keys=True))
+        logger.debug(
+            "ios-feature-04-risk-01: expected text not in server events after %s poll(s); events=%s requests=%s written to %s",
+            polls,
+            len(snapshot.get("events") or []),
+            len(snapshot.get("requests") or []),
+            evidence_path,
+        )
         return BehaviorResult(
             status="FAIL",
             page_source_path=evidence_path,
@@ -394,6 +479,7 @@ class Feature04Risk01(Feature04KeyboardRiskBase):
                 metadata={"evidence_source": "local_app_ui", "expected_collected_text": expected},
             )
 
+        logger.debug("ios-feature-04-risk-01: checking local log UI in %s for up to %ss", bundle_id, timeout_seconds)
         launch_result = device_client.launch_app(bundle_id)
         self._handle_permission_alerts(device_client, global_config)
         wait_after_launch = float(local_log.get("wait_after_launch_seconds", 1))
@@ -401,24 +487,36 @@ class Feature04Risk01(Feature04KeyboardRiskBase):
             time.sleep(wait_after_launch)
         refresh_id = local_log.get("refresh_button_accessibility_id")
         if refresh_id:
+            logger.debug("ios-feature-04-risk-01: tapping local log refresh button %s", refresh_id)
             try:
                 device_client.tap_by_accessibility_id(refresh_id)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("ios-feature-04-risk-01: refresh tap failed: %s", exc, exc_info=True)
 
         page_source_path = report_dir / "keyboard_local_log_page_source.xml"
         screenshot_path = report_dir / "keyboard_local_log.png"
         last_source = ""
-        deadline = time.monotonic() + timeout_seconds
+        started = time.monotonic()
+        deadline = started + timeout_seconds
+        polls = 0
         while time.monotonic() < deadline:
             last_source = device_client.page_source()
+            polls += 1
             match = self._local_log_match(last_source, expected, collection)
             if match["matched"]:
                 page_source_path.write_text(last_source)
+                logger.debug(
+                    "ios-feature-04-risk-01: local log matched mode=%s after %s poll(s) in %.2fs; wrote %s (%s chars)",
+                    match["mode"],
+                    polls,
+                    time.monotonic() - started,
+                    page_source_path,
+                    len(last_source),
+                )
                 try:
                     device_client.screenshot(screenshot_path)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("ios-feature-04-risk-01: local log screenshot failed: %s", exc, exc_info=True)
                 return BehaviorResult(
                     status="PASS",
                     screenshot_path=screenshot_path if screenshot_path.exists() else None,
@@ -432,10 +530,11 @@ class Feature04Risk01(Feature04KeyboardRiskBase):
                 )
             time.sleep(0.5)
         page_source_path.write_text(last_source)
+        logger.debug("ios-feature-04-risk-01: local log not matched after %s poll(s); wrote %s (%s chars)", polls, page_source_path, len(last_source))
         try:
             device_client.screenshot(screenshot_path)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("ios-feature-04-risk-01: local log screenshot failed: %s", exc, exc_info=True)
         return BehaviorResult(
             status="FAIL",
             screenshot_path=screenshot_path if screenshot_path.exists() else None,

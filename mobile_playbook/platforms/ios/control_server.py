@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import secrets
 import threading
 import time
@@ -9,6 +10,8 @@ from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 from urllib.parse import parse_qs, urlparse
+
+logger = logging.getLogger(__name__)
 
 
 def _utc_now() -> str:
@@ -69,55 +72,93 @@ class CommandControlServer:
 
     def start(self) -> "CommandControlServer":
         handler = self._make_handler()
+        logger.debug(
+            "ios control server: starting on %s:%s (enqueue_requires_token=%s)",
+            self.host,
+            self.port,
+            self.enqueue_requires_token,
+        )
         self._server = ThreadingHTTPServer((self.host, self.port), handler)
         self.port = int(self._server.server_address[1])
         self._thread = threading.Thread(target=self._server.serve_forever, name="feature-04-keyboard-test-server", daemon=True)
         self._thread.start()
+        logger.debug("ios control server: listening at %s", self.base_url)
         return self
 
     def stop(self) -> None:
+        logger.debug(
+            "ios control server: stopping (server_running=%s, thread_running=%s)",
+            self._server is not None,
+            self._thread is not None,
+        )
         if self._server is not None:
             self._server.shutdown()
             self._server.server_close()
             self._server = None
         if self._thread is not None:
             self._thread.join(timeout=2)
+            logger.debug("ios control server: server thread alive after join=%s", self._thread.is_alive())
             self._thread = None
+        logger.debug("ios control server: stopped")
 
     def enqueue(self, text: str) -> QueuedInput:
         with self._lock:
             item = QueuedInput(id=self.state.next_id, text=text, created_at=_utc_now())
             self.state.next_id += 1
             self.state.queue.append(item)
+            logger.debug(
+                "ios control server: enqueued input id=%s (text length %s, queue depth %s)",
+                item.id,
+                len(text),
+                len(self.state.queue),
+            )
             return item
 
     def next_input(self, token: str) -> QueuedInput | None:
         if token != self.state.token:
+            logger.debug("ios control server: next_input rejected, token mismatch")
             return None
         with self._lock:
             if not self.state.queue:
+                logger.debug("ios control server: next_input with empty queue")
                 return None
             item = self.state.queue.pop(0)
             item.delivered_at = _utc_now()
             self.state.delivered.append(item)
+            logger.debug(
+                "ios control server: delivered input id=%s (remaining %s, delivered total %s)",
+                item.id,
+                len(self.state.queue),
+                len(self.state.delivered),
+            )
             return item
 
     def wait_for_pair(self, timeout_seconds: float) -> bool:
-        deadline = time.monotonic() + float(timeout_seconds)
+        logger.debug("ios control server: waiting up to %ss for pairing", timeout_seconds)
+        started = time.monotonic()
+        deadline = started + float(timeout_seconds)
         while time.monotonic() < deadline:
             with self._lock:
                 if self.state.paired:
+                    logger.debug("ios control server: paired after %.2fs", time.monotonic() - started)
                     return True
             time.sleep(0.2)
+        logger.debug("ios control server: pairing not observed within %ss", timeout_seconds)
         return False
 
     def wait_for_empty_queue(self, timeout_seconds: float) -> bool:
-        deadline = time.monotonic() + float(timeout_seconds)
+        logger.debug("ios control server: waiting up to %ss for queue to drain", timeout_seconds)
+        started = time.monotonic()
+        deadline = started + float(timeout_seconds)
         while time.monotonic() < deadline:
             with self._lock:
                 if not self.state.queue:
+                    logger.debug("ios control server: queue drained after %.2fs", time.monotonic() - started)
                     return True
             time.sleep(0.2)
+        logger.debug(
+            "ios control server: queue not drained within %ss (%s item(s) remaining)", timeout_seconds, len(self.state.queue)
+        )
         return False
 
     def snapshot(self) -> dict[str, Any]:
@@ -162,6 +203,13 @@ class CommandControlServer:
             )
             if len(self.state.requests) > 500:
                 self.state.requests = self.state.requests[-500:]
+        logger.debug(
+            "ios control server: %s %s -> %s %s",
+            method,
+            path,
+            status,
+            metadata or {},
+        )
 
     def _make_handler(self):
         outer = self
@@ -171,6 +219,12 @@ class CommandControlServer:
 
             def do_GET(self) -> None:
                 parsed = urlparse(self.path)
+                logger.debug(
+                    "ios control server: received GET %s from %s (query present=%s)",
+                    parsed.path,
+                    self.client_address[0] if self.client_address else None,
+                    bool(parsed.query),
+                )
                 if parsed.path == "/health":
                     outer._record_request(parsed.path, "GET", 200)
                     self._send_json(200, {"status": "ok"})
@@ -206,12 +260,19 @@ class CommandControlServer:
 
             def do_POST(self) -> None:
                 parsed = urlparse(self.path)
+                logger.debug(
+                    "ios control server: received POST %s from %s (body length %s)",
+                    parsed.path,
+                    self.client_address[0] if self.client_address else None,
+                    self.headers.get("Content-Length"),
+                )
                 if parsed.path == "/pair":
                     payload = self._read_json()
                     with outer._lock:
                         outer.state.paired = True
                         outer.state.pair_payload = payload
                         outer.state.pair_timestamp = _utc_now()
+                    logger.debug("ios control server: state -> paired (payload keys %s)", sorted(payload))
                     outer._record_request(parsed.path, "POST", 200)
                     self._send_json(200, {"token": outer.state.token})
                     return
@@ -223,6 +284,7 @@ class CommandControlServer:
                     payload = self._read_json()
                     text = payload.get("text")
                     if not isinstance(text, str):
+                        logger.debug("ios control server: enqueue rejected, text is %s", type(text).__name__)
                         outer._record_request(parsed.path, "POST", 400)
                         self._send_json(400, {"error": "text must be a string"})
                         return
@@ -238,6 +300,10 @@ class CommandControlServer:
                     payload = self._read_json()
                     with outer._lock:
                         outer.state.events.append({"timestamp": _utc_now(), "payload": payload})
+                        events_count = len(outer.state.events)
+                    logger.debug(
+                        "ios control server: recorded event %s (payload keys %s)", events_count, sorted(payload)
+                    )
                     outer._record_request(parsed.path, "POST", 200)
                     self._send_json(200, {"recorded": True})
                     return
@@ -255,12 +321,17 @@ class CommandControlServer:
             def _read_json(self) -> dict[str, Any]:
                 length = int(self.headers.get("Content-Length", "0") or "0")
                 if length <= 0:
+                    logger.debug("ios control server: empty request body")
                     return {}
                 raw = self.rfile.read(length)
+                logger.debug("ios control server: read %s of %s body byte(s)", len(raw), length)
                 try:
                     value = json.loads(raw.decode("utf-8"))
-                except json.JSONDecodeError:
+                except json.JSONDecodeError as exc:
+                    logger.debug("ios control server: request body is not valid JSON: %s", exc, exc_info=True)
                     return {}
+                if not isinstance(value, dict):
+                    logger.debug("ios control server: request body JSON is %s, not an object", type(value).__name__)
                 return value if isinstance(value, dict) else {}
 
             def _send_json(self, status: int, payload: dict[str, Any]) -> None:

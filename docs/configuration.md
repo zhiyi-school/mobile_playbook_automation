@@ -114,6 +114,7 @@ processes in deliberately different ways.
 | `IOS_PLAYBOOK_DIR` | API | where the iOS developer remediation playbook lives |
 | `ANDROID_PLAYBOOK_DIR` | API | where the Android developer remediation playbook lives |
 | `PLAYBOOK_SOURCE_DOWNLOAD_ENABLED` | API | `false` refuses implemented-control archive downloads |
+| `LOG_LEVEL` | API, CLI, workers | `DEBUG` enables verbose logging; default `INFO` — see [`LOG_LEVEL`](#log_level) |
 
 ### Who may read what
 
@@ -206,6 +207,23 @@ Defaults to true. Set `false` on any host reachable beyond the trusted LAN:
 metadata stay available. This API has no authentication of its own, so this
 switch is the only host-level control over who can pull an implemented-control
 archive.
+
+### `LOG_LEVEL`
+
+```env
+LOG_LEVEL=DEBUG
+```
+
+Defaults to `INFO`. `DEBUG` turns on the `logger.debug` statements across the
+package for the API, the assessment and dashboard sync workers and the icon
+backfill; the CLI's `--verbose` flag does the same for one command. The workers
+read it from `.env` as well as the environment. The API reads only the process
+environment, so export it before `python -m mobile_playbook.api`; it applies to
+`mobile_playbook.*` loggers and leaves uvicorn at `INFO`.
+
+Debug output includes app ids, device identifiers, file paths, run ids and
+Supabase row ids, so treat captured debug logs as internal. Credentials are
+masked through `logging_setup.redacted()` and are never logged.
 
 ### `ARTIFACT_STORE_DIR`
 

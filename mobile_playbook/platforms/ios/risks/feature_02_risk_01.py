@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -8,6 +9,7 @@ from pathlib import Path
 from mobile_playbook.storage import ios_capture_path, ios_work_dir, resolve_under_repository
 
 from mobile_playbook.core.config_files import merge_dicts
+from mobile_playbook.logging_setup import redacted, safe_url
 from mobile_playbook.orchestration.appium_process import tcp_reachable
 from mobile_playbook.platforms.ios.artifacts.registry import get_provider
 from mobile_playbook.platforms.ios.burp_capture import (
@@ -24,6 +26,8 @@ from mobile_playbook.platforms.ios.traffic_interception_setup import (
     restore_traffic_interception,
 )
 
+logger = logging.getLogger(__name__)
+
 
 class Feature02Risk01(Risk):
     risk_id = "ios-feature-02-risk-01"
@@ -39,37 +43,51 @@ class Feature02Risk01(Risk):
         exercise_config = risk_config.get("exercise") or {}
         installed_target_by_risk = False
         setup_state = None
+        logger.debug("ios-feature-02-risk-01[%s]: setup report_dir=%s", app_config.id, report_dir)
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("ios-feature-02-risk-01[%s]: effective config %s", app_config.id, redacted(risk_config))
         try:
             proxy_url = str(burp_config.get("proxy_url") or "")
             if not proxy_url:
+                logger.debug("ios-feature-02-risk-01[%s]: burp proxy_url not configured", app_config.id)
                 result.final_status = "PROXY_NOT_CONFIGURED"
                 result.errors.append(f"{self.risk_id} requires traffic_interception.burp.proxy_url to be set")
                 return result
+            logger.debug("ios-feature-02-risk-01[%s]: checking burp proxy reachability %s", app_config.id, safe_url(proxy_url))
             if not tcp_reachable(proxy_url, timeout=2):
+                logger.debug("ios-feature-02-risk-01[%s]: burp proxy unreachable at %s", app_config.id, safe_url(proxy_url))
                 result.final_status = "PROXY_UNREACHABLE"
                 result.errors.append(f"Burp proxy not reachable at {proxy_url}. Start Burp Suite and confirm its listener matches this URL.")
                 return result
 
             configured_capture_path = burp_config.get("capture_path")
             capture_path = resolve_under_repository(configured_capture_path) if configured_capture_path else ios_capture_path()
+            logger.debug("ios-feature-02-risk-01[%s]: burp capture path %s (configured=%s)", app_config.id, capture_path, configured_capture_path)
 
             acquisition = self._prepare_app(app_config, global_config, device_client, report_writer.run_timestamp)
             result.artifact_result = acquisition
+            logger.debug(
+                "ios-feature-02-risk-01[%s]: acquisition status=%s ipa_path=%s errors=%s",
+                app_config.id, acquisition.status, acquisition.ipa_path, acquisition.errors,
+            )
             if acquisition.status not in {"ACQUIRED", "INSTALLED_APP_VERIFIED"}:
                 result.final_status = self._artifact_status_to_final(acquisition.status)
                 result.errors.extend(acquisition.errors)
                 return result
 
             if acquisition.ipa_path is not None:
+                logger.debug("ios-feature-02-risk-01[%s]: installing target %s", app_config.id, acquisition.ipa_path)
                 install = device_client.install_app(acquisition.ipa_path, global_config.runner.app_install_timeout_ms)
                 result.install_result = install
                 installed_target_by_risk = install.status == "INSTALLED"
+                logger.debug("ios-feature-02-risk-01[%s]: install status=%s errors=%s", app_config.id, install.status, install.errors)
                 if install.status != "INSTALLED":
                     result.final_status = "INSTALL_FAILED"
                     result.errors.extend(install.errors)
                     return result
 
             result.launch_result = result.launch_result or {}
+            logger.debug("ios-feature-02-risk-01[%s]: preparing device traffic interception", app_config.id)
             try:
                 setup_state = prepare_traffic_interception(
                     device_client,
@@ -77,7 +95,12 @@ class Feature02Risk01(Risk):
                     report_dir,
                 )
                 result.launch_result["device_setup"] = setup_state
+                logger.debug(
+                    "ios-feature-02-risk-01[%s]: device setup state %s",
+                    app_config.id, redacted(setup_state) if isinstance(setup_state, dict) else setup_state,
+                )
             except TrafficInterceptionSetupError as exc:
+                logger.debug("ios-feature-02-risk-01[%s]: device setup failed status=%s: %s", app_config.id, exc.status, exc, exc_info=True)
                 setup_state = exc.state
                 result.launch_result["device_setup"] = exc.state
                 result.final_status = exc.status
@@ -85,14 +108,21 @@ class Feature02Risk01(Risk):
 
             bundle_id = app_config.bundle_id
             capture_cursor = snapshot_capture(capture_path)
+            logger.debug(
+                "ios-feature-02-risk-01[%s]: capture snapshot existed=%s offset=%s; launching %s",
+                app_config.id, getattr(capture_cursor, "existed", None), getattr(capture_cursor, "offset", None), bundle_id,
+            )
             try:
                 app_launch = device_client.launch_app(bundle_id)
                 result.launch_result["app_launch"] = app_launch
+                logger.debug("ios-feature-02-risk-01[%s]: launch result %.200s", app_config.id, app_launch)
                 alerts = list(device_client.handle_permission_alerts(global_config.runner.permission_alerts))
                 time.sleep(float(global_config.runner.launch_wait_seconds))
                 alerts.extend(device_client.handle_permission_alerts(global_config.runner.permission_alerts))
                 result.launch_result["app_permission_alerts"] = alerts
+                logger.debug("ios-feature-02-risk-01[%s]: permission alerts handled=%d", app_config.id, len(alerts))
             except Exception as exc:
+                logger.debug("ios-feature-02-risk-01[%s]: launch failed: %s", app_config.id, exc, exc_info=True)
                 result.final_status = "LAUNCH_FAILED"
                 result.errors.append(str(exc))
                 return result
@@ -100,30 +130,44 @@ class Feature02Risk01(Risk):
             result.launch_result["exercise_navigation"] = self._exercise_app(device_client, exercise_config)
 
             exercise_wait = float(exercise_config.get("exercise_wait_seconds", 20))
+            logger.debug(
+                "ios-feature-02-risk-01[%s]: exercise navigation steps=%d; waiting %ss for traffic",
+                app_config.id, len(result.launch_result["exercise_navigation"]), exercise_wait,
+            )
             if exercise_wait > 0:
                 time.sleep(exercise_wait)
 
             expected_hosts = [str(host) for host in (risk_config.get("expected_hosts") or [])]
             capture_timeout = float(risk_config.get("capture_timeout_seconds", 30))
+            logger.debug("ios-feature-02-risk-01[%s]: collecting capture expected_hosts=%s timeout=%ss", app_config.id, expected_hosts, capture_timeout)
             capture = self._collect_capture(capture_cursor, expected_hosts, capture_timeout, report_dir)
             result.launch_result["capture_summary"] = capture["summary"]
+            logger.debug("ios-feature-02-risk-01[%s]: verdict inputs capture summary %s", app_config.id, capture["summary"])
 
             result.final_status = self._capture_final_status(capture["summary"])
             if result.final_status == "RISK_EXISTS":
                 result.verdict = "At Risk"
+            logger.debug("ios-feature-02-risk-01[%s]: verdict final_status=%s verdict=%s", app_config.id, result.final_status, result.verdict)
             return result
         except Exception as exc:
+            logger.debug("ios-feature-02-risk-01[%s]: run failed: %s", app_config.id, exc, exc_info=True)
             result.final_status = "FAILED"
             result.errors.append(str(exc))
             return result
         finally:
             if setup_state is not None:
+                logger.debug("ios-feature-02-risk-01[%s]: restoring device traffic interception", app_config.id)
                 try:
                     restored = restore_traffic_interception(device_client, setup_state, report_dir)
                     result.launch_result = result.launch_result or {}
                     device_setup = result.launch_result.setdefault("device_setup", setup_state)
                     device_setup["restore"] = restored
+                    logger.debug(
+                        "ios-feature-02-risk-01[%s]: restore result %s",
+                        app_config.id, redacted(restored) if isinstance(restored, dict) else restored,
+                    )
                 except TrafficInterceptionSetupError as exc:
+                    logger.debug("ios-feature-02-risk-01[%s]: restore failed status=%s: %s", app_config.id, exc.status, exc, exc_info=True)
                     result.final_status = "DEVICE_PROXY_RESTORE_FAILED"
                     result.verdict = "Inconclusive"
                     result.launch_result = result.launch_result or {}
@@ -131,6 +175,11 @@ class Feature02Risk01(Risk):
                     device_setup["restore"] = exc.state
             result.cleanup_result = self._cleanup(app_config, global_config, device_client, installed_target_by_risk)
             result.timestamp_end = datetime.now(timezone.utc).isoformat()
+            logger.debug(
+                "ios-feature-02-risk-01[%s]: result final_status=%s verdict=%s errors=%d cleanup=%s; writing result to %s",
+                app_config.id, result.final_status, result.verdict, len(result.errors),
+                getattr(result.cleanup_result, "status", None), report_dir,
+            )
             report_writer.write_result(result, report_dir)
 
     def _capture_final_status(self, summary: dict) -> str:
@@ -172,12 +221,14 @@ class Feature02Risk01(Risk):
     def _prepare_app(self, app_config, global_config, device_client, run_timestamp: str) -> ArtifactAcquisitionResult:
         provider = get_provider(app_config.artifact.get("source", ""))
         if provider is None:
+            logger.debug("ios-feature-02-risk-01[%s]: no artifact provider for source %r", app_config.id, app_config.artifact.get("source", ""))
             return ArtifactAcquisitionResult(
                 app_config.id,
                 app_config.artifact.get("source", ""),
                 "UNSUPPORTED_ARTIFACT_SOURCE",
                 errors=[f"Unsupported artifact source: {app_config.artifact.get('source', '')}"],
             )
+        logger.debug("ios-feature-02-risk-01[%s]: acquiring app via provider %s", app_config.id, type(provider).__name__)
         return provider.acquire(
             app_config,
             global_config,
@@ -190,11 +241,14 @@ class Feature02Risk01(Risk):
         navigation = []
         settle_seconds = float(exercise_config.get("settle_seconds", 1))
         for index, accessibility_id in enumerate(exercise_config.get("accessibility_ids") or []):
+            logger.debug("ios-feature-02-risk-01: exercise step %d tap accessibility_id=%r", index + 1, accessibility_id)
             try:
                 tapped = device_client.tap_by_accessibility_id(accessibility_id)
                 tapped["step"] = index + 1
                 navigation.append(tapped)
+                logger.debug("ios-feature-02-risk-01: exercise step %d result %.200s", index + 1, tapped)
             except Exception as exc:
+                logger.debug("ios-feature-02-risk-01: exercise step %d failed: %s", index + 1, exc, exc_info=True)
                 navigation.append({"step": index + 1, "accessibility_id": accessibility_id, "error": str(exc)})
             time.sleep(settle_seconds)
         return navigation
@@ -208,8 +262,15 @@ class Feature02Risk01(Risk):
     ) -> dict:
         deadline = time.monotonic() + timeout_seconds
         aggregate = CaptureObservation(matched_entries=[])
+        polls = 0
         while True:
             cursor, observed = poll_capture(cursor, expected_hosts)
+            polls += 1
+            logger.debug(
+                "ios-feature-02-risk-01: capture poll %d new_lines=%d valid=%d malformed=%d https=%d matched=%d changed=%s unavailable=%s",
+                polls, observed.new_line_count, observed.valid_entry_count, observed.malformed_entry_count,
+                observed.https_entry_count, len(observed.matched_entries), observed.source_changed, observed.source_unavailable,
+            )
             aggregate.matched_entries.extend(observed.matched_entries)
             aggregate.new_line_count += observed.new_line_count
             aggregate.valid_entry_count += observed.valid_entry_count
@@ -231,6 +292,10 @@ class Feature02Risk01(Risk):
             time.sleep(min(1, max(0, deadline - time.monotonic())))
         evidence_path = report_dir / "burp_capture.json"
         evidence_path.write_text(json.dumps(aggregate.matched_entries, indent=2, sort_keys=True))
+        logger.debug(
+            "ios-feature-02-risk-01: capture collected after %d poll(s); matched=%d evidence=%s",
+            polls, len(aggregate.matched_entries), evidence_path,
+        )
         return {
             "summary": {
                 "new_line_count": aggregate.new_line_count,
@@ -254,6 +319,7 @@ class Feature02Risk01(Risk):
         }
 
     def _cleanup(self, app_config, global_config, device_client, installed_target_by_risk: bool) -> CleanupResult:
+        logger.debug("ios-feature-02-risk-01[%s]: cleanup installed_target_by_risk=%s", app_config.id, installed_target_by_risk)
         if not global_config.runner.uninstall_after_each_test or not installed_target_by_risk:
             return CleanupResult(status="SKIPPED", metadata={"installed_target_by_risk": installed_target_by_risk})
         try:
@@ -266,6 +332,7 @@ class Feature02Risk01(Risk):
                 )
             return CleanupResult(status="CLEANED", removed=False)
         except Exception as exc:
+            logger.debug("ios-feature-02-risk-01[%s]: cleanup failed: %s", app_config.id, exc, exc_info=True)
             return CleanupResult(status="CLEANUP_FAILED", errors=[str(exc)])
 
     def _artifact_status_to_final(self, status: str) -> str:

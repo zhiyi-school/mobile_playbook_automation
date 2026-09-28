@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 import re
+from collections import Counter
 from typing import Any, Iterator, NamedTuple
 
 import yaml
+
+logger = logging.getLogger(__name__)
 
 FRONT_MATTER = re.compile(r"\A---[ \t]*\r?\n(.*?)\r?\n---[ \t]*\r?\n", re.S)
 HEADING = re.compile(r"^(#{1,6})\s+(.*?)\s*#*\s*$")
@@ -35,8 +39,11 @@ def split_front_matter(text: str) -> tuple[dict[str, Any], str]:
         return {}, text
     try:
         data = yaml.safe_load(match.group(1)) or {}
-    except yaml.YAMLError:
+    except yaml.YAMLError as exc:
+        logger.debug("playbook markdown: front matter is not valid YAML, ignoring it: %s", exc, exc_info=True)
         return {}, text[match.end() :]
+    if not isinstance(data, dict):
+        logger.debug("playbook markdown: front matter is a %s, not a mapping; ignoring it", type(data).__name__)
     return (data if isinstance(data, dict) else {}), text[match.end() :]
 
 
@@ -142,6 +149,8 @@ def parse_blocks(text: str) -> list[dict[str, Any]]:
                     break
                 body.append(_strip_fence_indent(lines[index], indent))
                 index += 1
+            else:
+                logger.debug("playbook markdown: %s fence (%s) is never closed; it runs to the end of the document", marker, info or "no language")
             blocks.append({"type": "code", "language": info or None, "text": "\n".join(body)})
             continue
 
@@ -175,7 +184,15 @@ def parse_blocks(text: str) -> list[dict[str, Any]]:
         index += 1
 
     flush()
-    return _attach_captions(blocks)
+    merged = _attach_captions(blocks)
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug(
+            "playbook markdown: parsed %s lines into %s blocks %s",
+            len(lines),
+            len(merged),
+            dict(Counter(str(block.get("type")) for block in merged)),
+        )
+    return merged
 
 
 def _attach_captions(blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:

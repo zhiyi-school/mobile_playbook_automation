@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 def new_run_timestamp(root: Path, now: datetime | None = None, extra_files: tuple[str, ...] = ()) -> str:
@@ -16,8 +19,10 @@ def new_run_timestamp(root: Path, now: datetime | None = None, extra_files: tupl
     candidate = base
     suffix = 2
     while _timestamp_exists(root, candidate, extra_files):
+        logger.debug("scheduler: run timestamp %s already taken under %s", candidate, root)
         candidate = f"{base}-{suffix}"
         suffix += 1
+    logger.debug("scheduler: candidate run timestamp %s under %s", candidate, root)
     return candidate
 
 
@@ -45,6 +50,8 @@ def reserve_run_timestamp(root: Path, now: datetime | None = None, extra_files: 
         candidate = new_run_timestamp(root, now=now, extra_files=extra_files)
         try:
             (root / candidate).mkdir(parents=True, exist_ok=False)
+            logger.debug("scheduler: reserved run directory %s", root / candidate)
             return candidate
-        except FileExistsError:
+        except FileExistsError as exc:
+            logger.debug("scheduler: lost race for %s, retrying: %s", root / candidate, exc, exc_info=True)
             continue

@@ -29,11 +29,25 @@ def sync_reports(
     force: bool = False,
 ) -> SyncSummary:
     summary = SyncSummary()
+    logger.debug(
+        "dashboard sync: pass over %s (runs=%s, triggered_by=%s, legacy=%s, force=%s).",
+        reports_dir,
+        list(run_timestamps) if isinstance(run_timestamps, (list, tuple)) else run_timestamps,
+        triggered_by,
+        allow_legacy_report,
+        force,
+    )
     for run_dir in report_dirs(reports_dir, run_timestamps):
         manifest = read_manifest(run_dir)
+        logger.debug(
+            "dashboard sync: considering %s (manifest status %s).",
+            run_dir.name,
+            manifest.get("status") if manifest is not None else None,
+        )
         skip_reason = report_skip_reason(manifest, allow_legacy_report)
         if skip_reason is not None:
             if manifest is not None:
+                logger.debug("dashboard sync: failing the reassessment lifecycle for skipped run %s.", run_dir.name)
                 fail_report_lifecycle(run_dir, manifest, store)
             sync_status.mark_not_required(run_dir, skip_reason)
             logger.info("dashboard sync: skipping %s (%s).", run_dir.name, skip_reason)
@@ -41,9 +55,13 @@ def sync_reports(
             continue
         digest = report_digest(run_dir)
         if not force and is_processed(reports_dir, run_dir.name, digest):
+            logger.debug(
+                "dashboard sync: %s unchanged since last sync (digest %s); skipping.", run_dir.name, digest[:12]
+            )
             sync_status.mark_completed(run_dir)
             summary = summary.plus(SyncSummary(unchanged_reports=1))
             continue
+        logger.debug("dashboard sync: processing %s (digest %s, force=%s).", run_dir.name, digest[:12], force)
         sync_status.mark_running(run_dir)
         try:
             current = sync_report_dir(
@@ -59,6 +77,7 @@ def sync_reports(
             summary = summary.plus(SyncSummary(failed_reports=1))
             continue
         mark_processed(reports_dir, run_dir.name, digest)
+        logger.debug("dashboard sync: ledger updated for %s; counts %s.", run_dir.name, current.counts())
         sync_status.mark_completed(run_dir, current.counts())
         logger.info(
             "dashboard sync: synced %s (%d app(s), %d finding(s)).",
@@ -67,6 +86,7 @@ def sync_reports(
             current.findings,
         )
         summary = summary.plus(current)
+    logger.debug("dashboard sync: pass finished with %s.", summary)
     return summary
 
 
@@ -74,6 +94,7 @@ def report_dirs(reports_dir: Path, run_timestamps: Iterable[str] | None) -> Iter
     root = Path(reports_dir)
     if run_timestamps is not None:
         for timestamp in run_timestamps:
+            logger.debug("dashboard sync: explicitly requested run %s.", timestamp)
             yield root / timestamp
         return
     if not root.is_dir():
@@ -82,6 +103,8 @@ def report_dirs(reports_dir: Path, run_timestamps: Iterable[str] | None) -> Iter
     for child in sorted(root.iterdir()):
         if child.is_dir() and (child / "dashboard_results.json").exists():
             yield child
+        else:
+            logger.debug("dashboard sync: ignoring %s (not a report directory).", child.name)
 
 
 def report_skip_reason(manifest: Mapping[str, Any] | None, allow_legacy_report: bool) -> str | None:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import subprocess
 import tempfile
@@ -11,6 +12,7 @@ from typing import Any
 MANIFEST_NAME = "run_manifest.json"
 COMPLETED = "completed"
 FAILED = "failed"
+logger = logging.getLogger(__name__)
 
 
 _GIT_REVISION: str | None = None
@@ -21,6 +23,7 @@ def git_revision() -> str | None:
     """The short HEAD of the checkout this process is running from; None when unavailable."""
     global _GIT_REVISION, _GIT_REVISION_READ
     if _GIT_REVISION_READ:
+        logger.debug("reporting: git revision cache hit (%s).", _GIT_REVISION)
         return _GIT_REVISION
     _GIT_REVISION_READ = True
     try:
@@ -32,7 +35,9 @@ def git_revision() -> str | None:
             timeout=10,
         )
         _GIT_REVISION = completed.stdout.strip() or None if completed.returncode == 0 else None
+        logger.debug("reporting: git rev-parse exited %d; revision %s.", completed.returncode, _GIT_REVISION)
     except (OSError, subprocess.SubprocessError):
+        logger.debug("reporting: git revision unavailable.", exc_info=True)
         _GIT_REVISION = None
     return _GIT_REVISION
 
@@ -85,17 +90,30 @@ def write_manifest(
             os.fsync(stream.fileno())
         os.replace(tmp_name, path)
     except BaseException:
+        logger.debug("reporting: manifest write to %s failed; removing %s.", path, tmp_name, exc_info=True)
         Path(tmp_name).unlink(missing_ok=True)
         raise
+    logger.debug(
+        "reporting: wrote manifest %s (status %s, %d attempt(s), %d artifact(s)).",
+        path,
+        status,
+        len(attempted),
+        len(payload["artifacts"]),
+    )
     return path
 
 
 def read_manifest(run_dir: Path) -> dict[str, Any] | None:
     try:
         data = json.loads(manifest_path(run_dir).read_text())
-    except (OSError, json.JSONDecodeError):
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.debug("reporting: no readable manifest at %s (%s).", manifest_path(run_dir), type(exc).__name__)
         return None
-    return data if isinstance(data, dict) else None
+    if not isinstance(data, dict):
+        logger.debug("reporting: manifest %s is not a mapping.", manifest_path(run_dir))
+        return None
+    logger.debug("reporting: manifest %s status %s.", manifest_path(run_dir), data.get("status"))
+    return data
 
 
 def is_completed(manifest: Mapping[str, Any] | None) -> bool:

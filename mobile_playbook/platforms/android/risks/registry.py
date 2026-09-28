@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 
 from mobile_playbook.core.discovery import discover_plugins
@@ -9,17 +10,20 @@ _PACKAGE_NAME = __name__.rsplit(".", 1)[0]
 _PACKAGE_PATH = [os.path.dirname(__file__)]
 
 _cache: dict[str, type[AndroidRisk]] | None = None
+logger = logging.getLogger(__name__)
 
 
 def _registry() -> dict[str, type[AndroidRisk]]:
     global _cache
     if _cache is None:
         _cache = discover_plugins(_PACKAGE_NAME, _PACKAGE_PATH, AndroidRisk, "risk_id")
+        logger.debug("android risks: registry built with %s risks: %s", len(_cache), sorted(_cache))
     return _cache
 
 
 def get_risk(risk_id: str) -> AndroidRisk | None:
     risk_type = _registry().get(risk_id)
+    logger.debug("android risks: lookup %s -> %s", risk_id, risk_type.__name__ if risk_type else None)
     return risk_type() if risk_type else None
 
 
