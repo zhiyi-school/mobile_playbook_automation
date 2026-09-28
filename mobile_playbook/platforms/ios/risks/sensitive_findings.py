@@ -1,3 +1,7 @@
+"""
+Detects secrets in IPA resources and MobSF reports, masks them, and tests Google API key reuse.
+"""
+
 from __future__ import annotations
 
 import json
@@ -16,6 +20,7 @@ from mobile_playbook.platforms.ios.ipa.plist_utils import read_plist
 logger = logging.getLogger(__name__)
 
 
+# Find secret patterns and sensitive-key values in a MobSF report, capped at 100 and deduped.
 def extract_mobsf_sensitive_findings(report: dict[str, Any], reveal_values: bool) -> list[dict[str, Any]]:
     text = json.dumps(report, sort_keys=True, ensure_ascii=False)
     findings = classify_sensitive_string("mobsf_report_json", text, reveal_values)
@@ -48,6 +53,7 @@ def extract_mobsf_sensitive_findings(report: dict[str, Any], reveal_values: bool
     return deduped
 
 
+# Scan inventoried plist and text resources for secrets, capped at 100 findings.
 def scan_sensitive_information(app_dir: Path, inventory: dict[str, Any], reveal_values: bool) -> list[dict[str, Any]]:
     findings: list[dict[str, Any]] = []
     scanned: Counter[str] = Counter()
@@ -75,6 +81,7 @@ def scan_sensitive_information(app_dir: Path, inventory: dict[str, Any], reveal_
     return findings[:100]
 
 
+# Scan a plist's string values for secret patterns and sensitive keys, capped at 25.
 def scan_plist_for_sensitive_values(path: Path, relative: Path, reveal_values: bool) -> list[dict[str, Any]]:
     try:
         data = read_plist(path)
@@ -105,6 +112,7 @@ def scan_plist_for_sensitive_values(path: Path, relative: Path, reveal_values: b
     return deduped
 
 
+# Scan a text file under 5 MiB for secret key-value pairs and patterns.
 def scan_text_for_sensitive_values(path: Path, relative: Path, reveal_values: bool) -> list[dict[str, Any]]:
     max_size = 5 * 1024 * 1024
     try:
@@ -147,6 +155,7 @@ def scan_text_for_sensitive_values(path: Path, relative: Path, reveal_values: bo
     return deduped
 
 
+# Match known secret formats in text, returning at most 10 findings.
 def classify_sensitive_string(
     path: str,
     text: str,
@@ -172,6 +181,7 @@ def classify_sensitive_string(
     return findings
 
 
+# Test up to max_keys unique unmasked Google API keys for reuse from this workstation.
 def test_google_api_key_reuse(
     sensitive_findings: list[dict[str, Any]],
     config: dict[str, Any],
@@ -228,6 +238,7 @@ def test_google_api_key_reuse(
     return results
 
 
+# Call the Geocoding API with a key and classify whether it was accepted.
 def test_google_geocode_key(api_key: str, timeout_seconds: float, address: str) -> dict[str, Any]:
     query = urllib.parse.urlencode({"address": address, "key": api_key})
     url = f"https://maps.googleapis.com/maps/api/geocode/json?{query}"
@@ -269,6 +280,7 @@ def test_google_geocode_key(api_key: str, timeout_seconds: float, address: str) 
     }
 
 
+# Classify a Geocoding API response as reusable, restricted, not enabled, blocked or inconclusive.
 def classify_google_api_key_reuse_response(http_status: int, google_status: str, message: str) -> str:
     normalized = f"{google_status} {message}".lower()
     if http_status == 200 and google_status in {"OK", "ZERO_RESULTS"}:
@@ -286,6 +298,7 @@ def classify_google_api_key_reuse_response(http_status: int, google_status: str,
     return "INCONCLUSIVE"
 
 
+# Return the severity for an API key reuse status.
 def api_key_reuse_status_severity(status: str) -> str:
     if status == "REUSABLE_FROM_WORKSTATION":
         return "HIGH"
@@ -294,6 +307,7 @@ def api_key_reuse_status_severity(status: str) -> str:
     return "LOW"
 
 
+# Build a finding record with the value masked unless reveal_values is set.
 def sensitive_finding(
     path: str,
     match_type: str,
@@ -320,6 +334,7 @@ def sensitive_finding(
     }
 
 
+# Return copies of the findings without their raw values.
 def public_sensitive_findings(findings: list[dict[str, Any]]) -> list[dict[str, Any]]:
     public_findings = []
     for finding in findings:
@@ -329,6 +344,7 @@ def public_sensitive_findings(findings: list[dict[str, Any]]) -> list[dict[str, 
     return public_findings
 
 
+# Flatten nested dicts and lists into (JSON-path, leaf value) pairs.
 def flatten_value(value: Any, prefix: str = "$") -> list[tuple[str, Any]]:
     if isinstance(value, dict):
         flattened: list[tuple[str, Any]] = []
@@ -343,6 +359,7 @@ def flatten_value(value: Any, prefix: str = "$") -> list[tuple[str, Any]]:
     return [(prefix, value)]
 
 
+# Return whether a key name contains a secret-like term.
 def key_looks_sensitive(key: str) -> bool:
     normalized = re.sub(r"[^a-z0-9]", "", key.lower())
     sensitive_terms = (
@@ -360,6 +377,7 @@ def key_looks_sensitive(key: str) -> bool:
     return any(term in normalized for term in sensitive_terms)
 
 
+# Return whether a value is long enough and not a common non-secret word.
 def value_looks_secret(value: str) -> bool:
     stripped = value.strip()
     if len(stripped) < 6:
@@ -368,6 +386,7 @@ def value_looks_secret(value: str) -> bool:
     return stripped.lower() not in common_false_positives
 
 
+# Return HIGH for key names with strong secret terms, else MEDIUM.
 def sensitive_key_severity(key: str) -> str:
     normalized = re.sub(r"[^a-z0-9]", "", key.lower())
     high_terms = (
@@ -387,6 +406,7 @@ def sensitive_key_severity(key: str) -> str:
     return "HIGH" if any(term in normalized for term in high_terms) else "MEDIUM"
 
 
+# Mask a secret, keeping only a few leading and trailing characters of longer values.
 def mask_secret(value: str) -> str:
     if len(value) <= 8:
         return "*" * len(value)
@@ -395,6 +415,7 @@ def mask_secret(value: str) -> str:
     return f"{value[:4]}...{value[-4:]}"
 
 
+# Drop findings that repeat the same path, location, type and masked value.
 def dedupe_sensitive_findings(findings: list[dict[str, Any]]) -> list[dict[str, Any]]:
     seen: set[tuple[str, str, str, str]] = set()
     deduped: list[dict[str, Any]] = []
@@ -412,6 +433,7 @@ def dedupe_sensitive_findings(findings: list[dict[str, Any]]) -> list[dict[str, 
     return deduped
 
 
+# Return whether a bundle file is in a signature, framework or plugin dir or is a binary asset.
 def is_sensitive_scan_excluded(relative_path: Path) -> bool:
     if any(part in {"_CodeSignature", "Frameworks", "PlugIns", "SC_Info"} for part in relative_path.parts):
         return True

@@ -1,3 +1,7 @@
+"""
+Extracts, normalizes and caches app icons from iOS IPAs and Android APKs.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -38,10 +42,12 @@ class IconExtraction:
     width: int | None = None
     height: int | None = None
 
+    # Reports whether an icon is available.
     @property
     def available(self) -> bool:
         return self.status == STATUS_AVAILABLE
 
+    # Returns the extraction state as the dict recorded in metadata and API responses.
     def as_dict(self) -> dict[str, Any]:
         return {
             "available": self.available,
@@ -60,10 +66,12 @@ class _Candidate:
     size: int
 
 
+# Returns an unavailable extraction with the given reason.
 def _unavailable(reason: str, artifact_id: str | None = None) -> IconExtraction:
     return IconExtraction(status=STATUS_UNAVAILABLE, reason=reason, artifact_id=artifact_id)
 
 
+# Reads a safe archive member within max_bytes, or returns None when unsafe, missing or too large.
 def _read_member(zf: zipfile.ZipFile, name: str, max_bytes: int = png.MAX_SOURCE_BYTES) -> bytes | None:
     if not is_safe_member_name(name):
         logger.debug("artifact store: unsafe archive member %r skipped.", name)
@@ -84,6 +92,7 @@ def _read_member(zf: zipfile.ZipFile, name: str, max_bytes: int = png.MAX_SOURCE
         return handle.read(max_bytes + 1)
 
 
+# Returns the widest usable PNG among the largest candidates, with its member name.
 def _best_icon(zf: zipfile.ZipFile, candidates: Iterable[_Candidate]) -> tuple[png.NormalizedPng, str] | None:
     ordered = sorted(candidates, key=lambda item: item.size, reverse=True)[:MAX_CANDIDATES]
     logger.debug("artifact store: evaluating %d icon candidate(s).", len(ordered))
@@ -106,6 +115,7 @@ def _best_icon(zf: zipfile.ZipFile, candidates: Iterable[_Candidate]) -> tuple[p
     return best
 
 
+# Returns the Payload/<name>.app/ prefix of an IPA's app bundle, or None.
 def _payload_app_prefix(names: Iterable[str]) -> str | None:
     for name in names:
         parts = PurePosixPath(name).parts
@@ -114,9 +124,11 @@ def _payload_app_prefix(names: Iterable[str]) -> str | None:
     return None
 
 
+# Collects the icon file names declared in an app's Info.plist.
 def _ios_icon_base_names(info: dict[str, Any]) -> list[str]:
     names: list[str] = []
 
+    # Appends a string, or each string in a nested list, to names.
     def add(value: Any) -> None:
         if isinstance(value, str) and value:
             names.append(value)
@@ -135,8 +147,8 @@ def _ios_icon_base_names(info: dict[str, Any]) -> list[str]:
     return names
 
 
+# Returns bundle-root PNGs matching declared or conventional icon names, and whether Assets.car exists.
 def _ios_candidates(zf: zipfile.ZipFile, prefix: str, info: dict[str, Any]) -> tuple[list[_Candidate], bool]:
-    """Loose PNGs at the bundle root, which is where `actool` writes the primary icon."""
     base_names = {name.lower() for name in _ios_icon_base_names(info)}
     root_files: list[zipfile.ZipInfo] = []
     has_asset_catalog = False
@@ -174,6 +186,7 @@ def _ios_candidates(zf: zipfile.ZipFile, prefix: str, info: dict[str, Any]) -> t
     return fallback, has_asset_catalog
 
 
+# Extracts the primary icon from an IPA's bundle-root PNGs, else reports what its asset catalog holds.
 def _extract_ios_icon(artifact_path: Path) -> tuple[png.NormalizedPng | None, str]:
     with zipfile.ZipFile(artifact_path) as zf:
         names = zf.namelist()
@@ -207,8 +220,8 @@ def _extract_ios_icon(artifact_path: Path) -> tuple[png.NormalizedPng | None, st
         return None, _inspect_asset_catalog(zf, prefix, info)
 
 
+# Identifies the catalog's primary icon and returns why it is not extracted. See docs/api.md#ios-asset-catalogs.
 def _inspect_asset_catalog(zf: zipfile.ZipFile, prefix: str, info: dict[str, Any]) -> str:
-    """Identify the catalog's primary icon. See docs/api.md#ios-asset-catalogs."""
     if not asset_catalog.assetutil_available():
         logger.debug("artifact store: assetutil unavailable; cannot inspect the asset catalog.")
         return "asset_catalog_tool_unavailable"
@@ -241,6 +254,7 @@ def _inspect_asset_catalog(zf: zipfile.ZipFile, prefix: str, info: dict[str, Any
     return "asset_catalog_no_extractor"
 
 
+# Returns the icon resource paths an APK's manifest declares, or an empty list on failure.
 def _android_declared_icons(artifact_path: Path) -> list[str]:
     from mobile_playbook.platforms.android import apk_tools
 
@@ -253,8 +267,8 @@ def _android_declared_icons(artifact_path: Path) -> list[str]:
     return declared
 
 
+# Returns the resource names an icon may be stored under.
 def _android_declared_stems(declared: Iterable[str]) -> set[str]:
-    """Resource names an icon may be stored under."""
     from mobile_playbook.platforms.android import apk_tools
 
     stems: set[str] = set()
@@ -266,8 +280,8 @@ def _android_declared_stems(declared: Iterable[str]) -> set[str]:
     return stems
 
 
+# Returns an adaptive icon's raster foreground or monochrome layers when shipped alongside the XML.
 def _android_adaptive_layers(zf: zipfile.ZipFile, declared: Iterable[str]) -> list[_Candidate]:
-    """An adaptive icon's raster foreground, when it ships one alongside the XML."""
     wanted = {f"{stem}_foreground" for stem in _android_declared_stems(declared)}
     wanted |= {"ic_launcher_foreground", "ic_launcher_monochrome"}
     return [
@@ -280,6 +294,7 @@ def _android_adaptive_layers(zf: zipfile.ZipFile, declared: Iterable[str]) -> li
     ]
 
 
+# Returns res/ PNGs matching declared icon names or launcher icon naming conventions.
 def _android_zip_candidates(zf: zipfile.ZipFile, declared: Iterable[str]) -> list[_Candidate]:
     declared_stems = _android_declared_stems(declared)
     candidates: list[_Candidate] = []
@@ -301,6 +316,7 @@ def _android_zip_candidates(zf: zipfile.ZipFile, declared: Iterable[str]) -> lis
     return candidates
 
 
+# Ranks a resource path by screen density, highest density first.
 def _android_density_rank(name: str) -> int:
     lowered = name.lower()
     for index, density in enumerate(_ANDROID_DENSITY):
@@ -309,6 +325,7 @@ def _android_density_rank(name: str) -> int:
     return 0
 
 
+# Extracts the best-density launcher icon PNG from an APK, or returns why none is usable.
 def _extract_android_icon(artifact_path: Path) -> tuple[png.NormalizedPng | None, str]:
     declared = _android_declared_icons(artifact_path)
     with zipfile.ZipFile(artifact_path) as zf:
@@ -341,13 +358,13 @@ def _extract_android_icon(artifact_path: Path) -> tuple[png.NormalizedPng | None
 _EXTRACTORS = {"ios": _extract_ios_icon, "android": _extract_android_icon}
 
 
+# Resolves, normalizes and caches one artifact's icon, remembering absences; never raises.
 def extract_icon(
     platform: str,
     artifact_path: Path,
     artifact_id: str | None = None,
     force: bool = False,
 ) -> IconExtraction:
-    """Resolve, normalize and cache one artifact's icon. Never raises."""
     path = Path(artifact_path)
     try:
         resolved_id = artifact_id or store.artifact_digest(path)
@@ -417,8 +434,8 @@ def extract_icon(
     return result
 
 
+# Returns a recorded, environment-independent absence reason so a large artifact is not rescanned every pass.
 def _remembered_absence(icon_meta: dict[str, Any]) -> str | None:
-    """A recorded absence, so a large artifact is not rescanned every pass."""
     if icon_meta.get("status") != STATUS_UNAVAILABLE:
         return None
     reason = icon_meta.get("reason")
@@ -428,8 +445,8 @@ def _remembered_absence(icon_meta: dict[str, Any]) -> str | None:
     return reason
 
 
+# Persists the icon block so a later cache hit can report its dimensions.
 def _record_icon(platform: str, artifact_id: str, icon: IconExtraction) -> None:
-    """Persist the icon block so a later cache hit can report its dimensions."""
     metadata = store.read_metadata(artifact_id) or {}
     metadata.update({"artifact_id": artifact_id, "sha256": artifact_id, "platform": platform})
     metadata["icon"] = icon.as_dict()
@@ -441,6 +458,7 @@ def _record_icon(platform: str, artifact_id: str, icon: IconExtraction) -> None:
         logger.warning("Artifact metadata could not be written to the artifact store.")
 
 
+# Returns an IPA's bundle id, display name and version.
 def _ios_artifact_facts(artifact_path: Path) -> dict[str, Any]:
     from mobile_playbook.platforms.ios.ipa.plist_utils import inspect_ipa_metadata
 
@@ -453,6 +471,7 @@ def _ios_artifact_facts(artifact_path: Path) -> dict[str, Any]:
     }
 
 
+# Returns an APK's package name, display name and version.
 def _android_artifact_facts(artifact_path: Path) -> dict[str, Any]:
     from mobile_playbook.platforms.android.apk_tools import inspect_apk_metadata
 
@@ -464,8 +483,8 @@ def _android_artifact_facts(artifact_path: Path) -> dict[str, Any]:
     }
 
 
+# Records identity, checksum and icon state for one stored artifact; icon failure is not artifact failure.
 def describe_artifact(platform: str, artifact_path: Path) -> dict[str, Any]:
-    """Identity, checksum and icon state for one stored artifact. Icon failure is not artifact failure."""
     path = Path(artifact_path)
     artifact_id = store.artifact_digest(path)
 
@@ -497,6 +516,7 @@ def describe_artifact(platform: str, artifact_path: Path) -> dict[str, Any]:
     return metadata
 
 
+# Returns the cached icon extraction for an artifact id, or None when no icon is stored.
 def cached_extraction(artifact_id: str, metadata: dict[str, Any] | None = None) -> IconExtraction | None:
     if not store.is_artifact_id(artifact_id) or not store.icon_path(artifact_id).is_file():
         logger.debug("artifact store: no cached icon for %r.", artifact_id)

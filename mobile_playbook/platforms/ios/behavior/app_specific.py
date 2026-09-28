@@ -1,13 +1,20 @@
+"""
+App-specific behavior checks, looked up by name from the app configuration.
+"""
+
 from __future__ import annotations
 
 import logging
 
 logger = logging.getLogger(__name__)
 
+
+# Example app-specific check that always passes.
 def check_app_one(driver, report_dir):
     return {"status": "PASS", "name": "check_app_one"}
 
 
+# Run the named module-level check, returning None when unset and a FAIL result when unknown.
 def run_app_specific_check(name: str | None, driver, report_dir):
     if not name:
         logger.debug("ios behavior: no app-specific check configured")

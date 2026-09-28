@@ -1,6 +1,5 @@
-"""Resolve an app's IPA out of the intake directory.
-
-See docs/ios/risks.md#artifact-sources and docs/api.md#is-an-app-ready-to-test.
+"""
+Resolves an app's IPA out of the intake directory; see docs/ios/risks.md#artifact-sources.
 """
 
 from __future__ import annotations
@@ -17,12 +16,14 @@ from mobile_playbook.platforms.ios.models import ArtifactAcquisitionResult
 logger = logging.getLogger(__name__)
 
 
+# Return the storage-configured intake directory.
 def _default_intake_dir() -> Path:
     from mobile_playbook.storage import ios_intake_dir
 
     return ios_intake_dir()
 
 
+# Lowercase a name and drop non-alphanumerics so display names compare loosely.
 def normalize_app_name(value: str | None) -> str:
     return re.sub(r"[^a-z0-9]+", "", (value or "").lower())
 
@@ -35,6 +36,7 @@ class IntakeBuild:
     version: str | None
     modified_at: float
 
+    # Return the build as a JSON-compatible dict.
     def as_dict(self) -> dict:
         return {
             "file": self.path.name,
@@ -62,11 +64,13 @@ class IntakeResolution:
     matched_on: str | None
 
 
+# Return the short version string, falling back to the build number, from IPA metadata.
 def _version_of(metadata: dict) -> str | None:
     info = metadata.get("info_plist") or {}
     return info.get("CFBundleShortVersionString") or info.get("CFBundleVersion") or None
 
 
+# Return the artifact's configured intake directory, or the default one.
 def intake_dir_for(artifact: dict | None) -> Path:
     configured = (artifact or {}).get("intake_dir")
     return Path(configured).expanduser() if configured else _default_intake_dir()
@@ -78,6 +82,7 @@ _intake_dir = intake_dir_for
 _scan_cache: dict[str, tuple[tuple, list[IntakeBuild]]] = {}
 
 
+# Return the name, mtime and size of each IPA in a directory as a cache signature.
 def _dir_signature(directory: Path) -> tuple:
     entries = []
     for path in sorted(directory.glob("*.ipa")):
@@ -90,15 +95,14 @@ def _dir_signature(directory: Path) -> tuple:
     return tuple(entries)
 
 
+# Return every readable IPA in the intake directory, newest first, skipping unreadable files.
 def list_intake_ipas(intake_dir: Path | None = None) -> list[IntakeBuild]:
-    """Every readable IPA in `intake_dir`, newest first. Unreadable files are skipped."""
     directory = intake_dir or _default_intake_dir()
     if not directory.is_dir():
         logger.debug("ios intake: intake dir %s is not a directory; no builds", directory)
         return []
 
-    # Cached on a stat-only signature: the config is revalidated on every load
-    # and scanning opens every zip.
+    # Cached on a stat-only signature: config revalidates on every load and scanning opens every zip.
     signature = _dir_signature(directory)
     cached = _scan_cache.get(str(directory))
     if cached is not None and cached[0] == signature:
@@ -139,17 +143,13 @@ def list_intake_ipas(intake_dir: Path | None = None) -> list[IntakeBuild]:
     return builds
 
 
+# Find the newest build by bundle ID, else by name; different apps sharing a name are ambiguous.
 def resolve_intake_ipa(
     *,
     bundle_id: str | None = None,
     app_name: str | None = None,
     intake_dir: Path | None = None,
 ) -> IntakeResolution:
-    """Find the build for an app, by bundle ID if one is known, else by name.
-
-    Several versions of the same app resolve to the newest. Several *different*
-    apps sharing a name resolve to `ambiguous`, never a guess.
-    """
     builds = list_intake_ipas(intake_dir)
 
     if bundle_id:
@@ -182,6 +182,7 @@ def resolve_intake_ipa(
     return IntakeResolution(candidates[0], False, candidates, matched_on)
 
 
+# Return the newest intake build for a bundle ID, or None.
 def find_intake_ipa(bundle_id: str, intake_dir: Path | None = None) -> IntakeMatch | None:
     resolution = resolve_intake_ipa(bundle_id=bundle_id, intake_dir=intake_dir)
     if resolution.match is None:
@@ -194,6 +195,7 @@ def find_intake_ipa(bundle_id: str, intake_dir: Path | None = None) -> IntakeMat
     )
 
 
+# Resolve an app config's intake build by its expected bundle ID or name.
 def resolve_for_app(app_config) -> IntakeResolution:
     artifact = getattr(app_config, "artifact", None) or {}
     return resolve_intake_ipa(
@@ -206,10 +208,12 @@ def resolve_for_app(app_config) -> IntakeResolution:
 class IntakeIpaProvider(LocalIpaProvider):
     source = "intake_ipa"
 
+    # Return the IPA path set by intake resolution, if any.
     def _configured_path(self, artifact: dict) -> Path | None:
         value = (artifact or {}).get("ipa")
         return Path(value).expanduser() if value else None
 
+    # Resolve the app's intake build, fill in its bundle IDs, then acquire it as a local IPA.
     def acquire(self, app_config, global_config, device_client, run_timestamp: str, out_dir: Path):
         artifact = dict(app_config.artifact or {})
         directory = _intake_dir(artifact)

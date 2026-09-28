@@ -1,3 +1,7 @@
+"""
+Public artifact store API: artifact resolution, icon extraction and stored references.
+"""
+
 from mobile_playbook.artifact_store.extraction import (
     IconExtraction,
     describe_artifact,

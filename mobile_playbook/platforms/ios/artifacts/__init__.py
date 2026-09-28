@@ -1,1 +1,3 @@
-"""Artifact acquisition providers."""
+"""
+Artifact acquisition providers.
+"""

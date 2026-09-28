@@ -1,3 +1,7 @@
+"""
+One-time backfill of app icon references for applications already in the dashboard.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -24,9 +28,11 @@ class BackfillCounts:
     ambiguous: int = 0
     failed: int = 0
 
+    # Returns a copy with the given counters incremented.
     def plus(self, **changes: int) -> "BackfillCounts":
         return replace(self, **{key: getattr(self, key) + value for key, value in changes.items()})
 
+    # Returns the counters as a plain dict.
     def as_dict(self) -> dict[str, int]:
         return {
             "scanned": self.scanned,
@@ -38,8 +44,8 @@ class BackfillCounts:
         }
 
 
+# Finds the linked application row, else a single unlinked row by configured name; never guesses between several.
 def _find_application(store: Any, app_id: str, platform: str) -> tuple[dict | None, str | None]:
-    """Linked row first, then a single unlinked row by name. Never guesses between several."""
     linked = store.find_application_by_external_id_and_platform(app_id, platform)
     if linked is not None:
         logger.debug("icon backfill: %s %s linked to application %s.", platform, app_id, linked.get("id"))
@@ -63,12 +69,14 @@ def _find_application(store: Any, app_id: str, platform: str) -> tuple[dict | No
     return (candidates[0], None) if candidates else (None, "skipped")
 
 
+# Returns the configured display name of an app.
 def _configured_app_name(platform: str, app_id: str) -> str | None:
     from mobile_playbook.artifact_store.resolver import app_display_name
 
     return app_display_name(platform, app_id)
 
 
+# Fills in icon references for a platform's configured apps that already exist in the dashboard.
 def backfill_platform(
     platform: str,
     store: Any,
@@ -76,7 +84,6 @@ def backfill_platform(
     force: bool = False,
     dry_run: bool = False,
 ) -> BackfillCounts:
-    """Fill in icon references for apps that already exist in the dashboard."""
     counts = BackfillCounts()
     for app_id in app_ids if app_ids is not None else configured_app_ids(platform):
         counts = counts.plus(scanned=1)
@@ -108,6 +115,7 @@ def backfill_platform(
     return counts
 
 
+# Logs a summary of backfill counts for a platform.
 def _report(platform: str, counts: BackfillCounts, dry_run: bool) -> None:
     logger.info(
         "%s%s: %d configured app(s), %d linked, %d without a readable icon, "
@@ -123,6 +131,7 @@ def _report(platform: str, counts: BackfillCounts, dry_run: bool) -> None:
     )
 
 
+# Parses backfill options, builds the Supabase store and backfills icons for the selected platforms.
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="One-time backfill of application icon references for apps already in the dashboard."

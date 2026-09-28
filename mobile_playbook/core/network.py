@@ -1,3 +1,7 @@
+"""
+Resolves the LAN host address that a test device uses to reach this Mac.
+"""
+
 from __future__ import annotations
 
 import ipaddress
@@ -7,6 +11,7 @@ import socket
 logger = logging.getLogger(__name__)
 
 
+# Return the Mac's routable LAN address from the local end of a UDP socket.
 def detect_lan_ip() -> str:
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
         try:
@@ -19,8 +24,8 @@ def detect_lan_ip() -> str:
             raise ValueError("could not detect the Mac's routable LAN address") from exc
 
 
+# Resolve a device-reachable host, detecting the LAN address for `auto` and rejecting loopback.
 def resolve_lan_host(configured: str, *, label: str) -> str:
-    """A host the iPhone can reach: `auto` detects the Mac's LAN address, loopback is rejected."""
     configured = str(configured or "").strip()
     logger.debug("network: resolving %s from configured value %r", label, configured)
     if not configured:

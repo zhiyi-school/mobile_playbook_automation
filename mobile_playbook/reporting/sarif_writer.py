@@ -1,3 +1,7 @@
+"""
+Builds and writes SARIF 2.1.0 results files from completed runs' dashboard results.
+"""
+
 from __future__ import annotations
 
 import hashlib
@@ -44,8 +48,8 @@ DEFAULT_FAIL_LEVEL = "error"
 logger = logging.getLogger(__name__)
 
 
+# Maps a verdict and severity to a SARIF kind and level; only `fail` may have a level other than `none` (SARIF 3.27.10).
 def verdict_kind_and_level(verdict: str, severity: Any = None) -> tuple[str, str]:
-    """SARIF 2.1.0 §3.27.10: only a `fail` result may carry a level other than `none`."""
     kind = VERDICT_KIND.get(verdict, VERDICT_KIND[DEFAULT_VERDICT])
     if kind != FAIL_KIND:
         return kind, NO_LEVEL
@@ -53,6 +57,7 @@ def verdict_kind_and_level(verdict: str, severity: Any = None) -> tuple[str, str
     return kind, SEVERITY_LEVEL.get(key, DEFAULT_FAIL_LEVEL)
 
 
+# Returns the installed package version, or a placeholder when metadata is unavailable.
 def tool_version() -> str:
     try:
         return package_version("mobile-playbook-automation")
@@ -61,16 +66,18 @@ def tool_version() -> str:
         return "0.0.0+unknown"
 
 
+# Returns the path of a run's SARIF file.
 def sarif_path(run_dir: Path) -> Path:
     return Path(run_dir) / SARIF_NAME
 
 
+# Returns a fingerprint stable across runs, built only from project identifiers, never times or paths.
 def result_fingerprint(app_id: str, test_id: str, test_case_id: str = "", platform: str = "") -> str:
-    """Stable across runs: only project identifiers, never times or paths."""
     parts = [str(platform), str(app_id), str(test_id), str(test_case_id)]
     return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()
 
 
+# Builds a SARIF 2.1.0 document with one rule per test id and one result per row, in a stable order.
 def build_sarif(
     rows: Sequence[Mapping[str, Any]],
     *,
@@ -110,11 +117,11 @@ def build_sarif(
     return {"version": SARIF_VERSION, "$schema": SARIF_SCHEMA, "runs": [run]}
 
 
+# Builds SARIF from a run folder's dashboard results, or None when the run did not complete.
 def build_from_run_dir(
     run_dir: Path,
     rule_metadata: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> dict[str, Any] | None:
-    """`None` when the run did not complete, so a partial feed is never published as results."""
     path = Path(run_dir)
     manifest = read_manifest(path)
     if not is_completed(manifest):
@@ -137,6 +144,7 @@ def build_from_run_dir(
     )
 
 
+# Writes a completed run's SARIF file and returns its path, or None when there is nothing to write.
 def write_sarif(
     run_dir: Path,
     rule_metadata: Mapping[str, Mapping[str, Any]] | None = None,
@@ -152,10 +160,12 @@ def write_sarif(
     return path
 
 
+# Serializes a SARIF document as sorted, indented UTF-8 JSON with a trailing newline.
 def dumps(document: Mapping[str, Any]) -> str:
     return json.dumps(document, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
 
 
+# Returns the app, test, test case and report path key that orders result rows.
 def _row_sort_key(row: Mapping[str, Any]) -> tuple[str, str, str, str]:
     return (
         str(row.get("app_id") or ""),
@@ -165,6 +175,7 @@ def _row_sort_key(row: Mapping[str, Any]) -> tuple[str, str, str, str]:
     )
 
 
+# Returns the row's raw test case id, or an empty string.
 def _test_case_id(row: Mapping[str, Any]) -> str:
     raw = row.get("raw")
     if isinstance(raw, Mapping):
@@ -172,6 +183,7 @@ def _test_case_id(row: Mapping[str, Any]) -> str:
     return ""
 
 
+# Builds a SARIF rule from risk metadata, falling back to the first matching row.
 def _rule(rule_id: str, metadata: Mapping[str, Any] | None, rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     sample = next((row for row in rows if str(row.get("test_id") or "") == rule_id), {})
     name = str((metadata or {}).get("name") or sample.get("test_name") or rule_id)
@@ -199,6 +211,7 @@ def _rule(rule_id: str, metadata: Mapping[str, Any] | None, rows: Sequence[Mappi
     return rule
 
 
+# Builds a SARIF result for a row with its fingerprint, properties and in-run evidence attachments.
 def _result(row: Mapping[str, Any], rule_index: Mapping[str, int]) -> dict[str, Any]:
     rule_id = str(row.get("test_id") or "")
     verdict = str(row.get("verdict") or DEFAULT_VERDICT)
@@ -252,14 +265,15 @@ def _result(row: Mapping[str, Any], rule_index: Mapping[str, int]) -> dict[str, 
     return result
 
 
+# Returns a generic result message naming the test, app and verdict.
 def _fallback_message(row: Mapping[str, Any], verdict: str) -> str:
     name = str(row.get("test_name") or row.get("test_id") or "This check")
     app = str(row.get("app_name") or row.get("app_id") or "the application")
     return f"{name} on {app} was assessed as {verdict}."
 
 
+# Returns a row's evidence with URIs relative to the run directory; never an absolute host path.
 def _evidence(row: Mapping[str, Any]) -> list[dict[str, Any]]:
-    """Relative to the run directory the SARIF file sits in; never an absolute host path."""
     items = row.get("evidence")
     if not isinstance(items, Sequence) or isinstance(items, (str, bytes)):
         return []
@@ -281,6 +295,7 @@ def _evidence(row: Mapping[str, Any]) -> list[dict[str, Any]]:
     return sorted(evidence, key=lambda item: (item["uri"], item["kind"], item["label"]))
 
 
+# Returns an evidence path relative to the run directory and whether it lies outside it.
 def _relative_uri(raw_path: str, run_timestamp: str) -> tuple[str, bool]:
     if not raw_path:
         return "", True
@@ -294,6 +309,7 @@ def _relative_uri(raw_path: str, run_timestamp: str) -> tuple[str, bool]:
     return normalized.name, True
 
 
+# Returns the SARIF invocation for a manifest with its success flag and UTC times, or None.
 def _invocation(manifest: Mapping[str, Any] | None) -> dict[str, Any] | None:
     if manifest is None:
         return None
@@ -305,6 +321,7 @@ def _invocation(manifest: Mapping[str, Any] | None) -> dict[str, Any] | None:
     return invocation
 
 
+# Formats an ISO timestamp as SARIF UTC with milliseconds, treating naive times as UTC.
 def _utc(value: Any) -> str | None:
     if not isinstance(value, str) or not value:
         return None
@@ -317,10 +334,12 @@ def _utc(value: Any) -> str | None:
     return parsed.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.") + f"{parsed.microsecond // 1000:03d}Z"
 
 
+# Returns the value as a string unless it is None or empty.
 def _text_or_none(value: Any) -> str | None:
     return str(value) if value not in (None, "") else None
 
 
+# Collects rule metadata from each platform's risk catalogue, overlaid with the authored risks.yaml text.
 def _default_rule_metadata(rows: Sequence[Mapping[str, Any]]) -> dict[str, dict[str, Any]]:
     platforms = {str(row.get("platform") or "") for row in rows}
     metadata: dict[str, dict[str, Any]] = {}
@@ -332,8 +351,8 @@ def _default_rule_metadata(rows: Sequence[Mapping[str, Any]]) -> dict[str, dict[
     return metadata
 
 
+# Returns the authored risk text from the platform's risks.yaml, which the Risk classes do not carry.
 def _risk_yaml_metadata(platform: str) -> dict[str, dict[str, Any]]:
-    """The authored risk text, which the dashboard edits and the Risk classes do not carry."""
     path = RISK_CONFIG_ROOT / platform / "risks.yaml"
     try:
         import yaml
@@ -356,6 +375,7 @@ def _risk_yaml_metadata(platform: str) -> dict[str, dict[str, Any]]:
     return metadata
 
 
+# Returns the risk catalogue for a platform, or an empty list if unknown or it fails to load.
 def _platform_risks(platform: str) -> list[dict[str, Any]]:
     try:
         if platform == "ios":

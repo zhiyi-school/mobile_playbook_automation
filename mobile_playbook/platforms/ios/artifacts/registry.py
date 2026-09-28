@@ -1,3 +1,7 @@
+"""
+Discovery registry mapping artifact source names to provider classes.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -14,6 +18,7 @@ logger = logging.getLogger(__name__)
 _cache: dict[str, type[ArtifactProvider]] | None = None
 
 
+# Discover and cache the provider classes in this package, keyed by source.
 def _registry() -> dict[str, type[ArtifactProvider]]:
     global _cache
     if _cache is None:
@@ -22,10 +27,12 @@ def _registry() -> dict[str, type[ArtifactProvider]]:
     return _cache
 
 
+# Return the set of registered artifact source names.
 def known_sources() -> set[str]:
     return set(_registry())
 
 
+# Instantiate the provider for a source, or return None when none is registered.
 def get_provider(source: str) -> ArtifactProvider | None:
     provider_class = _registry().get(source)
     if provider_class is None:

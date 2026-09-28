@@ -1,3 +1,7 @@
+"""
+Content-addressed store for derived artifact icons and metadata.
+"""
+
 from __future__ import annotations
 
 import json
@@ -25,36 +29,41 @@ _digest_cache: dict[tuple[str, int, float], str] = {}
 logger = logging.getLogger(__name__)
 
 
+# Returns the derived artifact store root.
 def store_root() -> Path:
     from mobile_playbook.storage import derived_root
 
     return derived_root()
 
 
+# Reports whether value is a lowercase SHA-256 hex digest.
 def is_artifact_id(value: str | None) -> bool:
     return bool(value) and bool(ARTIFACT_ID_PATTERN.match(str(value)))
 
 
+# Returns the logical icon reference for an artifact id.
 def icon_ref(artifact_id: str) -> str:
     if not is_artifact_id(artifact_id):
         raise ValueError("artifact_id must be a sha256 hex digest")
     return f"{ICON_REF_PREFIX}{artifact_id}.png"
 
 
+# Returns the stored icon file path for an artifact id.
 def icon_path(artifact_id: str) -> Path:
     if not is_artifact_id(artifact_id):
         raise ValueError("artifact_id must be a sha256 hex digest")
     return store_root() / ICONS_SUBDIR / f"{artifact_id}.png"
 
 
+# Returns the stored metadata file path for an artifact id.
 def metadata_path(artifact_id: str) -> Path:
     if not is_artifact_id(artifact_id):
         raise ValueError("artifact_id must be a sha256 hex digest")
     return store_root() / METADATA_SUBDIR / f"{artifact_id}.json"
 
 
+# Maps an issued icon reference back to its existing file, or None if it is not one we issued.
 def resolve_icon_ref(ref: str | None) -> Path | None:
-    """Map a stored logical reference back to a file, or `None` if it is not one we issued."""
     match = ICON_REF_PATTERN.match(str(ref or ""))
     if match is None:
         logger.debug("artifact store: %r is not an issued icon reference.", ref)
@@ -64,6 +73,7 @@ def resolve_icon_ref(ref: str | None) -> Path | None:
     return path if path.is_file() else None
 
 
+# Returns the file's SHA-256, cached by resolved path, size and modification time.
 def artifact_digest(path: Path) -> str:
     path = Path(path)
     stat = path.stat()
@@ -78,6 +88,7 @@ def artifact_digest(path: Path) -> str:
     return cached
 
 
+# Replaces path with data in one step and returns the path.
 def write_atomic(path: Path, data: bytes) -> Path:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -96,6 +107,7 @@ def write_atomic(path: Path, data: bytes) -> Path:
     return path
 
 
+# Reads an artifact's stored metadata, or returns None if missing or unreadable.
 def read_metadata(artifact_id: str) -> dict[str, Any] | None:
     try:
         metadata = json.loads(metadata_path(artifact_id).read_text())
@@ -106,5 +118,6 @@ def read_metadata(artifact_id: str) -> dict[str, Any] | None:
     return metadata
 
 
+# Atomically writes an artifact's metadata as JSON and returns its path.
 def write_metadata(artifact_id: str, metadata: dict[str, Any]) -> Path:
     return write_atomic(metadata_path(artifact_id), json.dumps(metadata, indent=2, sort_keys=True).encode())

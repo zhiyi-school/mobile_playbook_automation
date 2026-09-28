@@ -1,3 +1,7 @@
+"""
+Artifact provider for IPAs produced by a CI pipeline.
+"""
+
 from __future__ import annotations
 
 from mobile_playbook.platforms.ios.artifacts.local_ipa import LocalIpaProvider

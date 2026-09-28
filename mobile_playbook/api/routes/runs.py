@@ -1,3 +1,7 @@
+"""
+Routes that start runs, report their status and summaries, and stream run events.
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -24,12 +28,14 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
+# Start an asynchronous run and return its run id.
 @router.post("/runs", status_code=202, response_model=RunCreatedResponse)
 def create_run(body: RunRequest) -> dict:
     logger.debug("api: POST /runs fields=%s.", sorted(body.model_fields_set))
     return runs_service.create_run(body)
 
 
+# List runs known to the registry, newest first.
 @router.get("/runs", response_model=list[RunResponse])
 def list_runs() -> list[dict]:
     logger.debug("api: GET /runs.")
@@ -38,12 +44,14 @@ def list_runs() -> list[dict]:
     return runs
 
 
+# Return one run's registry record.
 @router.get("/runs/{run_id}", response_model=RunResponse)
 def get_run(run_id: str) -> dict:
     logger.debug("api: GET /runs/%s.", run_id)
     return runs_service.get_run(run_id)
 
 
+# Return a finished run's dashboard results.
 @router.get("/runs/{run_id}/summary", response_model=list[ReportResultResponse])
 def get_run_summary(run_id: str) -> list[dict]:
     logger.debug("api: GET /runs/%s/summary.", run_id)
@@ -52,12 +60,14 @@ def get_run_summary(run_id: str) -> list[dict]:
     return results
 
 
+# Return a run's dashboard sync status.
 @router.get("/runs/{run_id}/sync-status", response_model=RunSyncStatusResponse)
 def get_run_sync_status(run_id: str) -> dict:
     logger.debug("api: GET /runs/%s/sync-status.", run_id)
     return sync_service.run_sync_status(run_id)
 
 
+# Retrigger dashboard sync for a run.
 @router.post("/runs/{run_id}/sync", status_code=202, response_model=RunSyncStatusResponse)
 def resync_run(run_id: str) -> dict:
     logger.debug("api: POST /runs/%s/sync.", run_id)
@@ -67,6 +77,7 @@ def resync_run(run_id: str) -> dict:
 EVENT_POLL_SECONDS = 0.5
 
 
+# Stream a run's progress events as server-sent events until it finishes.
 @router.get("/runs/{run_id}/events")
 async def stream_run_events(run_id: str, request: Request) -> StreamingResponse:
     logger.debug("api: GET /runs/%s/events.", run_id)
@@ -76,6 +87,7 @@ async def stream_run_events(run_id: str, request: Request) -> StreamingResponse:
     run_dir = reports_service.resolved_run_dir(run_id)
     logger.debug("api: streaming events for run %s from %s.", run_id, run_dir)
 
+    # Yield new events, keep-alives and a final done event while the client stays connected.
     async def event_stream():
         since = 0
         while True:

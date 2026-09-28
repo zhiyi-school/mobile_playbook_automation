@@ -1,3 +1,7 @@
+"""
+Loads, parses and validates the iOS run configuration, inferring bundle IDs from IPAs where possible.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -24,9 +28,7 @@ logger = logging.getLogger(__name__)
 
 LOCAL_IPA_SOURCES = {"local_ipa", "ci_artifact", "vendor_ipa", "xcode_archive_export"}
 
-# Maps a risk ID to the GlobalConfig field holding its shared, cross-app default
-# settings. A risk's effective config is that default merged with (and overridden
-# by) whatever the app's own `risks.<risk_id>` entry specifies.
+# Risk ID to the GlobalConfig field whose defaults the app's risks.<risk_id> entry overrides.
 RISK_GLOBAL_SETTINGS_FIELD = {
     "ios-feature-01-risk-01": "ipa_static_analysis",
     "ios-feature-01-risk-02": "repackaging",
@@ -36,6 +38,7 @@ RISK_GLOBAL_SETTINGS_FIELD = {
 }
 
 
+# Merge a risk's shared global defaults with the app's own risk settings.
 def effective_risk_config(config: GlobalConfig, risk_id: str, risk_config: dict[str, Any] | None) -> dict[str, Any]:
     field_name = RISK_GLOBAL_SETTINGS_FIELD.get(risk_id)
     global_defaults = getattr(config, field_name, {}) if field_name else {}
@@ -53,16 +56,21 @@ def effective_risk_config(config: GlobalConfig, risk_id: str, risk_config: dict[
 
 
 class ConfigError(Exception):
+    """Configuration failure carrying every validation error found."""
+
+    # Store the errors and join them into the exception message.
     def __init__(self, errors: list[str]):
         self.errors = errors
         super().__init__("\n".join(errors))
 
 
+# Turn a name into a lowercase underscore slug, defaulting to 'app'.
 def _slugify(value: str) -> str:
     slug = re.sub(r"[^a-zA-Z0-9]+", "_", value.strip().lower()).strip("_")
     return slug or "app"
 
 
+# Return a mapping value, recording an error when it is missing or empty.
 def _require(mapping: dict[str, Any], key: str, label: str, errors: list[str]) -> Any:
     value = mapping.get(key)
     if value in (None, ""):
@@ -70,6 +78,7 @@ def _require(mapping: dict[str, Any], key: str, label: str, errors: list[str]) -
     return value
 
 
+# Load, parse and validate a YAML config file, raising ConfigError on any problem.
 def load_config(path: Path, dry_run: bool = False) -> GlobalConfig:
     path = Path(path)
     logger.debug("ios config: loading %s (dry_run=%s)", path, dry_run)
@@ -85,6 +94,7 @@ def load_config(path: Path, dry_run: bool = False) -> GlobalConfig:
     return config
 
 
+# Build a GlobalConfig from raw config data, applying defaults.
 def parse_config(raw: dict[str, Any], config_path: Path | None = None) -> GlobalConfig:
     device_raw = raw.get("device") or {}
     runner_raw = raw.get("runner") or {}
@@ -164,6 +174,7 @@ def parse_config(raw: dict[str, Any], config_path: Path | None = None) -> Global
     )
 
 
+# Raise ConfigError when the config has any problems.
 def validate_config(config: GlobalConfig, dry_run: bool = False) -> None:
     errors = collect_config_errors(config, dry_run=dry_run)
     if errors:
@@ -172,8 +183,8 @@ def validate_config(config: GlobalConfig, dry_run: bool = False) -> None:
     logger.debug("ios config: validation passed")
 
 
+# Return every config problem instead of raising; app-scoped ones are prefixed apps[<id>].
 def collect_config_errors(config: GlobalConfig, dry_run: bool = False) -> list[str]:
-    """Every config problem instead of raising. App-scoped ones are prefixed `apps[<id>].`"""
     errors: list[str] = []
     _auto_fill_bundle_ids(config, errors)
     if not config.device.udid:
@@ -195,8 +206,7 @@ def collect_config_errors(config: GlobalConfig, dry_run: bool = False) -> list[s
             errors.append(f"{label}.artifact.source is required")
         elif source not in known_sources():
             errors.append(f"{label}.artifact.source is unknown: {source}")
-        # intake_ipa takes its identity from the build itself, which may not be
-        # extracted yet; acquisition reports that as ARTIFACT_NOT_FOUND.
+        # intake_ipa takes its identity from the build, which may not be extracted yet.
         if source != "intake_ipa":
             if not app.bundle_id:
                 errors.append(f"{label}.bundle_id is required")
@@ -263,6 +273,7 @@ def collect_config_errors(config: GlobalConfig, dry_run: bool = False) -> list[s
     return errors
 
 
+# Fill missing app and companion bundle IDs from intake builds or IPA metadata.
 def _auto_fill_bundle_ids(config: GlobalConfig, errors: list[str]) -> None:
     for app in config.apps:
         label = f"apps[{app.id or '?'}]"
@@ -313,15 +324,12 @@ def _auto_fill_bundle_ids(config: GlobalConfig, errors: list[str]) -> None:
                 elif not app.bundle_id:
                     errors.append(f"{label}.bundle_id could not be inferred from IPA metadata")
             elif not app.bundle_id and ipa:
-                # Path existence/readability is reported by the normal artifact
-                # validation below; this keeps the bundle-id error actionable.
+                # Path problems are reported by the artifact validation instead.
                 pass
 
         risk_config = app.risks.get("ios-feature-04-risk-01")
         if risk_config and risk_config.get("enabled", False):
-            # The keyboard host app is normally the same for every app under test, so its
-            # settings usually live in the shared `keystroke_collection` global section rather
-            # than this app's own risk_config; only fall back to a per-app override when present.
+            # The keyboard app usually lives in the shared keystroke_collection section; this is an override.
             _auto_fill_companion_bundle_id(risk_config.get("keyboard_app"))
         risk_config = app.risks.get("ios-feature-03-risk-01")
         if risk_config and risk_config.get("enabled", False):
@@ -330,6 +338,7 @@ def _auto_fill_bundle_ids(config: GlobalConfig, errors: list[str]) -> None:
     _auto_fill_companion_bundle_id(config.screen_capture.get("recorder_app"))
 
 
+# Fill a companion app's missing bundle ID from its IPA metadata.
 def _auto_fill_companion_bundle_id(companion_app: dict[str, Any] | None) -> None:
     if not companion_app or companion_app.get("bundle_id"):
         return
@@ -343,6 +352,7 @@ def _auto_fill_companion_bundle_id(companion_app: dict[str, Any] | None) -> None
         logger.debug("ios config: companion app bundle_id not inferred from %s", companion_app.get("ipa"))
 
 
+# Return IPA metadata when the path is an existing, readable IPA, else None.
 def _inspect_metadata_if_available(ipa: Any) -> dict[str, Any] | None:
     if not ipa:
         return None

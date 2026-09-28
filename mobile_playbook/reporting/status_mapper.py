@@ -1,3 +1,7 @@
+"""
+Dataclasses for normalized dashboard test results and their evidence.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field

@@ -1,3 +1,7 @@
+"""
+Runs dashboard sync passes over report folders with status, ledger and skip handling.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -14,11 +18,13 @@ from mobile_playbook.sync_state import is_processed, mark_processed, report_dige
 logger = logging.getLogger(__name__)
 
 
+# Fails the reassessment request linked to a run that did not complete, using the manifest error.
 def fail_report_lifecycle(run_dir: Path, manifest: Mapping[str, Any], store: DashboardSyncStore) -> None:
     detail = str(manifest.get("error") or "The automation run failed before completing.")
     sync_retest(Path(run_dir).name, store, "failed", detail)
 
 
+# Syncs each eligible run folder once per digest, updating sync status and the processed ledger.
 def sync_reports(
     reports_dir: Path,
     store: DashboardSyncStore,
@@ -90,6 +96,7 @@ def sync_reports(
     return summary
 
 
+# Yields the requested run folders, or every folder under reports_dir holding dashboard results.
 def report_dirs(reports_dir: Path, run_timestamps: Iterable[str] | None) -> Iterable[Path]:
     root = Path(reports_dir)
     if run_timestamps is not None:
@@ -107,6 +114,7 @@ def report_dirs(reports_dir: Path, run_timestamps: Iterable[str] | None) -> Iter
             logger.debug("dashboard sync: ignoring %s (not a report directory).", child.name)
 
 
+# Returns why a run should not be synced, or None when its manifest shows it completed.
 def report_skip_reason(manifest: Mapping[str, Any] | None, allow_legacy_report: bool) -> str | None:
     if manifest is None:
         return None if allow_legacy_report else "no run manifest; pass --allow-legacy-report to import historical runs"

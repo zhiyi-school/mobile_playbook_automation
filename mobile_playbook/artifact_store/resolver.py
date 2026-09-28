@@ -1,3 +1,7 @@
+"""
+Resolves configured apps to their on-disk builds and derived icon references.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -14,12 +18,15 @@ from mobile_playbook.artifact_store.extraction import (
 
 logger = logging.getLogger(__name__)
 
+
+# Returns the Android intake directory.
 def _android_intake_dir() -> Path:
     from mobile_playbook.storage import android_intake_dir
 
     return android_intake_dir()
 
 
+# Returns the directory holding APKs acquired by the Android repackaging workflow.
 def _android_workflow_apk_dir() -> Path:
     from mobile_playbook.storage import android_work_dir
 
@@ -39,6 +46,7 @@ class AppArtifact:
     path: Path
 
 
+# Returns the configured app entry for a platform and id, or None if absent or the config is unreadable.
 def _app_entry(platform: str, app_id: str) -> dict[str, Any] | None:
     from mobile_playbook.api import config_editor
 
@@ -53,6 +61,7 @@ def _app_entry(platform: str, app_id: str) -> dict[str, Any] | None:
     return entry
 
 
+# Returns the expanded path if it names an existing file, else None.
 def _existing(path_value: Any) -> Path | None:
     if not path_value:
         return None
@@ -60,6 +69,7 @@ def _existing(path_value: Any) -> Path | None:
     return path if path.is_file() else None
 
 
+# Returns the on-disk IPA for an iOS app from intake or a local source, or None.
 def _resolve_ios(app: dict[str, Any]) -> Path | None:
     from mobile_playbook.platforms.ios.artifacts.intake_ipa import intake_dir_for, resolve_intake_ipa
 
@@ -88,6 +98,7 @@ def _resolve_ios(app: dict[str, Any]) -> Path | None:
     return None
 
 
+# Returns the app's configured, acquired or name-matched intake APK, or None.
 def _resolve_android(app: dict[str, Any]) -> Path | None:
     from mobile_playbook.platforms.ios.artifacts.intake_ipa import normalize_app_name
 
@@ -118,8 +129,8 @@ def _resolve_android(app: dict[str, Any]) -> Path | None:
     return None
 
 
+# Returns the build a configured app would be tested from, if one is on disk.
 def resolve_app_artifact(platform: str, app_id: str) -> AppArtifact | None:
-    """The build a configured app would be tested from, if one is on disk."""
     app = _app_entry(platform, app_id)
     if app is None:
         return None
@@ -127,8 +138,8 @@ def resolve_app_artifact(platform: str, app_id: str) -> AppArtifact | None:
     return AppArtifact(platform=platform, app_id=app_id, path=path) if path else None
 
 
+# Returns the icon state for a configured app, extracting on first use and then serving from the store.
 def app_icon(platform: str, app_id: str, force: bool = False) -> IconExtraction:
-    """Icon state for a configured app. Extracts on first use, then serves from the store."""
     if _app_entry(platform, app_id) is None:
         logger.debug("artifact store: icon unavailable; %s app %s is not configured.", platform, app_id)
         return IconExtraction(status=STATUS_UNAVAILABLE, reason=REASON_UNKNOWN_APP)
@@ -142,8 +153,8 @@ def app_icon(platform: str, app_id: str, force: bool = False) -> IconExtraction:
     return extract_icon(platform, artifact.path, force=force)
 
 
+# Returns the icon file and artifact id for the icon endpoint, or None when there is nothing to serve.
 def app_icon_file(platform: str, app_id: str) -> tuple[Path, str] | None:
-    """(file, artifact_id) for the icon endpoint, or `None` when there is nothing to serve."""
     extraction = app_icon(platform, app_id)
     if not extraction.available or not extraction.artifact_id:
         logger.debug("artifact store: no icon file for %s app %s (status %s).", platform, app_id, extraction.status)
@@ -152,8 +163,8 @@ def app_icon_file(platform: str, app_id: str) -> tuple[Path, str] | None:
     return (path, extraction.artifact_id) if path else None
 
 
+# Returns the small icon reference the dashboard stores; never raises, and unavailable is a normal answer.
 def app_icon_reference(platform: str, app_id: str, force: bool = False) -> dict[str, Any]:
-    """The small reference the dashboard stores. Never raises; unavailable is a normal answer."""
     try:
         extraction = app_icon(platform, app_id, force=force)
     except Exception as exc:
@@ -167,6 +178,7 @@ def app_icon_reference(platform: str, app_id: str, force: bool = False) -> dict[
     }
 
 
+# Lists the configured app ids for a platform, or an empty list if the config is unreadable.
 def configured_app_ids(platform: str) -> list[str]:
     from mobile_playbook.api import config_editor
 
@@ -180,6 +192,7 @@ def configured_app_ids(platform: str) -> list[str]:
     return [str(entry["id"]) for entry in apps if entry.get("id")]
 
 
+# Returns the config fields artifact resolution needs from an app config object.
 def _app_config_view(app_config: Any) -> dict[str, Any]:
     return {
         "id": getattr(app_config, "id", None),
@@ -190,8 +203,8 @@ def _app_config_view(app_config: Any) -> dict[str, Any]:
     }
 
 
+# Returns the SHA-256 of the build a run is actually using, or None when there is none on disk.
 def artifact_digest_for_app_config(platform: str, app_config: Any) -> str | None:
-    """SHA-256 of the build this run is actually using. `None` when there is none on disk."""
     view = _app_config_view(app_config)
     path = _resolve_ios(view) if platform == "ios" else _resolve_android(view)
     if path is None:
@@ -204,8 +217,8 @@ def artifact_digest_for_app_config(platform: str, app_config: Any) -> str | None
         return None
 
 
+# Digests the run's build and derives its icon now, so a later sync cannot pick a newer build.
 def prepare_icon_for_app_config(platform: str, app_config: Any) -> str | None:
-    """Digest the run's build and derive its icon now, so a later sync cannot pick a newer one."""
     digest = artifact_digest_for_app_config(platform, app_config)
     if digest is None:
         return None
@@ -219,8 +232,8 @@ def prepare_icon_for_app_config(platform: str, app_config: Any) -> str | None:
     return digest
 
 
+# Returns the stored icon reference for one exact build, or None when nothing was derived from it.
 def icon_reference_for_artifact(artifact_sha256: str) -> dict[str, Any] | None:
-    """The stored reference for one exact build, or `None` when nothing was derived from it."""
     if not store.is_artifact_id(artifact_sha256):
         logger.debug("artifact store: %r is not an artifact id.", artifact_sha256)
         return None
@@ -235,6 +248,7 @@ def icon_reference_for_artifact(artifact_sha256: str) -> dict[str, Any] | None:
     }
 
 
+# Returns the configured display name of an app, or None.
 def app_display_name(platform: str, app_id: str) -> str | None:
     entry = _app_entry(platform, app_id)
     name = (entry or {}).get("name")

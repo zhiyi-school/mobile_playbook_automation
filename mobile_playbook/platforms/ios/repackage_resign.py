@@ -1,3 +1,7 @@
+"""
+Provisioning-profile selection and codesign-based resigning of repackaged iOS apps.
+"""
+
 from __future__ import annotations
 
 import hashlib
@@ -24,6 +28,7 @@ class ResignResult:
     errors: list[str] = field(default_factory=list)
 
 
+# Decode a provisioning profile with security cms and return its plist contents.
 def _decode_profile(profile_path: Path) -> dict:
     logger.debug("ios resign: decoding provisioning profile %s", profile_path)
     started = time.monotonic()
@@ -36,6 +41,7 @@ def _decode_profile(profile_path: Path) -> dict:
     return plistlib.loads(decoded.stdout)
 
 
+# Return whether a profile covers the team, bundle ID, device and identity and outlives the margin.
 def _profile_compatible(profile: dict, bundle_id: str, team_id: str, udid: str, identity: str, margin_seconds: int = 0) -> bool:
     try:
         entitlements = profile["Entitlements"]
@@ -70,8 +76,8 @@ def _profile_compatible(profile: dict, bundle_id: str, team_id: str, udid: str, 
     return True
 
 
+# Validate the profile against this app/device/signer, embed it, and return its entitlements plist.
 def prepare_profile(app_dir: Path, profile_path: Path, bundle_id: str, team_id: str, udid: str, identity: str, work_dir: Path) -> Path:
-    """Validate the profile against this app/device/signer, embed it, and return its entitlements plist."""
     profile = _decode_profile(profile_path)
     if not _profile_compatible(profile, bundle_id, team_id, udid, identity):
         raise ValueError("Provisioning profile is incompatible with this app, device, or signer")
@@ -83,8 +89,8 @@ def prepare_profile(app_dir: Path, profile_path: Path, bundle_id: str, team_id: 
     return output
 
 
+# Return the first locally installed profile that matches this app, device and signer, or None.
 def discover_provisioning_profile(bundle_id: str, team_id: str, udid: str, identity: str, search_dir: str | None = None, margin_seconds: int = 0) -> Path | None:
-    """First locally installed profile that matches this app, device, and signer, or None."""
     search = Path(search_dir).expanduser() if search_dir else Path(DEFAULT_PROFILE_DIR).expanduser()
     logger.debug("ios resign: searching %s for a profile for %s/%s (margin %ss)", search, team_id, bundle_id, margin_seconds)
     if not search.is_dir():
@@ -103,6 +109,7 @@ def discover_provisioning_profile(bundle_id: str, team_id: str, udid: str, ident
     return None
 
 
+# Build the RepackProvision project with xcodegen and xcodebuild so Xcode issues a profile.
 def generate_provisioning_profile(bundle_id: str, team_id: str, udid: str) -> None:
     project_dir = resolve_under_repository(REPACK_PROVISION_DIR)
     commands = [
@@ -129,6 +136,7 @@ def generate_provisioning_profile(bundle_id: str, team_id: str, udid: str) -> No
             raise RuntimeError(f"{cmd[0]} failed: {completed.stderr.strip() or completed.stdout.strip()}")
 
 
+# Return a profile not expiring within the margin, generating one when allowed and needed.
 def ensure_provisioning_profile(
     bundle_id: str,
     team_id: str,
@@ -137,7 +145,6 @@ def ensure_provisioning_profile(
     margin_seconds: int = 3600,
     generate: bool = True,
 ) -> Path | None:
-    """A valid (not expiring within margin) profile for bundle_id, generating/renewing if needed."""
     existing = discover_provisioning_profile(bundle_id, team_id, udid, identity, margin_seconds=margin_seconds)
     if existing is not None:
         logger.debug("ios resign: using existing profile %s", existing)
@@ -146,12 +153,12 @@ def ensure_provisioning_profile(
         logger.debug("ios resign: no profile and generation disabled")
         return None
     logger.debug("ios resign: generating a provisioning profile for %s/%s", team_id, bundle_id)
-    generate_provisioning_profile(bundle_id, team_id, udid)  # raises on failure
+    generate_provisioning_profile(bundle_id, team_id, udid)
     return discover_provisioning_profile(bundle_id, team_id, udid, identity, margin_seconds=margin_seconds)
 
 
+# Return the SHA-1 of the team's valid Apple Development identity, since names are not unique.
 def signing_identity_for_team(team_id: str) -> str:
-    """SHA-1 of the valid Apple Development identity for this team; names are not unique."""
     listing = subprocess.run(["security", "find-identity", "-v", "-p", "codesigning"], capture_output=True, text=True).stdout
     logger.debug("ios resign: security find-identity listed %s lines; looking for team %s", len(listing.splitlines()), team_id)
     for line in listing.splitlines():
@@ -171,6 +178,7 @@ def signing_identity_for_team(team_id: str) -> str:
     raise RuntimeError(f"no valid Apple Development identity in the keychain has team (OU) {team_id}")
 
 
+# Run codesign --force on a target with the identity and optional entitlements.
 def _codesign(identity: str, target: Path, entitlements: Path | None = None) -> subprocess.CompletedProcess:
     command = ["codesign", "--force", "--sign", identity]
     if entitlements is not None:
@@ -183,6 +191,7 @@ def _codesign(identity: str, target: Path, entitlements: Path | None = None) -> 
     return completed
 
 
+# Return the dylibs, frameworks and app extensions inside the bundle that need signing.
 def _nested_signables(app_dir: Path) -> list[Path]:
     seen: list[Path] = []
     for pattern in ("Frameworks/*.dylib", "Frameworks/*.framework", "PlugIns/*.appex", "**/*.dylib"):
@@ -193,6 +202,7 @@ def _nested_signables(app_dir: Path) -> list[Path]:
     return seen
 
 
+# Embed the validated profile, sign nested code, then the bundle, then verify the whole tree.
 def resign_app(
     app_dir: Path,
     identity: str,
@@ -202,7 +212,6 @@ def resign_app(
     udid: str,
     work_dir: Path,
 ) -> ResignResult:
-    """Embed the validated profile, sign nested code first, then the bundle, then verify the whole tree."""
     app_dir = Path(app_dir)
     logger.debug("ios resign: resigning %s as %s (team %s, identity %s, profile %s)", app_dir, bundle_id, team_id, identity, profile_path)
     try:

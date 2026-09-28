@@ -1,3 +1,7 @@
+"""
+Maps dashboard result rows onto dashboard applications, assessments, findings and reassessments.
+"""
+
 from __future__ import annotations
 
 import json
@@ -19,6 +23,7 @@ from mobile_playbook.platforms.ios.risks import known_risks as known_ios_risks
 logger = logging.getLogger(__name__)
 
 
+# Syncs result rows into dashboard applications, assessments and findings per app and returns the counts.
 def sync_dashboard_results(
     rows: Sequence[Mapping[str, Any]],
     store: DashboardSyncStore,
@@ -51,6 +56,7 @@ def sync_dashboard_results(
     )
 
 
+# Syncs a run folder's dashboard_results.json and completes any reassessment request linked to the run.
 def sync_report_dir(
     run_dir: Path,
     store: DashboardSyncStore,
@@ -76,6 +82,7 @@ def sync_report_dir(
     return summary.plus(SyncSummary(reports=1))
 
 
+# Returns icon fields for an app: the icon derived from the exact artifact when known, else the configured icon.
 def icon_reference(platform: str, app_id: str, artifact_sha256: str | None = None) -> dict[str, Any]:
     from mobile_playbook.artifact_store.resolver import app_icon_reference, icon_reference_for_artifact
 
@@ -95,6 +102,7 @@ def icon_reference(platform: str, app_id: str, artifact_sha256: str | None = Non
     return {} if reference.get("icon_extraction_status") == "failed" else reference
 
 
+# Updates the linked application, else adopts a single unlinked one by name, else upserts a new one.
 def sync_application(
     row: Mapping[str, Any], store: DashboardSyncStore, artifact_sha256: str | None = None
 ) -> dict[str, Any]:
@@ -128,6 +136,7 @@ def sync_application(
     return store.upsert_application(fields)
 
 
+# Updates or creates the run's assessment for an app, claiming a manual placeholder when one exists.
 def sync_assessment(
     app_id: str,
     rows: Sequence[Mapping[str, Any]],
@@ -167,6 +176,7 @@ def sync_assessment(
     return store.upsert_assessment({**fields, "external_id": run_key})
 
 
+# Creates or updates a finding from a row, skipping older runs; returns whether a status change was recorded.
 def sync_finding(
     row: Mapping[str, Any],
     application_id: str,
@@ -245,8 +255,8 @@ def sync_finding(
     return recorded_change
 
 
+# Moves a ticket on after a reassessment run only once no other request for it is outstanding.
 def reconcile_ticket_after_retest(store: DashboardSyncStore, ticket_id: str | None, status: str) -> None:
-    """A finished run only moves the remediation on once nothing else is outstanding."""
     if not ticket_id:
         logger.debug("dashboard sync: retest has no ticket; nothing to reconcile.")
         return
@@ -267,6 +277,7 @@ def reconcile_ticket_after_retest(store: DashboardSyncStore, ticket_id: str | No
         logger.debug("dashboard sync: ticket %s left unchanged after a %s retest.", ticket_id, status)
 
 
+# Closes the open reassessment request linked to a run and reconciles its ticket; returns whether one was found.
 def sync_retest(run_timestamp: str, store: DashboardSyncStore, status: str, result: str) -> bool:
     retest = store.find_retest_by_external_run_id(run_timestamp)
     if retest is None or retest.get("status") in {"completed", "failed", "cancelled"}:
@@ -295,6 +306,7 @@ def sync_retest(run_timestamp: str, store: DashboardSyncStore, status: str, resu
     return True
 
 
+# Returns the number of risks in scope for the rows' platform, preferring supplied counts.
 def total_tests(rows: Sequence[Mapping[str, Any]], risk_counts: Mapping[str, int] | None) -> int:
     platform = str(rows[0]["platform"])
     if risk_counts is not None and platform in risk_counts:

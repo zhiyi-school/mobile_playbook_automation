@@ -1,13 +1,5 @@
-"""Where the backend keeps runtime files.
-
-Each location resolves in this order, highest first:
-
-1. Its own setting — ``INTAKE_DIR``, ``ARTIFACT_STORE_DIR`` (derived),
-   ``REPORTS_DIR``, ``WORK_DIR``.
-2. ``ARTIFACTS_DIR``/<name>, defaulting to ``<repository>/artifacts/<name>``.
-
-A relative value resolves against the repository root, never the process
-working directory. See docs/storage.md.
+"""
+Resolves runtime storage locations from their settings or ARTIFACTS_DIR. See docs/storage.md.
 """
 
 from __future__ import annotations
@@ -32,6 +24,7 @@ LOCATION_NAMES = tuple(LOCATION_ENV)
 logger = logging.getLogger(__name__)
 
 
+# Returns a storage setting from the process environment, else from the API's allowlisted .env settings.
 def _setting(name: str) -> str | None:
     value = os.environ.get(name)
     if value is not None and value.strip():
@@ -43,11 +36,13 @@ def _setting(name: str) -> str | None:
     return settings.env_setting(name)
 
 
+# Expands a path value and resolves a relative one against the repository root.
 def _absolute(value: str) -> Path:
     path = Path(value).expanduser()
     return path if path.is_absolute() else REPOSITORY_ROOT / path
 
 
+# Reports whether child lies under parent.
 def _contained(child: Path, parent: Path) -> bool:
     try:
         child.relative_to(parent)
@@ -56,6 +51,7 @@ def _contained(child: Path, parent: Path) -> bool:
     return True
 
 
+# Returns the resolved ARTIFACTS_DIR root, defaulting to the repository's artifacts directory.
 def artifacts_root() -> Path:
     configured = _setting(ARTIFACTS_DIR_ENV)
     root = (_absolute(configured) if configured else DEFAULT_ARTIFACTS_DIR).resolve()
@@ -63,6 +59,7 @@ def artifacts_root() -> Path:
     return root
 
 
+# Returns a named storage location from its own setting, else from under the artifacts root.
 def location(name: str) -> Path:
     if name not in LOCATION_ENV:
         logger.debug("storage: unknown location %r requested.", name)
@@ -77,54 +74,58 @@ def location(name: str) -> Path:
     return resolved
 
 
+# Returns the intake location.
 def intake_root() -> Path:
     return location("intake")
 
 
+# Returns the derived artifact store location.
 def derived_root() -> Path:
     return location("derived")
 
 
+# Returns the reports location.
 def reports_root() -> Path:
     return location("reports")
 
 
+# Returns the work location.
 def work_root() -> Path:
     return location("work")
 
 
+# Returns the directory for intake iOS IPAs.
 def ios_intake_dir() -> Path:
     return intake_root() / "ios" / "ipas"
 
 
+# Returns the directory for intake Android APKs.
 def android_intake_dir() -> Path:
     return intake_root() / "android" / "apks"
 
 
+# Returns the iOS work directory.
 def ios_work_dir() -> Path:
     return work_root() / "ios"
 
 
+# Returns the path of the iOS traffic interception capture file.
 def ios_capture_path() -> Path:
     return ios_work_dir() / "traffic_interception" / "capture.jsonl"
 
 
+# Returns the Android work directory.
 def android_work_dir() -> Path:
     return work_root() / "android"
 
 
+# Resolves a path value, treating a relative one as relative to the repository root.
 def resolve_under_repository(value: str | Path) -> Path:
     return _absolute(str(value)).resolve()
 
 
+# Maps a path recorded under the old repository-root layout onto its current location when that file exists.
 def resolve_recorded_path(recorded: str | Path) -> Path:
-    """Map a path recorded under the old repository-root layout onto its file.
-
-    Historical reports hold absolute paths such as ``<repo>/work/ios/...``.
-    Those directories now live under ``artifacts/``, so such a path is rewritten
-    onto the current location; anything outside a known location, or already
-    current, is returned unchanged.
-    """
     path = Path(recorded).expanduser()
     if not path.is_absolute():
         logger.debug("storage: recorded path %s is relative; unchanged.", path)

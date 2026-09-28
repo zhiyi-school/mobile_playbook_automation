@@ -1,3 +1,7 @@
+"""
+Loads, parses and validates Android run configuration.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -20,11 +24,15 @@ from mobile_playbook.platforms.android.risks.registry import known_risks
 logger = logging.getLogger(__name__)
 
 class ConfigError(Exception):
+    """Raised with every problem found in an Android config."""
+
+    # Keeps the individual errors and joins them into the exception message.
     def __init__(self, errors: list[str]):
         self.errors = errors
         super().__init__("\n".join(errors))
 
 
+# Load an Android YAML config with its includes and apps file, then parse and validate it.
 def load_config(path: Path, dry_run: bool = False) -> AndroidGlobalConfig:
     path = Path(path)
     logger.debug("android config: loading %s (dry_run=%s)", path, dry_run)
@@ -40,6 +48,7 @@ def load_config(path: Path, dry_run: bool = False) -> AndroidGlobalConfig:
     return config
 
 
+# Build an AndroidGlobalConfig from raw YAML, applying defaults and legacy key fallbacks.
 def parse_config(raw: dict[str, Any], config_path: Path | None = None) -> AndroidGlobalConfig:
     device_raw = raw.get("device") or {}
     runner_raw = raw.get("runner") or {}
@@ -77,6 +86,7 @@ def parse_config(raw: dict[str, Any], config_path: Path | None = None) -> Androi
     )
 
 
+# Raise ConfigError when the config has any problems.
 def validate_config(config: AndroidGlobalConfig, dry_run: bool = False) -> None:
     errors = collect_config_errors(config, dry_run=dry_run)
     if errors:
@@ -85,8 +95,8 @@ def validate_config(config: AndroidGlobalConfig, dry_run: bool = False) -> None:
     logger.debug("android config: validation passed")
 
 
+# Return every config problem without raising, prefixing app-scoped ones with `apps[<id>].`.
 def collect_config_errors(config: AndroidGlobalConfig, dry_run: bool = False) -> list[str]:
-    """Every config problem instead of raising. App-scoped ones are prefixed `apps[<id>].`"""
     errors: list[str] = []
     if not config.device.appium_server_url:
         errors.append("device.appium_server_url is required")
@@ -107,6 +117,7 @@ def collect_config_errors(config: AndroidGlobalConfig, dry_run: bool = False) ->
     return errors
 
 
+# Replace the apps list with the contents of `apps_file` when one is set.
 def _load_apps_file(raw: dict[str, Any], base_dir: Path) -> dict[str, Any]:
     apps_file = raw.get("apps_file")
     if not apps_file:
@@ -125,6 +136,7 @@ def _load_apps_file(raw: dict[str, Any], base_dir: Path) -> dict[str, Any]:
     return raw
 
 
+# Parse an app entry, where a bare package name enables every known risk.
 def _parse_app(item: Any) -> AndroidAppConfig:
     if isinstance(item, str):
         package_name = item
@@ -155,5 +167,6 @@ def _parse_app(item: Any) -> AndroidAppConfig:
     )
 
 
+# Turn a value into a lowercase underscore id, defaulting to `android_app`.
 def _slugify(value: str) -> str:
     return "".join(ch.lower() if ch.isalnum() else "_" for ch in value).strip("_") or "android_app"

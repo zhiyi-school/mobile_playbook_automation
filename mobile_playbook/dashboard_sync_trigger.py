@@ -1,3 +1,7 @@
+"""
+Launches a detached dashboard sync worker after an automation run finishes.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -17,6 +21,7 @@ LOCK_WAIT_SECONDS = 60
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 
 
+# Reports whether the post-run sync trigger is on, from the environment, then the repository .env, default true.
 def auto_trigger_enabled(
     environ: Mapping[str, str] | None = None,
     env_path: Path | None = None,
@@ -31,8 +36,8 @@ def auto_trigger_enabled(
     return value.strip().lower() not in FALSE_VALUES
 
 
+# Reads one non-secret setting from an env file without importing the whole .env into the API.
 def _env_file_value(path: Path, wanted_key: str) -> str | None:
-    """Read one non-secret setting without importing the whole .env into the API."""
     try:
         lines = path.read_text().splitlines()
     except OSError as exc:
@@ -54,13 +59,8 @@ def _env_file_value(path: Path, wanted_key: str) -> str | None:
     return None
 
 
+# Launches a detached, best-effort one-shot dashboard sync that loads its own credentials and returns its pid.
 def trigger_dashboard_sync(reports_dir: Path, run_timestamp: str | None = None) -> int | None:
-    """Launch a detached one-shot sync after a run reaches terminal state.
-
-    The child loads dashboard credentials from the repository .env itself, so
-    the API process does not need to import the service-role key. Triggering is
-    best-effort and can never change the automation run's terminal outcome.
-    """
     if not auto_trigger_enabled():
         logger.info("dashboard sync: automatic post-run trigger is disabled.")
         return None
@@ -103,8 +103,8 @@ def trigger_dashboard_sync(reports_dir: Path, run_timestamp: str | None = None) 
     return process.pid
 
 
+# Marks a run's sync status queued if it completed, else not required; failures are only logged.
 def _mark_queued(run_dir: Path) -> None:
-    """Status is observability only: never let it break the run that produced it."""
     try:
         from mobile_playbook import sync_status
         from mobile_playbook.reporting.run_manifest import is_completed, read_manifest

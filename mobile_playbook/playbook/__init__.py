@@ -1,3 +1,7 @@
+"""
+Public API for the external playbook catalogue, control statuses and source root.
+"""
+
 from mobile_playbook.playbook.catalogue import (
     asset_url,
     canonical_id,

@@ -1,3 +1,7 @@
+"""
+MobSF REST client that scans an IPA, optionally auto-starting MobSF, and normalizes its report.
+"""
+
 from __future__ import annotations
 
 import json
@@ -28,6 +32,7 @@ from mobile_playbook.platforms.ios.risks.sensitive_findings import (
 logger = logging.getLogger(__name__)
 
 
+# Scan the IPA with MobSF and normalize the report into the standard analysis summary and findings.
 def analyze_with_mobsf(
     ipa_path: Path,
     acquisition: ArtifactAcquisitionResult,
@@ -111,6 +116,7 @@ def analyze_with_mobsf(
     }
 
 
+# Upload, scan and fetch the MobSF JSON report, auto-starting and stopping MobSF when configured.
 def mobsf_scan(ipa_path: Path, analyzer_config: dict[str, Any]) -> dict[str, Any]:
     base_url = str(analyzer_config.get("mobsf_url") or analyzer_config.get("url") or "http://127.0.0.1:8000").rstrip("/")
     timeout = float(analyzer_config.get("timeout_seconds", 120))
@@ -184,6 +190,7 @@ def mobsf_scan(ipa_path: Path, analyzer_config: dict[str, Any]) -> dict[str, Any
             terminate_process(process)
 
 
+# Return the configured MobSF API key, else the one from its environment variable.
 def mobsf_api_key(analyzer_config: dict[str, Any]) -> str:
     if analyzer_config.get("api_key"):
         logger.debug("ios mobsf: using API key from analyzer.api_key")
@@ -193,6 +200,7 @@ def mobsf_api_key(analyzer_config: dict[str, Any]) -> str:
     return os.environ.get(env_name, "")
 
 
+# Launch MobSF with the API key when it is down and auto_start is enabled, waiting until reachable.
 def maybe_start_mobsf(
     base_url: str,
     analyzer_config: dict[str, Any],
@@ -251,6 +259,7 @@ def maybe_start_mobsf(
     raise RuntimeError(f"MobSF auto-start timed out after {wait_seconds:g}s waiting for {base_url}")
 
 
+# Return whether the MobSF base URL answers without a server error.
 def mobsf_is_reachable(base_url: str, timeout: float) -> bool:
     try:
         with urllib.request.urlopen(base_url, timeout=timeout) as response:
@@ -264,6 +273,7 @@ def mobsf_is_reachable(base_url: str, timeout: float) -> bool:
         return False
 
 
+# Terminate a process, killing it if it does not exit within 10 seconds.
 def terminate_process(process: subprocess.Popen) -> None:
     if process.poll() is not None:
         logger.debug("ios mobsf: process pid=%s already exited with %s", getattr(process, "pid", None), getattr(process, "returncode", None))
@@ -279,6 +289,7 @@ def terminate_process(process: subprocess.Popen) -> None:
     logger.debug("ios mobsf: process pid=%s exited with %s", getattr(process, "pid", None), getattr(process, "returncode", None))
 
 
+# POST form or multipart data to a MobSF endpoint and return the decoded JSON response.
 def mobsf_post(
     base_url: str,
     endpoint: str,
@@ -323,6 +334,7 @@ def mobsf_post(
         raise RuntimeError(f"MobSF {endpoint} did not return JSON") from exc
 
 
+# Encode fields and files as a multipart/form-data body and return it with its content type.
 def multipart_form_data(fields: dict[str, Any], files: dict[str, tuple[str, bytes, str]]) -> tuple[bytes, str]:
     boundary = f"----mobile-playbook-automation-{uuid.uuid4().hex}"
     chunks: list[bytes] = []
@@ -349,6 +361,7 @@ def multipart_form_data(fields: dict[str, Any], files: dict[str, tuple[str, byte
     return b"".join(chunks), f"multipart/form-data; boundary={boundary}"
 
 
+# Build the standard Info.plist summary from a MobSF report.
 def mobsf_info_plist(report: dict[str, Any]) -> dict[str, Any]:
     info = report.get("info_plist") if isinstance(report.get("info_plist"), dict) else {}
     permissions = mobsf_permissions(report)
@@ -367,6 +380,7 @@ def mobsf_info_plist(report: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+# Build the standard package inventory from the file paths in a MobSF report.
 def mobsf_inventory(report: dict[str, Any]) -> dict[str, Any]:
     file_items = mobsf_file_items(report)
     frameworks = sorted({path for path in file_items if ".framework" in path})
@@ -396,6 +410,7 @@ def mobsf_inventory(report: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+# Return the sorted unique file paths listed anywhere in a MobSF report.
 def mobsf_file_items(report: dict[str, Any]) -> list[str]:
     candidates = []
     for key in ("files", "file_analysis", "file_list", "resources"):
@@ -413,6 +428,7 @@ def mobsf_file_items(report: dict[str, Any]) -> list[str]:
     return sorted(set(candidates))
 
 
+# Return the sorted permission names from a MobSF report.
 def mobsf_permissions(report: dict[str, Any]) -> list[str]:
     permissions = report.get("permissions") or report.get("permission_analysis") or {}
     if isinstance(permissions, dict):
@@ -422,6 +438,7 @@ def mobsf_permissions(report: dict[str, Any]) -> list[str]:
     return []
 
 
+# Return sorted non-HTTP URL schemes from the MobSF report and Info.plist.
 def mobsf_url_schemes(report: dict[str, Any], info: dict[str, Any]) -> list[str]:
     schemes: set[str] = set()
     for key in ("url_schemes", "url_scheme", "urls"):
@@ -436,9 +453,11 @@ def mobsf_url_schemes(report: dict[str, Any], info: dict[str, Any]) -> list[str]
     return sorted(schemes)
 
 
+# Walk the report for titled non-INFO findings, capped at 100, deduped and sorted by severity.
 def extract_mobsf_findings(report: dict[str, Any]) -> list[dict[str, Any]]:
     findings: list[dict[str, Any]] = []
 
+    # Recursively collect titled findings from dicts and lists up to depth 7.
     def walk(value: Any, path: str, depth: int = 0) -> None:
         if len(findings) >= 100 or depth > 7:
             return
@@ -473,6 +492,7 @@ def extract_mobsf_findings(report: dict[str, Any]) -> list[dict[str, Any]]:
     return sort_flags_by_severity(deduped)
 
 
+# Return the first non-empty value among the given keys, or None.
 def first_present(data: dict[str, Any], *keys: str) -> Any:
     for key in keys:
         value = data.get(key)
@@ -481,6 +501,7 @@ def first_present(data: dict[str, Any], *keys: str) -> Any:
     return None
 
 
+# Map a MobSF severity label to HIGH, MEDIUM, LOW or INFO.
 def normalize_mobsf_severity(value: Any) -> str:
     text = str(value or "").strip().lower()
     if text in {"high", "critical", "danger", "severe"} or text.startswith("high"):

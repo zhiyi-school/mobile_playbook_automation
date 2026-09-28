@@ -1,3 +1,7 @@
+"""
+Public dashboard sync API: store types, report mapping and orchestration.
+"""
+
 from mobile_playbook.dashboard_syncing.contracts import (
     AmbiguousApplicationError,
     DashboardSyncStore,

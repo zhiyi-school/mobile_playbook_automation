@@ -1,3 +1,7 @@
+"""
+Grants an Android app's declared runtime and special permissions over adb.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -24,6 +28,7 @@ class GrantResult:
     skipped: list[str] = field(default_factory=list)
     error: str | None = None
 
+    # Return the grant outcome as a plain dict.
     def to_dict(self) -> dict:
         return {
             "package": self.package,
@@ -34,6 +39,7 @@ class GrantResult:
         }
 
 
+# Report whether `pm list packages` lists the exact package.
 def is_installed(adb: AdbClient, package: str) -> bool:
     code, out, _ = adb.run(["shell", "pm", "list", "packages", package])
     installed = code == 0 and any(line.strip() == f"package:{package}" for line in out.splitlines())
@@ -41,6 +47,7 @@ def is_installed(adb: AdbClient, package: str) -> bool:
     return installed
 
 
+# Return the sorted android.permission.* names that dumpsys reports for the package.
 def declared_permissions(adb: AdbClient, package: str) -> list[str]:
     code, out, _ = adb.run(["shell", "dumpsys", "package", package])
     if code != 0 or not out:
@@ -55,6 +62,7 @@ def declared_permissions(adb: AdbClient, package: str) -> list[str]:
     return sorted(permissions)
 
 
+# Grant every declared permission, using appops for special ones, and record what succeeded or was skipped.
 def grant_all(adb: AdbClient, package: str) -> GrantResult:
     result = GrantResult(package=package)
     logger.debug("android permissions: granting all declared permissions for %s", package)
@@ -84,9 +92,11 @@ def grant_all(adb: AdbClient, package: str) -> GrantResult:
     return result
 
 
+# Grant declared permissions for each package in turn.
 def grant_many(adb: AdbClient, packages: list[str]) -> list[GrantResult]:
     return [grant_all(adb, package) for package in packages]
 
 
+# Treat a grant as successful only when it exits 0 with no output.
 def _grant_succeeded(code: int, out: str, err: str) -> bool:
     return code == 0 and not out and not err

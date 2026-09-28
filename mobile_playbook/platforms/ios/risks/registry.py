@@ -1,3 +1,7 @@
+"""
+Discovery registry mapping iOS risk IDs to risk classes.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -14,6 +18,7 @@ _PACKAGE_PATH = [os.path.dirname(__file__)]
 _cache: dict[str, type[Risk]] | None = None
 
 
+# Discover and cache the risk classes in this package, keyed by risk ID.
 def _registry() -> dict[str, type[Risk]]:
     global _cache
     if _cache is None:
@@ -23,16 +28,19 @@ def _registry() -> dict[str, type[Risk]]:
     return _cache
 
 
+# Return the set of registered risk IDs.
 def known_risks() -> set[str]:
     return set(_registry())
 
 
+# Instantiate the risk for an ID, or return None when it is unknown.
 def get_risk(risk_id: str) -> Risk | None:
     risk_type = _registry().get(risk_id)
     logger.debug("ios risk registry: get_risk(%s) -> %s", risk_id, getattr(risk_type, "__name__", risk_type))
     return risk_type() if risk_type else None
 
 
+# Return catalogue metadata for every registered risk, sorted by risk ID.
 def list_risks() -> list[dict[str, object]]:
     risks = [risk_type() for _, risk_type in sorted(_registry().items())]
     return [

@@ -1,3 +1,7 @@
+"""
+Services that locate report directories and serve results, SARIF, files and evidence.
+"""
+
 from __future__ import annotations
 
 import json
@@ -21,14 +25,17 @@ from mobile_playbook.reporting.sarif_writer import build_from_run_dir, sarif_pat
 logger = logging.getLogger(__name__)
 
 
+# Return the named roots evidence refs may point into.
 def evidence_roots() -> dict[str, Path]:
     return {"reports": REPORTS_ROOT, "work": WORK_ROOT}
 
 
+# Sanitize an evidence filename for download.
 def safe_download_name(name: str) -> str:
     return safe_filename(name, "evidence")
 
 
+# Resolve a run timestamp to a directory inside the report root, or raise 400.
 def resolved_run_dir(run_timestamp: str) -> Path:
     if not run_timestamp or "/" in run_timestamp or "\\" in run_timestamp or run_timestamp in {".", ".."}:
         logger.debug("api: run_timestamp %r rejected (empty, separator or dot name).", run_timestamp)
@@ -42,6 +49,7 @@ def resolved_run_dir(run_timestamp: str) -> Path:
     return run_dir
 
 
+# Return an existing report directory for a run, or raise 404.
 def safe_run_dir(run_timestamp: str) -> Path:
     run_dir = resolved_run_dir(run_timestamp)
     if not run_dir.is_dir():
@@ -50,6 +58,7 @@ def safe_run_dir(run_timestamp: str) -> Path:
     return run_dir
 
 
+# Return a result row with its evidence normalized relative to its report directory.
 def _with_evidence(run_dir: Path, row: dict) -> dict:
     report_path = str(row.get("report_path") or "").strip()
     report_dir = None
@@ -64,8 +73,8 @@ def _with_evidence(run_dir: Path, row: dict) -> dict:
     return {**row, "evidence": normalize_evidence(row.get("evidence"), report_dir, evidence_roots(), REPOSITORY_ROOT)}
 
 
+# Read a run's dashboard results, enriching evidence on read so older runs still carry it.
 def read_dashboard_results(run_timestamp: str) -> list[dict]:
-    """Rows are enriched as they are served, so runs recorded before this still carry their artifacts."""
     run_dir = safe_run_dir(run_timestamp)
     results_path = run_dir / "dashboard_results.json"
     if not results_path.is_file():
@@ -76,8 +85,8 @@ def read_dashboard_results(run_timestamp: str) -> list[dict]:
     return [_with_evidence(run_dir, row) for row in rows if isinstance(row, dict)]
 
 
+# Serve the run's SARIF, generating and saving it on first request for older runs.
 def read_sarif(run_timestamp: str) -> dict:
-    """Serve the run's SARIF, generating it on first request for runs made before this existed."""
     run_dir = safe_run_dir(run_timestamp)
     existing = sarif_path(run_dir)
     if existing.is_file():
@@ -103,6 +112,7 @@ def read_sarif(run_timestamp: str) -> dict:
     return document
 
 
+# List report directory names, newest first, optionally filtered by manifest status.
 def list_report_timestamps(status: str | None = None) -> list[str]:
     if not REPORTS_ROOT.is_dir():
         logger.debug("api: report root %s does not exist; no reports.", REPORTS_ROOT)
@@ -120,6 +130,7 @@ def list_report_timestamps(status: str | None = None) -> list[str]:
     return matching
 
 
+# Return a run's manifest status, treating runs without a manifest as completed.
 def _manifest_status(run_dir: Path) -> str:
     manifest = read_manifest(run_dir)
     if manifest is None:
@@ -127,6 +138,7 @@ def _manifest_status(run_dir: Path) -> str:
     return str(manifest.get("status") or "unknown")
 
 
+# Resolve a file inside a report directory, or raise 404.
 def report_file_path(run_timestamp: str, file_path: str) -> Path:
     run_dir = safe_run_dir(run_timestamp)
     try:
@@ -138,20 +150,15 @@ def report_file_path(run_timestamp: str, file_path: str) -> Path:
         raise HTTPException(status_code=404, detail="File not found")
 
 
+# Check that an evidence file belongs to this run, so one run's ref cannot read another's.
 def _belongs_to_run(resolved: Path, root_name: str, run_dir: Path, run_timestamp: str) -> bool:
-    """A handle for one run must not read another run's artifacts."""
     if root_name == "reports":
         return run_dir == resolved or run_dir in resolved.parents
     return run_timestamp in resolved.parts
 
 
+# Resolve an evidence ref to a regular file inside its allowed root that belongs to this run.
 def safe_evidence_path(run_timestamp: str, ref: str) -> Path:
-    """
-    Resolve one opaque handle to a file. Rejects anything that is not a regular
-    file inside the named root for this run: `resolve()` collapses `..` and
-    follows symlinks, so a link pointing out of the root fails the containment
-    check rather than escaping it.
-    """
     run_dir = safe_run_dir(run_timestamp)
     decoded = decode_ref(ref or "")
     if decoded is None:
@@ -166,6 +173,7 @@ def safe_evidence_path(run_timestamp: str, ref: str) -> Path:
         raise HTTPException(status_code=400, detail="Malformed evidence reference")
 
     try:
+        # resolve() follows symlinks, so a link out of the root fails containment instead of escaping.
         resolved = resolve_regular_file(root, relative)
     except DownloadPathError:
         logger.debug("api: evidence path %r rejected under %s; responding 400.", relative, root)
@@ -180,6 +188,7 @@ def safe_evidence_path(run_timestamp: str, ref: str) -> Path:
     return resolved
 
 
+# Return a row's verdict, falling back to its report.json, then Inconclusive.
 def detail_verdict(row: dict) -> str:
     if row.get("verdict"):
         return str(row["verdict"])
@@ -194,6 +203,7 @@ def detail_verdict(row: dict) -> str:
         return "Inconclusive"
 
 
+# Collect up to limit results for one app and risk from the newest reports.
 def app_risk_history(app_id: str, risk_id: str, limit: int) -> list[dict]:
     history = []
     for run_timestamp in list_report_timestamps():

@@ -1,4 +1,6 @@
-"""Locate and safely read the external developer playbook directory."""
+"""
+Locates the external developer playbook directory and reads files safely within it.
+"""
 
 from __future__ import annotations
 
@@ -27,15 +29,18 @@ ARCHIVES_DIR = "implemented_controls"
 
 
 class PlaybookUnavailableError(RuntimeError):
+    """Raised when a platform's playbook directory is not configured or not readable."""
+
     pass
 
 
+# Return the environment variable that configures the platform's playbook directory.
 def playbook_dir_env_key(platform: str) -> str | None:
     return PLAYBOOK_DIR_ENV.get(platform)
 
 
+# Return the configured playbook directory, existing or not, from the env var and then the risk config.
 def configured_root(platform: str) -> Path | None:
-    """The configured directory, whether or not it exists: env var first, then the platform risk config."""
     key = PLAYBOOK_DIR_ENV.get(platform)
     configured = settings.env_setting(key) if key else None
     if configured:
@@ -49,6 +54,7 @@ def configured_root(platform: str) -> Path | None:
     return Path(str(configured).strip()).expanduser()
 
 
+# Return the resolved playbook directory, or None when it is unset or not a directory.
 def playbook_root(platform: str) -> Path | None:
     root = configured_root(platform)
     if root is None:
@@ -62,6 +68,7 @@ def playbook_root(platform: str) -> Path | None:
         return None
 
 
+# Return the resolved playbook directory, raising PlaybookUnavailableError when unset or unreadable.
 def require_root(platform: str) -> Path:
     root = configured_root(platform)
     if root is None:
@@ -81,6 +88,7 @@ def require_root(platform: str) -> Path:
     return resolved
 
 
+# Read `playbook_dir` from the platform risk config, or None when absent or unreadable.
 def _risk_config_playbook_dir(platform: str) -> str | None:
     path = RISK_CONFIG_FILES.get(platform)
     if path is None or not path.exists():
@@ -96,12 +104,13 @@ def _risk_config_playbook_dir(platform: str) -> str | None:
     return str(configured) if configured else None
 
 
+# Report whether any part of the path is an ignored name such as `.git` or `__MACOSX`.
 def is_ignored(relative: Path | str) -> bool:
     return any(part in IGNORED_NAMES for part in Path(relative).parts)
 
 
+# Resolve a playbook-relative path, or None when it escapes the root or names an ignored file.
 def resolve_within(root: Path, relative: str) -> Path | None:
-    """Resolve a playbook-relative path, or `None` if it escapes the root or names an ignored file."""
     if not relative:
         return None
     root = root.resolve()
@@ -119,12 +128,13 @@ def resolve_within(root: Path, relative: str) -> Path | None:
     return candidate
 
 
+# Return the path relative to the root in POSIX form.
 def relative_to_root(root: Path, path: Path) -> str:
     return path.resolve().relative_to(root.resolve()).as_posix()
 
 
+# Return every playbook Markdown document, skipping ignored paths such as `__MACOSX` copies.
 def markdown_files(root: Path) -> list[Path]:
-    """Every playbook document, skipping the shadow copies an unzip leaves in `__MACOSX`."""
     found = sorted(
         path
         for path in root.rglob("*.md")
@@ -134,6 +144,7 @@ def markdown_files(root: Path) -> list[Path]:
     return found
 
 
+# Return the files under the attachments and archives directories, skipping ignored paths.
 def asset_files(root: Path) -> list[Path]:
     found: list[Path] = []
     for directory in (ATTACHMENTS_DIR, ARCHIVES_DIR):
@@ -148,8 +159,8 @@ def asset_files(root: Path) -> list[Path]:
     return sorted(found)
 
 
+# Fingerprint the path, mtime and size of every catalogue source file for cache invalidation.
 def source_signature(root: Path) -> tuple:
-    """A fingerprint of everything the catalogue is built from, for cache invalidation."""
     entries: list[tuple[str, int, int]] = []
     for path in [*markdown_files(root), *asset_files(root)]:
         try:

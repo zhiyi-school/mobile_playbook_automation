@@ -1,3 +1,7 @@
+"""
+ios-feature-02-risk-01: proxies device traffic through Burp and checks for decrypted HTTPS from the app.
+"""
+
 from __future__ import annotations
 
 import json
@@ -35,6 +39,7 @@ class Feature02Risk01(Risk):
     name = "TLS traffic interception exposure"
     requires_ipa_artifact = False
 
+    # Install the app, point the device at Burp, exercise the app and judge the captured HTTPS traffic.
     def run(self, app_config, global_config, device_client, report_writer):
         result = self._base_result(report_writer.run_timestamp, app_config)
         report_dir = report_writer.test_report_dir(app_config.id, self.risk_id, "traffic_interception")
@@ -182,6 +187,7 @@ class Feature02Risk01(Risk):
             )
             report_writer.write_result(result, report_dir)
 
+    # Map a capture summary to the final status, from risk found to a silent pipeline.
     def _capture_final_status(self, summary: dict) -> str:
         if summary["matched_https_count"] > 0:
             return "RISK_EXISTS"
@@ -202,6 +208,7 @@ class Feature02Risk01(Risk):
             return "TRAFFIC_INTERCEPTION_NOT_OBSERVED"
         return "CAPTURE_PIPELINE_SILENT"
 
+    # Create the initial run result for this risk and app.
     def _base_result(self, run_timestamp: str, app_config) -> RiskRunResult:
         return RiskRunResult(
             run_timestamp=run_timestamp,
@@ -218,6 +225,7 @@ class Feature02Risk01(Risk):
             artifact_source=app_config.artifact.get("source", ""),
         )
 
+    # Acquire the app through its configured artifact provider.
     def _prepare_app(self, app_config, global_config, device_client, run_timestamp: str) -> ArtifactAcquisitionResult:
         provider = get_provider(app_config.artifact.get("source", ""))
         if provider is None:
@@ -237,6 +245,7 @@ class Feature02Risk01(Risk):
             Path(app_config.artifact.get("workspace_dir") or ios_work_dir() / "acquired"),
         )
 
+    # Tap each configured accessibility ID in turn, recording each step's result or error.
     def _exercise_app(self, device_client, exercise_config: dict) -> list[dict]:
         navigation = []
         settle_seconds = float(exercise_config.get("settle_seconds", 1))
@@ -253,6 +262,7 @@ class Feature02Risk01(Risk):
             time.sleep(settle_seconds)
         return navigation
 
+    # Poll the capture file until a match, a source problem or the timeout, then save matches.
     def _collect_capture(
         self,
         cursor: CaptureCursor,
@@ -318,6 +328,7 @@ class Feature02Risk01(Risk):
             },
         }
 
+    # Uninstall the target when this risk installed it and the runner requires cleanup.
     def _cleanup(self, app_config, global_config, device_client, installed_target_by_risk: bool) -> CleanupResult:
         logger.debug("ios-feature-02-risk-01[%s]: cleanup installed_target_by_risk=%s", app_config.id, installed_target_by_risk)
         if not global_config.runner.uninstall_after_each_test or not installed_target_by_risk:
@@ -335,6 +346,7 @@ class Feature02Risk01(Risk):
             logger.debug("ios-feature-02-risk-01[%s]: cleanup failed: %s", app_config.id, exc, exc_info=True)
             return CleanupResult(status="CLEANUP_FAILED", errors=[str(exc)])
 
+    # Map an artifact acquisition status to the risk's final status.
     def _artifact_status_to_final(self, status: str) -> str:
         mapping = {
             "ARTIFACT_REQUIRED": "ARTIFACT_REQUIRED",

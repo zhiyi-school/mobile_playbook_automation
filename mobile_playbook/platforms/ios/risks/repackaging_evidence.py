@@ -1,3 +1,7 @@
+"""
+Observes baseline and repackaged app runs and compares them to judge whether repackaging survived.
+"""
+
 from __future__ import annotations
 
 import base64
@@ -31,6 +35,7 @@ class RunObservation:
     device_log_path: str | None = None
     errors: list[str] = field(default_factory=list)
 
+    # Return the observation as a JSON-compatible dict.
     def to_dict(self) -> dict[str, Any]:
         return {
             "label": self.label,
@@ -54,16 +59,19 @@ class EvidenceVerdict:
     verdict: str
     divergences: list[str] = field(default_factory=list)
 
+    # Return the verdict and divergences as a dict.
     def to_dict(self) -> dict[str, Any]:
         return {"verdict": self.verdict, "divergences": self.divergences}
 
 
+# Return the sorted unique non-blank tamper markers from config and expected-behavior markers.
 def tamper_markers(cfg: dict[str, Any], expected_behavior_markers: list[str] | None = None) -> list[str]:
     markers = [str(m) for m in (cfg.get("tamper_markers") or []) if str(m).strip()]
     markers += [str(m) for m in (expected_behavior_markers or []) if str(m).strip()]
     return sorted(set(markers))
 
 
+# Return how many app-state samples to take, from an explicit count or the window and interval.
 def _sample_count(exercise_cfg: dict[str, Any]) -> int:
     explicit = exercise_cfg.get("state_samples")
     if explicit is not None:
@@ -75,6 +83,7 @@ def _sample_count(exercise_cfg: dict[str, Any]) -> int:
     return max(1, round(window / interval))
 
 
+# Sample the app state repeatedly, recording foreground samples and termination after foreground.
 def _sample_states(device_client, bundle_id: str, exercise_cfg: dict[str, Any], obs: RunObservation) -> None:
     interval = float(exercise_cfg.get("sample_interval_seconds", 1) or 0)
     samples = _sample_count(exercise_cfg)
@@ -103,6 +112,7 @@ def _sample_states(device_client, bundle_id: str, exercise_cfg: dict[str, Any], 
     )
 
 
+# Run the configured text-field and button steps; return them and whether the sensitive path was reached.
 def _exercise(device_client, exercise_cfg: dict[str, Any]) -> tuple[list[dict[str, Any]], bool | None]:
     steps: list[dict[str, Any]] = []
     reached: bool | None = None
@@ -119,6 +129,7 @@ def _exercise(device_client, exercise_cfg: dict[str, Any]) -> tuple[list[dict[st
     return steps, reached
 
 
+# Run an action and return a step record with its result or error.
 def _safe_step(name: str, action) -> dict[str, Any]:
     try:
         result = action()
@@ -129,6 +140,7 @@ def _safe_step(name: str, action) -> dict[str, Any]:
         return {"step": name, "ok": False, "error": str(exc)}
 
 
+# Launch and exercise the app while recording evidence, returning its behavioral fingerprint.
 def exercise_and_observe(device_client, bundle_id: str, cfg: dict[str, Any], evidence_dir: Path, label: str) -> RunObservation:
     obs = RunObservation(label=label)
     evidence_dir = Path(evidence_dir)
@@ -188,8 +200,8 @@ def exercise_and_observe(device_client, bundle_id: str, cfg: dict[str, Any], evi
     return obs
 
 
+# Return SURVIVED only when the repackaged build matches the clean baseline on every channel.
 def compare(baseline: RunObservation, repackaged: RunObservation, cfg: dict[str, Any]) -> EvidenceVerdict:
-    """SURVIVED only when the repackaged build matches the clean baseline on every channel."""
     divergences: list[str] = []
     logger.debug(
         "ios repackaging: comparing baseline fingerprint=%s with repackaged fingerprint=%s",
@@ -208,8 +220,8 @@ def compare(baseline: RunObservation, repackaged: RunObservation, cfg: dict[str,
     return EvidenceVerdict("SURVIVED" if not divergences else "BLOCKED", divergences)
 
 
+# Attach to the injected Frida Gadget and run the configured script as proof it loaded.
 def confirm_gadget(cfg: dict[str, Any], bundle_id: str, evidence_dir: Path) -> dict[str, Any]:
-    """Attach to the injected Frida Gadget and run the configured script; proof it loaded and ran."""
     frida_cfg = cfg.get("frida") or {}
     target = str(frida_cfg.get("attach_target") or bundle_id)
     timeout = float(frida_cfg.get("attach_timeout_seconds", 15))
@@ -247,6 +259,7 @@ def confirm_gadget(cfg: dict[str, Any], bundle_id: str, evidence_dir: Path) -> d
                 logger.debug("ios repackaging: frida session detach failed", exc_info=True)
 
 
+# Start Appium screen recording and return the driver, or None when unavailable.
 def _start_recording(device_client):
     driver = getattr(device_client, "driver", None)
     if driver is None or not hasattr(driver, "start_recording_screen"):
@@ -260,6 +273,7 @@ def _start_recording(device_client):
         return None
 
 
+# Stop screen recording and save the video, returning its path or None on failure.
 def _stop_recording(driver, out_path: Path) -> str | None:
     if driver is None:
         return None
@@ -273,6 +287,7 @@ def _stop_recording(driver, out_path: Path) -> str | None:
         return None
 
 
+# Save the device syslog through Appium, returning its path or None when unavailable.
 def _capture_device_log(device_client, out_path: Path) -> str | None:
     driver = getattr(device_client, "driver", None)
     if driver is None or not hasattr(driver, "get_log"):

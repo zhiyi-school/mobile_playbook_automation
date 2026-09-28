@@ -1,4 +1,6 @@
-"""Placeholder manual-only risk. Delete once a real manual-only risk exists."""
+"""
+Placeholder manual-only risk. Delete once a real manual-only risk exists.
+"""
 
 from __future__ import annotations
 
@@ -13,5 +15,6 @@ class ManualOnlyPlaceholderRisk(Risk):
     requires_device = False
     automation_available = False
 
+    # Always raise, because this risk is manual only.
     def run(self, app_config, global_config, device_client, report_writer):
         raise NotImplementedError("This risk is manual only and is never run automatically.")

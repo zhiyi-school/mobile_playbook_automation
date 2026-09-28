@@ -1,3 +1,7 @@
+"""
+FastAPI application that wires CORS middleware and every API router together.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -30,8 +34,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    # Not a CORS-safelisted response header, so the browser cannot read the
-    # filename the download endpoint sends without this.
+    # Not CORS-safelisted, so browsers cannot read the download filename without this.
     expose_headers=["Content-Disposition"],
 )
 
@@ -44,6 +47,7 @@ app.include_router(artifacts.router)
 app.include_router(sync.router)
 
 
+# Report liveness with the code revision and server start time.
 @app.get("/health")
 def health() -> dict:
     logger.debug("api: GET /health.")

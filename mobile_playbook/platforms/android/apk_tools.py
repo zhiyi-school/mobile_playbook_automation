@@ -1,3 +1,7 @@
+"""
+Reads APK manifest metadata and icon resources with the Android SDK tools.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -9,6 +13,7 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 
+# Return an APK's package name, version code, version name and display label.
 def inspect_apk_metadata(apk_path: Path) -> dict:
     logger.debug("android apk tools: inspecting metadata of %s", apk_path)
     metadata = _parse_metadata(_badging(apk_path))
@@ -16,8 +21,8 @@ def inspect_apk_metadata(apk_path: Path) -> dict:
     return metadata
 
 
+# Return the manifest's icon resources, densest first, or an empty list when no SDK tool is on PATH.
 def icon_resource_paths(apk_path: Path) -> list[str]:
-    """Icon resources the manifest declares, densest first. Empty when no SDK tool is on PATH."""
     try:
         badging = _badging(apk_path)
     except RuntimeError:
@@ -28,6 +33,7 @@ def icon_resource_paths(apk_path: Path) -> list[str]:
     return icons
 
 
+# Return the badging or manifest dump of an existing APK from the first SDK tool that works.
 def _badging(apk_path: Path) -> str:
     apk_path = Path(apk_path)
     if not apk_path.is_file():
@@ -41,6 +47,7 @@ def _badging(apk_path: Path) -> str:
     ])
 
 
+# Return the stdout of the first command that succeeds, raising RuntimeError when none does.
 def _run_first_available(commands: list[list[str]]) -> str:
     errors = []
     for command in commands:
@@ -72,6 +79,7 @@ def _run_first_available(commands: list[list[str]]) -> str:
     raise RuntimeError("APK metadata inspection needs aapt, aapt2 or apkanalyzer on PATH: " + "; ".join(errors))
 
 
+# Extract package, version and label fields from badging output.
 def _parse_metadata(text: str) -> dict:
     package_line = next((line for line in text.splitlines() if line.startswith("package:")), "")
     label_line = next((line for line in text.splitlines() if line.startswith("application-label")), "")
@@ -83,8 +91,8 @@ def _parse_metadata(text: str) -> dict:
     }
 
 
+# Return icon references, densest first, from aapt/aapt2 badging or apkanalyzer manifest XML.
 def _parse_icon_resources(text: str) -> list[str]:
-    """Densest first. Handles `aapt`/`aapt2` badging and `apkanalyzer`'s manifest XML alike."""
     densities: list[tuple[int, str]] = []
     fallback: list[str] = []
     for line in text.splitlines():
@@ -107,17 +115,19 @@ def _parse_icon_resources(text: str) -> list[str]:
     return ordered
 
 
+# Return the resource name of a mipmap or drawable reference, or None for a literal path.
 def resource_reference_name(reference: str) -> str | None:
-    """`@mipmap/ic_launcher` -> `ic_launcher`. Returns `None` for a literal resource path."""
     match = re.match(r"^@?(?:[\w.]+:)?(?:mipmap|drawable)/([\w.]+)$", reference.strip())
     return match.group(1) if match else None
 
 
+# Return the single-quoted value of a named field in a badging line.
 def _quoted_field(line: str, field: str) -> str | None:
     match = re.search(rf"{re.escape(field)}='([^']*)'", line)
     return match.group(1) if match else None
 
 
+# Return the first single-quoted value after a colon in a badging line.
 def _line_label(line: str) -> str | None:
     if not line:
         return None

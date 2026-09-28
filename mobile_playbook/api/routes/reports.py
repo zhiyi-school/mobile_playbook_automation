@@ -1,3 +1,7 @@
+"""
+Routes that list reports and serve their summaries, SARIF, files, evidence and history.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -16,8 +20,12 @@ SARIF_MEDIA_TYPE = "application/sarif+json"
 logger = logging.getLogger(__name__)
 
 
+# Sanitize a run timestamp for use in a download filename.
 def secure_filename(value: str) -> str:
     return safe_filename(value, "run", basename=False, strip_leading_dots=False)
+
+
+# List report timestamps, newest first, optionally filtered by manifest status.
 @router.get("/reports")
 def list_reports(status: str | None = None) -> list[str]:
     logger.debug("api: GET /reports status=%r.", status)
@@ -26,6 +34,7 @@ def list_reports(status: str | None = None) -> list[str]:
     return timestamps
 
 
+# Return a report's dashboard results with enriched evidence.
 @router.get("/reports/{run_timestamp}/summary", response_model=list[ReportResultResponse])
 def report_summary(run_timestamp: str) -> list[dict]:
     logger.debug("api: GET /reports/%s/summary.", run_timestamp)
@@ -34,6 +43,7 @@ def report_summary(run_timestamp: str) -> list[dict]:
     return results
 
 
+# Serve a report's SARIF document as an attachment.
 @router.get("/reports/{run_timestamp}/sarif")
 def report_sarif(run_timestamp: str) -> JSONResponse:
     logger.debug("api: GET /reports/%s/sarif.", run_timestamp)
@@ -44,12 +54,14 @@ def report_sarif(run_timestamp: str) -> JSONResponse:
     )
 
 
+# Serve a file from inside a report directory.
 @router.get("/reports/{run_timestamp}/files/{file_path:path}")
 def report_file(run_timestamp: str, file_path: str) -> FileResponse:
     logger.debug("api: GET /reports/%s/files/%s.", run_timestamp, file_path)
     return FileResponse(reports_service.report_file_path(run_timestamp, file_path))
 
 
+# Serve one evidence file identified by its run-scoped ref as an attachment.
 @router.get("/reports/{run_timestamp}/evidence-file")
 def evidence_file(run_timestamp: str, ref: str) -> FileResponse:
     logger.debug("api: GET /reports/%s/evidence-file ref=%r.", run_timestamp, ref)
@@ -66,6 +78,7 @@ def evidence_file(run_timestamp: str, ref: str) -> FileResponse:
     )
 
 
+# Return the most recent results for one app and risk across reports.
 @router.get("/apps/{app_id}/risks/{risk_id}/history", response_model=list[ReportResultResponse])
 def app_risk_history(app_id: str, risk_id: str, limit: Annotated[int, Query(ge=1, le=100)] = 20) -> list[dict]:
     logger.debug("api: GET /apps/%s/risks/%s/history limit=%d.", app_id, risk_id, limit)

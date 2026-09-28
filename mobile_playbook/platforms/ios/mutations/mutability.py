@@ -1,3 +1,7 @@
+"""
+Detects whether an app's main Mach-O executable is encrypted and therefore not mutable as provided.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -12,6 +16,7 @@ from mobile_playbook.platforms.ios.models import BinaryInspectionResult
 logger = logging.getLogger(__name__)
 
 
+# Run otool on an executable and classify it as encrypted or mutable from its cryptid values.
 def detect_macho_encryption(executable_path: Path) -> BinaryInspectionResult:
     executable_path = Path(executable_path)
     if not executable_path.exists():
@@ -62,6 +67,7 @@ def detect_macho_encryption(executable_path: Path) -> BinaryInspectionResult:
     )
 
 
+# Resolve the bundle's CFBundleExecutable and inspect it for Mach-O encryption.
 def inspect_main_executable(app_dir: Path) -> BinaryInspectionResult:
     try:
         executable = get_bundle_executable(app_dir)

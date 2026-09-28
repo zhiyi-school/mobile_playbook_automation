@@ -1,3 +1,7 @@
+"""
+Resolves the CORS origins the API allows.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -10,8 +14,8 @@ CORS_ENV_KEY = "CORS_ALLOWED_ORIGINS"
 logger = logging.getLogger(__name__)
 
 
+# Return the configured CORS origins, or the local defaults, rejecting a wildcard. Resolved on each call.
 def cors_allowed_origins(env_path: Path | None = None) -> list[str]:
-    """Resolved on call, so it is correct under any entrypoint that imports the app."""
     configured = env_setting(CORS_ENV_KEY, env_path) or ""
     origins = [origin.strip() for origin in configured.split(",") if origin.strip()]
     if "*" in origins:

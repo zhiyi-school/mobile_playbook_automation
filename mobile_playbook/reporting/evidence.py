@@ -1,4 +1,6 @@
-"""Artifacts a completed test left behind, named for a reader rather than by path."""
+"""
+Artifacts a completed test left behind, named for a reader rather than by path.
+"""
 
 from __future__ import annotations
 
@@ -11,7 +13,6 @@ from mobile_playbook.storage.paths import resolve_recorded_path
 
 logger = logging.getLogger(__name__)
 
-# Named artifacts first; anything else is still offered, labelled from its suffix.
 NAMED_ARTIFACTS: list[tuple[str, str, str]] = [
     ("report.json", "report", "Detailed result report"),
     ("critical_findings.md", "report", "Critical findings"),
@@ -42,19 +43,20 @@ SUFFIX_KINDS: dict[str, tuple[str, str]] = {
 }
 
 
+# Returns the evidence kind and a label derived from a file's suffix.
 def _label_for(name: str) -> tuple[str, str]:
     kind, label = SUFFIX_KINDS.get(Path(name).suffix.lower(), ("file", "Artifact"))
     return kind, f"{label} ({name})"
 
 
+# Encodes a root name and relative path as an opaque download handle; never a host path.
 def encode_ref(root: str, relative_path: str) -> str:
-    """An opaque handle for one artifact. Never a host path, and never a URL parameter to resolve directly."""
     raw = f"{root}\n{Path(relative_path).as_posix()}".encode()
     return base64.urlsafe_b64encode(raw).decode().rstrip("=")
 
 
+# Decodes a download handle into its root name and relative path, or None when it is not one we wrote.
 def decode_ref(ref: str) -> tuple[str, str] | None:
-    """The root name and its relative path, or None when the handle is not one we wrote."""
     try:
         padded = ref + "=" * (-len(ref) % 4)
         root, _, relative = base64.urlsafe_b64decode(padded.encode()).decode().partition("\n")
@@ -64,16 +66,15 @@ def decode_ref(ref: str) -> tuple[str, str] | None:
     if not root or not relative:
         logger.debug("reporting: evidence ref lacks a root or path.")
         return None
-    # A NUL or control character reaches the filesystem call as a ValueError,
-    # not as a rejection, so it is refused before it gets there.
+    # A NUL or control character would reach the filesystem as a ValueError, so refuse it here.
     if any(ord(ch) < 32 or ch == "\x7f" for ch in root + relative):
         logger.debug("reporting: evidence ref contains control characters; rejected.")
         return None
     return root, relative
 
 
+# Returns the artifact's root-relative path and opaque ref, or None when it is outside every root.
 def _reference(path: Path, roots: dict[str, Path]) -> tuple[str, str] | None:
-    """The artifact as (root-relative path, opaque ref), or None when it is outside every root."""
     for name, root in roots.items():
         try:
             relative = path.resolve().relative_to(root)
@@ -85,8 +86,8 @@ def _reference(path: Path, roots: dict[str, Path]) -> tuple[str, str] | None:
     return None
 
 
+# Lists every file in a report directory as evidence, named artifacts first; a missing directory yields nothing.
 def report_dir_evidence(report_dir: Path) -> list[dict[str, Any]]:
-    """Every file the test wrote, named artifacts first. Missing directories yield nothing."""
     try:
         if not report_dir.is_dir():
             logger.debug("reporting: report directory %s missing; no directory evidence.", report_dir)
@@ -108,17 +109,13 @@ def report_dir_evidence(report_dir: Path) -> list[dict[str, Any]]:
     return items
 
 
+# Merges declared and report-directory evidence into unique existing files with refs, dropping any outside allowed roots.
 def normalize_evidence(
     declared: list[dict[str, Any]] | None,
     report_dir: Path | None = None,
     roots: dict[str, Path] | None = None,
     base: Path | None = None,
 ) -> list[dict[str, Any]]:
-    """
-    The row's own evidence plus its report directory: existing files only, one per
-    path, each carrying the opaque handle the download endpoint accepts. An
-    artifact outside every allowed root is dropped rather than served.
-    """
     merged: list[dict[str, Any]] = []
     seen: set[str] = set()
     allowed = roots or {}
@@ -129,13 +126,10 @@ def normalize_evidence(
         candidate = Path(source) if source is not None else Path(raw) if raw else None
         if candidate is None:
             continue
-        # A recorded path is relative to the installation, never to the working
-        # directory the API happens to have been started from.
+        # Recorded paths are relative to the installation, never the API's working directory.
         if base is not None and not candidate.is_absolute():
             candidate = base / candidate
-        # A path recorded under the previous repository-root layout names a
-        # directory that has since moved under artifacts/; map it onto its file
-        # so the artifact is still served instead of silently dropped.
+        # Paths from the old repository-root layout moved under artifacts/; map them so they are still served.
         if candidate.is_absolute() and not candidate.exists():
             candidate = resolve_recorded_path(candidate)
         try:

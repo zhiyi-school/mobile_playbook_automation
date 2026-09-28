@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+"""
+Validates repository Markdown links, anchors, source paths and portability without network access.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -27,6 +31,7 @@ SOURCE_PREFIXES = (
 )
 
 
+# Return numbered lines that lie outside fenced code blocks.
 def visible_lines(text: str) -> list[tuple[int, str]]:
     visible: list[tuple[int, str]] = []
     marker: str | None = None
@@ -44,6 +49,7 @@ def visible_lines(text: str) -> list[tuple[int, str]]:
     return visible
 
 
+# Return the GitHub-style heading slugs and explicit HTML anchor ids of a document.
 def heading_anchors(lines: list[tuple[int, str]]) -> set[str]:
     anchors: set[str] = set()
     counts: Counter[str] = Counter()
@@ -64,6 +70,7 @@ def heading_anchors(lines: list[tuple[int, str]]) -> set[str]:
     return anchors
 
 
+# Return a link's target without angle brackets or a trailing title.
 def link_target(raw: str) -> str:
     raw = raw.strip()
     if raw.startswith("<") and ">" in raw:
@@ -71,6 +78,7 @@ def link_target(raw: str) -> str:
     return raw.split(maxsplit=1)[0]
 
 
+# Return the documentation entry points required for a backend, frontend or other checkout.
 def required_documents(root: Path) -> tuple[str, ...]:
     if (root / "pyproject.toml").is_file():
         return (
@@ -93,6 +101,7 @@ def required_documents(root: Path) -> tuple[str, ...]:
     return ("README.md",)
 
 
+# Return errors for missing entry points, machine paths, broken links and anchors, and unknown source paths.
 def validate(root: Path) -> list[str]:
     root = root.resolve()
     markdown_files = sorted({root / "README.md", *(root / "docs").rglob("*.md")})
@@ -158,6 +167,7 @@ def validate(root: Path) -> list[str]:
     return errors
 
 
+# CLI entry point that prints documentation errors and exits 1 when there are any.
 def main() -> int:
     parser = argparse.ArgumentParser(description="Validate repository Markdown without network access.")
     parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[1])

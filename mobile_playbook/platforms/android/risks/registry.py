@@ -1,3 +1,7 @@
+"""
+Registry of Android risk checks discovered from this package.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -13,6 +17,7 @@ _cache: dict[str, type[AndroidRisk]] | None = None
 logger = logging.getLogger(__name__)
 
 
+# Return the cached risk registry, discovering risk classes on first use.
 def _registry() -> dict[str, type[AndroidRisk]]:
     global _cache
     if _cache is None:
@@ -21,16 +26,19 @@ def _registry() -> dict[str, type[AndroidRisk]]:
     return _cache
 
 
+# Return a new instance of the risk with this id, or None when unknown.
 def get_risk(risk_id: str) -> AndroidRisk | None:
     risk_type = _registry().get(risk_id)
     logger.debug("android risks: lookup %s -> %s", risk_id, risk_type.__name__ if risk_type else None)
     return risk_type() if risk_type else None
 
 
+# Return the ids of every discovered Android risk.
 def known_risks() -> set[str]:
     return set(_registry())
 
 
+# Describe every discovered risk, sorted by id, as plain dicts.
 def list_risks() -> list[dict]:
     risks = []
     for risk_id, risk_type in sorted(_registry().items()):

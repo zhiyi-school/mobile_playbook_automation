@@ -1,3 +1,7 @@
+"""
+Services for listing, inspecting and resolving icons of uploaded app builds.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -13,6 +17,7 @@ from mobile_playbook.platforms.ios.ipa.plist_utils import inspect_ipa_metadata
 logger = logging.getLogger(__name__)
 
 
+# Return the current iOS and Android intake directories.
 def intake_dirs() -> dict[Platform, Path]:
     from mobile_playbook.storage import android_intake_dir, ios_intake_dir
 
@@ -25,6 +30,7 @@ ARTIFACT_SUFFIXES: dict[Platform, str] = {"ios": ".ipa", "android": ".apk"}
 ICON_CACHE_CONTROL = "private, max-age=300"
 
 
+# Read an uploaded build's metadata and artifact reference, or return the inspection error.
 def inspect_uploaded_artifact(platform: Platform, path: Path) -> dict:
     logger.debug("api: inspecting uploaded %s artifact %s.", platform, path)
     try:
@@ -36,8 +42,8 @@ def inspect_uploaded_artifact(platform: Platform, path: Path) -> dict:
     return {**metadata, **_artifact_reference(platform, path)}
 
 
+# Return an uploaded build's checksum and icon state, or an empty dict so the upload never fails.
 def _artifact_reference(platform: Platform, path: Path) -> dict:
-    """Checksum and icon state for an uploaded build. Never fails the upload."""
     try:
         described = describe_artifact(platform, path)
     except Exception:
@@ -47,13 +53,14 @@ def _artifact_reference(platform: Platform, path: Path) -> dict:
     return {key: described.get(key) for key in ("artifact_id", "sha256", "platform", "icon")}
 
 
+# Return the icon file and artifact id for a configured app, or None when there is none.
 def app_icon_file_path(platform: Platform, app_id: str) -> tuple[Path, str] | None:
-    """(file, artifact_id) for a configured app's icon, or `None` when there is none to serve."""
     resolved = app_icon_file(platform, app_id)
     logger.debug("api: icon for %s app %s resolved=%s.", platform, app_id, resolved is not None)
     return resolved
 
 
+# List the platform's intake builds, newest first for Android.
 def list_artifacts(platform: Platform) -> list[dict]:
     directory = intake_dirs()[platform]
     logger.debug("api: listing %s artifacts in %s.", platform, directory)

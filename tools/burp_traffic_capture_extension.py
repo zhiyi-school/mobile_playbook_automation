@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
-"""Burp/Jython capture extension for ios-feature-02-risk-01.
-
-See docs/ios/risks.md#capturing-burps-traffic-into-capturejsonl.
+"""
+Burp/Jython capture extension for ios-feature-02-risk-01; see docs/ios/risks.md#capturing-burps-traffic-into-capturejsonl.
 """
 
 from burp import IBurpExtender
@@ -17,6 +16,7 @@ DEFAULT_RELATIVE_CAPTURE_PATH = os.path.join("artifacts", "work", "ios", "traffi
 _write_lock = threading.Lock()
 
 
+# Return the repository root above the loaded extension file, or None when it cannot be located.
 def repository_root(callbacks):
     try:
         extension_file = callbacks.getExtensionFilename()
@@ -34,6 +34,7 @@ def repository_root(callbacks):
     )
 
 
+# Return the capture path from MPA_BURP_CAPTURE_PATH or the default, relative paths under the repository root.
 def resolve_capture_path(callbacks):
     configured = (os.environ.get(CAPTURE_PATH_ENV) or "").strip()
 
@@ -53,6 +54,9 @@ def resolve_capture_path(callbacks):
 
 
 class BurpExtender(IBurpExtender, IHttpListener):
+    """Burp extension that records proxy responses as JSON lines."""
+
+    # Registers the proxy listener, or reports an error when the capture path cannot be resolved.
     def registerExtenderCallbacks(self, callbacks):
         self._callbacks = callbacks
         self._helpers = callbacks.getHelpers()
@@ -68,6 +72,7 @@ class BurpExtender(IBurpExtender, IHttpListener):
         callbacks.registerHttpListener(self)
         callbacks.printOutput("Traffic capture extension loaded. Writing to: " + self._capture_path)
 
+    # Record each proxy response, reporting failures to Burp's error log.
     def processHttpMessage(self, toolFlag, messageIsRequest, messageInfo):
         if messageIsRequest:
             return
@@ -78,6 +83,7 @@ class BurpExtender(IBurpExtender, IHttpListener):
         except Exception as exc:
             self._callbacks.printError("traffic capture failed: %s" % exc)
 
+    # Append one message's scheme, host, method, path, status and body sizes to the capture file.
     def _record(self, messageInfo):
         request_info = self._helpers.analyzeRequest(messageInfo)
         url = request_info.getUrl()

@@ -1,3 +1,7 @@
+"""
+Signing identity settings for building and resigning iOS apps.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

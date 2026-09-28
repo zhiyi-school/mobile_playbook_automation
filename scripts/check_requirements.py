@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+"""
+Checks or regenerates the requirements.txt mirror of pyproject.toml's direct dependencies.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -12,6 +16,7 @@ HEADER = """# Generated from [project.dependencies] in pyproject.toml.
 """
 
 
+# Render requirements.txt content from pyproject.toml's project.dependencies.
 def rendered(pyproject: Path) -> str:
     data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
     dependencies = data.get("project", {}).get("dependencies")
@@ -20,11 +25,13 @@ def rendered(pyproject: Path) -> str:
     return HEADER + "\n".join(dependencies) + "\n"
 
 
+# Report whether requirements.txt matches the rendered dependencies.
 def synchronized(pyproject: Path, requirements: Path) -> bool:
     actual = requirements.read_text(encoding="utf-8") if requirements.is_file() else ""
     return actual == rendered(pyproject)
 
 
+# CLI entry point that writes requirements.txt with --write, or exits 1 when it is out of sync.
 def main() -> int:
     root = Path(__file__).resolve().parents[1]
     parser = argparse.ArgumentParser(description="Check or regenerate requirements.txt from pyproject.toml.")

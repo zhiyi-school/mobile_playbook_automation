@@ -1,3 +1,7 @@
+"""
+Routes for validating configs and editing apps, risk settings, device and runner sections.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -21,6 +25,7 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
+# Validate a platform config file.
 @router.post("/config/validate")
 def validate_config(body: ValidateRequest) -> dict:
     logger.debug("api: POST /config/validate platform=%s config_path=%s.", body.platform, body.config_path)
@@ -45,10 +50,12 @@ _APPS_BY_PLATFORM = {
 }
 
 
+# Return the platform's list, add, edit and delete app functions.
 def _apps_ops(platform: Platform):
     return _APPS_BY_PLATFORM[platform]
 
 
+# List the platform's configured apps.
 @router.get("/config/{platform}/apps")
 def list_config_apps(platform: Platform) -> list[dict]:
     logger.debug("api: GET /config/%s/apps.", platform)
@@ -58,6 +65,7 @@ def list_config_apps(platform: Platform) -> list[dict]:
     return apps
 
 
+# Return one configured app, or 404.
 @router.get("/config/{platform}/apps/{app_id}")
 def get_config_app(platform: Platform, app_id: str) -> dict:
     logger.debug("api: GET /config/%s/apps/%s.", platform, app_id)
@@ -69,6 +77,7 @@ def get_config_app(platform: Platform, app_id: str) -> dict:
     raise HTTPException(status_code=404, detail=f"Unknown app_id: {app_id}")
 
 
+# Add an app to the platform config.
 @router.post("/config/{platform}/apps", status_code=201)
 def add_config_app(platform: Platform, body: ConfigAppRequest) -> dict:
     logger.debug("api: POST /config/%s/apps fields=%s.", platform, sorted(body.model_fields_set))
@@ -76,6 +85,7 @@ def add_config_app(platform: Platform, body: ConfigAppRequest) -> dict:
     return add_fn(body.updates())
 
 
+# Update a configured app.
 @router.put("/config/{platform}/apps/{app_id}")
 def edit_config_app(platform: Platform, app_id: str, body: ConfigAppRequest) -> dict:
     logger.debug("api: PUT /config/%s/apps/%s fields=%s.", platform, app_id, sorted(body.model_fields_set))
@@ -83,6 +93,7 @@ def edit_config_app(platform: Platform, app_id: str, body: ConfigAppRequest) -> 
     return edit_fn(app_id, body.updates())
 
 
+# Delete a configured app.
 @router.delete("/config/{platform}/apps/{app_id}", status_code=204)
 def delete_config_app(platform: Platform, app_id: str) -> None:
     logger.debug("api: DELETE /config/%s/apps/%s.", platform, app_id)
@@ -90,15 +101,19 @@ def delete_config_app(platform: Platform, app_id: str) -> None:
     delete_fn(app_id)
 
 
+# Return an app's setup stages and execution readiness.
 @router.get("/config/{platform}/apps/{app_id}/provisioning")
 def get_app_provisioning(platform: Platform, app_id: str) -> dict:
     logger.debug("api: GET /config/%s/apps/%s/provisioning.", platform, app_id)
     return provisioning.describe(platform, app_id)
 
 
-@router.get("/config/{platform}/apps/{app_id}/icon")
+# The app's icon as PNG. 404 covers unknown apps and apps with no readable icon alike.
+@router.get(
+    "/config/{platform}/apps/{app_id}/icon",
+    description="The app's icon as PNG. 404 covers unknown apps and apps with no readable icon alike.",
+)
 def get_app_icon(platform: Platform, app_id: str, request: Request) -> Response:
-    """The app's icon as PNG. 404 covers unknown apps and apps with no readable icon alike."""
     logger.debug("api: GET /config/%s/apps/%s/icon.", platform, app_id)
     resolved = artifact_service.app_icon_file_path(platform, app_id)
     if resolved is None:
@@ -115,36 +130,42 @@ def get_app_icon(platform: Platform, app_id: str, request: Request) -> Response:
     return FileResponse(path, media_type="image/png", headers=headers)
 
 
+# Return a risk's global settings.
 @router.get("/config/{platform}/risk-settings/{risk_id}")
 def get_config_risk_settings(platform: Platform, risk_id: str) -> dict:
     logger.debug("api: GET /config/%s/risk-settings/%s.", platform, risk_id)
     return config_editor.get_risk_settings(platform, risk_id)
 
 
+# Update a risk's global settings.
 @router.put("/config/{platform}/risk-settings/{risk_id}")
 def put_config_risk_settings(platform: Platform, risk_id: str, body: RiskSettingsUpdateRequest) -> dict:
     logger.debug("api: PUT /config/%s/risk-settings/%s keys=%s.", platform, risk_id, sorted(body.root))
     return config_editor.put_risk_settings(platform, risk_id, body.root)
 
 
+# Return the platform config's device section.
 @router.get("/config/{platform}/device")
 def get_config_device(platform: Platform) -> dict:
     logger.debug("api: GET /config/%s/device.", platform)
     return config_editor.get_section(platform, "device")
 
 
+# Update the platform config's device section.
 @router.put("/config/{platform}/device")
 def put_config_device(platform: Platform, body: DeviceUpdateRequest) -> dict:
     logger.debug("api: PUT /config/%s/device fields=%s.", platform, sorted(body.model_fields_set))
     return config_editor.put_section(platform, "device", body.updates())
 
 
+# Return the platform config's runner section.
 @router.get("/config/{platform}/runner")
 def get_config_runner(platform: Platform) -> dict:
     logger.debug("api: GET /config/%s/runner.", platform)
     return config_editor.get_section(platform, "runner")
 
 
+# Update the platform config's runner section.
 @router.put("/config/{platform}/runner")
 def put_config_runner(platform: Platform, body: RunnerUpdateRequest) -> dict:
     logger.debug("api: PUT /config/%s/runner fields=%s.", platform, sorted(body.model_fields_set))

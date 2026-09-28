@@ -1,3 +1,7 @@
+"""
+IPA repackaging primitives: Frida gadget injection, bundle ID rewriting and repacking.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -20,16 +24,18 @@ INSERT_DYLIB_DIR = "tools/insert_dylib"
 logger = logging.getLogger(__name__)
 
 
+# Return the Frida gadget dylib path, resolved under the repository.
 def frida_dylib_path(override: str | None = None) -> Path:
     return resolve_under_repository(override or FRIDA_DYLIB)
 
 
+# Return the Frida gadget config path, resolved under the repository.
 def frida_config_path(override: str | None = None) -> Path:
     return resolve_under_repository(override or FRIDA_CONFIG)
 
 
+# Copy the gadget into the bundle's Frameworks/ and return the main executable to patch.
 def add_frida_gadget(app_dir: Path, dylib_src: Path, config_src: Path | None) -> Path:
-    """Copy the gadget into the bundle's Frameworks/ and return the main executable to patch."""
     app_dir = Path(app_dir)
     executable = get_bundle_executable(app_dir)
     logger.debug("ios repackage: adding gadget %s (config %s) to %s; executable %s", dylib_src, config_src, app_dir, executable)
@@ -48,14 +54,8 @@ def add_frida_gadget(app_dir: Path, dylib_src: Path, config_src: Path | None) ->
     return app_dir / executable
 
 
+# Return the configured insert_dylib, else the vendored binary, building it from source if needed.
 def resolve_insert_dylib(configured: str | None = None) -> str:
-    """Return an insert_dylib path without relying on the process PATH.
-
-    An explicit config value other than the bare default wins (an absolute path,
-    or a name to resolve on PATH). Otherwise the repository-vendored binary under
-    tools/insert_dylib/ is used, compiled from vendored source on first use when
-    only the source is present.
-    """
     if configured and configured != "insert_dylib":
         logger.debug("ios repackage: using configured insert_dylib %s", configured)
         return configured
@@ -74,6 +74,7 @@ def resolve_insert_dylib(configured: str | None = None) -> str:
     return configured or "insert_dylib"
 
 
+# Compile the vendored insert_dylib sources with clang into an executable.
 def _build_insert_dylib(sources: list[Path], out: Path) -> None:
     out.parent.mkdir(parents=True, exist_ok=True)
     command = ["clang", "-O2", "-o", str(out), *[str(s) for s in sources]]
@@ -89,6 +90,7 @@ def _build_insert_dylib(sources: list[Path], out: Path) -> None:
     out.chmod(0o755)
 
 
+# Add a dylib load command to an executable in place with insert_dylib, raising on failure.
 def inject_load_command(exe: Path, load_path: str, insert_dylib_path: str = "insert_dylib") -> None:
     tool = resolve_insert_dylib(insert_dylib_path)
     command = [tool, "--strip-codesig", "--inplace", load_path, str(exe)]
@@ -105,12 +107,8 @@ def inject_load_command(exe: Path, load_path: str, insert_dylib_path: str = "ins
         raise RuntimeError(completed.stderr.strip() or completed.stdout.strip() or "insert_dylib failed")
 
 
+# Rewrite CFBundleIdentifier as a binary plist so codesign accepts it; return the previous ID.
 def set_bundle_identifier(app_dir: Path, new_bundle_id: str) -> str:
-    """Rewrite CFBundleIdentifier in the app's Info.plist; return the previous id.
-
-    Device Info.plist files are usually binary plists, so it is rewritten in binary
-    form to stay valid for codesign and installd.
-    """
     info = Path(app_dir) / "Info.plist"
     with info.open("rb") as handle:
         plist = plistlib.load(handle)
@@ -122,6 +120,7 @@ def set_bundle_identifier(app_dir: Path, new_bundle_id: str) -> str:
     return previous
 
 
+# Zip the Payload/ tree into an IPA, preserving file modes and symlinks.
 def repack_ipa(unpacked_root: Path, out_path: Path) -> Path:
     unpacked_root = Path(unpacked_root)
     payload = unpacked_root / "Payload"

@@ -1,3 +1,7 @@
+"""
+Checks, auto-starts and stops the local Appium server process.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -16,11 +20,13 @@ from urllib.parse import urlparse
 logger = logging.getLogger(__name__)
 
 
+# Split a URL or host:port into a host and port, defaulting to 127.0.0.1 and the scheme's port.
 def _host_port(url_or_hostport: str) -> tuple[str, int]:
     parsed = urlparse(url_or_hostport if "//" in url_or_hostport else f"//{url_or_hostport}")
     return parsed.hostname or "127.0.0.1", parsed.port or (443 if parsed.scheme == "https" else 80)
 
 
+# Report whether a TCP connection to the URL's host and port succeeds within the timeout.
 def tcp_reachable(url_or_hostport: str, timeout: float = 3.0) -> bool:
     host, port = _host_port(url_or_hostport)
     try:
@@ -41,15 +47,8 @@ class AppiumStartResult:
     process: subprocess.Popen | None = field(default=None, compare=False)
 
 
+# Start Appium when unreachable and auto-start is enabled, appending its output to log_path and polling until it is up.
 def ensure_appium_running(appium_server_url: str, auto_start_config: dict[str, Any] | None, log_path: Path) -> AppiumStartResult:
-    """Start Appium if it's not reachable and `auto_start_config.enabled` is true.
-
-    Polls reachability rather than a flat sleep, the same way this repo's
-    MobSF auto_start already does. Appium's own stdout/stderr is appended to
-    `log_path` (never overwritten) so a run's full Appium history — including
-    every restart attempt — stays inspectable from one file, whether this
-    call started it or the caller is just finding it already running.
-    """
     logger.debug("appium: ensuring server at %s is running (log_path=%s)", appium_server_url, log_path)
     if tcp_reachable(appium_server_url, timeout=2):
         logger.debug("appium: server at %s already reachable; not starting", appium_server_url)
@@ -111,6 +110,7 @@ def ensure_appium_running(appium_server_url: str, auto_start_config: dict[str, A
     )
 
 
+# Terminate the Appium process group, escalating to SIGKILL when it does not exit in time.
 def stop_appium(process: subprocess.Popen, timeout: float = 10) -> None:
     if process.poll() is not None:
         logger.debug("appium: pid=%s already exited with code %s; nothing to stop", getattr(process, "pid", None), getattr(process, "returncode", None))
@@ -127,6 +127,7 @@ def stop_appium(process: subprocess.Popen, timeout: float = 10) -> None:
     logger.debug("appium: pid=%s stopped with code %s", getattr(process, "pid", None), getattr(process, "returncode", None))
 
 
+# Return the last lines of a log file, or an empty string when it cannot be read.
 def _tail(log_path: Path, lines: int = 40) -> str:
     try:
         content = log_path.read_text()

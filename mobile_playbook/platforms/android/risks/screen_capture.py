@@ -1,3 +1,7 @@
+"""
+Android risk check for whether an app allows screen recording and capture.
+"""
+
 from __future__ import annotations
 
 import base64
@@ -32,6 +36,7 @@ class AndroidScreenCaptureRisk(AndroidRisk):
     test_case_type = "appium_screen_recording"
     requires = ["adb", "appium"]
 
+    # Record the screen while launching the app, classify how it protects itself and write the result.
     def run(self, app_config, global_config, device_client, report_writer):
         started_at = datetime.now().astimezone()
         report_dir = report_writer.test_report_dir(app_config.id, self.risk_id, self.test_case_id, platform="android")
@@ -96,6 +101,7 @@ class AndroidScreenCaptureRisk(AndroidRisk):
             report_writer.write_result(result, report_dir)
         return result
 
+    # Launch the app and return the first conclusive observation from app switch, UI keyword and FLAG_SECURE checks.
     def _test_app(self, driver, device_client, package_name: str, cfg: dict) -> str:
         try:
             logger.debug("%s[%s]: activating app", self.risk_id, package_name)
@@ -118,6 +124,7 @@ class AndroidScreenCaptureRisk(AndroidRisk):
             logger.debug("%s[%s]: FLAG_SECURE check -> %s", self.risk_id, package_name, verdict)
         return verdict
 
+    # Start Appium screen recording, returning False when unsupported.
     def _start_recording(self, driver) -> bool:
         try:
             driver.start_recording_screen()
@@ -126,6 +133,7 @@ class AndroidScreenCaptureRisk(AndroidRisk):
             logger.debug("%s: start_recording_screen failed: %s", self.risk_id, exc, exc_info=True)
             return False
 
+    # Stop recording and save the MP4, returning its path or None on failure.
     def _stop_recording(self, driver, package_name: str, recordings_dir: Path) -> Path | None:
         try:
             encoded = driver.stop_recording_screen()
@@ -138,6 +146,7 @@ class AndroidScreenCaptureRisk(AndroidRisk):
             logger.debug("%s[%s]: stopping or saving recording failed: %s", self.risk_id, package_name, exc, exc_info=True)
             return None
 
+    # Terminate the app, ignoring failures.
     def _close_app(self, driver, package_name: str) -> None:
         try:
             logger.debug("%s[%s]: terminating app", self.risk_id, package_name)
@@ -145,6 +154,7 @@ class AndroidScreenCaptureRisk(AndroidRisk):
         except Exception as exc:
             logger.debug("%s[%s]: terminate_app failed: %s", self.risk_id, package_name, exc, exc_info=True)
 
+    # Return a BLOCKED observation when the app hands the foreground to a browser, launcher or other app.
     def _check_app_switch(self, driver, package_name: str) -> str:
         try:
             current_package = driver.current_package
@@ -163,6 +173,7 @@ class AndroidScreenCaptureRisk(AndroidRisk):
         self._close_app(driver, current_package)
         return verdict
 
+    # Return the block message when the page source contains any keyword, else Unknown.
     def _check_ui_keywords(self, driver, keywords: list[str], block_message: str) -> str:
         try:
             source = driver.page_source.lower()
@@ -173,6 +184,7 @@ class AndroidScreenCaptureRisk(AndroidRisk):
         logger.debug("%s: page_source %s chars, keywords matched=%s of %s", self.risk_id, len(source), matched, keywords)
         return block_message if any(keyword in source for keyword in keywords) else "Unknown"
 
+    # Check the window dump for FLAG_SECURE and report BLOCKED, ALLOWED or an adb error.
     def _check_flag_secure(self, device_client) -> str:
         code, out, err = device_client.adb.run(["shell", "dumpsys", "window", "windows"])
         logger.debug("%s: dumpsys window exit %s, %s chars, FLAG_SECURE present=%s, err head=%r", self.risk_id, code, len(out or ""), "FLAG_SECURE" in (out or ""), (err or "")[:200])
@@ -183,6 +195,7 @@ class AndroidScreenCaptureRisk(AndroidRisk):
         return "ALLOWED (UI visible and no security flags)"
 
 
+# Map an observation to the risk's final status.
 def _status_from_verdict(verdict: str) -> str:
     if verdict.startswith("ALLOWED"):
         return "SCREEN_CAPTURE_ALLOWED"
@@ -193,6 +206,7 @@ def _status_from_verdict(verdict: str) -> str:
     return "UNKNOWN"
 
 
+# Map an observation to the At Risk, Reduced Risk or Inconclusive verdict.
 def _security_verdict_from_verdict(verdict: str) -> str:
     if verdict.startswith("ALLOWED"):
         return "At Risk"

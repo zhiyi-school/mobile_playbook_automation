@@ -1,3 +1,7 @@
+"""
+PNG validation and conversion of Apple CgBI icons into standard PNGs.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -27,6 +31,7 @@ ADAM7_PASSES = (
 
 
 class UnsupportedImage(ValueError):
+    """Raised when image data is not a PNG this module accepts."""
     pass
 
 
@@ -37,10 +42,12 @@ class NormalizedPng:
     height: int
 
 
+# Reports whether data starts with the PNG signature.
 def looks_like_png(data: bytes) -> bool:
     return data[:8] == PNG_SIGNATURE
 
 
+# Yields each PNG chunk's type and body up to IEND, raising on truncated data.
 def _iter_chunks(data: bytes):
     position = 8
     while position + 8 <= len(data):
@@ -56,6 +63,7 @@ def _iter_chunks(data: bytes):
     raise UnsupportedImage("PNG data ended before IEND")
 
 
+# Unpacks width, height, bit depth, color type and interlace from an IHDR body.
 def _header(body: bytes) -> tuple[int, int, int, int, int]:
     if len(body) < 13:
         raise UnsupportedImage("Truncated PNG header")
@@ -63,8 +71,8 @@ def _header(body: bytes) -> tuple[int, int, int, int, int]:
     return width, height, depth, color_type, interlace
 
 
+# Validates a PNG and converts Apple CgBI PNGs to standard ones. See docs/api.md#application-icons.
 def normalize(data: bytes) -> NormalizedPng:
-    """Validate a PNG and return one any browser can decode. See docs/api.md#application-icons."""
     if len(data) > MAX_SOURCE_BYTES:
         raise UnsupportedImage("Image is larger than the icon size limit")
     if not looks_like_png(data):
@@ -113,6 +121,7 @@ def normalize(data: bytes) -> NormalizedPng:
     return NormalizedPng(_build_png(pixels, width, height), width, height)
 
 
+# Rebuilds CgBI pixel data as unfiltered, filter-type-0 scanlines, de-interlacing Adam7 passes.
 def _undo_cgbi(raw: bytes, width: int, height: int, interlace: int) -> bytes:
     if interlace == 0:
         rows, _ = _unfilter_pass(raw, 0, width, height)
@@ -135,8 +144,8 @@ def _undo_cgbi(raw: bytes, width: int, height: int, interlace: int) -> bytes:
     return b"".join(b"\x00" + bytes(image[y * stride : (y + 1) * stride]) for y in range(height))
 
 
+# Unfilters one Adam7 pass (or the whole image) and converts it to straight RGBA.
 def _unfilter_pass(raw: bytes, position: int, width: int, height: int) -> tuple[list[bytearray], int]:
-    """One Adam7 pass (or the whole image), unfiltered and converted to straight RGBA."""
     stride = width * 4
     if len(raw) - position < (stride + 1) * height:
         raise UnsupportedImage("CgBI image data is shorter than its header claims")
@@ -155,6 +164,7 @@ def _unfilter_pass(raw: bytes, position: int, width: int, height: int) -> tuple[
     return rows, position
 
 
+# Converts a row of premultiplied BGRA pixels to straight RGBA in place.
 def _to_straight_rgba(line: bytearray, stride: int) -> None:
     for index in range(0, stride, 4):
         blue, green, red, alpha = line[index], line[index + 1], line[index + 2], line[index + 3]
@@ -165,6 +175,7 @@ def _to_straight_rgba(line: bytearray, stride: int) -> None:
         line[index : index + 4] = bytes((red, green, blue, alpha))
 
 
+# Reverses a PNG scanline filter in place using the previous row.
 def _unfilter(line: bytearray, previous: bytearray, filter_type: int, stride: int) -> None:
     if filter_type == 0:
         return
@@ -189,10 +200,12 @@ def _unfilter(line: bytearray, previous: bytearray, filter_type: int, stride: in
             line[index] = (line[index] + nearest) & 0xFF
 
 
+# Encodes a PNG chunk with its length and CRC.
 def _chunk(kind: bytes, body: bytes) -> bytes:
     return struct.pack(">I", len(body)) + kind + body + struct.pack(">I", zlib.crc32(kind + body) & 0xFFFFFFFF)
 
 
+# Builds an 8-bit RGBA, non-interlaced PNG from filtered scanlines.
 def _build_png(pixels: bytes, width: int, height: int) -> bytes:
     header = struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0)
     return (

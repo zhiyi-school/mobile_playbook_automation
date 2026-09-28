@@ -1,3 +1,7 @@
+"""
+Exports or checks one parsed playbook control as the frontend contract fixture.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -12,6 +16,7 @@ from mobile_playbook.playbook import catalogue
 logger = logging.getLogger(__name__)
 
 
+# Build the catalogue from a playbook root and return one control's payload for the contract fixture.
 def export_contract(root: Path, platform: str, control_id: str) -> dict[str, Any]:
     built = catalogue.build(platform, Path(root).expanduser().resolve(), overrides={})
     control = built["controls"].get(catalogue.canonical_id(control_id, platform))
@@ -30,6 +35,7 @@ def export_contract(root: Path, platform: str, control_id: str) -> dict[str, Any
     return payload
 
 
+# CLI entry point that prints, writes or diff-checks the exported contract fixture.
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Export one parsed control as a frontend contract fixture.")
     parser.add_argument("--root", required=True, type=Path)

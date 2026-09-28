@@ -1,3 +1,7 @@
+"""
+Android risk check for whether an app still works after being decoded, patched, re-signed and reinstalled.
+"""
+
 from __future__ import annotations
 
 import base64
@@ -32,6 +36,7 @@ class AndroidRepackagingRisk(AndroidRisk):
     test_case_type = "apk_decode_patch_resign_validate"
     requires = ["adb", "apktool", "apksigner", "keytool", "appium"]
 
+    # Repackage and reinstall the app, validate it with Appium, optionally restore the original and write the result.
     def run(self, app_config, global_config, device_client, report_writer):
         started_at = datetime.now().astimezone()
         report_dir = report_writer.test_report_dir(app_config.id, self.risk_id, self.test_case_id, platform="android")
@@ -108,6 +113,7 @@ class AndroidRepackagingRisk(AndroidRisk):
             report_writer.write_result(result, report_dir)
         return result
 
+    # Pull every installed APK for the package into the original directory.
     def _backup_apks(self, device_client, package_name: str, app_dir: Path) -> bool:
         code, output, error = device_client.adb.run(["shell", "pm", "path", package_name])
         logger.debug("%s[%s]: pm path exit %s, %s chars, err head=%r", self.risk_id, package_name, code, len(output or ""), (error or "")[:200])
@@ -131,6 +137,7 @@ class AndroidRepackagingRisk(AndroidRisk):
         logger.debug("%s[%s]: backup ok=%s (all pulls ok=%s) in %s", self.risk_id, package_name, backed_up, ok, original_dir)
         return backed_up
 
+    # Reuse the signing keystore or generate one with keytool.
     def _ensure_keystore(self, keystore: Path, alias: str, password: str) -> bool:
         if keystore.exists():
             logger.debug("%s: reusing existing keystore %s", self.risk_id, keystore)
@@ -169,6 +176,7 @@ class AndroidRepackagingRisk(AndroidRisk):
         logger.debug("%s: generated keystore %s", self.risk_id, keystore)
         return True
 
+    # Decode the backed-up base APK into a fresh repackaged directory with apktool.
     def _run_apktool_decode(self, app_dir: Path) -> bool:
         original_dir = app_dir / "original"
         base_apk = original_dir / "base.apk"
@@ -188,6 +196,7 @@ class AndroidRepackagingRisk(AndroidRisk):
         logger.debug("%s: apktool d exited %s in %.2fs (decoded dir exists=%s, stderr head=%r)", self.risk_id, result.returncode, time.monotonic() - started, decoded_dir.exists(), (result.stderr or "")[:200])
         return result.returncode == 0 and decoded_dir.exists()
 
+    # Mark the decoded manifest's application as debuggable unless it already declares the attribute.
     def _add_debuggable_to_manifest(self, app_dir: Path) -> bool:
         manifest = app_dir / "repackaged" / "base" / "AndroidManifest.xml"
         if not manifest.exists():
@@ -211,6 +220,7 @@ class AndroidRepackagingRisk(AndroidRisk):
         logger.debug("%s: added android:debuggable=true to %s", self.risk_id, manifest)
         return True
 
+    # Prefix the decoded app_name string with RPK so the repackaged build is recognizable.
     def _change_apk_name(self, app_dir: Path) -> bool:
         strings = app_dir / "repackaged" / "base" / "res" / "values" / "strings.xml"
         if not strings.exists():
@@ -229,6 +239,7 @@ class AndroidRepackagingRisk(AndroidRisk):
         logger.debug("%s: renamed app_name %r -> %r in %s", self.risk_id, current_name[:200], f"RPK {current_name}"[:200], strings)
         return True
 
+    # Rebuild the decoded sources into repackaged.apk with apktool.
     def _rebuild_apk(self, app_dir: Path) -> bool:
         repackaged_dir = app_dir / "repackaged"
         if not (repackaged_dir / "base").exists():
@@ -246,6 +257,7 @@ class AndroidRepackagingRisk(AndroidRisk):
         logger.debug("%s: apktool b exited %s in %.2fs (repackaged.apk exists=%s, stderr head=%r)", self.risk_id, result.returncode, time.monotonic() - started, (repackaged_dir / "repackaged.apk").exists(), (result.stderr or "")[:200])
         return result.returncode == 0 and (repackaged_dir / "repackaged.apk").exists()
 
+    # Sign copies of the split APKs and the rebuilt base APK with the test keystore.
     def _sign_apks(self, app_dir: Path, keystore: Path, password: str) -> bool:
         original_dir = app_dir / "original"
         repackaged_dir = app_dir / "repackaged"
@@ -259,6 +271,7 @@ class AndroidRepackagingRisk(AndroidRisk):
         logger.debug("%s: rebuilt APK %s exists=%s", self.risk_id, rebuilt, rebuilt.exists())
         return rebuilt.exists() and self._apksigner_sign(keystore, password, rebuilt, None)
 
+    # Sign an APK in place or to an output path with apksigner.
     def _apksigner_sign(self, keystore: Path, password: str, apk_in: Path, apk_out: Path | None) -> bool:
         cmd = ["apksigner", "sign", "--ks", str(keystore), "--ks-pass", f"pass:{password}"]
         if apk_out is not None:
@@ -270,6 +283,7 @@ class AndroidRepackagingRisk(AndroidRisk):
         logger.debug("%s: apksigner sign %s exited %s in %.2fs (stderr head=%r)", self.risk_id, apk_in.name, result.returncode, time.monotonic() - started, (result.stderr or "")[:200])
         return result.returncode == 0
 
+    # Uninstall the package, then install every APK in the directory with adb.
     def _install_apks(self, device_client, app_dir: Path, package_name: str) -> bool:
         apks = sorted(p for p in app_dir.iterdir() if p.is_file() and p.suffix == ".apk")
         logger.debug("%s[%s]: installing %s APKs from %s: %s", self.risk_id, package_name, len(apks), app_dir, [p.name for p in apks])
@@ -284,6 +298,7 @@ class AndroidRepackagingRisk(AndroidRisk):
         logger.debug("%s[%s]: adb install-multiple exit %s", self.risk_id, package_name, code)
         return code == 0
 
+    # Uninstall the package, treating an absent package as success.
     def _uninstall_app(self, device_client, package_name: str) -> bool:
         code, out, err = device_client.adb.run(["uninstall", package_name], timeout=60)
         output = (out or err).lower()
@@ -291,6 +306,7 @@ class AndroidRepackagingRisk(AndroidRisk):
         logger.debug("%s[%s]: uninstall exit %s ok=%s (output head=%r)", self.risk_id, package_name, code, uninstalled, output[:200])
         return uninstalled
 
+    # Launch the repackaged app under screen recording and return its verdict and recording path.
     def _validate_with_appium(self, device_client, package_name: str, report_dir: Path, cfg: dict) -> tuple[str, Path | None]:
         if AppiumBy is None:
             logger.debug("%s[%s]: AppiumBy unavailable; validation cannot run", self.risk_id, package_name)
@@ -324,6 +340,7 @@ class AndroidRepackagingRisk(AndroidRisk):
             logger.debug("%s[%s]: quitting Appium session %s", self.risk_id, package_name, getattr(driver, "session_id", None))
             driver.quit()
 
+    # Return PASS when the app stays in the foreground after launch and a click, else a FAIL or ERROR reason.
     def _check_app_after_launch(self, driver, package_name: str, cfg: dict) -> str:
         try:
             logger.debug("%s[%s]: activating repackaged app", self.risk_id, package_name)
@@ -377,6 +394,7 @@ class AndroidRepackagingRisk(AndroidRisk):
             logger.debug("%s[%s]: no clickable elements; judging on launch only", self.risk_id, package_name)
         return "PASS: able to work after repackaging"
 
+    # Report whether the Play Store is showing its get-this-app block page, assuming so when unreadable.
     def _is_play_store_block(self, driver, current_package: str) -> bool:
         if current_package != "com.android.vending":
             return False
@@ -388,6 +406,7 @@ class AndroidRepackagingRisk(AndroidRisk):
             logger.debug("%s: reading Play Store page_source failed; assuming block: %s", self.risk_id, exc, exc_info=True)
             return True
 
+    # Start Appium screen recording, returning False when unsupported.
     def _start_recording(self, driver) -> bool:
         try:
             driver.start_recording_screen()
@@ -396,6 +415,7 @@ class AndroidRepackagingRisk(AndroidRisk):
             logger.debug("%s: start_recording_screen failed: %s", self.risk_id, exc, exc_info=True)
             return False
 
+    # Stop recording and save the MP4, returning its path or None on failure.
     def _stop_recording(self, driver, package_name: str, recordings_dir: Path) -> Path | None:
         try:
             encoded = driver.stop_recording_screen()
@@ -408,6 +428,7 @@ class AndroidRepackagingRisk(AndroidRisk):
             logger.debug("%s[%s]: stopping or saving recording failed: %s", self.risk_id, package_name, exc, exc_info=True)
             return None
 
+    # Terminate the app, ignoring failures.
     def _close_app(self, driver, package_name: str) -> None:
         try:
             logger.debug("%s[%s]: terminating app", self.risk_id, package_name)

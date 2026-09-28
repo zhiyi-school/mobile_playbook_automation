@@ -1,4 +1,6 @@
-"""Serve the developer remediation playbook: control catalogue, assets, source archives."""
+"""
+Serve the developer remediation playbook: control catalogue, assets, source archives.
+"""
 
 from __future__ import annotations
 
@@ -18,12 +20,14 @@ SUMMARY_FIELDS = ("control_id", "risk_id", "title", "status", "required", "step_
 logger = logging.getLogger(__name__)
 
 
+# Return whether source archive downloads are enabled; they are unless the env var disables them.
 def source_download_enabled() -> bool:
     raw = os.environ.get(SOURCE_DOWNLOAD_ENV)
     logger.debug("api: %s=%r.", SOURCE_DOWNLOAD_ENV, raw)
     return True if raw is None else raw.strip().lower() not in {"0", "false", "no", "off"}
 
 
+# Return the platform's playbook catalogue, raising 503 when it is unavailable.
 def _catalogue(platform: Platform) -> dict[str, Any]:
     try:
         return catalogue.get(platform)
@@ -32,8 +36,8 @@ def _catalogue(platform: Platform) -> dict[str, Any]:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
+# Return control summaries keyed by risk id, plus the reason when the playbook is unreadable.
 def risk_control_summaries(platform: Platform) -> tuple[dict[str, list[dict]], str | None]:
-    """Control summaries keyed by risk id, plus the reason they are missing when the playbook is unreadable."""
     try:
         index = catalogue.get(platform)
     except source.PlaybookUnavailableError as exc:
@@ -46,8 +50,8 @@ def risk_control_summaries(platform: Platform) -> tuple[dict[str, list[dict]], s
     return grouped, None
 
 
+# Return a risk's authored title, description and MITRE tactic, or None without a document.
 def risk_overview(platform: Platform, risk_id: str) -> dict[str, Any] | None:
-    """The risk's authored Title, Description and MITRE tactic, or None when the playbook has no such document."""
     try:
         index = catalogue.get(platform)
     except source.PlaybookUnavailableError as exc:
@@ -60,8 +64,8 @@ def risk_overview(platform: Platform, risk_id: str) -> dict[str, Any] | None:
     return {field: risk.get(field) for field in ("title", "description", "tactic", "tactic_id")}
 
 
+# Return a copy of a risk's Markdown manual-testing steps, or None when it declares none.
 def risk_demonstration(platform: Platform, risk_id: str) -> list[dict[str, Any]] | None:
-    """The risk's manual-testing steps from Markdown, or None when the document declares none."""
     try:
         index = catalogue.get(platform)
     except source.PlaybookUnavailableError as exc:
@@ -74,12 +78,14 @@ def risk_demonstration(platform: Platform, risk_id: str) -> list[dict[str, Any]]
     return copy.deepcopy(risk["demonstration"]) if risk and risk.get("demonstration") else None
 
 
+# Return a control's summary fields and whether it has a source archive.
 def summarize(control: dict[str, Any]) -> dict[str, Any]:
     summary = {field: control.get(field) for field in SUMMARY_FIELDS}
     summary["has_source_archive"] = bool(control.get("source_download_url"))
     return summary
 
 
+# Return the playbook controls listed for a risk, or raise 404.
 def list_risk_controls(platform: Platform, risk_id: str) -> list[dict[str, Any]]:
     index = _catalogue(platform)
     key = catalogue.canonical_id(control_parser.document_id(risk_id), platform)
@@ -91,6 +97,7 @@ def list_risk_controls(platform: Platform, risk_id: str) -> list[dict[str, Any]]
     return [index["controls"][cid] for cid in risk["controls"] if cid in index["controls"]]
 
 
+# Return one playbook control, or raise 404.
 def get_control(platform: Platform, control_id: str) -> dict[str, Any]:
     index = _catalogue(platform)
     key = catalogue.canonical_id(control_parser.document_id(control_id), platform)
@@ -102,6 +109,7 @@ def get_control(platform: Platform, control_id: str) -> dict[str, Any]:
     return control
 
 
+# Resolve a control's image asset inside the playbook root, or raise 404.
 def control_asset(platform: Platform, control_id: str, asset_path: str) -> Path:
     get_control(platform, control_id)
     root = source.require_root(platform)
@@ -115,6 +123,7 @@ def control_asset(platform: Platform, control_id: str, asset_path: str) -> Path:
     return resolved
 
 
+# Describe a control's declared source archives and the first one present.
 def control_source_metadata(platform: Platform, control_id: str) -> dict[str, Any]:
     control = get_control(platform, control_id)
     archives = [archive for archive in control.get("source_archives") or [] if archive.get("exists")]
@@ -141,6 +150,7 @@ def control_source_metadata(platform: Platform, control_id: str) -> dict[str, An
     }
 
 
+# Return a control's source archive path and filename, raising when missing or disabled.
 def control_source_file(platform: Platform, control_id: str) -> tuple[Path, str]:
     metadata = control_source_metadata(platform, control_id)
     if not metadata["exists"]:
@@ -163,8 +173,8 @@ def control_source_file(platform: Platform, control_id: str) -> tuple[Path, str]
     return resolved, metadata["file_name"]
 
 
+# Return diagnostics for the configured playbook directory; always answers, never raises.
 def status(platform: Platform) -> dict[str, Any]:
-    """Diagnostics for the configured playbook directory — always answers, never raises."""
     configured = source.configured_root(platform)
     payload: dict[str, Any] = {
         "platform": platform,
@@ -201,6 +211,7 @@ def status(platform: Platform) -> dict[str, Any]:
     return payload
 
 
+# Reload the platform's playbook catalogue and return its status, or raise 503.
 def reload(platform: Platform) -> dict[str, Any]:
     logger.debug("api: reloading %s playbook.", platform)
     try:

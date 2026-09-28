@@ -1,3 +1,7 @@
+"""
+Creates UiAutomator2 Appium sessions for Android devices.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -16,12 +20,14 @@ except ImportError:
     UiAutomator2Options = None
 
 
+# Report whether the Appium Python client imported successfully.
 def appium_available() -> bool:
     available = webdriver is not None and UiAutomator2Options is not None
     logger.debug("android appium: client available=%s", available)
     return available
 
 
+# Start a no-reset UiAutomator2 Appium session, optionally launching a package and activity.
 def create_appium_driver(server_url: str, app_package: str | None = None, app_activity: str | None = None):
     if not appium_available():
         raise RuntimeError("Appium-Python-Client is not installed. Run 'pip install Appium-Python-Client'.")

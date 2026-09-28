@@ -1,3 +1,7 @@
+"""
+Safe IPA extraction that rejects path traversal and escaping symlinks, then locates the Payload app.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -13,10 +17,12 @@ logger = logging.getLogger(__name__)
 IGNORED_NAMES = {"__MACOSX", ".DS_Store"}
 
 
+# Return the Unix mode bits stored in a zip entry's external attributes.
 def _entry_mode(info: zipfile.ZipInfo) -> int:
     return (info.external_attr >> 16) & 0xFFFF
 
 
+# Return whether a relative symlink target resolves inside the extraction directory.
 def _symlink_stays_within(dest_dir: Path, link_path: Path, link_target: str) -> bool:
     if os.path.isabs(link_target):
         return False
@@ -25,11 +31,13 @@ def _symlink_stays_within(dest_dir: Path, link_path: Path, link_target: str) -> 
     return resolved == base or resolved.startswith(base + os.sep)
 
 
+# Return whether a zip member name is non-empty, relative and free of '..' parts.
 def is_safe_member_name(member_name: str) -> bool:
     pure = PurePosixPath(member_name)
     return bool(pure.parts) and not pure.is_absolute() and ".." not in pure.parts
 
 
+# Resolve a zip member's extraction path, raising if it is unsafe or escapes the root.
 def _safe_target(root: Path, member_name: str) -> Path:
     pure = PurePosixPath(member_name)
     if not is_safe_member_name(member_name):
@@ -43,6 +51,7 @@ def _safe_target(root: Path, member_name: str) -> Path:
     return target
 
 
+# Extract a zip safely, preserving file modes and in-tree symlinks and skipping macOS metadata.
 def safe_extract_zip(zip_path: Path, dest_dir: Path) -> None:
     dest_dir = Path(dest_dir)
     dest_dir.mkdir(parents=True, exist_ok=True)
@@ -88,6 +97,7 @@ def safe_extract_zip(zip_path: Path, dest_dir: Path) -> None:
     )
 
 
+# Return the single .app directory under Payload/, raising unless exactly one exists.
 def locate_payload_app(extract_dir: Path) -> Path:
     payload = Path(extract_dir) / "Payload"
     apps = sorted(p for p in payload.glob("*.app") if p.is_dir())
@@ -97,6 +107,7 @@ def locate_payload_app(extract_dir: Path) -> Path:
     return apps[0]
 
 
+# Safely extract an IPA and return its Payload app directory.
 def unpack_ipa(ipa_path: Path, dest_dir: Path) -> Path:
     safe_extract_zip(ipa_path, dest_dir)
     return locate_payload_app(dest_dir)

@@ -1,3 +1,7 @@
+"""
+CLI preview of which playbook step identities an edit preserves, removes or adds.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -11,6 +15,7 @@ from mobile_playbook.playbook import catalogue
 logger = logging.getLogger(__name__)
 
 
+# Compare two playbook roots by exact step key per control and report preserved, removed and added steps.
 def preview(old_root: Path, new_root: Path, platform: str) -> dict[str, Any]:
     old = catalogue.build(platform, Path(old_root).resolve(), overrides={})
     new = catalogue.build(platform, Path(new_root).resolve(), overrides={})
@@ -87,6 +92,7 @@ def preview(old_root: Path, new_root: Path, platform: str) -> dict[str, Any]:
     }
 
 
+# Map a control's step keys to their id source, treating a missing control as having no steps.
 def _steps(control: dict[str, Any] | None) -> dict[str, str]:
     return {
         str(step["step_key"]): str(step.get("step_id_source") or "auto")
@@ -94,11 +100,13 @@ def _steps(control: dict[str, Any] | None) -> dict[str, str]:
     }
 
 
+# Return the content hash of the control's step with this key, or None when absent.
 def _content_hash(control: dict[str, Any] | None, key: str) -> str | None:
     step = next((item for item in (control or {}).get("steps", []) if item.get("step_key") == key), None)
     return str(step.get("content_hash")) if step else None
 
 
+# CLI entry point that prints the identity preview as text or JSON and exits 1 on identity errors.
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Preview exact playbook step identities across an edit.")
     parser.add_argument("--old-root", required=True, type=Path)

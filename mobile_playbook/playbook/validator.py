@@ -1,3 +1,7 @@
+"""
+Read-only validator that reports catalogue, identity and link diagnostics for a developer playbook.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -34,6 +38,7 @@ ERROR_CODES = frozenset(
 EXTERNAL_SCHEMES = frozenset({"http", "https", "mailto"})
 
 
+# Build the catalogue and check every document, returning deduplicated diagnostics with error and warning counts.
 def validate(root: Path, platform: str) -> dict[str, Any]:
     root = Path(root).expanduser().resolve()
     logger.debug("playbook validator: validating %s playbook at %s", platform, root)
@@ -64,6 +69,7 @@ def validate(root: Path, platform: str) -> dict[str, Any]:
     return result
 
 
+# Check one document's identity, step id directives and links.
 def _validate_document(root: Path, platform: str, path: Path) -> list[dict[str, Any]]:
     relative = source.relative_to_root(root, path)
     text = path.read_text(errors="replace")
@@ -104,6 +110,7 @@ def _validate_document(root: Path, platform: str, path: Path) -> list[dict[str, 
     return diagnostics
 
 
+# Check one link: external URL shape, root containment, target existence and Markdown heading anchors.
 def _validate_link(
     root: Path,
     document_path: Path,
@@ -143,6 +150,7 @@ def _validate_link(
     return []
 
 
+# Return the GitHub-style anchor slugs of a document's headings, numbering duplicates.
 def _heading_anchors(blocks: list[dict[str, Any]]) -> set[str]:
     anchors: set[str] = set()
     counts: dict[str, int] = {}
@@ -157,6 +165,7 @@ def _heading_anchors(blocks: list[dict[str, Any]]) -> set[str]:
     return anchors
 
 
+# Convert a catalogue warning into a diagnostic, as an error when its code is in ERROR_CODES.
 def _from_catalogue(item: dict[str, Any]) -> dict[str, Any]:
     code = str(item.get("code") or "catalogue_warning")
     return _diagnostic(
@@ -169,6 +178,7 @@ def _from_catalogue(item: dict[str, Any]) -> dict[str, Any]:
     )
 
 
+# Build a diagnostic dict.
 def _diagnostic(
     code: str,
     severity: str,
@@ -181,6 +191,7 @@ def _diagnostic(
     return {"code": code, "severity": severity, "path": path, "line": line, "section": section, "message": message}
 
 
+# Drop identical diagnostics and sort the rest by path, line and code.
 def _deduplicate(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     unique: dict[tuple[Any, ...], dict[str, Any]] = {}
     for item in items:
@@ -189,6 +200,7 @@ def _deduplicate(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return sorted(unique.values(), key=lambda item: (item["path"], item["line"] or 0, item["code"]))
 
 
+# Assemble the validation result with catalogue counts and severity totals.
 def _result(root: Path, platform: str, diagnostics: list[dict[str, Any]], built: dict[str, Any] | None = None) -> dict[str, Any]:
     return {
         "root": str(root),
@@ -202,6 +214,7 @@ def _result(root: Path, platform: str, diagnostics: list[dict[str, Any]], built:
     }
 
 
+# CLI entry point that prints diagnostics and exits 1 on errors, or on warnings with --strict.
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Validate a developer playbook without modifying it.")
     parser.add_argument("--root", required=True, type=Path)

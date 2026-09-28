@@ -1,3 +1,7 @@
+"""
+Allocates collision-free run timestamps under a reports root.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -7,13 +11,8 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 
+# Return a sortable local timestamp not yet used under root or by the `{timestamp}` extra_files patterns.
 def new_run_timestamp(root: Path, now: datetime | None = None, extra_files: tuple[str, ...] = ()) -> str:
-    """Return a sortable local timestamp that does not collide under root.
-
-    `extra_files` accepts format strings with `{timestamp}` for sibling files
-    that should also reserve the timestamp, for example
-    `"{timestamp}-acquire-results.json"`.
-    """
     root = Path(root)
     base = (now or datetime.now().astimezone()).strftime("%Y-%m-%d_%H-%M-%S")
     candidate = base
@@ -26,24 +25,15 @@ def new_run_timestamp(root: Path, now: datetime | None = None, extra_files: tupl
     return candidate
 
 
+# Report whether the timestamp's directory or any of its extra files already exists under root.
 def _timestamp_exists(root: Path, timestamp: str, extra_files: tuple[str, ...]) -> bool:
     if (root / timestamp).exists():
         return True
     return any((root / pattern.format(timestamp=timestamp)).exists() for pattern in extra_files)
 
 
+# Atomically claim a run timestamp by creating its directory, retrying when a concurrent caller wins.
 def reserve_run_timestamp(root: Path, now: datetime | None = None, extra_files: tuple[str, ...] = ()) -> str:
-    """Atomically claim a run_timestamp by creating its directory.
-
-    `new_run_timestamp` only checks-then-returns, which leaves a window
-    between two concurrent callers observing the same "does not exist"
-    state and both picking the same candidate. That affects any overlapping
-    allocation: the HTTP API serving two requests, and `run-all`, whose two
-    platform threads would otherwise share one run directory and overwrite
-    each other's top-level report files. This instead creates the directory
-    as part of picking it, so a loser of the race retries against the
-    winner's now-existing directory.
-    """
     root = Path(root)
     root.mkdir(parents=True, exist_ok=True)
     while True:

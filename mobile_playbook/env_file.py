@@ -1,3 +1,7 @@
+"""
+Loads KEY=VALUE environment files without overriding variables already set.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -7,6 +11,7 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 
+# Sets unset environment variables from a KEY=VALUE file, stripping matching quotes; missing files are ignored.
 def load_env_file(path: Path) -> None:
     if not path.exists() or not path.is_file():
         logger.debug("env file: %s not found; nothing loaded.", path)

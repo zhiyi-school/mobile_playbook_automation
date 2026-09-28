@@ -1,4 +1,5 @@
 # Example Android app roster. Copy to apps.yaml and add only authorized test apps; see docs/android/configuration.md.
+
 apps:
   - id: "example_app"
     name: "Example App"

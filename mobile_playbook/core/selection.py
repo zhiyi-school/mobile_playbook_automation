@@ -1,3 +1,7 @@
+"""
+Compatibility re-export of the app and risk selection helpers.
+"""
+
 from mobile_playbook.orchestration.artifact_intake import (
     app_matches_selector,
     selected_app_csv,

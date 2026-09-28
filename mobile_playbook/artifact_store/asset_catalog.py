@@ -1,3 +1,7 @@
+"""
+Reads iOS asset catalogs with assetutil and picks the primary app icon rendition.
+"""
+
 from __future__ import annotations
 
 import json
@@ -27,6 +31,7 @@ class Rendition:
     idiom: str
     scale: int
 
+    # Returns the rendition fields as a plain dict.
     def as_dict(self) -> dict[str, Any]:
         return {
             "name": self.name,
@@ -38,12 +43,13 @@ class Rendition:
         }
 
 
+# Reports whether the macOS assetutil tool is installed.
 def assetutil_available() -> bool:
     return ASSETUTIL_PATH.is_file()
 
 
+# Returns the `assetutil --info` entries of an asset catalog, or None when it cannot be read within limits.
 def read_catalog(car_path: Path) -> list[dict[str, Any]] | None:
-    """`assetutil --info` output, or `None` when it cannot be read."""
     path = Path(car_path)
     if not assetutil_available() or not path.is_file():
         logger.debug(
@@ -92,12 +98,13 @@ def read_catalog(car_path: Path) -> list[dict[str, Any]] | None:
     return [entry for entry in parsed if isinstance(entry, dict)] if isinstance(parsed, list) else None
 
 
+# Returns value if it is a non-bool int, else 0.
 def _as_int(value: Any) -> int:
     return value if isinstance(value, int) and not isinstance(value, bool) else 0
 
 
+# Returns the largest non-marketing rendition of the app's primary icon within the size limit.
 def primary_icon_rendition(entries: list[dict[str, Any]], icon_name: str | None) -> Rendition | None:
-    """The largest home-screen rendition of the app's primary icon."""
     wanted = (icon_name or "").strip().lower()
     candidates: list[Rendition] = []
     for entry in entries:

@@ -1,4 +1,6 @@
-"""Index the external playbook into a cached platform → risk → control catalogue."""
+"""
+Indexes the external playbook into a cached platform, risk and control catalogue.
+"""
 
 from __future__ import annotations
 
@@ -44,8 +46,8 @@ _lock = threading.Lock()
 _cache: dict[str, tuple[tuple, dict[str, Any]]] = {}
 
 
+# Lowercase a document id and replace its generic prefix with the platform, as the catalogue keys on it.
 def canonical_id(document_id: str, platform: str) -> str:
-    """Playbook documents are written with a generic `platform-` prefix; the catalogue keys on the real one."""
     for pattern in (CONTROL_DOCUMENT, RISK_DOCUMENT):
         match = pattern.match(document_id)
         if match is not None:
@@ -53,6 +55,7 @@ def canonical_id(document_id: str, platform: str) -> str:
     return document_id.lower()
 
 
+# Return the lowercase risk id that owns a control id, or None when it is not a control id.
 def risk_id_of_control(control_id: str) -> str | None:
     match = CONTROL_DOCUMENT.match(control_id)
     if match is None:
@@ -60,18 +63,19 @@ def risk_id_of_control(control_id: str) -> str | None:
     return control_id[: control_id.rindex("-control-")].lower()
 
 
+# Return a control asset URL, versioned so a screenshot replaced in place defeats the browser cache.
 def asset_url(platform: str, control_id: str, asset_path: str, version: str | None = None) -> str:
-    """The version query defeats the browser cache when a screenshot is replaced in place."""
     url = f"/platforms/{platform}/controls/{control_id}/assets/{asset_path}"
     return f"{url}?v={version}" if version else url
 
 
+# Return the URL of a control's source archive download.
 def source_url(platform: str, control_id: str) -> str:
     return f"/platforms/{platform}/controls/{control_id}/source"
 
 
+# Return the platform's cached catalogue, rebuilding it when the playbook files change or refresh is set.
 def get(platform: str, refresh: bool = False) -> dict[str, Any]:
-    """The catalogue for a platform, rebuilt when the playbook files change on disk."""
     root = source.require_root(platform)
     signature = source.source_signature(root)
     with _lock:
@@ -91,11 +95,13 @@ def get(platform: str, refresh: bool = False) -> dict[str, Any]:
         return built
 
 
+# Rebuild and cache the platform's catalogue.
 def reload(platform: str) -> dict[str, Any]:
     logger.debug("playbook catalogue: forced reload for %s", platform)
     return get(platform, refresh=True)
 
 
+# Drop the cached catalogue for one platform, or for all when none is given.
 def clear_cache(platform: str | None = None) -> None:
     logger.debug("playbook catalogue: clearing cache for %s", platform or "all platforms")
     with _lock:
@@ -105,6 +111,7 @@ def clear_cache(platform: str | None = None) -> None:
             _cache.pop(platform, None)
 
 
+# Parse every playbook document into risk and control records with warnings and a catalogue revision.
 def build(
     platform: str,
     root: Path,
@@ -221,6 +228,7 @@ def build(
     }
 
 
+# Apply config overrides, resolve images and archives, hash steps and collect a control's warnings.
 def _finalize_control(
     record: dict[str, Any],
     key: str,
@@ -358,6 +366,7 @@ def _finalize_control(
     return record
 
 
+# Set an image block's URL and existence, warning when a local image is missing.
 def _decorate_image(
     block: dict[str, Any],
     platform: str,
@@ -388,6 +397,7 @@ def _decorate_image(
         )
 
 
+# Attach each risk's owned controls and warn about risks without controls and controls without risks.
 def _link_controls(
     risk_records: dict[str, dict[str, Any]],
     control_records: dict[str, dict[str, Any]],
@@ -429,6 +439,7 @@ def _link_controls(
             )
 
 
+# Warn about a risk's control links that are missing, mislabelled or point at another risk's control.
 def _validate_links(
     risk: dict[str, Any],
     control_records: dict[str, dict[str, Any]],
@@ -485,6 +496,7 @@ def _validate_links(
             )
 
 
+# Warn when a document's heading id disagrees with its filename or it has no heading.
 def _note_identity(
     warnings: list[dict[str, Any]],
     relative: str,
@@ -521,6 +533,7 @@ def _note_identity(
         )
 
 
+# Load the platform's control overrides keyed by lowercase control id, or an empty dict.
 def _load_overrides(platform: str) -> dict[str, dict[str, Any]]:
     path = CONTROL_OVERRIDE_FILES.get(platform)
     if path is None or not path.exists():
@@ -539,12 +552,14 @@ def _load_overrides(platform: str) -> dict[str, dict[str, Any]]:
     return loaded
 
 
+# Yield a control's intro blocks and then every step's content blocks.
 def _iter_blocks(record: dict[str, Any]):
     yield from record.get("intro") or []
     for step in record.get("steps") or []:
         yield from step.get("content") or []
 
 
+# Return the file's sha256 digest, prefixed with `sha256:`.
 def _digest(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -553,6 +568,7 @@ def _digest(path: Path) -> str:
     return f"sha256:{digest.hexdigest()}"
 
 
+# Return a 12-character digest for cache-busting URLs, or None when unreadable.
 def _short_digest(path: Path | None) -> str | None:
     if path is None:
         return None
@@ -563,8 +579,8 @@ def _short_digest(path: Path | None) -> str | None:
         return None
 
 
+# Hash a step's title, text and rendered content so a rewritten step is detectable.
 def _step_content_hash(step: dict[str, Any]) -> str:
-    """Covers the instruction and everything rendered under it, so a rewritten step is detectable."""
     digest = hashlib.sha256()
     digest.update(json.dumps(step.get("step_title") or "", sort_keys=True).encode())
     digest.update(json.dumps(step.get("text") or "", sort_keys=True).encode())
@@ -572,8 +588,8 @@ def _step_content_hash(step: dict[str, Any]) -> str:
     return f"sha256:{digest.hexdigest()[:32]}"
 
 
+# Hash every revision, step hash and archive digest so a client can poll one value for changes.
 def _catalogue_revision(risks: dict[str, Any], controls: dict[str, Any]) -> str:
-    """Changes when any document, screenshot or archive changes, so a client can poll one value."""
     digest = hashlib.sha256()
     for key in sorted(risks):
         digest.update(f"{key}:{risks[key]['playbook_revision']}\n".encode())

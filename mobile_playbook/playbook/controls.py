@@ -1,4 +1,6 @@
-"""Turn one playbook Markdown document into a normalized risk or control record."""
+"""
+Turns one playbook Markdown document into a normalized risk or control record.
+"""
 
 from __future__ import annotations
 
@@ -49,8 +51,8 @@ TRAILING_MARKER = re.compile(r"[_\s]*\((?:depriorit|deprecat)[^)]*\)\s*$", re.I)
 STEP_TITLE_MAX_CHARS = 90
 
 
+# Return the single MITRE tactic and TA id named in a Description, or None with a malformed or conflict warning.
 def mitre_annotation(description: str) -> tuple[dict[str, str] | None, list[dict[str, Any]]]:
-    """The MITRE tactic and ID named in the Description; never inferred from any other source."""
     if not MITRE_MARKER.search(description or ""):
         return None, []
 
@@ -78,15 +80,17 @@ def mitre_annotation(description: str) -> tuple[dict[str, str] | None, list[dict
     return {"tactic": tactic, "tactic_id": tactic_id}, []
 
 
+# Strip a trailing status marker so a filename variation never changes an identity.
 def document_id(stem_or_heading: str) -> str:
-    """Strip a trailing status marker so a filename variation never changes an identity."""
     return TRAILING_MARKER.sub("", stem_or_heading).strip()
 
 
+# Return the sha256 revision of a document's raw bytes.
 def revision(raw: bytes) -> str:
     return f"sha256:{hashlib.sha256(raw).hexdigest()}"
 
 
+# Infer deprecated or deprioritized status from naming markers, returning whether a marker matched.
 def infer_status(*candidates: str) -> tuple[str, bool]:
     for candidate in candidates:
         if candidate and DEPRECATED_MARKER.search(candidate):
@@ -97,6 +101,7 @@ def infer_status(*candidates: str) -> tuple[str, bool]:
     return ACTIVE, False
 
 
+# Map a declared status and its spelling variants to a control status, or None when unrecognized.
 def normalize_status(value: Any) -> str | None:
     text = str(value or "").strip().lower().replace(" ", "_").replace("-", "_")
     if text in {"deprioritised", "deprioritized", "deprioritise", "deprioritize"}:
@@ -108,6 +113,7 @@ def normalize_status(value: Any) -> str | None:
     return None
 
 
+# Return the text of the first heading at the given level, or None.
 def heading_of(blocks: list[dict[str, Any]], level: int = 2) -> str | None:
     for block in blocks:
         if block.get("type") == "heading" and block.get("level") == level:
@@ -125,8 +131,8 @@ class Document(NamedTuple):
     identity: str
 
 
+# Parse a document once, taking its identity from the level-2 heading and falling back to the filename.
 def read_document(path: Path) -> Document:
-    """Parse a document once and take its identity from the heading, never from the filename alone."""
     raw = path.read_bytes()
     front_matter, body = markdown.split_front_matter(raw.decode("utf-8", errors="replace"))
     blocks = markdown.parse_blocks(body)
@@ -146,6 +152,7 @@ def read_document(path: Path) -> Document:
     return Document(path, raw, front_matter, blocks, heading_id, file_id, heading_id or file_id)
 
 
+# Build a control record with its status, title, intro, steps, references, archives and parse warnings.
 def parse_control(document: Document, root: Path) -> dict[str, Any]:
     path, raw, front_matter, blocks = document.path, document.raw, document.front_matter, document.blocks
     heading_id, file_id = document.heading_id, document.file_id
@@ -208,6 +215,7 @@ def parse_control(document: Document, root: Path) -> dict[str, Any]:
     return record
 
 
+# Build a risk record with its title, description, MITRE tactic, demonstration, control links and status.
 def parse_risk(document: Document, root: Path) -> dict[str, Any]:
     path, raw, front_matter, blocks = document.path, document.raw, document.front_matter, document.blocks
     heading_id = document.heading_id
@@ -239,6 +247,7 @@ class Sections(NamedTuple):
     has_step_section: bool
 
 
+# Group blocks under the recognized level-3 section headings, keeping the rest as loose blocks.
 def split_sections(blocks: list[dict[str, Any]]) -> Sections:
     named: dict[str, list[dict[str, Any]]] = {}
     loose: list[dict[str, Any]] = []
@@ -268,6 +277,7 @@ def split_sections(blocks: list[dict[str, Any]]) -> Sections:
     return Sections(named, loose, has_step_section)
 
 
+# Split a document into intro blocks, steps and reference blocks, supporting sectioned and legacy layouts.
 def _partition(
     blocks: list[dict[str, Any]],
     warnings: list[dict[str, Any]] | None = None,
@@ -300,24 +310,25 @@ def _partition(
     return intro, steps, references
 
 
+# Return what a Title section holds after its title paragraph.
 def _after_title(blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Everything a Title section holds beyond the title line itself."""
     for index, block in enumerate(blocks):
         if block.get("type") == "paragraph":
             return blocks[index + 1 :]
     return blocks
 
 
+# Drop step id blocks from a list of blocks.
 def _intro_blocks(blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [block for block in blocks if block.get("type") != "step_id"]
 
 
+# Build steps from numbered headings, keeping deeper headings in the step they follow; None when there are none.
 def _heading_steps(
     blocks: list[dict[str, Any]],
     used_keys: set[str],
     warnings: list[dict[str, Any]],
 ) -> tuple[list[dict[str, Any]] | None, list[dict[str, Any]]]:
-    """Steps introduced by numbered headings; deeper headings stay inside the step they follow."""
     levels = [
         int(block.get("level", 0) or 0)
         for block in blocks
@@ -391,12 +402,12 @@ def _heading_steps(
     return steps, leading
 
 
+# Build steps from top-level ordered-list items, the original format, returning them and the leading blocks.
 def _list_steps(
     blocks: list[dict[str, Any]],
     used_keys: set[str],
     warnings: list[dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """The original format: each top-level ordered-list item is a step."""
     steps: list[dict[str, Any]] = []
     leading: list[dict[str, Any]] = []
     current: dict[str, Any] | None = None
@@ -441,8 +452,8 @@ def _list_steps(
     return steps, leading
 
 
+# Return a risk's Demonstration section as table and steps sections in the manual-testing shape the API serves.
 def _risk_demonstration(blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """The risk's Demonstration section in the manual-testing shape the risk API already serves."""
     sections = split_sections(blocks)
     body = sections.named.get(STEPS) or []
     if not body:
@@ -487,8 +498,8 @@ DEMONSTRATION_BLOCK_KEYS = {
 }
 
 
+# Keep a block's served fields in place so a caption still follows its image, or None for other types.
 def _demonstration_block(block: dict[str, Any]) -> dict[str, Any] | None:
-    """One authored block kept in place, so a caption still follows the image it describes."""
     keys = DEMONSTRATION_BLOCK_KEYS.get(str(block.get("type") or ""))
     if keys is None:
         return None
@@ -498,6 +509,7 @@ def _demonstration_block(block: dict[str, Any]) -> dict[str, Any] | None:
     return kept
 
 
+# Convert a parsed step into a demonstration item with its content, commands and images.
 def _demonstration_step(step: dict[str, Any], _label: str | None) -> dict[str, Any]:
     content = [
         normalized
@@ -518,12 +530,13 @@ def _demonstration_step(step: dict[str, Any], _label: str | None) -> dict[str, A
     }
 
 
+# Derive a step id from its normalized text, so reordering keeps progress but rewording makes a new step.
 def _auto_step_id(text: str) -> str:
-    """Derived from the instruction itself, so reordering keeps progress but a reworded step is a new step."""
     normalized = " ".join(text.split()).casefold()
     return f"auto-{hashlib.sha256(normalized.encode()).hexdigest()[:12]}"
 
 
+# Return the key, or the first free numbered suffix of it, and mark it used.
 def _unique(key: str, used: set[str]) -> str:
     candidate, ordinal = key, 1
     while candidate in used:
@@ -533,6 +546,7 @@ def _unique(key: str, used: set[str]) -> str:
     return candidate
 
 
+# Return the first sentence of a step's text, truncated to STEP_TITLE_MAX_CHARS, or a numbered fallback.
 def _step_title(text: str, position: int) -> str:
     cleaned = " ".join(text.split())
     if not cleaned:
@@ -543,6 +557,7 @@ def _step_title(text: str, position: int) -> str:
     return f"{first[: STEP_TITLE_MAX_CHARS - 1].rstrip()}…"
 
 
+# Return the declared or Title-section title, else the description's first sentence, else a numbered fallback.
 def _control_title(front_matter: dict[str, Any], titled: str, description: str, control_id: str) -> str:
     declared = str(front_matter.get("title") or "").strip() or titled.strip()
     if declared:
@@ -553,6 +568,7 @@ def _control_title(front_matter: dict[str, Any], titled: str, description: str, 
     return f"Control {int(match.group('control'))}" if match else control_id
 
 
+# Return the text of the first intro paragraph, or an empty string.
 def _summary(intro: list[dict[str, Any]]) -> str:
     for block in intro:
         if block.get("type") == "paragraph":
@@ -560,6 +576,7 @@ def _summary(intro: list[dict[str, Any]]) -> str:
     return ""
 
 
+# Return the paragraph text under the named heading, only the first paragraph for Title.
 def _section_text(blocks: list[dict[str, Any]], heading: str) -> str:
     collecting = False
     parts: list[str] = []
@@ -576,6 +593,7 @@ def _section_text(blocks: list[dict[str, Any]], heading: str) -> str:
     return ("\n\n".join(parts) if heading != TITLE else " ".join(parts)).strip()
 
 
+# Return the distinct non-image links to Markdown documents in the blocks.
 def _control_links(blocks: list[dict[str, Any]]) -> list[dict[str, str]]:
     links: list[dict[str, str]] = []
     seen: set[str] = set()
@@ -591,6 +609,7 @@ def _control_links(blocks: list[dict[str, Any]]) -> list[dict[str, str]]:
     return links
 
 
+# Return the distinct non-image links to source archives in the blocks.
 def _collect_archives(blocks: list[dict[str, Any]]) -> list[dict[str, str]]:
     archives: list[dict[str, str]] = []
     seen: set[str] = set()
@@ -605,6 +624,7 @@ def _collect_archives(blocks: list[dict[str, Any]]) -> list[dict[str, str]]:
     return archives
 
 
+# Return the distinct http(s) links in the reference blocks, excluding archives.
 def _collect_references(
     reference_blocks: list[dict[str, Any]],
     intro: list[dict[str, Any]],
@@ -622,6 +642,7 @@ def _collect_references(
     return references
 
 
+# Return the texts of a paragraph, caption, list or table block that may contain links.
 def _link_sources(block: dict[str, Any]) -> list[str]:
     kind = block.get("type")
     if kind in {"paragraph", "caption"}:
@@ -636,6 +657,7 @@ def _link_sources(block: dict[str, Any]) -> list[str]:
 BARE_URL = re.compile(r"https?://[^\s<>()\[\]]+")
 
 
+# Return (url, label) pairs for http(s) Markdown links and bare URLs in a text.
 def _urls_in(text: str) -> list[tuple[str, str]]:
     found: list[tuple[str, str]] = []
     consumed = text

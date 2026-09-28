@@ -1,3 +1,5 @@
+# Keeps local secrets, device configs, generated artifacts and build outputs out of git.
+
 # Local environment and secrets
 .env
 .env.*

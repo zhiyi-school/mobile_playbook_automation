@@ -1,3 +1,7 @@
+"""
+Compatibility entry point re-exporting the dashboard sync API and running its worker CLI.
+"""
+
 from mobile_playbook.dashboard_syncing import (
     AmbiguousApplicationError,
     DashboardSyncStore,

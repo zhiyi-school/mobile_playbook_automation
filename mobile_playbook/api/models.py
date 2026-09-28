@@ -1,3 +1,7 @@
+"""
+Pydantic request and response models for the API.
+"""
+
 from __future__ import annotations
 
 from typing import Any, Literal
@@ -13,6 +17,7 @@ class FeatureUpdateRequest(BaseModel):
     name: str | None = None
     description: str | None = None
 
+    # Return only the fields the client set.
     def updates(self) -> dict[str, Any]:
         return {field: getattr(self, field) for field in self.model_fields_set}
 
@@ -24,6 +29,7 @@ class RiskMetadataUpdateRequest(BaseModel):
     description: str | None = None
     tactic: str | None = None
 
+    # Return only the fields the client set.
     def updates(self) -> dict[str, Any]:
         return {field: getattr(self, field) for field in self.model_fields_set}
 
@@ -48,6 +54,7 @@ class RiskDemonstrationBlock(BaseModel):
 
 
 class RiskDemonstrationUpdateRequest(RootModel[list[RiskDemonstrationBlock]]):
+    # Returns the submitted demonstration blocks as JSON-ready dicts, omitting unset fields.
     def blocks(self) -> list[dict[str, Any]]:
         return self.model_dump(mode="json", exclude_unset=True)
 
@@ -93,6 +100,7 @@ class ConfigAppRequest(BaseModel):
     version: str | None = None
     cisos: list[CisoRequest] | None = None
 
+    # Return the set fields as JSON-compatible values.
     def updates(self) -> dict[str, Any]:
         return self.model_dump(mode="json", include=self.model_fields_set, exclude_unset=True)
 
@@ -126,6 +134,7 @@ class DeviceUpdateRequest(BaseModel):
     adb_serial: str | None = None
     appium_auto_start: AppiumAutoStartRequest | None = None
 
+    # Return the set fields as JSON-compatible values.
     def updates(self) -> dict[str, Any]:
         return self.model_dump(mode="json", include=self.model_fields_set, exclude_unset=True)
 
@@ -151,6 +160,7 @@ class RunnerUpdateRequest(BaseModel):
     permission_alerts: PermissionAlertsRequest | None = None
     auto_grant_permissions: bool | None = None
 
+    # Return the set fields as JSON-compatible values.
     def updates(self) -> dict[str, Any]:
         return self.model_dump(mode="json", include=self.model_fields_set, exclude_unset=True)
 

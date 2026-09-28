@@ -1,3 +1,7 @@
+"""
+Loads YAML configs with section includes and merges inline overrides onto them.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -20,30 +24,8 @@ class PreflightResult:
     warnings: list[str] = field(default_factory=list)
 
 
+# Load a YAML config mapping and resolve its section includes relative to the file.
 def load_yaml_config(path: Path) -> dict[str, Any]:
-    """Load a YAML config and resolve optional section includes.
-
-    Supported shape:
-
-    include:
-      device: device.yaml
-      runner: runner.yaml
-      apps: apps.yaml
-
-    Included files may contain either the raw section value or a mapping wrapped
-    under the section name, for example both `device: {...}` and `{...}` work
-    for the device section. Inline values in the parent config win over included
-    values so teams can override a small field without copying the full file.
-
-    A section's include value may also be a list of paths instead of one path,
-    for example `apps: [templates.yaml, apps.yaml]`. Listed files are read and
-    concatenated as raw text, in order, before being parsed as a single YAML
-    document. This is what lets a `templates.yaml` file define reusable YAML
-    anchors (`&name`) that a later file in the list (e.g. `apps.yaml`) can
-    reference via aliases (`*name`) — anchors only resolve within one parsed
-    document, so loading each file separately and merging the results afterward
-    would not work for cross-file anchor references.
-    """
     path = Path(path)
     logger.debug("config: loading %s", path)
     with path.open("r") as handle:
@@ -55,6 +37,7 @@ def load_yaml_config(path: Path) -> dict[str, Any]:
     return resolve_config_includes(raw, path.parent)
 
 
+# Replace include entries with the included sections, letting inline values override them.
 def resolve_config_includes(raw: dict[str, Any], base_dir: Path) -> dict[str, Any]:
     include_spec = _include_spec(raw)
     if not include_spec:
@@ -77,6 +60,7 @@ def resolve_config_includes(raw: dict[str, Any], base_dir: Path) -> dict[str, An
     return resolved
 
 
+# Return the value of the first include key present in the config, or None.
 def _include_spec(raw: dict[str, Any]) -> Any:
     for key in INCLUDE_KEYS:
         if key in raw:
@@ -84,6 +68,7 @@ def _include_spec(raw: dict[str, Any]) -> Any:
     return None
 
 
+# Load a section from one or more include files, unwrapping it when nested under its own name.
 def _load_include_section(base_dir: Path, section: str, include_path: Any) -> Any:
     paths = _section_include_paths(section, include_path)
     resolved_paths = [_resolve_include_path(base_dir, p) for p in paths]
@@ -92,6 +77,7 @@ def _load_include_section(base_dir: Path, section: str, include_path: Any) -> An
         if not path.exists():
             logger.debug("config: include for %s missing: %s (declared %s)", section, path, original)
             raise ValueError(f"included config file does not exist for {section} ({original}): {path}")
+    # Listed files are parsed as one document so anchors resolve across them.
     combined_text = "\n".join(path.read_text() for path in resolved_paths)
     loaded = yaml.safe_load(combined_text)
     if loaded is None:
@@ -103,6 +89,7 @@ def _load_include_section(base_dir: Path, section: str, include_path: Any) -> An
     return deepcopy(loaded)
 
 
+# Normalize a section's include value to a non-empty list of paths, raising ValueError otherwise.
 def _section_include_paths(section: str, include_path: Any) -> list[str]:
     if isinstance(include_path, str):
         if not include_path.strip():
@@ -113,6 +100,7 @@ def _section_include_paths(section: str, include_path: Any) -> list[str]:
     raise ValueError(f"include.{section} must be a non-empty path or a non-empty list of paths")
 
 
+# Resolve an include path against the config directory unless it is absolute.
 def _resolve_include_path(base_dir: Path, include_path: str) -> Path:
     path = Path(include_path).expanduser()
     if not path.is_absolute():
@@ -120,13 +108,8 @@ def _resolve_include_path(base_dir: Path, include_path: str) -> Path:
     return path
 
 
+# Recursively merge override onto base without mutating either; empty override values keep base.
 def merge_dicts(base: Any, override: Any) -> Any:
-    """Recursively merge `override` onto `base`, without mutating either.
-
-    Dicts are merged key by key (recursing into nested dicts); any other
-    value in `override` replaces the corresponding value from `base`
-    entirely, unless it is empty/None, in which case `base`'s value wins.
-    """
     if isinstance(base, dict) and isinstance(override, dict):
         merged = deepcopy(base)
         for key, value in override.items():

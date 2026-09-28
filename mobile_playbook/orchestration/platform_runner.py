@@ -1,3 +1,7 @@
+"""
+Platform-neutral scan planning and Appium session recovery helpers.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -13,6 +17,7 @@ RiskGetter = Callable[[str], Any]
 logger = logging.getLogger(__name__)
 
 
+# Describe an Appium auto-start outcome for the run log, or None when there is nothing to report.
 def appium_start_message(platform: str, appium_server_url: str, outcome: AppiumStartResult) -> str | None:
     logger.debug("%s: Appium start outcome status=%s error=%s log_path=%s", platform, getattr(outcome, "status", None), getattr(outcome, "error", None), getattr(outcome, "log_path", None))
     if outcome.status == "ALREADY_RUNNING":
@@ -24,6 +29,7 @@ def appium_start_message(platform: str, appium_server_url: str, outcome: AppiumS
     return None
 
 
+# Yield an app's risk ids that are selected, enabled in config and automatable.
 def enabled_test_ids(app: Any, selected_tests: set[str] | None, get_risk: RiskGetter) -> Iterable[str]:
     app_id = getattr(app, "id", app)
     for risk_id, risk_config in app.risks.items():
@@ -41,6 +47,7 @@ def enabled_test_ids(app: Any, selected_tests: set[str] | None, get_risk: RiskGe
         yield risk_id
 
 
+# Yield (app, risk_id) pairs for every selected app's enabled risks.
 def iter_enabled_tests(
     config: Any, selected_tests: set[str] | None, selected_apps: set[str] | None, get_risk: RiskGetter
 ):
@@ -52,6 +59,7 @@ def iter_enabled_tests(
             yield app, risk_id
 
 
+# Report whether any planned risk needs a connected device.
 def requires_device(
     config: Any, selected_tests: set[str] | None, selected_apps: set[str] | None, get_risk: RiskGetter
 ) -> bool:
@@ -64,6 +72,7 @@ def requires_device(
     return False
 
 
+# Return the device client while Appium is reachable, otherwise log a recovery event and reconnect.
 def ensure_appium_session(
     *,
     platform: str,

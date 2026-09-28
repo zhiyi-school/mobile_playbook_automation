@@ -1,3 +1,7 @@
+"""
+Command-line entry point that checks Appium and starts the API server with uvicorn.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -18,6 +22,7 @@ MOBILE_PLAYBOOK_LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
 logger = logging.getLogger(__name__)
 
 
+# Build a uvicorn logging config that also routes mobile_playbook loggers at the configured level.
 def api_log_config() -> dict[str, Any]:
     config = deepcopy(LOGGING_CONFIG)
     config["disable_existing_loggers"] = False
@@ -39,6 +44,7 @@ def api_log_config() -> dict[str, Any]:
     return config
 
 
+# Parse CLI options, ensure Appium is running, serve the API, and stop any Appium it started.
 def main() -> None:
     parser = argparse.ArgumentParser(prog="python -m mobile_playbook.api")
     parser.add_argument("--host", default="127.0.0.1")

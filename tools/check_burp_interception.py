@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+"""
+One-time check that the iOS device proxy, CA trust and Burp capture extension work together end to end.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -22,6 +26,7 @@ from mobile_playbook.storage import ios_capture_path, resolve_under_repository
 DEFAULT_TEST_URL = "https://example.com"
 
 
+# Open a test URL through the configured proxy and pass when its host appears in Burp's capture file.
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
     config = load_config(Path(args.config), dry_run=False)
@@ -114,6 +119,7 @@ def main(argv: list[str] | None = None) -> int:
     return 1
 
 
+# Parse the command-line options.
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="One-time functional check that device proxy + CA trust + the Burp capture extension are all working together, before running ios-feature-02-risk-01 across a batch of apps."

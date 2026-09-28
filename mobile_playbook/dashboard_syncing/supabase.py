@@ -1,3 +1,7 @@
+"""
+Supabase PostgREST transport implementing the dashboard sync store.
+"""
+
 from __future__ import annotations
 
 import json
@@ -14,6 +18,7 @@ from mobile_playbook.logging_setup import redacted
 logger = logging.getLogger(__name__)
 
 
+# Reports whether a Supabase error is a 409 or duplicate-key conflict.
 def _is_conflict(exc: Exception) -> bool:
     message = str(exc)
     conflict = "with 409" in message or "duplicate key" in message
@@ -21,16 +26,21 @@ def _is_conflict(exc: Exception) -> bool:
     return conflict
 
 
+# Escapes LIKE wildcards in value and quotes it when PostgREST filter syntax requires.
 def _escape_like(value: str) -> str:
     escaped = value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
     return f'"{escaped}"' if "," in escaped or "(" in escaped else escaped
 
 
 class SupabaseRestStore:
+    """Dashboard sync store backed by the Supabase PostgREST API using the service-role key."""
+
+    # Stores the Supabase base URL without a trailing slash and the service-role key.
     def __init__(self, supabase_url: str, service_role_key: str):
         self.base_url = supabase_url.rstrip("/")
         self.service_role_key = service_role_key
 
+    # Builds a store from SUPABASE_URL (or DASHBOARD_SUPABASE_URL) and SUPABASE_SERVICE_ROLE_KEY.
     @classmethod
     def from_env(cls) -> "SupabaseRestStore":
         supabase_url = os.environ.get("SUPABASE_URL") or os.environ.get("DASHBOARD_SUPABASE_URL")
@@ -47,9 +57,11 @@ class SupabaseRestStore:
         logger.debug("dashboard sync: Supabase store targets %s.", supabase_url.rstrip("/"))
         return cls(supabase_url, service_role_key)
 
+    # Returns the application with this external id, or None.
     def find_application_by_external_id(self, external_id: str) -> dict[str, Any] | None:
         return self._single("applications", {"external_id": f"eq.{external_id}", "select": "*"})
 
+    # Returns the application with this external id on this platform, or None.
     def find_application_by_external_id_and_platform(
         self, external_id: str, platform: str
     ) -> dict[str, Any] | None:
@@ -58,6 +70,7 @@ class SupabaseRestStore:
             {"external_id": f"eq.{external_id}", "platform": f"eq.{platform}", "select": "*"},
         )
 
+    # Returns up to five applications without an external id whose name matches case-insensitively.
     def find_unlinked_applications(self, name: str, platform: str) -> list[dict[str, Any]]:
         return self._get(
             "applications",
@@ -70,15 +83,19 @@ class SupabaseRestStore:
             },
         )
 
+    # Updates one application by id and returns the stored row.
     def update_application(self, application_id: str, fields: Mapping[str, Any]) -> dict[str, Any]:
         return self._update_one("applications", {"id": f"eq.{application_id}"}, fields)
 
+    # Inserts or merges an application keyed on external_id.
     def upsert_application(self, fields: Mapping[str, Any]) -> dict[str, Any]:
         return self._upsert_one("applications", "external_id", fields)
 
+    # Returns the assessment with this external id, or None.
     def find_assessment_by_external_id(self, external_id: str) -> dict[str, Any] | None:
         return self._single("assessments", {"external_id": f"eq.{external_id}", "select": "*"})
 
+    # Returns the application's oldest manual placeholder assessment, or None.
     def find_placeholder_assessment(self, application_id: str) -> dict[str, Any] | None:
         return self._single(
             "assessments",
@@ -91,6 +108,7 @@ class SupabaseRestStore:
             },
         )
 
+    # Updates the assessment only while it is still a manual placeholder; returns None if already claimed.
     def claim_placeholder_assessment(
         self, assessment_id: str, fields: Mapping[str, Any]
     ) -> dict[str, Any] | None:
@@ -102,22 +120,26 @@ class SupabaseRestStore:
         logger.debug("dashboard sync: placeholder assessment %s claimed=%s.", assessment_id, bool(rows))
         return rows[0] if rows else None
 
+    # Updates one assessment by id and returns the stored row.
     def update_assessment(self, assessment_id: str, fields: Mapping[str, Any]) -> dict[str, Any]:
         return self._update_one("assessments", {"id": f"eq.{assessment_id}"}, fields)
 
+    # Inserts or merges an assessment keyed on external_id.
     def upsert_assessment(self, fields: Mapping[str, Any]) -> dict[str, Any]:
         return self._upsert_one("assessments", "external_id", fields)
 
+    # Returns the finding with this external id, or None.
     def find_finding_by_external_id(self, external_id: str) -> dict[str, Any] | None:
         return self._single("findings", {"external_id": f"eq.{external_id}", "select": "*"})
 
+    # Returns the test ids of the application's existing findings.
     def test_ids_for_application(self, application_id: str) -> list[str]:
         rows = self._get("findings", {"application_id": f"eq.{application_id}", "select": "test_id"})
         return [str(row["test_id"]) for row in rows if row.get("test_id")]
 
+    # Returns the reassessment request linked to a run, raising ValueError if more than one is linked.
     def find_retest_by_external_run_id(self, run_timestamp: str) -> dict[str, Any] | None:
-        # Several requests may be outstanding for one risk, so a run must name
-        # exactly one of them; two matches is a data fault, not a row to pick from.
+        # A run must name exactly one request; two matches is a data fault, not a row to pick from.
         rows = self._get("retest_runs", {"external_test_run_id": f"eq.{run_timestamp}", "select": "*", "limit": "2"})
         logger.debug("dashboard sync: %d retest row(s) linked to run %s.", len(rows), run_timestamp)
         if not rows:
@@ -126,18 +148,22 @@ class SupabaseRestStore:
             raise ValueError(f"run {run_timestamp} is linked to more than one reassessment request")
         return rows[0]
 
+    # Returns the ticket's queued or running reassessment requests.
     def outstanding_retests_for_ticket(self, ticket_id: str) -> list[dict[str, Any]]:
         return self._get(
             "retest_runs",
             {"ticket_id": f"eq.{ticket_id}", "status": "in.(queued,running)", "select": "id,status"},
         )
 
+    # Updates one reassessment request by id and returns the stored row.
     def update_retest(self, retest_id: str, fields: Mapping[str, Any]) -> dict[str, Any]:
         return self._update_one("retest_runs", {"id": f"eq.{retest_id}"}, fields)
 
+    # Sets a ticket's status and updated_at.
     def update_ticket_status(self, ticket_id: str, status: str) -> dict[str, Any]:
         return self._update_one("tickets", {"id": f"eq.{ticket_id}"}, {"status": status, "updated_at": now()})
 
+    # Inserts a finding, returning a `_conflicted` marker instead of raising when it already exists.
     def create_finding(self, fields: Mapping[str, Any]) -> dict[str, Any]:
         try:
             rows = self._post("findings", {"select": "*"}, fields)
@@ -151,24 +177,31 @@ class SupabaseRestStore:
             raise SupabaseRestError("Supabase returned no finding after insert")
         return rows[0]
 
+    # Updates one finding by id and returns the stored row.
     def update_finding(self, finding_id: str, fields: Mapping[str, Any]) -> dict[str, Any]:
         return self._update_one("findings", {"id": f"eq.{finding_id}"}, fields)
 
+    # Appends a finding history row once per sync key.
     def create_finding_history(self, fields: Mapping[str, Any]) -> None:
         self._append_once("finding_history", fields)
 
+    # Appends a risk conversation entry once per sync key.
     def create_risk_conversation_entry(self, fields: Mapping[str, Any]) -> None:
         self._append_once("risk_conversation_entries", fields)
 
+    # Appends an activity log row once per sync key.
     def log_activity(self, fields: Mapping[str, Any]) -> None:
         self._append_once("activity_log", fields)
 
+    # Returns the assessment with this id, or None.
     def get_assessment(self, assessment_id: str) -> dict[str, Any] | None:
         return self._single("assessments", {"id": f"eq.{assessment_id}", "select": "*"})
 
+    # Returns the application with this id, or None.
     def get_application(self, application_id: str) -> dict[str, Any] | None:
         return self._single("applications", {"id": f"eq.{application_id}", "select": "*"})
 
+    # Leases the next claimable run request to worker_id via RPC, or returns None.
     def claim_assessment_run_request(self, worker_id: str, lease_seconds: int) -> dict[str, Any] | None:
         rows = self._post(
             "rpc/claim_assessment_run_request",
@@ -181,6 +214,7 @@ class SupabaseRestStore:
         )
         return row if row and row.get("id") else None
 
+    # Recovers run requests with expired leases via RPC and returns the count it reports.
     def recover_expired_assessment_run_leases(self) -> int:
         rows = self._post("rpc/recover_expired_assessment_run_leases", {}, {})
         if not rows:
@@ -190,9 +224,11 @@ class SupabaseRestStore:
         logger.debug("dashboard sync: lease recovery returned %r.", recovered)
         return recovered if isinstance(recovered, int) else 0
 
+    # Updates one assessment run request by id and returns the stored row.
     def update_assessment_run_request(self, request_id: str, fields: Mapping[str, Any]) -> dict[str, Any]:
         return self._update_one("assessment_run_requests", {"id": f"eq.{request_id}"}, fields)
 
+    # Inserts a row, treating a conflict as the row already being present.
     def _append_once(self, table: str, fields: Mapping[str, Any]) -> None:
         try:
             self._post(table, {}, fields, prefer="return=minimal")
@@ -202,10 +238,12 @@ class SupabaseRestStore:
                 raise
             logger.debug("dashboard sync: %s row already present for sync_key.", table)
 
+    # Returns the first row matching params, or None.
     def _single(self, table: str, params: Mapping[str, str]) -> dict[str, Any] | None:
         rows = self._get(table, params)
         return rows[0] if rows else None
 
+    # Patches rows matching filters and returns the first, raising if none matched.
     def _update_one(self, table: str, filters: Mapping[str, str], fields: Mapping[str, Any]) -> dict[str, Any]:
         rows = self._patch(table, {**filters, "select": "*"}, fields)
         if not rows:
@@ -213,6 +251,7 @@ class SupabaseRestStore:
             raise SupabaseRestError(f"Supabase returned no {table} row after update")
         return rows[0]
 
+    # Upserts a row merging on conflict_target and returns it, raising if none came back.
     def _upsert_one(self, table: str, conflict_target: str, fields: Mapping[str, Any]) -> dict[str, Any]:
         rows = self._post(
             table,
@@ -225,9 +264,11 @@ class SupabaseRestStore:
             raise SupabaseRestError(f"Supabase returned no {table} row after upsert")
         return rows[0]
 
+    # Sends a GET to a table and returns the rows.
     def _get(self, table: str, params: Mapping[str, str]) -> list[dict[str, Any]]:
         return self._request_json("GET", table, params)
 
+    # Sends a POST to a table or RPC and returns the rows.
     def _post(
         self,
         table: str,
@@ -237,11 +278,13 @@ class SupabaseRestStore:
     ) -> list[dict[str, Any]]:
         return self._request_json("POST", table, params, payload, prefer=prefer)
 
+    # Sends a PATCH to a table and returns the updated rows.
     def _patch(
         self, table: str, params: Mapping[str, str], payload: Mapping[str, Any]
     ) -> list[dict[str, Any]]:
         return self._request_json("PATCH", table, params, payload, prefer="return=representation")
 
+    # Sends an authenticated PostgREST request and returns its JSON as rows, raising SupabaseRestError on failure.
     def _request_json(
         self,
         method: str,

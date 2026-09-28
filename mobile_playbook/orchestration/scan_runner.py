@@ -1,3 +1,7 @@
+"""
+Runs every planned risk for one platform and writes the run's summary, manifest and SARIF export.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -33,30 +37,40 @@ class RunOutcome:
 
 
 class PlatformRunner(Protocol):
+    """Interface each platform implements so run_platform can plan, connect and run its risks."""
+
     platform: str
 
+    # Report whether any planned risk needs a connected device.
     def requires_device(self, config: Any, selected_tests: set[str] | None, selected_apps: set[str] | None) -> bool:
         ...
 
+    # Connect to the device and return a client for the risks.
     def connect_device(self, config: Any, run_dir: Path | None = None) -> Any:
         ...
 
+    # Release the device client.
     def close_device(self, device_client: Any) -> None:
         ...
 
+    # Return a usable device client, reconnecting when the session has broken.
     def ensure_device_healthy(self, config: Any, device_client: Any, run_dir: Path | None = None) -> Any:
         ...
 
+    # Yield the (app, risk_id) pairs to run.
     def iter_enabled_tests(self, config: Any, selected_tests: set[str] | None, selected_apps: set[str] | None):
         ...
 
+    # Return run-level warnings about the planned risks.
     def preflight_warnings(self, config: Any, planned_tests: list[tuple[Any, str]]) -> list[IosPreflightWarning]:
         ...
 
+    # Run one risk for one app and write its result.
     def run_test(self, app: Any, test_id: str, config: Any, device_client: Any, report_writer: Any) -> None:
         ...
 
 
+# Reserve a run timestamp, run each planned risk and always write the summary, manifest and SARIF.
 def run_platform(
     config: Any,
     platform_runner: PlatformRunner,
@@ -149,8 +163,8 @@ def run_platform(
     return RunOutcome(run_timestamp=run_timestamp, run_dir=writer.run_dir, completed_at=completed)
 
 
+# Pin the digest of the app build under test so a later upload cannot change what the dashboard shows.
 def _record_artifact(artifacts: dict[str, str], app_id: str, platform: str, app: Any) -> None:
-    """Pin the build under test now; a later upload must not change what the dashboard shows."""
     try:
         from mobile_playbook.artifact_store.resolver import prepare_icon_for_app_config
 
@@ -164,12 +178,13 @@ def _record_artifact(artifacts: dict[str, str], app_id: str, platform: str, app:
         artifacts[app_id] = digest
 
 
+# Return the value's ISO format, or None.
 def _isoformat(value: Any) -> str | None:
     return value.isoformat() if value is not None else None
 
 
+# Run a cleanup action, logging its errors so they never replace the failure being propagated.
 def _best_effort(action: Callable[[], Any], description: str) -> None:
-    """Cleanup must not replace the run failure being propagated."""
     logger.debug("cleanup: attempting to %s", description)
     try:
         action()

@@ -1,3 +1,7 @@
+"""
+Reads and writes run manifests recording attempts, artifacts, status and provenance.
+"""
+
 from __future__ import annotations
 
 import json
@@ -19,8 +23,8 @@ _GIT_REVISION: str | None = None
 _GIT_REVISION_READ = False
 
 
+# Returns the cached short HEAD of this checkout, or None when unavailable.
 def git_revision() -> str | None:
-    """The short HEAD of the checkout this process is running from; None when unavailable."""
     global _GIT_REVISION, _GIT_REVISION_READ
     if _GIT_REVISION_READ:
         logger.debug("reporting: git revision cache hit (%s).", _GIT_REVISION)
@@ -45,10 +49,12 @@ def git_revision() -> str | None:
 _git_revision = git_revision
 
 
+# Returns the path of a run's manifest file.
 def manifest_path(run_dir: Path) -> Path:
     return Path(run_dir) / MANIFEST_NAME
 
 
+# Atomically writes a run's manifest with its attempts, artifacts, status and provenance.
 def write_manifest(
     run_dir: Path,
     *,
@@ -103,6 +109,7 @@ def write_manifest(
     return path
 
 
+# Reads a run's manifest, or returns None if missing or malformed.
 def read_manifest(run_dir: Path) -> dict[str, Any] | None:
     try:
         data = json.loads(manifest_path(run_dir).read_text())
@@ -116,12 +123,13 @@ def read_manifest(run_dir: Path) -> dict[str, Any] | None:
     return data
 
 
+# Reports whether a manifest records a completed run.
 def is_completed(manifest: Mapping[str, Any] | None) -> bool:
     return manifest is not None and manifest.get("status") == COMPLETED
 
 
+# Returns the per-app artifact SHA-256 recorded by the run; empty for runs predating the field.
 def artifact_checksums(manifest: Mapping[str, Any] | None) -> dict[str, str]:
-    """Per-app artifact SHA-256 recorded by the run. Empty for runs predating this field."""
     artifacts = (manifest or {}).get("artifacts")
     if not isinstance(artifacts, dict):
         return {}

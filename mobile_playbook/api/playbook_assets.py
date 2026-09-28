@@ -1,4 +1,6 @@
-"""Resolve and decorate playbook screenshots for risk demonstrations."""
+"""
+Resolve and decorate playbook screenshots for risk demonstrations.
+"""
 
 from __future__ import annotations
 
@@ -13,10 +15,12 @@ DERIVED_IMAGE_KEYS = ("url", "exists")
 logger = logging.getLogger(__name__)
 
 
+# Return the platform's configured playbook root, or None.
 def playbook_dir(platform: str) -> Path | None:
     return source.configured_root(platform)
 
 
+# Resolve an image path inside the playbook root to an existing image file, or None.
 def resolve_image(platform: str, image_path: str) -> Path | None:
     root = playbook_dir(platform)
     if root is None:
@@ -34,17 +38,19 @@ def resolve_image(platform: str, image_path: str) -> Path | None:
     return resolved
 
 
+# Return the API URL that serves a playbook image.
 def image_url(platform: str, image_path: str) -> str:
     return f"/platforms/{platform}/playbook/images/{image_path}"
 
 
+# Return a step's image list plus its ordered image content blocks.
 def _step_images(step: dict) -> list:
     blocks = [block for block in step.get("content") or [] if isinstance(block, dict) and block.get("type") == "image"]
     return list(step.get("images") or []) + blocks
 
 
+# Add derived url and exists fields to every image in a demonstration's steps.
 def decorate_demonstration(platform: str, demonstration: list) -> list:
-    """Add derived image fields to a demonstration, in both its ordered content and its image list."""
     for item in demonstration:
         if not isinstance(item, dict) or item.get("type") != "steps":
             continue
@@ -60,8 +66,8 @@ def decorate_demonstration(platform: str, demonstration: list) -> list:
     return demonstration
 
 
+# Remove derived image fields from a demonstration before writing YAML.
 def strip_derived(demonstration: Any) -> Any:
-    """Drop derived image fields before writing YAML."""
     if not isinstance(demonstration, list):
         logger.debug("api: demonstration is %s, not a list; nothing to strip.", type(demonstration).__name__)
         return demonstration
@@ -78,6 +84,7 @@ def strip_derived(demonstration: Any) -> Any:
     return demonstration
 
 
+# Return a block without its derived image fields.
 def _undecorated(block: Any) -> Any:
     if not isinstance(block, dict):
         return block

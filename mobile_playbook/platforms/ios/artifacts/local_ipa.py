@@ -1,3 +1,7 @@
+"""
+Artifact provider that validates a configured local IPA and copies it into the run directory.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -15,10 +19,12 @@ logger = logging.getLogger(__name__)
 class LocalIpaProvider(ArtifactProvider):
     source = "local_ipa"
 
+    # Return the configured IPA path from the artifact's ipa or path setting, if any.
     def _configured_path(self, artifact: dict) -> Path | None:
         value = artifact.get("ipa") or artifact.get("path")
         return Path(value).expanduser() if value else None
 
+    # Validate the configured IPA and its bundle ID, copy it into the run directory and hash it.
     def acquire(self, app_config, global_config, device_client, run_timestamp: str, out_dir: Path) -> ArtifactAcquisitionResult:
         artifact = app_config.artifact
         ipa_path = self._configured_path(artifact)

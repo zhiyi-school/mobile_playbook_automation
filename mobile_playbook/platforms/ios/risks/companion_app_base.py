@@ -1,3 +1,7 @@
+"""
+Shared base for risks that install a second, tester-owned companion app alongside the target.
+"""
+
 from __future__ import annotations
 
 import json
@@ -22,6 +26,7 @@ class CompanionAppRiskBase(Risk):
     companion_config_key = "companion_app"
     companion_label = "companion"
 
+    # Install the companion IPA, resigning on expiry or verification failure, or verify it is installed.
     def _install_or_verify_companion_app(self, cfg: dict, global_config, device_client) -> dict:
         bundle_id = cfg.get("bundle_id")
         ipa = cfg.get("ipa")
@@ -84,6 +89,7 @@ class CompanionAppRiskBase(Risk):
         logger.debug("%s: %s app install disabled and no bundle_id; skipping", getattr(self, "risk_id", type(self).__name__), self.companion_label)
         return {"status": "SKIPPED", "installed_by_risk": False}
 
+    # Resign the companion IPA for the device and team, returning the attempt record.
     def _resign_companion_ipa(self, ipa_path: Path, global_config, resign_config: dict, trigger: str) -> dict:
         logger.debug(
             "%s: re-signing %s (trigger=%s, udid=%s, team_id=%s, timeout=%ss)",
@@ -104,6 +110,7 @@ class CompanionAppRiskBase(Risk):
         logger.debug("%s: re-sign finished status=%s errors=%s in %.2fs", getattr(self, "risk_id", type(self).__name__), result.status, result.errors, time.monotonic() - started)
         return {"trigger": trigger, "status": result.status, "errors": result.errors}
 
+    # Focus the configured text field, tapping through navigation elements when auto_navigation allows.
     def _focus_text_field_with_navigation(self, device_client, report_dir: Path, control: dict, global_config) -> dict:
         navigation = []
         selector = control.get("text_field")
@@ -205,6 +212,7 @@ class CompanionAppRiskBase(Risk):
             logger.debug("%s: text field not focused after %s auto_navigation step(s)", getattr(self, "risk_id", type(self).__name__), max_steps)
             raise last_error
 
+    # Tap the first configured accessibility ID, else the first element whose label matches.
     def _tap_navigation_element(
         self,
         device_client,
@@ -252,6 +260,7 @@ class CompanionAppRiskBase(Risk):
             tapped["accessibility_id_attempts"] = id_errors
         return tapped
 
+    # Record a focus failure, with text-field candidates when the client can describe them.
     def _append_text_field_diagnostics(self, device_client, navigation: list[dict], step: int, error: Exception) -> None:
         diagnostic = {
             "step": step,
@@ -268,9 +277,11 @@ class CompanionAppRiskBase(Risk):
         logger.debug("%s: text field diagnostics step=%s error=%s candidates_captured=%s", getattr(self, "risk_id", type(self).__name__), step, error, "text_field_candidates" in diagnostic)
         navigation.append(diagnostic)
 
+    # Return whether any permission alert was handled or present.
     def _has_handled_alert(self, alerts: list[dict]) -> bool:
         return any(alert.get("status") in {"HANDLED", "ALERT_PRESENT"} for alert in alerts)
 
+    # Save the page source, text-field candidates and a screenshot as debug evidence.
     def _capture_target_debug(self, device_client, report_dir: Path, suffix: str = "") -> None:
         logger.debug("%s: capturing target debug evidence into %s suffix=%s", getattr(self, "risk_id", type(self).__name__), report_dir, suffix)
         try:
@@ -295,6 +306,7 @@ class CompanionAppRiskBase(Risk):
         except Exception as exc:
             logger.debug("%s: target screenshot capture failed: %s", getattr(self, "risk_id", type(self).__name__), exc, exc_info=True)
 
+    # Acquire the target app through its configured artifact provider.
     def _prepare_app(self, app_config, global_config, device_client, run_timestamp: str) -> ArtifactAcquisitionResult:
         provider = get_provider(app_config.artifact.get("source", ""))
         logger.debug("%s: preparing target app %s from source=%s provider=%s", getattr(self, "risk_id", type(self).__name__), app_config.id, app_config.artifact.get("source", ""), type(provider).__name__ if provider is not None else None)
@@ -313,6 +325,7 @@ class CompanionAppRiskBase(Risk):
             Path(app_config.artifact.get("workspace_dir") or ios_work_dir() / "acquired"),
         )
 
+    # Handle permission alerts with the runner config plus overrides, capturing failures as results.
     def _handle_permission_alerts(self, device_client, global_config, overrides: dict | None = None) -> list[dict]:
         handler = getattr(device_client, "handle_permission_alerts", None)
         if not handler:
@@ -330,6 +343,7 @@ class CompanionAppRiskBase(Risk):
         logger.debug("%s: permission alerts result statuses=%s", getattr(self, "risk_id", type(self).__name__), [alert.get("status") for alert in alerts if isinstance(alert, dict)] if isinstance(alerts, list) else alerts)
         return alerts
 
+    # Uninstall the target and companion apps as configured, verifying each removal.
     def _cleanup(
         self,
         app_config,
@@ -359,6 +373,7 @@ class CompanionAppRiskBase(Risk):
         errors: list[str] = []
         verification: dict[str, Any] = {}
 
+        # Remove an installed bundle and record whether its removal was verified.
         def _remove(label: str, bundle_id: str) -> None:
             try:
                 if not device_client.is_installed(bundle_id):
@@ -381,8 +396,7 @@ class CompanionAppRiskBase(Risk):
             _remove("target app", app_config.bundle_id)
 
         companion_bundle_id = companion_config.get("bundle_id")
-        # Not gated on installed_companion_by_risk: a leftover from a crashed run
-        # must be removed, or the next run branches on stale device state.
+        # Not gated on installed_companion_by_risk: a crashed run's leftover must not skew the next run.
         if companion_bundle_id and bool(companion_config.get("uninstall_after_test", False)):
             _remove(f"{self.companion_label} app", companion_bundle_id)
 
@@ -399,6 +413,7 @@ class CompanionAppRiskBase(Risk):
             },
         )
 
+    # Map an artifact acquisition status to the risk's final status.
     def _artifact_status_to_final(self, status: str) -> str:
         mapping = {
             "ARTIFACT_REQUIRED": "ARTIFACT_REQUIRED",

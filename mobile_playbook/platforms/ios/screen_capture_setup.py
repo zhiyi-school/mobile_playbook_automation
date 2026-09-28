@@ -1,3 +1,7 @@
+"""
+Drives the screen-recorder companion app to start and stop a broadcast and pull its evidence.
+"""
+
 from __future__ import annotations
 
 import json
@@ -9,12 +13,16 @@ logger = logging.getLogger(__name__)
 
 
 class ScreenCaptureSetupError(Exception):
+    """Screen-capture setup failure carrying a status and the setup state reached."""
+
+    # Store the failure status and setup state alongside the message.
     def __init__(self, status: str, message: str, state: dict):
         super().__init__(message)
         self.status = status
         self.state = state
 
 
+# Launch the recorder, sign in if configured and start a broadcast, returning the setup state.
 def start_broadcast(device_client, recorder: dict, report_dir: Path) -> dict:
     state: dict = {"stage": "launch"}
     bundle_id = recorder["bundle_id"]
@@ -47,6 +55,7 @@ def start_broadcast(device_client, recorder: dict, report_dir: Path) -> dict:
     return state
 
 
+# Reopen the recorder and tap the stop-broadcast control.
 def stop_broadcast(device_client, recorder: dict) -> dict:
     logger.debug("ios screen capture: stopping broadcast via %s", recorder["bundle_id"])
     device_client.launch_app(recorder["bundle_id"])
@@ -56,6 +65,7 @@ def stop_broadcast(device_client, recorder: dict) -> dict:
     return result
 
 
+# Trigger the recorder's export and poll-pull its evidence until done.json appears or time runs out.
 def export_and_pull(device_client, recorder: dict, dest: Path, max_bytes: int) -> dict:
     try:
         logger.debug("ios screen capture: exporting evidence via %s", recorder["export_button_accessibility_id"])

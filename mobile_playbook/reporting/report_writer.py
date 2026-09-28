@@ -1,3 +1,7 @@
+"""
+Writes per-test reports, the dashboard feed and the Markdown summary for a run.
+"""
+
 from __future__ import annotations
 
 import json
@@ -14,6 +18,9 @@ logger = logging.getLogger(__name__)
 
 
 class ReportWriter:
+    """Writes per-test reports, the dashboard feed and the run summary for one run."""
+
+    # Creates the run directory with its evidence and platform subdirectories.
     def __init__(
         self,
         root: Path,
@@ -34,12 +41,14 @@ class ReportWriter:
         self.results: list[Any] = []
         logger.debug("reporting: %s report writer for run %s at %s.", platform, run_timestamp, self.run_dir)
 
+    # Returns and creates the report directory for one test case.
     def test_report_dir(self, app_id: str, risk_id: str, case_id: str, platform: str | None = None) -> Path:
         path = self.run_dir / (platform or self.platform) / app_id / risk_id / case_id
         path.mkdir(parents=True, exist_ok=True)
         logger.debug("reporting: test report directory %s.", path)
         return path
 
+    # Writes a test's report.json and logs.txt, records the result and appends a risk_completed event.
     def write_result(self, result: Any, report_dir: Path) -> None:
         result_path = Path(report_dir) / "report.json"
         text = json.dumps(result.to_dict(), indent=2, sort_keys=True)
@@ -69,6 +78,7 @@ class ReportWriter:
             final_status=result.final_status,
         )
 
+    # Writes dashboard_results.json when an adapter is set and summary.md with results and preflight warnings.
     def write_summary(self) -> None:
         self.completed_at = datetime.now().astimezone()
         duration_seconds = (self.completed_at - self.started_at).total_seconds()
@@ -114,6 +124,7 @@ class ReportWriter:
         )
 
 
+# Returns the run's preflight warning events, deduplicated by code, risk and apps.
 def _preflight_warnings(run_dir: Path) -> list[dict[str, Any]]:
     events, _ = read_events(run_dir)
     warnings: list[dict[str, Any]] = []

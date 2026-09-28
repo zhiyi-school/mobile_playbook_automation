@@ -1,3 +1,7 @@
+"""
+Compatibility re-export of the config editing functions and file maps.
+"""
+
 from mobile_playbook.api.config_editing import (
     add_android_app,
     add_ios_app,

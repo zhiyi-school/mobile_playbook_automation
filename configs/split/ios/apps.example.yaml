@@ -1,4 +1,5 @@
 # Example iOS app roster. Copy to apps.yaml and add only authorized test apps; see docs/ios/configuration.md.
+
 apps:
   - id: "app_one"
     name: "App One"

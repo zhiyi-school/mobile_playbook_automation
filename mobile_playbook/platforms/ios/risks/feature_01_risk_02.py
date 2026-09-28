@@ -1,3 +1,7 @@
+"""
+ios-feature-01-risk-02: repackages the IPA with a Frida gadget, resigns it and compares it to a clean baseline.
+"""
+
 from __future__ import annotations
 
 import json
@@ -41,6 +45,7 @@ class Feature01Risk02(Risk):
     test_case_id = "repackaging"
     test_case_type = "ipa_repackage_resign_validate"
 
+    # Baseline the clean app, inject and resign a repackaged build, then compare runs and confirm the gadget.
     def run(self, app_config, global_config, device_client, report_writer):
         result = self._base_result(report_writer.run_timestamp, app_config)
         report_dir = report_writer.test_report_dir(app_config.id, self.risk_id, self.test_case_id)
@@ -312,6 +317,7 @@ class Feature01Risk02(Risk):
             )
             report_writer.write_result(result, report_dir)
 
+    # Create the initial run result for this risk and app.
     def _base_result(self, run_timestamp: str, app_config) -> RiskRunResult:
         return RiskRunResult(
             run_timestamp=run_timestamp,
@@ -328,6 +334,7 @@ class Feature01Risk02(Risk):
             artifact_source=app_config.artifact.get("source", ""),
         )
 
+    # Uninstall the baseline app when this risk installed it and cleanup is enabled.
     def _cleanup(self, app_config, global_config, device_client, installed_by_risk: bool, cfg: dict) -> CleanupResult:
         logger.debug(
             "ios-feature-01-risk-02[%s]: cleanup installed_by_risk=%s uninstall_after_each_test=%s",
@@ -350,6 +357,7 @@ class Feature01Risk02(Risk):
             logger.debug("ios-feature-01-risk-02[%s]: cleanup failed: %s", app_config.id, exc, exc_info=True)
             return CleanupResult(status="CLEANUP_FAILED", errors=[str(exc)])
 
+    # Map an artifact acquisition status to the risk's final status.
     def _artifact_status_to_final(self, status: str) -> str:
         mapping = {
             "ARTIFACT_REQUIRED": "ARTIFACT_REQUIRED",

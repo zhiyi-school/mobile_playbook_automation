@@ -1,3 +1,7 @@
+"""
+Per-run dashboard sync status records and worker pass state, updated under a file lock.
+"""
+
 from __future__ import annotations
 
 import fcntl
@@ -31,19 +35,22 @@ _JWT = re.compile(r"ey[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]+")
 logger = logging.getLogger(__name__)
 
 
+# Returns zeroed sync counts for every count field.
 def empty_counts() -> dict[str, int]:
     return {field: 0 for field in COUNT_FIELDS}
 
 
+# Reduces an error to one short line with any bearer token redacted.
 def safe_error(text: str | Any) -> str:
-    """Reduce an exception to one short line with any bearer token redacted."""
     return _JWT.sub("[redacted]", clean_message(str(text)))
 
 
+# Returns the path of a run's sync status file.
 def status_path(run_dir: Path) -> Path:
     return Path(run_dir) / STATUS_NAME
 
 
+# Reads and normalizes a run's sync status, or returns None if missing or malformed.
 def read_status(run_dir: Path) -> dict[str, Any] | None:
     try:
         data = json.loads(status_path(run_dir).read_text())
@@ -57,7 +64,9 @@ def read_status(run_dir: Path) -> dict[str, Any] | None:
     return _normalized(data)
 
 
+# Queues a run's sync with a new attempt, unless it is already queued or running.
 def mark_queued(run_dir: Path) -> dict[str, Any]:
+    # Builds the next queued record, or None when the run is already pending.
     def mutate(current: dict[str, Any] | None) -> dict[str, Any] | None:
         if current is not None and current["status"] in PENDING_STATUSES:
             logger.debug("sync status: %s already %s; not re-queuing.", Path(run_dir).name, current["status"])
@@ -79,7 +88,9 @@ def mark_queued(run_dir: Path) -> dict[str, Any]:
     return _update(run_dir, mutate)
 
 
+# Marks a run's sync running, starting attempt 1 if it was never queued.
 def mark_running(run_dir: Path) -> dict[str, Any]:
+    # Builds the running record from the current one or a fresh base.
     def mutate(current: dict[str, Any] | None) -> dict[str, Any]:
         base = current or {**_base(run_dir), "attempt": 0, "queued_at": None, "counts": empty_counts()}
         return {
@@ -95,7 +106,9 @@ def mark_running(run_dir: Path) -> dict[str, Any]:
     return _update(run_dir, mutate)
 
 
+# Marks a run's sync completed with the given counts, or keeps an existing completion when counts is None.
 def mark_completed(run_dir: Path, counts: Mapping[str, int] | None = None) -> dict[str, Any]:
+    # Builds the completed record with merged counts, or None to keep an existing completion.
     def mutate(current: dict[str, Any] | None) -> dict[str, Any] | None:
         if counts is None and current is not None and current["status"] == COMPLETED:
             return None
@@ -113,7 +126,9 @@ def mark_completed(run_dir: Path, counts: Mapping[str, int] | None = None) -> di
     return _update(run_dir, mutate)
 
 
+# Marks a run's sync failed with a redacted error and whether it can be retried.
 def mark_failed(run_dir: Path, error: str, retryable: bool = True) -> dict[str, Any]:
+    # Builds the failed record with the redacted error and retry flag.
     def mutate(current: dict[str, Any] | None) -> dict[str, Any]:
         base = current or {**_base(run_dir), "attempt": 1, "queued_at": None, "started_at": None}
         return {
@@ -128,7 +143,9 @@ def mark_failed(run_dir: Path, error: str, retryable: bool = True) -> dict[str, 
     return _update(run_dir, mutate)
 
 
+# Marks a run as needing no sync, recording the redacted reason.
 def mark_not_required(run_dir: Path, reason: str) -> dict[str, Any]:
+    # Builds the not-required record with the redacted reason.
     def mutate(current: dict[str, Any] | None) -> dict[str, Any]:
         base = current or {**_base(run_dir), "attempt": 0, "queued_at": None, "started_at": None}
         return {
@@ -143,8 +160,8 @@ def mark_not_required(run_dir: Path, reason: str) -> dict[str, Any]:
     return _update(run_dir, mutate)
 
 
+# Returns the API view of a run's sync: the recorded status, or one derived from the manifest and ledger.
 def describe(reports_dir: Path, run_timestamp: str) -> dict[str, Any]:
-    """The API view: the recorded status, or one derived from the manifest and ledger."""
     run_dir = Path(reports_dir) / run_timestamp
     recorded = read_status(run_dir)
     if recorded is not None:
@@ -165,6 +182,7 @@ def describe(reports_dir: Path, run_timestamp: str) -> dict[str, Any]:
     }
 
 
+# Lists run folders whose recorded sync status is queued or running.
 def pending_run_timestamps(reports_dir: Path) -> list[str]:
     root = Path(reports_dir)
     if not root.is_dir():
@@ -180,10 +198,12 @@ def pending_run_timestamps(reports_dir: Path) -> list[str]:
     return pending
 
 
+# Returns the path of the sync worker state file.
 def worker_state_path(reports_dir: Path) -> Path:
     return Path(reports_dir) / WORKER_STATE_NAME
 
 
+# Reads the worker's last success, failure and error, defaulting each to None.
 def read_worker_state(reports_dir: Path) -> dict[str, Any]:
     empty = {"last_success_at": None, "last_failure_at": None, "last_error": None}
     try:
@@ -199,6 +219,7 @@ def read_worker_state(reports_dir: Path) -> dict[str, Any]:
     return {key: data.get(key) if isinstance(data.get(key), str) else None for key in empty}
 
 
+# Records the outcome of a worker pass with a timestamp and returns the new state.
 def record_worker_pass(reports_dir: Path, succeeded: bool, error: str | None = None) -> dict[str, Any]:
     state = read_worker_state(reports_dir)
     now = _now()
@@ -212,6 +233,7 @@ def record_worker_pass(reports_dir: Path, succeeded: bool, error: str | None = N
     return state
 
 
+# Derives a sync status from the run manifest and ledger when none is recorded.
 def _derived_status(reports_dir: Path, run_dir: Path) -> str:
     manifest = read_manifest(run_dir)
     if manifest is None:
@@ -224,16 +246,19 @@ def _derived_status(reports_dir: Path, run_dir: Path) -> str:
     return COMPLETED if _in_ledger(reports_dir, run_dir) else QUEUED
 
 
+# Reports whether the run folder's current digest is marked processed in the ledger.
 def _in_ledger(reports_dir: Path, run_dir: Path) -> bool:
     if not run_dir.is_dir():
         return False
     return is_processed(reports_dir, run_dir.name, report_digest(run_dir))
 
 
+# Returns the run id and timestamp fields shared by every status record.
 def _base(run_dir: Path) -> dict[str, Any]:
     return {"run_id": Path(run_dir).name, "run_timestamp": Path(run_dir).name}
 
 
+# Coerces a status mapping to the full status schema with typed fields.
 def _normalized(data: Mapping[str, Any]) -> dict[str, Any]:
     counts = data.get("counts")
     counts = counts if isinstance(counts, Mapping) else {}
@@ -252,10 +277,12 @@ def _normalized(data: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+# Returns value if it is a non-empty string, else None.
 def _text_or_none(value: Any) -> str | None:
     return value if isinstance(value, str) and value else None
 
 
+# Applies mutate to a run's status under the status lock and writes the result atomically unless it returns None.
 def _update(run_dir: Path, mutate: Callable[[dict[str, Any] | None], dict[str, Any] | None]) -> dict[str, Any]:
     path = Path(run_dir)
     path.mkdir(parents=True, exist_ok=True)
@@ -278,9 +305,9 @@ def _update(run_dir: Path, mutate: Callable[[dict[str, Any] | None], dict[str, A
         return payload
 
 
+# Holds an exclusive lock on a separate file, since the status file itself is replaced rather than rewritten.
 @contextmanager
 def _status_lock(run_dir: Path) -> Iterator[None]:
-    """A separate lock file: the status file itself is replaced, not rewritten."""
     handle = (Path(run_dir) / STATUS_LOCK_NAME).open("w")
     try:
         fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
@@ -294,5 +321,6 @@ def _status_lock(run_dir: Path) -> Iterator[None]:
         handle.close()
 
 
+# Returns the current local time with its UTC offset as an ISO 8601 string.
 def _now() -> str:
     return datetime.now().astimezone().isoformat()

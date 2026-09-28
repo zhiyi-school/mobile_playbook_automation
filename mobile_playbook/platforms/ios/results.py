@@ -1,3 +1,7 @@
+"""
+Normalizes iOS risk run results into the shared report TestResult format.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -66,6 +70,7 @@ CAPTURE_STATUS_SUMMARIES = {
 }
 
 
+# Convert an iOS risk run result into a shared TestResult with category, severity and evidence.
 def normalize_ios_result(result: RiskRunResult) -> TestResult:
     logger.debug(
         "ios results: normalizing %s/%s status=%s verdict=%s severity=%s errors=%s",
@@ -103,6 +108,7 @@ def normalize_ios_result(result: RiskRunResult) -> TestResult:
     )
 
 
+# Return a one-line summary from the risk-specific summary, the first errors, or the final status.
 def _summary(result: RiskRunResult) -> str:
     if result.risk_id == "ios-feature-03-risk-01":
         return _screen_capture_summary(result)
@@ -117,6 +123,7 @@ def _summary(result: RiskRunResult) -> str:
     return result.final_status
 
 
+# Summarize a traffic-interception result by status or by the decrypted hosts captured.
 def _traffic_interception_summary(result: RiskRunResult) -> str:
     status_summary = CAPTURE_STATUS_SUMMARIES.get(result.final_status)
     if status_summary:
@@ -132,6 +139,7 @@ def _traffic_interception_summary(result: RiskRunResult) -> str:
     return f"{count} decrypted request(s) captured through Burp ({shown})" if shown else f"{count} decrypted request(s) captured through Burp"
 
 
+# Summarize a screen-capture result from its OCR outcome.
 def _screen_capture_summary(result: RiskRunResult) -> str:
     ocr = (result.launch_result or {}).get("ocr") or {}
     if result.final_status == "RISK_EXISTS":
@@ -142,6 +150,7 @@ def _screen_capture_summary(result: RiskRunResult) -> str:
     return result.final_status
 
 
+# Collect the unique evidence files for a result, including risk-specific capture artifacts.
 def _evidence(result: RiskRunResult) -> list[Evidence]:
     paths: list[tuple[str, Path | None, str]] = [
         ("ipa", result.acquired_ipa, "Acquired IPA"),
@@ -182,6 +191,7 @@ def _evidence(result: RiskRunResult) -> list[Evidence]:
     return evidence
 
 
+# Return the seconds between two ISO timestamps, or None when either is missing or invalid.
 def _duration_seconds(start: str | None, end: str | None) -> float | None:
     if not start or not end:
         return None

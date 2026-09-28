@@ -1,8 +1,5 @@
-"""Background worker that turns durable assessment run requests into runs.
-
-The request queue lives in the dashboard database; readiness and run start are
-asked of the automation API, so the API's own per-platform lock stays the single
-authority on whether a device is free.
+"""
+Background worker that turns queued dashboard assessment run requests into automation API runs.
 """
 
 from __future__ import annotations
@@ -42,16 +39,24 @@ NON_RETRYABLE_BLOCKERS = {"configuration_incomplete", "no_tests_enabled", "inval
 
 
 class Store(Protocol):
+    """Dashboard database operations the worker needs for leasing requests and updating assessments."""
+
+    # Recovers requests whose leases expired and returns how many were recovered.
     def recover_expired_assessment_run_leases(self) -> int: ...
 
+    # Leases the next claimable request to worker_id, or returns None when there is none.
     def claim_assessment_run_request(self, worker_id: str, lease_seconds: int) -> dict[str, Any] | None: ...
 
+    # Updates fields on a run request and returns the stored row.
     def update_assessment_run_request(self, request_id: str, fields: Mapping[str, Any]) -> dict[str, Any]: ...
 
+    # Returns the assessment row, or None if it does not exist.
     def get_assessment(self, assessment_id: str) -> dict[str, Any] | None: ...
 
+    # Returns the application row, or None if it does not exist.
     def get_application(self, application_id: str) -> dict[str, Any] | None: ...
 
+    # Updates fields on an assessment and returns the stored row.
     def update_assessment(self, assessment_id: str, fields: Mapping[str, Any]) -> dict[str, Any]: ...
 
 
@@ -62,36 +67,46 @@ class AutomationUnavailable(RuntimeError):
 class RunRejected(RuntimeError):
     """The automation host refused the run. `blocker` says whether to retry."""
 
+    # Stores the blocker code and detail message.
     def __init__(self, blocker: str, detail: str):
         super().__init__(detail)
         self.blocker = blocker
         self.detail = detail
 
 
+# Returns the current UTC time as an ISO 8601 string.
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+# Returns the UTC time `seconds` from now as an ISO 8601 string.
 def _at(seconds: float) -> str:
     return (datetime.now(timezone.utc) + timedelta(seconds=seconds)).isoformat()
 
 
+# Returns the exponential retry delay for an attempt count, capped at BACKOFF_MAX_SECONDS.
 def backoff_seconds(attempts: int) -> float:
     return float(min(BACKOFF_MAX_SECONDS, BACKOFF_BASE_SECONDS * (2 ** max(0, attempts - 1))))
 
 
 class AutomationApi:
+    """Minimal JSON client for the automation API's readiness and run-start endpoints."""
+
+    # Stores the API base URL without a trailing slash and the request timeout.
     def __init__(self, base_url: str, timeout: float = 30.0):
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
 
+    # Fetches the provisioning readiness of an app on a platform.
     def readiness(self, platform: str, app_external_id: str) -> dict[str, Any]:
         path = f"/config/{parse.quote(platform)}/apps/{parse.quote(app_external_id)}/provisioning"
         return self._request("GET", path)
 
+    # Asks the automation API to start a run with the given payload.
     def start_run(self, payload: Mapping[str, Any]) -> dict[str, Any]:
         return self._request("POST", "/runs", payload)
 
+    # Sends a JSON request, mapping 409 and other 4xx to RunRejected and other failures to AutomationUnavailable.
     def _request(self, method: str, path: str, payload: Mapping[str, Any] | None = None) -> dict[str, Any]:
         body = json.dumps(payload).encode("utf-8") if payload is not None else None
         headers = {"Accept": "application/json"}
@@ -130,10 +145,12 @@ class AutomationApi:
         return json.loads(content) if content else {}
 
 
+# Returns the relative config path for a platform.
 def _config_path(platform: str) -> str:
     return f"configs/{platform}.yaml"
 
 
+# Marks a request with a terminal status, releases its lease and records extra fields.
 def _finish(store: Store, request_id: str, status: str, **fields: Any) -> None:
     logger.debug(
         "assessment worker: request %s -> %s (blocker=%s); releasing lease.", request_id, status, fields.get("blocker_code")
@@ -150,6 +167,7 @@ def _finish(store: Store, request_id: str, status: str, **fields: Any) -> None:
     )
 
 
+# Moves an assessment to status unless it is already there; refused transitions are only logged.
 def _set_assessment_status(store: Store, assessment: Mapping[str, Any], status: str) -> None:
     if assessment.get("status") == status:
         logger.debug("assessment worker: assessment %s already %s.", assessment["id"], status)
@@ -159,11 +177,11 @@ def _set_assessment_status(store: Store, assessment: Mapping[str, Any], status: 
         store.update_assessment(assessment["id"], {"status": status, "updated_at": _now()})
     except SupabaseRestError as exc:
         logger.debug("assessment worker: assessment %s transition refused.", assessment["id"], exc_info=True)
-        # A refused transition means a newer backend state already won; the
-        # request outcome below still stands.
+        # A refused transition means a newer backend state already won; the request outcome stands.
         logger.warning("assessment worker: assessment %s stayed at %s (%s).", assessment["id"], assessment.get("status"), exc)
 
 
+# Puts a request back to waiting with a backoff delay and marks its assessment waiting.
 def _wait(store: Store, req: Mapping[str, Any], assessment: Mapping[str, Any], blocker: str, detail: str) -> str:
     delay = backoff_seconds(int(req.get("attempts") or 1))
     logger.debug(
@@ -194,6 +212,7 @@ def _wait(store: Store, req: Mapping[str, Any], assessment: Mapping[str, Any], b
     return "waiting"
 
 
+# Claims at most one request, checks readiness and starts its run, returning a short outcome name.
 def process_once(
     store: Store,
     api: AutomationApi,
@@ -203,7 +222,6 @@ def process_once(
     risk_ids: Callable[[str], Sequence[str]] | None = None,
     reports_dir: str | None = None,
 ) -> str:
-    """Claim at most one request and act on it. Returns what happened."""
     logger.debug("assessment worker: poll cycle for %s; recovering expired leases.", worker_id)
     recovered = store.recover_expired_assessment_run_leases()
     if recovered:
@@ -324,8 +342,7 @@ def process_once(
         _set_assessment_status(store, assessment, "queued")
         return _wait(store, req, assessment, "automation_unavailable", str(exc))
 
-    # Starting the run is the request's whole job: the dashboard sync worker
-    # imports the result and moves the assessment to completed or failed.
+    # The dashboard sync worker, not this request, moves the assessment to completed or failed.
     _finish(store, req["id"], "completed", blocker_code=None, last_error=None)
     logger.info(
         "assessment worker: started run %s for assessment %s.",
@@ -335,6 +352,7 @@ def process_once(
     return "started"
 
 
+# Parses worker options, builds the Supabase store and polls for requests until stopped or --once completes.
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run queued assessment execution requests.")
     parser.add_argument("--api-url", default=os.environ.get("AUTOMATION_API_URL", DEFAULT_API_URL))

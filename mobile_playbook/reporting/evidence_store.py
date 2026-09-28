@@ -1,3 +1,7 @@
+"""
+Evidence item type and per-run evidence path allocation.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -15,11 +19,15 @@ class EvidenceItem:
 
 
 class EvidenceStore:
+    """Creates per-app, per-risk evidence paths under a run's evidence directory."""
+
+    # Creates the run's evidence directory.
     def __init__(self, run_dir: Path):
         self.root = Path(run_dir) / "evidence"
         self.root.mkdir(parents=True, exist_ok=True)
         logger.debug("reporting: evidence store at %s.", self.root)
 
+    # Returns the evidence file path for an app and risk, creating its directory.
     def path_for(self, app_id: str, risk_id: str, filename: str) -> Path:
         path = self.root / app_id / risk_id / filename
         path.parent.mkdir(parents=True, exist_ok=True)

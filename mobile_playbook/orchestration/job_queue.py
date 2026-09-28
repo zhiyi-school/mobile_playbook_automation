@@ -1,3 +1,7 @@
+"""
+FIFO queue of per-app, per-risk scan jobs.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -10,25 +14,33 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class ScanJob:
+    """One risk to scan for one app on one platform."""
+
     platform: str
     app_id: str
     risk_id: str
 
 
 class JobQueue:
+    """First-in, first-out queue of scan jobs."""
+
+    # Seed the queue with optional initial jobs.
     def __init__(self, jobs: list[ScanJob] | None = None):
         self._jobs: Deque[ScanJob] = deque(jobs or [])
         logger.debug("job queue: created with %s jobs", len(self._jobs))
 
+    # Append a job to the end of the queue.
     def add(self, job: ScanJob) -> None:
         self._jobs.append(job)
         logger.debug("job queue: added %s (%s queued)", job, len(self._jobs))
 
+    # Remove and return the next job, or None when empty.
     def pop(self) -> ScanJob | None:
         job = self._jobs.popleft() if self._jobs else None
         logger.debug("job queue: popped %s (%s remaining)", job, len(self._jobs))
         return job
 
+    # Yield jobs, removing each from the queue, until it is empty.
     def __iter__(self) -> Iterator[ScanJob]:
         while self._jobs:
             job = self._jobs.popleft()

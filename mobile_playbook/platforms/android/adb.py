@@ -1,3 +1,7 @@
+"""
+Thin subprocess wrapper around the adb command line.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -8,13 +12,17 @@ logger = logging.getLogger(__name__)
 
 
 class AdbClient:
+    """Runs adb commands, optionally pinned to one device serial."""
+
     DEFAULT_TIMEOUT = 30
 
+    # Store the adb executable and the optional device serial.
     def __init__(self, adb_path: str = "adb", serial: str | None = None):
         self.adb_path = adb_path
         self.serial = serial
         logger.debug("android adb: client created (adb_path=%s, serial=%s)", adb_path, serial)
 
+    # Run an adb command and return its exit code, stdout and stderr, using 127 and 124 for missing adb and timeouts.
     def run(self, args: list[str], timeout: float | None = DEFAULT_TIMEOUT) -> tuple[int, str, str]:
         command = [self.adb_path]
         if self.serial:
@@ -50,11 +58,13 @@ class AdbClient:
         )
         return result.returncode, stdout, stderr
 
+    # Report whether `adb version` succeeds.
     def is_available(self) -> bool:
         code, _, _ = self.run(["version"])
         logger.debug("android adb: available=%s (exit %s)", code == 0, code)
         return code == 0
 
+    # Return the serials that `adb devices` lists in the ready state.
     def connected_devices(self) -> list[str]:
         code, out, _ = self.run(["devices"])
         if code != 0:
@@ -68,6 +78,7 @@ class AdbClient:
         logger.debug("android adb: %s connected devices: %s", len(devices), devices)
         return devices
 
+    # Report whether the configured serial, or any device when none is set, is connected.
     def is_device_connected(self) -> bool:
         if self.serial:
             connected = self.serial in self.connected_devices()

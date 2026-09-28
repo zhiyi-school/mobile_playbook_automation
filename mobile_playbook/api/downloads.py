@@ -1,3 +1,7 @@
+"""
+Shared filename, media-type and root-contained path helpers for file downloads.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -31,6 +35,7 @@ class DownloadFileMissing(FileNotFoundError):
     pass
 
 
+# Replace unsafe filename characters, optionally strip leading dots, and fall back when empty.
 def safe_filename(
     name: str,
     fallback: str,
@@ -46,6 +51,7 @@ def safe_filename(
     return cleaned or fallback
 
 
+# Return the media type for a filename from the known table or a guess.
 def media_type_for(name: str) -> str:
     suffix = Path(name).suffix.lower()
     if suffix in MEDIA_TYPES:
@@ -56,6 +62,7 @@ def media_type_for(name: str) -> str:
     return guessed or "application/octet-stream"
 
 
+# Resolve a relative path to a regular file inside root, or raise a download error.
 def resolve_regular_file(root: Path, relative: str | Path) -> Path:
     candidate = Path(relative)
     logger.debug("api: resolving download %r under root %s.", str(relative), root)

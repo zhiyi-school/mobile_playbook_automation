@@ -1,3 +1,7 @@
+"""
+Checks the tools and services an Android risk requires before it runs.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -18,6 +22,7 @@ class AndroidPreflightResult:
     warnings: list[str] = field(default_factory=list)
 
 
+# Check each requirement and collect failures as errors and passing checks as warnings.
 def check_android_preflight(config, adb: AdbClient, requires: list[str]) -> AndroidPreflightResult:
     errors: list[str] = []
     warnings: list[str] = []
@@ -29,6 +34,7 @@ def check_android_preflight(config, adb: AdbClient, requires: list[str]) -> Andr
     return AndroidPreflightResult(ok=not errors, errors=errors, warnings=warnings)
 
 
+# Return a (name, ok, message) result for each named requirement, failing unknown names.
 def check_requirements(requires: list[str], adb: AdbClient, config) -> list[tuple[str, bool, str]]:
     results = []
     for name in requires:
@@ -48,6 +54,7 @@ def check_requirements(requires: list[str], adb: AdbClient, config) -> list[tupl
     return results
 
 
+# Check that adb is on PATH and a device is connected.
 def _check_adb(adb: AdbClient) -> tuple[bool, str]:
     logger.debug("android preflight: checking adb (path=%s, serial=%s)", getattr(adb, "adb_path", None), getattr(adb, "serial", None))
     if not adb.is_available():
@@ -57,6 +64,7 @@ def _check_adb(adb: AdbClient) -> tuple[bool, str]:
     return True, "adb OK, device connected"
 
 
+# Check that the Appium client is installed and the configured server is reachable.
 def _check_appium(config) -> tuple[bool, str]:
     if not appium_available():
         logger.debug("android preflight: Appium-Python-Client missing")
@@ -67,6 +75,7 @@ def _check_appium(config) -> tuple[bool, str]:
     return True, "Appium client + server OK"
 
 
+# Check that an executable is on PATH.
 def _check_executable(name: str) -> tuple[bool, str]:
     if shutil.which(name):
         logger.debug("android preflight: executable %s found on PATH", name)
@@ -75,6 +84,7 @@ def _check_executable(name: str) -> tuple[bool, str]:
     return False, f"{name} not found on PATH. Install it and ensure it is on PATH."
 
 
+# Check that a configured tool URL is set and accepts TCP connections.
 def _check_tcp_tool(label: str, url: str) -> tuple[bool, str]:
     logger.debug("android preflight: checking %s reachability at %s", label, url)
     if not url:

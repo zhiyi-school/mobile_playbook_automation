@@ -1,3 +1,7 @@
+"""
+Reading and writing property lists and Info.plist metadata for app bundles and IPAs.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -9,6 +13,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
+# Load a property list file.
 def read_plist(path: Path) -> dict[str, Any]:
     with Path(path).open("rb") as handle:
         data = plistlib.load(handle)
@@ -16,33 +21,40 @@ def read_plist(path: Path) -> dict[str, Any]:
     return data
 
 
+# Write data to a property list file.
 def write_plist(path: Path, data: dict[str, Any]) -> None:
     logger.debug("ios plist: writing %s (%s top-level keys)", path, len(data))
     with Path(path).open("wb") as handle:
         plistlib.dump(data, handle)
 
 
+# Load an app bundle's Info.plist.
 def read_info_plist(app_dir: Path) -> dict[str, Any]:
     return read_plist(Path(app_dir) / "Info.plist")
 
 
+# Write an app bundle's Info.plist.
 def write_info_plist(app_dir: Path, data: dict[str, Any]) -> None:
     write_plist(Path(app_dir) / "Info.plist", data)
 
 
+# Return the bundle's CFBundleIdentifier.
 def get_bundle_identifier(app_dir: Path) -> str | None:
     return read_info_plist(app_dir).get("CFBundleIdentifier")
 
 
+# Return the bundle's CFBundleExecutable.
 def get_bundle_executable(app_dir: Path) -> str | None:
     return read_info_plist(app_dir).get("CFBundleExecutable")
 
 
+# Return the bundle's display name, falling back to CFBundleName.
 def get_bundle_display_name(app_dir: Path) -> str | None:
     info = read_info_plist(app_dir)
     return info.get("CFBundleDisplayName") or info.get("CFBundleName")
 
 
+# Return the sorted names of the .app directories directly under Payload/ in an IPA.
 def _payload_app_names(zf: zipfile.ZipFile) -> list[str]:
     apps: set[str] = set()
     for name in zf.namelist():
@@ -52,6 +64,7 @@ def _payload_app_names(zf: zipfile.ZipFile) -> list[str]:
     return sorted(apps)
 
 
+# Read bundle metadata from the single Payload app's Info.plist in an IPA, raising if it is malformed.
 def inspect_ipa_metadata(ipa_path: Path) -> dict[str, Any]:
     logger.debug("ios plist: inspecting ipa %s", ipa_path)
     with zipfile.ZipFile(ipa_path) as zf:

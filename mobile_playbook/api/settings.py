@@ -1,3 +1,7 @@
+"""
+Allowlisted API settings read from the environment or the repository .env file.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -9,8 +13,7 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 ENV_FILE = REPOSITORY_ROOT / ".env"
 logger = logging.getLogger(__name__)
 
-#: Only these may be read from .env. Everything else in that file — the Supabase
-#: service-role key above all — stays out of the API process entirely.
+#: Only these keys may be read from .env; the rest, notably the service-role key, stay out of the API.
 ALLOWED_ENV_KEYS = frozenset(
     {
         "CORS_ALLOWED_ORIGINS",
@@ -29,8 +32,8 @@ class DisallowedSettingError(KeyError):
     pass
 
 
+# Resolve one allowlisted setting from the process environment, then the .env file.
 def env_setting(name: str, env_path: Path | None = None) -> str | None:
-    """Resolve one allowlisted setting: shell environment, then .env, then `None`."""
     if name not in ALLOWED_ENV_KEYS:
         logger.debug("api: setting %s is not allowlisted; refusing to read it.", name)
         raise DisallowedSettingError(f"{name} is not readable from .env by the API process")
@@ -42,8 +45,8 @@ def env_setting(name: str, env_path: Path | None = None) -> str | None:
     return read_env_file_value(env_path if env_path is not None else ENV_FILE, name)
 
 
+# Read one key from a .env file without loading any other key into the process.
 def read_env_file_value(path: Path, wanted_key: str) -> str | None:
-    """Parse one key out of a .env file without importing any other key into the process."""
     try:
         lines = Path(path).read_text().splitlines()
     except OSError as exc:
@@ -65,6 +68,7 @@ def read_env_file_value(path: Path, wanted_key: str) -> str | None:
     return None
 
 
+# Resolve a path setting, relative to the repository root when not absolute.
 def repository_path_setting(name: str, default: str, env_path: Path | None = None) -> Path:
     configured = env_setting(name, env_path) or default
     path = Path(configured).expanduser()
@@ -74,13 +78,13 @@ def repository_path_setting(name: str, default: str, env_path: Path | None = Non
     return path.resolve()
 
 
+# Import the shared storage paths module lazily.
 def _storage() -> Any:
     from mobile_playbook.storage import paths
 
     return paths
 
 
-# Kept as module attributes for existing importers; both follow the shared
-# resolution in mobile_playbook.storage.paths.
+# Kept for existing importers; resolved by mobile_playbook.storage.paths.
 REPORTS_ROOT = _storage().reports_root()
 WORK_ROOT = _storage().work_root()

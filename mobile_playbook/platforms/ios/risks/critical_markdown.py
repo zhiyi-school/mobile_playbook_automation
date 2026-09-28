@@ -1,3 +1,7 @@
+"""
+Builds severity-ranked critical findings from IPA analysis summaries and renders them as Markdown.
+"""
+
 from __future__ import annotations
 
 import json
@@ -7,6 +11,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
+# Build the severity-sorted critical findings report from a MobSF-backed analysis summary.
 def mobsf_critical_findings(summary: dict[str, Any], inventory: dict[str, Any]) -> dict[str, Any]:
     info = summary["info_plist"]
     findings = summary.get("mobsf_findings") or []
@@ -93,6 +98,7 @@ def mobsf_critical_findings(summary: dict[str, Any], inventory: dict[str, Any]) 
     }
 
 
+# Build the severity-sorted critical findings report from the builtin package analysis.
 def critical_findings(summary: dict[str, Any], inventory: dict[str, Any]) -> dict[str, Any]:
     info = summary["info_plist"]
     permissions = info.get("permissions") or []
@@ -250,6 +256,7 @@ def critical_findings(summary: dict[str, Any], inventory: dict[str, Any]) -> dic
     }
 
 
+# Render a critical findings report as a Markdown summary and findings table.
 def critical_markdown(report: dict[str, Any]) -> str:
     app = report["app"]
     lines = [
@@ -274,6 +281,7 @@ def critical_markdown(report: dict[str, Any]) -> str:
     return markdown
 
 
+# Return sorted bundle files whose suffix and name suggest configuration or secrets.
 def candidate_config_resources(inventory: dict[str, Any]) -> list[str]:
     interesting_terms = ("config", "firebase", "google", "service", "secret", "token", "key", "credential", "endpoint", "environment")
     interesting_suffixes = {".plist", ".json", ".xml", ".strings", ".jsbundle", ".db", ".sqlite"}
@@ -290,6 +298,7 @@ def candidate_config_resources(inventory: dict[str, Any]) -> list[str]:
     return sorted(candidates)
 
 
+# Build the Google API key reuse flag from reuse test results.
 def api_key_reuse_flag(results: list[dict[str, Any]]) -> dict[str, Any]:
     severity = highest_severity(results)
     reusable_count = sum(1 for item in results if item.get("status") == "REUSABLE_FROM_WORKSTATION")
@@ -311,25 +320,30 @@ def api_key_reuse_flag(results: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+# Return the highest severity among flags, or NONE when there are none.
 def highest_severity(flags: list[dict[str, Any]]) -> str:
     if not flags:
         return "NONE"
     return max((flag["severity"] for flag in flags), key=severity_rank)
 
 
+# Return flags sorted from highest to lowest severity.
 def sort_flags_by_severity(flags: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return sorted(flags, key=lambda flag: severity_rank(str(flag.get("severity", ""))), reverse=True)
 
 
+# Return evidence items sorted by the severity word each starts with, highest first.
 def sort_evidence_by_embedded_severity(evidence: list[Any]) -> list[Any]:
     return sorted(evidence, key=lambda item: severity_rank(embedded_severity(str(item))), reverse=True)
 
 
+# Return the leading severity word of a string, or NONE when it has none.
 def embedded_severity(value: str) -> str:
     first_word = value.strip().split(" ", 1)[0].upper()
     return first_word if first_word in {"HIGH", "MEDIUM", "LOW", "INFO"} else "NONE"
 
 
+# Return a severity's numeric rank, with unknown values ranked lowest.
 def severity_rank(severity: str) -> int:
     order = {"HIGH": 3, "MEDIUM": 2, "LOW": 1, "INFO": 0, "NONE": -1}
     return order.get(severity.upper(), -1)

@@ -1,3 +1,7 @@
+"""
+Config file maps, YAML round-tripping and locked, validated whole-file writes.
+"""
+
 from __future__ import annotations
 
 import io
@@ -52,6 +56,7 @@ _APP_ERROR_PREFIX = re.compile(r"^apps\[([^\]]+)\]")
 logger = logging.getLogger(__name__)
 
 
+# Return the process-wide edit lock for a config file.
 def lock_for(path: Path) -> threading.Lock:
     with _locks_guard:
         if path not in _locks:
@@ -60,6 +65,7 @@ def lock_for(path: Path) -> threading.Lock:
         return _locks[path]
 
 
+# Parse the platform config and return it with its validation errors, or None and the parse error.
 def load_with_errors(platform: str):
     entry_path = ENTRY_FILES[platform]
     logger.debug("api: loading %s config from %s for validation.", platform, entry_path)
@@ -75,10 +81,12 @@ def load_with_errors(platform: str):
     return config, errors
 
 
+# Return the platform config's current validation errors.
 def config_errors(platform: str) -> list[str]:
     return load_with_errors(platform)[1]
 
 
+# Group validation errors by app id, with non-app errors under the empty key.
 def app_config_errors(platform: str) -> dict[str, list[str]]:
     buckets: dict[str, list[str]] = {}
     for error in config_errors(platform):
@@ -87,6 +95,7 @@ def app_config_errors(platform: str) -> dict[str, list[str]]:
     return buckets
 
 
+# Raise 422 with any validation errors not present in the baseline.
 def load_and_validate(platform: str, baseline: list[str] | None = None) -> None:
     introduced = [error for error in config_errors(platform) if error not in (baseline or [])]
     if introduced:
@@ -95,6 +104,7 @@ def load_and_validate(platform: str, baseline: list[str] | None = None) -> None:
     logger.debug("api: %s edit validated (baseline %d error(s)).", platform, len(baseline or []))
 
 
+# Convert ruamel round-trip values into plain dicts, lists and strings.
 def plain(value: Any) -> Any:
     if isinstance(value, dict):
         return {key: plain(item) for key, item in value.items()}
@@ -105,12 +115,14 @@ def plain(value: Any) -> Any:
     return value
 
 
+# Dump round-trip YAML data to a string.
 def rt_dump(data: Any) -> str:
     buf = io.StringIO()
     rt_yaml.dump(data, buf)
     return buf.getvalue()
 
 
+# Recursively merge updates into a YAML node, ignoring empty values for existing keys.
 def merge_into_commented(node: Any, updates: dict) -> None:
     for key, value in updates.items():
         current = node.get(key) if hasattr(node, "get") else None
@@ -122,6 +134,7 @@ def merge_into_commented(node: Any, updates: dict) -> None:
             node[key] = value
 
 
+# Apply a mutation to a YAML file under its lock and restore the original if validation regresses.
 def write_whole_file_validated(path: Path, mutate: Callable[[Any], None], platform: str) -> Any:
     with lock_for(path):
         logger.debug("api: editing %s (%s) under lock.", path, platform)

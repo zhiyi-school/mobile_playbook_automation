@@ -1,3 +1,5 @@
+# XcodeGen spec for the placeholder app built so Xcode issues a profile for re-signing repackaged IPAs.
+
 name: RepackProvision
 options:
   createIntermediateGroups: true

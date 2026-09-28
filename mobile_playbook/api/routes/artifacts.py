@@ -1,3 +1,7 @@
+"""
+Routes that list and upload app build artifacts.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -16,6 +20,7 @@ UPLOAD_CHUNK_BYTES = 1024 * 1024
 logger = logging.getLogger(__name__)
 
 
+# Return the upload size limit from MAX_ARTIFACT_UPLOAD_BYTES, or the default.
 def max_artifact_upload_bytes() -> int:
     raw = os.environ.get("MAX_ARTIFACT_UPLOAD_BYTES")
     if not raw:
@@ -33,6 +38,7 @@ def max_artifact_upload_bytes() -> int:
     return limit
 
 
+# Stream an upload to a temporary file within the size limit, then move it into place.
 async def write_upload_file(file: UploadFile, dest_path: Path, max_bytes: int) -> int:
     tmp_path = dest_path.with_name(f".{dest_path.name}.uploading")
     bytes_written = 0
@@ -56,6 +62,7 @@ async def write_upload_file(file: UploadFile, dest_path: Path, max_bytes: int) -
     return bytes_written
 
 
+# List the platform's uploaded builds.
 @router.get("/artifacts/{platform}")
 def list_artifacts(platform: Platform) -> list[dict]:
     logger.debug("api: GET /artifacts/%s.", platform)
@@ -64,6 +71,7 @@ def list_artifacts(platform: Platform) -> list[dict]:
     return artifacts
 
 
+# Store an uploaded .ipa or .apk in the intake directory and return its metadata.
 @router.post("/artifacts/{platform}", status_code=201)
 async def upload_artifact(platform: Platform, file: UploadFile = File(...)) -> dict:
     filename = Path(file.filename or "").name

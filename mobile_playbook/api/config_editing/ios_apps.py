@@ -1,3 +1,7 @@
+"""
+Lists, adds, edits and deletes iOS apps by rewriting text blocks in the split apps YAML.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -37,10 +41,12 @@ IOS_APP_FIELD_ORDER = (
 logger = logging.getLogger(__name__)
 
 
+# Build a regex that captures a top-level field's value within an app block.
 def field_value_re(field: str) -> re.Pattern:
     return re.compile(rf"^(?:  - |    ){re.escape(field)}:[ \t]*(.*)$", re.MULTILINE)
 
 
+# Strip whitespace and one pair of matching quotes from a YAML scalar.
 def unquote(value: str) -> str:
     value = value.strip()
     if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
@@ -48,6 +54,7 @@ def unquote(value: str) -> str:
     return value
 
 
+# Split the iOS apps YAML into its preamble and per-app text blocks, or raise 500.
 def split_ios_app_blocks(apps_text: str) -> tuple[str, list[str]]:
     starts = [match.start() for match in APP_ITEM_START_RE.finditer(apps_text)]
     if not starts:
@@ -62,6 +69,7 @@ def split_ios_app_blocks(apps_text: str) -> tuple[str, list[str]]:
     return preamble, blocks
 
 
+# Return an app block's explicit id, or a slug of its name.
 def ios_block_identity(block: str) -> str:
     id_match = field_value_re("id").search(block)
     if id_match:
@@ -72,16 +80,19 @@ def ios_block_identity(block: str) -> str:
     return ios_slugify(unquote(name_match.group(1)) if name_match else "")
 
 
+# Render an app dict as an indented YAML list item block.
 def render_ios_app_block(app: dict) -> str:
     text = yaml.safe_dump(app, default_flow_style=False, sort_keys=False)
     return "\n".join(("  - " if index == 0 else "    ") + line for index, line in enumerate(text.rstrip("\n").split("\n"))) + "\n"
 
 
+# Load the iOS templates YAML, or an empty dict when it is missing.
 def ios_templates() -> dict:
     path = TEMPLATE_FILES["ios"]
     return yaml.safe_load(path.read_text()) or {} if path.exists() else {}
 
 
+# Fill the default launch check and WDA test bundle id, then order fields canonically.
 def apply_ios_app_defaults(app: dict) -> dict:
     filled = dict(app)
     if not filled.get("expected_behavior"):
@@ -99,6 +110,7 @@ def apply_ios_app_defaults(app: dict) -> dict:
     return ordered
 
 
+# List the effective iOS apps, raising 422 when the config does not parse.
 def list_ios_apps() -> list[dict]:
     config, _ = load_with_errors("ios")
     if config is None:
@@ -108,10 +120,12 @@ def list_ios_apps() -> list[dict]:
     return [app.to_dict() for app in config.apps]
 
 
+# Return one effective iOS app by id, or None.
 def effective_ios_app(app_id: str) -> dict | None:
     return next((app for app in list_ios_apps() if app.get("id") == app_id), None)
 
 
+# Append a new iOS app block, raising 409 on a duplicate and rolling back on new validation errors.
 def add_ios_app(app: dict) -> dict:
     path = APPS_FILES["ios"]
     with lock_for(path):
@@ -135,6 +149,7 @@ def add_ios_app(app: dict) -> dict:
     return {"id": app_id}
 
 
+# Rewrite an iOS app block with merged updates, rolling back on new validation errors.
 def edit_ios_app(app_id: str, updates: dict) -> dict:
     path = APPS_FILES["ios"]
     with lock_for(path):
@@ -165,6 +180,7 @@ def edit_ios_app(app_id: str, updates: dict) -> dict:
     return effective_ios_app(app_id) or merged
 
 
+# Remove an iOS app block, raising 404 when missing and rolling back on new validation errors.
 def delete_ios_app(app_id: str) -> None:
     path = APPS_FILES["ios"]
     with lock_for(path):

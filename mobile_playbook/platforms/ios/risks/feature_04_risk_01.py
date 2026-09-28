@@ -1,3 +1,7 @@
+"""
+ios-feature-04-risk-01: checks whether a custom keyboard can collect keystrokes typed into the app.
+"""
+
 from __future__ import annotations
 
 import json
@@ -22,9 +26,11 @@ class Feature04Risk01(Feature04KeyboardRiskBase):
     name = "Custom keyboard keystroke collection"
     requires_ipa_artifact = False
 
+    # Store the factory used to create the keystroke collection server.
     def __init__(self, server_factory=CommandControlServer):
         self.server_factory = server_factory
 
+    # Set up the keyboard and collection server, type a probe into the app and look for collected keystrokes.
     def run(self, app_config, global_config, device_client, report_writer):
         result = self._base_result(report_writer.run_timestamp, app_config)
         report_dir = report_writer.test_report_dir(app_config.id, self.risk_id, "collection_server")
@@ -319,6 +325,7 @@ class Feature04Risk01(Feature04KeyboardRiskBase):
             )
             report_writer.write_result(result, report_dir)
 
+    # Create the initial run result for this risk and app.
     def _base_result(self, run_timestamp: str, app_config) -> RiskRunResult:
         return RiskRunResult(
             run_timestamp=run_timestamp,
@@ -335,8 +342,8 @@ class Feature04Risk01(Feature04KeyboardRiskBase):
             artifact_source=app_config.artifact.get("source", ""),
         )
 
+    # Focus the keyboard host app's own field so iOS loads the extension before /pair.
     def _activate_keyboard_in_host_app(self, device_client, global_config, collection: dict, keyboard_config: dict) -> dict:
-        """Focus the keyboard host app's own field so iOS loads the extension before /pair."""
         bundle_id = keyboard_config.get("bundle_id")
         field_id = (keyboard_config.get("server_setup") or {}).get("server_url_input_accessibility_id")
         if not bundle_id or not field_id:
@@ -371,9 +378,11 @@ class Feature04Risk01(Feature04KeyboardRiskBase):
         logger.debug("ios-feature-04-risk-01: keyboard activated in host app %s", bundle_id)
         return state
 
+    # Return the configured probe text, defaulting to hello123.
     def _probe_text(self, collection: dict) -> str:
         return str(collection.get("probe_text") or collection.get("expected_collected_text") or "hello123")
 
+    # Type the probe text with the device client's configured input method.
     def _type_probe_text(self, device_client, probe_text: str, collection: dict) -> dict:
         typer = getattr(device_client, "type_text", None)
         if not typer:
@@ -382,8 +391,8 @@ class Feature04Risk01(Feature04KeyboardRiskBase):
         logger.debug("ios-feature-04-risk-01: type_text input_config=%s", redacted(input_config))
         return typer(probe_text, input_config)
 
+    # Capture the app under test with the probe text in it, before evidence checks switch apps.
     def _capture_probe_evidence(self, device_client, report_dir: Path, probe_text: str) -> dict:
-        """The app under test with the probe text in it, captured before evidence checks switch apps."""
         screenshot_path = report_dir / "target_screen.png"
         page_source_path = report_dir / "target_page_source.xml"
         evidence: dict = {"probe_text": probe_text}
@@ -405,6 +414,7 @@ class Feature04Risk01(Feature04KeyboardRiskBase):
             evidence["screenshot_error"] = str(exc)
         return evidence
 
+    # Poll the server's events for the expected text and save them as evidence.
     def _verify_collection_event(
         self,
         server,
@@ -459,6 +469,7 @@ class Feature04Risk01(Feature04KeyboardRiskBase):
             },
         )
 
+    # Poll the keyboard host app's log UI for the expected text and save its source as evidence.
     def _verify_local_collection_log(
         self,
         device_client,
@@ -547,12 +558,14 @@ class Feature04Risk01(Feature04KeyboardRiskBase):
             },
         )
 
+    # Return the first event whose JSON contains the expected text, or None.
     def _find_event_containing(self, events: list[dict], expected: str) -> dict | None:
         for event in events:
             if expected and expected in json.dumps(event, sort_keys=True):
                 return event
         return None
 
+    # Match the log source by substring, else by the expected items appearing in order.
     def _local_log_match(self, source: str, expected: str, collection: dict) -> dict:
         local_log = collection.get("local_log") or {}
         if expected and expected in source:
@@ -565,6 +578,7 @@ class Feature04Risk01(Feature04KeyboardRiskBase):
             return {"matched": True, "mode": "ordered_items", "expected_items": expected_items}
         return {"matched": False, "mode": "none", "expected": expected, "expected_items": expected_items}
 
+    # Return whether the items appear in order in the source, case-insensitively.
     def _contains_items_in_order(self, source: str, items: list[str]) -> bool:
         cursor = 0
         lowered = source.lower()

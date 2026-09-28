@@ -1,3 +1,7 @@
+"""
+Dataclasses for Android configuration and per-risk run results.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -14,10 +18,7 @@ class AndroidDeviceConfig(SerializableDataclass):
     appium_server_url: str = "http://127.0.0.1:4723"
     adb_path: str = "adb"
     adb_serial: str | None = None
-    # If set and appium_server_url isn't reachable, connect_device() launches
-    # appium_auto_start.command and waits for it to come up instead of
-    # failing preflight outright. Shape mirrors ipa_static_analysis.yaml's
-    # analyzer.auto_start: {enabled, command, wait_seconds, poll_interval_seconds}.
+    # See docs/android/configuration.md#appium-auto-start.
     appium_auto_start: dict[str, Any] = field(default_factory=dict)
 
 
@@ -71,14 +72,13 @@ class AndroidRiskRunResult(SerializableDataclass):
     test_case_type: str
     artifact_source: str = "installed_app"
     final_status: str = "NOT_RUN"
-    # 3-way security verdict for the run summary: "At Risk", "Reduced Risk",
-    # or the default "Inconclusive". Each risk sets this directly alongside
-    # final_status, at the point it decides the outcome.
+    # "At Risk", "Reduced Risk" or "Inconclusive"; each risk sets it alongside final_status.
     verdict: str = "Inconclusive"
     errors: list[str] = field(default_factory=list)
     evidence: list[dict[str, Any]] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
 
+    # Return None, since Android runs carry no artifact acquisition result.
     @property
     def artifact_result(self):
         return None

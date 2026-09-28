@@ -1,3 +1,7 @@
+"""
+Services that report and retrigger dashboard synchronization for runs.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -15,6 +19,7 @@ LAUNCH_AGENT = Path.home() / "Library" / "LaunchAgents" / "com.mobile-playbook.d
 logger = logging.getLogger(__name__)
 
 
+# Describe a run's dashboard sync status, or raise 404 for an unknown run.
 def run_sync_status(run_id: str) -> dict:
     run_dir = resolved_run_dir(run_id)
     if not run_dir.is_dir() and registry.get(run_id) is None:
@@ -25,6 +30,7 @@ def run_sync_status(run_id: str) -> dict:
     return described
 
 
+# Summarize the dashboard sync worker's state, queue depth and last outcomes.
 def worker_status() -> dict:
     state = sync_status.read_worker_state(REPORTS_ROOT)
     logger.debug("api: reading dashboard sync worker status from %s.", REPORTS_ROOT)
@@ -39,6 +45,7 @@ def worker_status() -> dict:
     }
 
 
+# Retrigger dashboard sync for a run unless it is not needed or already pending, and return its status.
 def resync_run(run_id: str) -> dict:
     run_dir = resolved_run_dir(run_id)
     logger.debug("api: resync requested for run %s (%s).", run_id, run_dir)
@@ -56,8 +63,7 @@ def resync_run(run_id: str) -> dict:
     if current["status"] in sync_status.PENDING_STATUSES:
         logger.debug("api: run %s already %s; returning current status.", run_id, current["status"])
         return current
-    # No --force: the ledger still short-circuits a run that did land, so a retry
-    # of a partial failure cannot write its findings, history or activity twice.
+    # No --force: the ledger keeps a retry from writing an already-landed run twice.
     if trigger_dashboard_sync(REPORTS_ROOT, run_id) is None:
         logger.debug("api: sync worker for run %s did not start; marking failed and responding 503.", run_id)
         sync_status.mark_failed(run_dir, "Could not start the dashboard sync worker", retryable=True)

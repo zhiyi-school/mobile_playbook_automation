@@ -1,3 +1,7 @@
+"""
+Appium XCUITest device client that drives app installs, UI interaction and evidence capture on iOS.
+"""
+
 from __future__ import annotations
 
 import base64
@@ -20,6 +24,7 @@ UNTRUSTED_DEVELOPER_CERT_MARKERS = (
 )
 
 
+# Return whether an error says the developer certificate is not yet trusted on the device.
 def is_untrusted_developer_cert_error(message: str) -> bool:
     lowered = message.lower()
     return any(marker in lowered for marker in UNTRUSTED_DEVELOPER_CERT_MARKERS)
@@ -33,10 +38,12 @@ class AppiumDeviceClient:
         "XCUIElementTypeSecureTextField",
     ]
 
+    # Store the device configuration; the session starts on connect().
     def __init__(self, device_config):
         self.device_config = device_config
         self.driver = None
 
+    # Start an XCUITest Appium session, explaining an untrusted WebDriverAgent certificate on failure.
     def connect(self):
         from appium import webdriver
         from appium.options.ios import XCUITestOptions
@@ -90,6 +97,7 @@ class AppiumDeviceClient:
         )
         return self
 
+    # Quit the Appium session if one is active.
     def quit(self) -> None:
         if self.driver is not None:
             logger.debug("ios appium: quitting session %s", getattr(self.driver, "session_id", None))
@@ -99,6 +107,7 @@ class AppiumDeviceClient:
         else:
             logger.debug("ios appium: quit requested with no active session")
 
+    # Run a mobile: command on the session, raising when not connected.
     def _execute(self, command: str, args: dict):
         if self.driver is None:
             logger.debug("ios appium: mobile: %s requested without a session", command)
@@ -121,14 +130,16 @@ class AppiumDeviceClient:
         )
         return result
 
+    # Return whether an app is installed on the device.
     def is_installed(self, bundle_id: str) -> bool:
         return bool(self._execute("isAppInstalled", {"bundleId": bundle_id}))
 
+    # Uninstall an app and return whether Appium reported success.
     def remove_app(self, bundle_id: str) -> bool:
         return bool(self._execute("removeApp", {"bundleId": bundle_id}))
 
+    # Remove an app, then poll until it is actually gone or the timeout passes.
     def remove_app_verified(self, bundle_id: str, timeout_seconds: float = 20.0) -> dict:
-        """Remove, then poll until the app is actually gone."""
         logger.debug("ios appium: removing %s with verification (timeout %ss)", bundle_id, timeout_seconds)
         requested = self.remove_app(bundle_id)
         deadline = time.monotonic() + timeout_seconds
@@ -143,13 +154,13 @@ class AppiumDeviceClient:
         logger.debug("ios appium: %s removal not verified within %ss (requested=%s)", bundle_id, timeout_seconds, requested)
         return {"requested": requested, "verified": False}
 
+    # Terminate a running app.
     def terminate_app(self, bundle_id: str) -> bool:
         return bool(self._execute("terminateApp", {"bundleId": bundle_id}))
 
+    # Install an IPA from its absolute path, returning an INSTALLED or INSTALL_FAILED result.
     def install_app(self, ipa_path: Path, timeout_ms: int) -> InstallResult:
-        # Resolve to an absolute path before handing it to Appium: the Appium server is a
-        # separate process, and a relative path would be resolved against *its* working
-        # directory (whatever that happened to be when it was started), not ours.
+        # Appium is a separate process, so a relative path would resolve against its working directory.
         ipa_path = Path(ipa_path).expanduser().resolve()
         logger.debug("ios appium: installing %s (timeout %sms)", ipa_path, timeout_ms)
         try:
@@ -160,12 +171,15 @@ class AppiumDeviceClient:
             logger.debug("ios appium: install of %s failed: %s", ipa_path, exc, exc_info=True)
             return InstallResult(status="INSTALL_FAILED", ipa_path=ipa_path, errors=[str(exc)])
 
+    # Launch an app by bundle ID.
     def launch_app(self, bundle_id: str) -> dict:
         return {"result": self._execute("launchApp", {"bundleId": bundle_id})}
 
+    # Bring an app to the foreground by bundle ID.
     def activate_app(self, bundle_id: str) -> dict:
         return {"result": self._execute("activateApp", {"bundleId": bundle_id})}
 
+    # Wait for an element whose label, name or value matches one of the labels.
     def find_element_by_label(self, labels: list[str], timeout_seconds: float):
         if self.driver is None:
             raise RuntimeError("Appium session is not connected")
@@ -184,6 +198,7 @@ class AppiumDeviceClient:
         logger.debug("ios appium: found element for labels %s", labels)
         return element
 
+    # Wait for a switch whose label, name or value matches one of the labels.
     def find_switch_by_label(self, labels: list[str], timeout_seconds: float):
         if self.driver is None:
             raise RuntimeError("Appium session is not connected")
@@ -205,11 +220,13 @@ class AppiumDeviceClient:
         logger.debug("ios appium: found switch for labels %s", labels)
         return element
 
+    # Tap the switch matching one of the labels.
     def tap_switch_by_label(self, labels: list[str], timeout_seconds: float):
         logger.debug("ios appium: tap switch by labels %s", labels)
         element = self.find_switch_by_label(labels, timeout_seconds)
         return self._tap_element_with_fallback(element)
 
+    # Tap the element matching one of the labels.
     def tap_label(self, labels: list[str], timeout_seconds: float) -> dict:
         logger.debug("ios appium: tap element by labels %s", labels)
         element = self.find_element_by_label(labels, timeout_seconds)
@@ -222,6 +239,7 @@ class AppiumDeviceClient:
             "element": self._element_summary(element, 0),
         }
 
+    # Wait for and tap a cell or button matching one of the labels.
     def tap_row_label(self, labels: list[str], timeout_seconds: float) -> dict:
         if self.driver is None:
             raise RuntimeError("Appium session is not connected")
@@ -249,6 +267,7 @@ class AppiumDeviceClient:
             "element": self._element_summary(element, 0),
         }
 
+    # Return whether a cell or static text matching one of the labels appears within the timeout.
     def has_label(self, labels: list[str], timeout_seconds: float) -> bool:
         if self.driver is None:
             raise RuntimeError("Appium session is not connected")
@@ -270,6 +289,7 @@ class AppiumDeviceClient:
         logger.debug("ios appium: labels %s present", labels)
         return True
 
+    # Tap the first button in the navigation bar.
     def tap_navigation_back(self, timeout_seconds: float) -> dict:
         if self.driver is None:
             raise RuntimeError("Appium session is not connected")
@@ -295,6 +315,7 @@ class AppiumDeviceClient:
             "element": self._element_summary(element, 0),
         }
 
+    # Replace the value of the visible enabled text field matching a label.
     def set_visible_text_field(self, label: str, value: str) -> dict:
         if self.driver is None:
             raise RuntimeError("Appium session is not connected")
@@ -326,6 +347,7 @@ class AppiumDeviceClient:
         logger.debug("ios appium: text field %r set", label)
         return {"label": label, "value": value}
 
+    # Return the value of the element matching the labels, or None when absent.
     def element_value_by_label(self, labels: list[str]) -> str | None:
         try:
             element = self.find_element_by_label(labels, 1)
@@ -336,6 +358,7 @@ class AppiumDeviceClient:
         logger.debug("ios appium: element value for labels %s is %s", labels, "absent" if value is None else "present")
         return str(value) if value is not None else None
 
+    # Save a screenshot and page source for troubleshooting, recording any capture errors.
     def save_diagnostics(self, directory: Path, prefix: str) -> dict:
         directory = Path(directory)
         directory.mkdir(parents=True, exist_ok=True)
@@ -361,6 +384,7 @@ class AppiumDeviceClient:
         logger.debug("ios appium: diagnostics saved %s with %s error(s)", sorted(diagnostics), len(errors))
         return diagnostics
 
+    # Build an iOS predicate matching any of the labels by label, name or value.
     @staticmethod
     def _label_predicate(labels: list[str]) -> str:
         values = [str(label).strip() for label in labels if str(label).strip()]
@@ -378,6 +402,7 @@ class AppiumDeviceClient:
             )
         return " OR ".join(conditions)
 
+    # Unlock the device and report whether it was locked.
     def unlock(self) -> dict:
         logger.debug("ios appium: checking device lock state")
         was_locked = self.driver.is_locked()
@@ -385,11 +410,13 @@ class AppiumDeviceClient:
         logger.debug("ios appium: unlock issued, was_locked=%s", was_locked)
         return {"was_locked": was_locked}
 
+    # Open a URL in an app with mobile: deepLink.
     def open_url(self, url: str, bundle_id: str = "com.apple.mobilesafari") -> dict:
         logger.debug("ios appium: opening deep link %s in %s", str(url).split("?", 1)[0][:200], bundle_id)
         # mobile: deepLink avoids driving Safari's own address-bar UI directly.
         return {"result": self._execute("deepLink", {"url": url, "bundleId": bundle_id})}
 
+    # Dismiss, accept or report up to max_alerts system alerts within the wait window.
     def handle_permission_alerts(self, config: dict | None = None) -> list[dict]:
         if self.driver is None:
             raise RuntimeError("Appium session is not connected")
@@ -434,6 +461,7 @@ class AppiumDeviceClient:
         logger.debug("ios appium: permission alert handling finished with %s handled alert(s)", len(results))
         return results or [{"status": "NO_ALERT"}]
 
+    # Handle one alert via switch_to, falling back to finding alert buttons directly.
     def _handle_one_permission_alert(self, action: str, accept_if: list[str] | None = None) -> dict:
         try:
             alert = self.driver.switch_to.alert
@@ -475,12 +503,14 @@ class AppiumDeviceClient:
                 logger.debug("ios appium: no permission alert handled", exc_info=True)
                 return {"status": "NO_ALERT"}
 
+    # Return accept when the alert text matches accept_if, else the configured action.
     @staticmethod
     def _effective_alert_action(action: str, text: str, accept_if: list[str] | None) -> str:
         if accept_if and text and any(needle in text.lower() for needle in accept_if):
             return "accept"
         return action
 
+    # Return the alert's static text, falling back to all static text on screen.
     def _alert_text(self) -> str:
         from selenium.webdriver.common.by import By
 
@@ -500,6 +530,7 @@ class AppiumDeviceClient:
                 return joined
         return ""
 
+    # Tap the preferred alert button and return its summary.
     def _tap_permission_alert_button(self, prefer_negative: bool) -> dict:
         button = self._find_permission_alert_button(prefer_negative)
         logger.debug("ios appium: tapping permission alert button %r", button.get("button"))
@@ -507,6 +538,7 @@ class AppiumDeviceClient:
         button.pop("element", None)
         return button
 
+    # Find the alert button matching the preferred allow or deny labels, else the other set.
     def _find_permission_alert_button(self, prefer_negative: bool) -> dict:
         from selenium.webdriver.common.by import By
 
@@ -555,6 +587,7 @@ class AppiumDeviceClient:
         logger.debug("ios appium: no permission alert button matched among %s button(s)", len(summaries))
         raise RuntimeError("No permission alert button was found")
 
+    # Tap the element with an accessibility ID, optionally clear it and type text.
     def set_text_by_accessibility_id(self, accessibility_id: str, text: str, clear_first: bool = True) -> dict:
         if self.driver is None:
             raise RuntimeError("Appium session is not connected")
@@ -580,6 +613,7 @@ class AppiumDeviceClient:
         logger.debug("ios appium: text set on accessibility_id %r", accessibility_id)
         return {"accessibility_id": accessibility_id, "text": text, "clear_first": clear_first}
 
+    # Tap the element with an accessibility ID.
     def tap_by_accessibility_id(self, accessibility_id: str) -> dict:
         if self.driver is None:
             raise RuntimeError("Appium session is not connected")
@@ -590,6 +624,7 @@ class AppiumDeviceClient:
         logger.debug("ios appium: tapped accessibility_id %r", accessibility_id)
         return {"accessibility_id": accessibility_id, "tapped": True}
 
+    # Type text into the active element, or key by key via keyboard buttons when configured.
     def type_text(self, text: str, config: dict | None = None) -> dict:
         if self.driver is None:
             raise RuntimeError("Appium session is not connected")
@@ -649,6 +684,7 @@ class AppiumDeviceClient:
         logger.debug("ios appium: sent keys to active element")
         return {"method": method, "text": text}
 
+    # Cycle the keyboard switcher until the expected keyboard markers appear.
     def ensure_keyboard_selected(self, config: dict | None = None) -> dict:
         if self.driver is None:
             raise RuntimeError("Appium session is not connected")
@@ -709,6 +745,7 @@ class AppiumDeviceClient:
             "attempts": tap_attempts,
         }
 
+    # Tap the keyboard switcher by accessibility ID, else by label.
     def _tap_keyboard_switcher(self, accessibility_ids: list[str], label_contains: list[str]) -> dict:
         for accessibility_id in accessibility_ids:
             try:
@@ -726,6 +763,7 @@ class AppiumDeviceClient:
             logger.debug("ios appium: no keyboard switcher matched labels %s: %s", label_contains, exc, exc_info=True)
             return {"tapped": False, "error": str(exc)}
 
+    # Return whether the page source contains any expected term.
     def _page_source_contains_any(self, expected_terms: list[str]) -> bool:
         if not expected_terms:
             return False
@@ -734,12 +772,14 @@ class AppiumDeviceClient:
         logger.debug("ios appium: page source (%s chars) contains expected terms=%s", len(source), found)
         return found
 
+    # Return whether an element matching a marker exists, excluding the switcher buttons.
     def _keyboard_marker_present(self, markers: list[str], switcher_names: list[str]) -> bool:
         markers = [str(marker).strip() for marker in markers if str(marker).strip()]
         if not markers:
             return False
         from appium.webdriver.common.appiumby import AppiumBy
 
+        # Escape backslashes and quotes for an iOS predicate string.
         def escape(value: str) -> str:
             return value.replace("\\", "\\\\").replace("'", "\\'")
 
@@ -761,6 +801,7 @@ class AppiumDeviceClient:
             logger.debug("ios appium: keyboard marker absent: %s", exc, exc_info=True)
             return False
 
+    # Tap the first visible enabled button whose label matches.
     def tap_first_button_matching(
         self,
         label_contains: list[str] | None = None,
@@ -775,6 +816,7 @@ class AppiumDeviceClient:
             element_label="button",
         )
 
+    # Tap the first interactable element of the classes whose label matches, skipping excluded labels.
     def tap_first_element_matching(
         self,
         label_contains: list[str] | None = None,
@@ -838,6 +880,7 @@ class AppiumDeviceClient:
             note = f" No visible enabled {element_label}s were found."
         raise RuntimeError(f"No matching {element_label} was found.{note}")
 
+    # Return an element's readable attributes and rect, skipping unavailable ones.
     def _element_summary(self, element, index: int) -> dict:
         summary = {"index": index}
         for attr in (
@@ -863,9 +906,11 @@ class AppiumDeviceClient:
             logger.debug("ios appium: element rect unavailable: %s", exc)
         return summary
 
+    # Return whether an element summary is visible and enabled.
     def _summary_is_interactable(self, summary: dict) -> bool:
         return self._summary_flag(summary, "visible", default=True) and self._summary_flag(summary, "enabled", default=True)
 
+    # Return whether an element looks like an editable input rather than static text.
     def _summary_is_text_input_candidate(self, class_name: str, summary: dict) -> bool:
         if not self._summary_is_interactable(summary):
             return False
@@ -878,12 +923,14 @@ class AppiumDeviceClient:
         has_input_hint = any(summary.get(key) for key in ("name", "label", "placeholderValue"))
         return has_input_hint or len(value) < 80
 
+    # Read a boolean attribute from a summary, using the default when absent.
     def _summary_flag(self, summary: dict, key: str, default: bool) -> bool:
         value = summary.get(key)
         if value is None:
             return default
         return str(value).lower() == "true"
 
+    # Tap the text field matching a selector, or the first interactable one when none is given.
     def tap_text_field(self, selector: dict | None = None) -> dict:
         if self.driver is None:
             raise RuntimeError("Appium session is not connected")
@@ -932,11 +979,13 @@ class AppiumDeviceClient:
             "element": self._element_summary(element, 0),
         }
 
+    # Return the selector without empty values.
     def _normalize_selector(self, selector: dict | None) -> dict:
         if not selector:
             return {}
         return {key: value for key, value in selector.items() if value not in {None, ""}}
 
+    # Return the first element that is a usable text input, or None.
     def _first_interactable(self, elements: list, class_name: str) -> object | None:
         for index, element in enumerate(elements):
             summary = self._element_summary(element, index)
@@ -944,6 +993,7 @@ class AppiumDeviceClient:
                 return element
         return None
 
+    # Click an element, falling back to a coordinate tap at its centre.
     def _tap_element_with_fallback(self, element) -> str:
         try:
             element.click()
@@ -966,6 +1016,7 @@ class AppiumDeviceClient:
                     f"element.click() failed with: {click_error}; coordinate tap failed with: {tap_error}"
                 ) from tap_error
 
+    # Return an element's rect from rect or its x, y, width and height attributes, or None.
     def _element_rect(self, element) -> dict | None:
         try:
             rect = element.rect
@@ -982,6 +1033,7 @@ class AppiumDeviceClient:
                 return None
         return values
 
+    # Summarize up to limit text-field elements for diagnostics.
     def describe_text_field_candidates(self, limit: int = 20) -> list[dict]:
         if self.driver is None:
             raise RuntimeError("Appium session is not connected")
@@ -1001,6 +1053,7 @@ class AppiumDeviceClient:
         logger.debug("ios appium: described %s text field candidate(s)", len(candidates))
         return candidates
 
+    # Return an element's type or class name, or None.
     def _element_type(self, element) -> str | None:
         for attr in ("type", "className"):
             try:
@@ -1011,9 +1064,11 @@ class AppiumDeviceClient:
                 logger.debug("ios appium: element attribute %s unavailable for type: %s", attr, exc)
         return None
 
+    # Return the app's Appium state code.
     def query_app_state(self, bundle_id: str) -> int:
         return int(self._execute("queryAppState", {"bundleId": bundle_id}))
 
+    # Save a device screenshot to a path.
     def screenshot(self, path: Path) -> None:
         if self.driver is None:
             raise RuntimeError("Appium session is not connected")
@@ -1022,6 +1077,7 @@ class AppiumDeviceClient:
         saved = self.driver.save_screenshot(str(path))
         logger.debug("ios appium: screenshot save returned %s", saved)
 
+    # Pull a folder from the app's Documents, extract it safely into dest and return its files.
     def pull_app_documents(self, bundle_id: str, subpath: str, dest: Path, max_bytes: int) -> list[Path]:
         if self.driver is None:
             raise RuntimeError("Appium session is not connected")
@@ -1054,6 +1110,7 @@ class AppiumDeviceClient:
         logger.debug("ios appium: %s file(s) now under %s", len(pulled), dest)
         return pulled
 
+    # Return the current page source XML.
     def page_source(self) -> str:
         if self.driver is None:
             raise RuntimeError("Appium session is not connected")

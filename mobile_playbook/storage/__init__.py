@@ -1,3 +1,7 @@
+"""
+Public storage location helpers.
+"""
+
 from mobile_playbook.storage.paths import (
     ARTIFACTS_DIR_ENV,
     LOCATION_ENV,

@@ -1,3 +1,7 @@
+"""
+Builtin static analysis of an unpacked IPA: Info.plist metadata, package inventory and sensitive-data findings.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -17,6 +21,7 @@ from mobile_playbook.platforms.ios.risks.sensitive_findings import (
 logger = logging.getLogger(__name__)
 
 
+# Analyze an unpacked app bundle and return its summary, file inventory and critical findings.
 def analyze_package(
     app_dir: Path,
     acquisition: ArtifactAcquisitionResult,
@@ -116,6 +121,7 @@ def analyze_package(
     return {"summary": summary, "inventory": package_inventory, "critical_findings": critical_findings(summary, package_inventory)}
 
 
+# Walk the app bundle and return file, suffix, framework, plugin and resource-sample inventories.
 def inventory(app_dir: Path) -> dict[str, Any]:
     files: list[dict[str, Any]] = []
     suffixes: Counter[str] = Counter()
@@ -163,12 +169,14 @@ def inventory(app_dir: Path) -> dict[str, Any]:
     }
 
 
+# Return whether a bundle file is a text-like resource outside signature, framework and plugin dirs.
 def is_interesting_resource(relative_path: Path) -> bool:
     if any(part in {"_CodeSignature", "Frameworks", "PlugIns", "SC_Info"} for part in relative_path.parts):
         return False
     return relative_path.suffix.lower() in {".plist", ".json", ".strings", ".xml", ".txt", ".jsbundle", ".html", ".sqlite", ".db"}
 
 
+# Return the sorted unique custom URL schemes declared in Info.plist.
 def url_schemes(info: dict[str, Any]) -> list[str]:
     schemes: list[str] = []
     for item in info.get("CFBundleURLTypes") or []:

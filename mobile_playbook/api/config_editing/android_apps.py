@@ -1,3 +1,7 @@
+"""
+Lists, adds, edits and deletes Android apps in the split apps YAML.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -18,10 +22,12 @@ APP_METADATA_KEYS = {"sector", "agency", "version", "cisos"}
 logger = logging.getLogger(__name__)
 
 
+# Return an Android app's id, or a slug of its package name or name.
 def android_app_id(item: dict) -> str:
     return item.get("id") or android_slugify(item.get("package_name") or item.get("name") or "")
 
 
+# List Android apps from the apps YAML with id and metadata defaults filled in.
 def list_android_apps() -> list[dict]:
     data = rt_yaml.load(APPS_FILES["android"].read_text())
     items = [plain(item) for item in (data.get("apps") or [])]
@@ -35,9 +41,11 @@ def list_android_apps() -> list[dict]:
     return items
 
 
+# Append a new Android app, raising 409 when its id already exists.
 def add_android_app(app: dict) -> dict:
     path = APPS_FILES["android"]
 
+    # Append the app unless an app with the same id exists.
     def mutate(data: Any) -> None:
         apps = data.setdefault("apps", [])
         app_id = android_app_id(app)
@@ -53,9 +61,11 @@ def add_android_app(app: dict) -> dict:
     return {"id": android_app_id(app)}
 
 
+# Merge updates into an Android app and return the saved entry, or raise 404.
 def edit_android_app(app_id: str, updates: dict) -> dict:
     path = APPS_FILES["android"]
 
+    # Merge the updates into the matching app, replacing metadata keys outright.
     def mutate(data: Any) -> None:
         for item in data.get("apps") or []:
             if android_app_id(plain(item)) == app_id:
@@ -75,9 +85,11 @@ def edit_android_app(app_id: str, updates: dict) -> dict:
     raise HTTPException(status_code=404, detail=f"Unknown app_id: {app_id}")
 
 
+# Remove an Android app, raising 404 when it does not exist.
 def delete_android_app(app_id: str) -> None:
     path = APPS_FILES["android"]
 
+    # Drop the matching app from the apps list.
     def mutate(data: Any) -> None:
         apps = data.get("apps") or []
         remaining = [item for item in apps if android_app_id(plain(item)) != app_id]

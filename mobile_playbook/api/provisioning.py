@@ -1,4 +1,6 @@
-"""Poll-safe readiness checks for configured apps."""
+"""
+Poll-safe readiness checks for configured apps.
+"""
 
 from __future__ import annotations
 
@@ -28,15 +30,18 @@ _DEVICE_PROBE_TIMEOUT_SECONDS = 5.0
 Stage = dict[str, Any]
 
 
+# Build one setup stage dict.
 def _stage(stage_id: str, label: str, state: str, detail: str | None = None) -> Stage:
     return {"id": stage_id, "label": label, "state": state, "detail": detail}
 
 
+# Return the artifact's configured intake directory, or the default iOS one.
 def _intake_dir(artifact: dict) -> Path:
     configured = (artifact or {}).get("intake_dir")
     return Path(configured).expanduser() if configured else ios_intake_dir()
 
 
+# Summarize stages as failed, ready or pending.
 def _overall_status(stages: list[Stage]) -> str:
     states = {stage["state"] for stage in stages}
     if "failed" in states:
@@ -46,6 +51,7 @@ def _overall_status(stages: list[Stage]) -> str:
     return "pending"
 
 
+# Return the detail of the first failed stage, or None.
 def _first_failure(stages: list[Stage]) -> str | None:
     for stage in stages:
         if stage["state"] == "failed":
@@ -53,8 +59,8 @@ def _first_failure(stages: list[Stage]) -> str | None:
     return None
 
 
+# Return the state, detail and resolved bundle id of an iOS app's test configuration.
 def _ios_configuration(app: dict) -> tuple[str, str | None, str | None]:
-    """(state, detail, resolved bundle id) for an iOS app's test configuration."""
     artifact = app.get("artifact") or {}
     source = artifact.get("source") or ""
     bundle_id = app.get("bundle_id") or artifact.get("expected_bundle_id") or None
@@ -100,6 +106,7 @@ def _ios_configuration(app: dict) -> tuple[str, str | None, str | None]:
     return "failed", "This app's test configuration is incomplete.", bundle_id
 
 
+# Build an adb client from the Android config, or a default client when it is unavailable.
 def _android_adb() -> AdbClient:
     try:
         config = load_android_config(config_editor.ENTRY_FILES["android"], dry_run=True)
@@ -109,8 +116,8 @@ def _android_adb() -> AdbClient:
         return AdbClient()
 
 
+# Return connected, no_device or unreachable for the Android device, never the serial.
 def _android_device(adb: AdbClient) -> str:
-    """`connected`, `no_device`, or `unreachable` — never the serial itself."""
     if not adb.is_available():
         logger.debug("api: adb is not available; Android device unreachable.")
         return "unreachable"
@@ -119,6 +126,7 @@ def _android_device(adb: AdbClient) -> str:
     return "connected" if state_code == 0 and state_out.strip() == "device" else "no_device"
 
 
+# Return the state, detail and package name of an Android app's test configuration.
 def _android_configuration(app: dict) -> tuple[str, str | None, str | None]:
     package_name = app.get("package_name") or None
     logger.debug("api: checking Android configuration for app %r (package=%r).", app.get("id"), package_name)
@@ -140,13 +148,14 @@ def _android_configuration(app: dict) -> tuple[str, str | None, str | None]:
     return "in_progress", "Waiting for the app to be installed on the test device.", package_name
 
 
+# Count the app's enabled risks.
 def _enabled_risk_count(app: dict) -> int:
     risks = app.get("risks") or {}
     return len([r for r, settings in risks.items() if (settings or {}).get("enabled")])
 
 
+# Build the three independent setup stages and the resolved app id.
 def _setup_stages(platform: str, app: dict | None) -> tuple[list[Stage], str | None]:
-    """The three setup stages, which complete independently of one another."""
     registered = app is not None
     stages = [
         _stage(
@@ -208,12 +217,8 @@ _CONFIG_BLOCKER_BY_STAGE_STATE = {
 }
 
 
+# Return whether the configured iOS device is attached, treating an empty probe as ready.
 def _ios_device_ready() -> bool:
-    """
-    An empty probe result means `xcrun xctrace` itself is unusable, not that no
-    device is attached, so it is not treated as a blocker — the run remains the
-    authority and fails fast with a real device error.
-    """
     try:
         config = load_ios_config(config_editor.ENTRY_FILES["ios"], dry_run=True)
     except Exception:
@@ -227,9 +232,11 @@ def _ios_device_ready() -> bool:
     logger.debug(
         "api: iOS device probe saw %d device(s); configured device present=%s.", len(connected), udid in connected
     )
+    # An empty probe means xctrace is unusable, not that no device is attached; the run fails fast instead.
     return not connected or udid in connected
 
 
+# Return whether the app's enabled risks need a device, assuming yes when unsure.
 def _device_required(platform: str, app: dict | None) -> bool:
     if app is None:
         logger.debug("api: %s app unknown; assuming a device is required.", platform)
@@ -252,8 +259,8 @@ def _device_required(platform: str, app: dict | None) -> bool:
         return True
 
 
+# Compute execution readiness and the blocking reason, separately from configuration readiness.
 def _readiness(platform: str, app: dict | None, stages: list[Stage]) -> dict:
-    """Execution readiness, kept apart from configuration readiness."""
     config_stage = next((s for s in stages if s["id"] == "configuration_applied"), None)
     config_state = (config_stage or {}).get("state", "pending")
 
@@ -275,8 +282,7 @@ def _readiness(platform: str, app: dict | None, stages: list[Stage]) -> dict:
         device_ready = _ios_device_ready()
         device_blocker = None if device_ready else "no_device"
 
-    # An Android app can only be confirmed installed while a device is attached,
-    # so a device blocker outranks the install stage it would otherwise report.
+    # Android installs are only confirmable with a device attached, so the device blocker wins.
     if device_blocker and config_blocker in ("app_build_missing", None) and config_state == "unknown":
         config_blocker = None
 
@@ -306,6 +312,7 @@ def _readiness(platform: str, app: dict | None, stages: list[Stage]) -> dict:
     }
 
 
+# Build the failed setup report for an app whose configuration cannot be used.
 def _config_failure(platform: str, app_id: str, detail: str) -> dict:
     return {
         "app_id": app_id,
@@ -325,8 +332,8 @@ def _config_failure(platform: str, app_id: str, detail: str) -> dict:
     }
 
 
+# Build the setup and readiness report for one app. See docs/api.md#is-an-app-ready-to-test.
 def describe(platform: str, app_id: str) -> dict:
-    """Setup report for one app. See docs/api.md#is-an-app-ready-to-test."""
     detail = "The test configuration needs attention before this app can be tested."
     logger.debug("api: describing setup for %s app %r.", platform, app_id)
     try:

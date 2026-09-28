@@ -1,3 +1,7 @@
+"""
+Public entry points for editing the platform YAML configs.
+"""
+
 from mobile_playbook.api.config_editing.android_apps import (
     add_android_app,
     delete_android_app,

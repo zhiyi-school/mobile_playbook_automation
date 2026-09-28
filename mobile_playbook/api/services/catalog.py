@@ -1,3 +1,7 @@
+"""
+Builds the risk catalogue from risk classes, YAML metadata and the playbook, plus the PAC file.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -17,6 +21,7 @@ TRAFFIC_INTERCEPTION_RISK_ID = {"ios": "ios-feature-02-risk-01"}
 logger = logging.getLogger(__name__)
 
 
+# Build the platform's risk list with YAML metadata, playbook overviews, demonstrations and controls.
 def list_platform_risks(platform: Platform) -> list[dict]:
     risks = list_android_risks() if platform == "android" else list_ios_risks()
     controls_by_risk, controls_error = playbook_service.risk_control_summaries(platform)
@@ -41,8 +46,8 @@ def list_platform_risks(platform: Platform) -> list[dict]:
     return risks
 
 
+# Overlay the playbook's title, description and tactic on a risk, keeping YAML values as fallback.
 def _apply_playbook_overview(risk: dict, overview: dict | None) -> None:
-    """The playbook document wins where it says something; the YAML entry remains the fallback."""
     risk.setdefault("tactic_id", None)
     if overview is None:
         logger.debug("api: no playbook overview for risk %s; keeping YAML metadata.", risk.get("risk_id"))
@@ -56,6 +61,7 @@ def _apply_playbook_overview(risk: dict, overview: dict | None) -> None:
         risk["tactic_id"] = overview.get("tactic_id")
 
 
+# Render a PAC file that proxies through the configured Burp listener, sending Apple hosts direct.
 def traffic_interception_pac(platform: Platform, proxy_host: str | None = None) -> str:
     risk_id = TRAFFIC_INTERCEPTION_RISK_ID.get(platform)
     if risk_id is None:

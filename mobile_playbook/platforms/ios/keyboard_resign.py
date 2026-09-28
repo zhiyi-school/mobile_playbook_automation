@@ -1,3 +1,7 @@
+"""
+Detects expired keyboard IPA signatures and resigns them with the bundled resign tool.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -25,6 +29,7 @@ class ResignResult:
     errors: list[str] = field(default_factory=list)
 
 
+# Return the ExpirationDate of every embedded provisioning profile in an IPA, as UTC datetimes.
 def _expiry_dates(ipa_path: Path) -> list[datetime]:
     dates: list[datetime] = []
     with zipfile.ZipFile(ipa_path) as zf:
@@ -49,6 +54,7 @@ def _expiry_dates(ipa_path: Path) -> list[datetime]:
     return dates
 
 
+# Return whether the earliest profile expiry falls within the margin; no profile counts as unexpired.
 def signature_expired(ipa_path: Path, margin_seconds: int = 3600) -> bool:
     dates = _expiry_dates(ipa_path)
     if not dates:
@@ -65,6 +71,7 @@ def signature_expired(ipa_path: Path, margin_seconds: int = 3600) -> bool:
     return remaining <= margin_seconds
 
 
+# Return whether install errors contain a code-signature verification failure marker.
 def is_verification_failure(errors: list[str]) -> bool:
     joined = " ".join(errors)
     matched = [marker for marker in VERIFICATION_MARKERS if marker in joined]
@@ -72,6 +79,7 @@ def is_verification_failure(errors: list[str]) -> bool:
     return bool(matched)
 
 
+# Run the resign script for an IPA and device, mapping a missing script, timeout or failure to a status.
 def resign(ipa_path: Path, udid: str, team_id: str, timeout_seconds: int = 900) -> ResignResult:
     script = resolve_under_repository(RESIGN_SCRIPT)
     if not script.exists():

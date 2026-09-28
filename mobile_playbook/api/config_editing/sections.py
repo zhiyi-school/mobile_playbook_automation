@@ -1,3 +1,7 @@
+"""
+Reads and updates whole config sections and global risk settings files.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -18,16 +22,19 @@ from mobile_playbook.api.config_editing.shared import (
 logger = logging.getLogger(__name__)
 
 
+# Return one top-level section of the platform's entry config.
 def get_section(platform: str, section: str) -> dict:
     logger.debug("api: reading section %s of %s.", section, ENTRY_FILES[platform])
     data = rt_yaml.load(ENTRY_FILES[platform].read_text())
     return plain(data.get(section) or {})
 
 
+# Merge updates into a section of the entry config and return the saved section.
 def put_section(platform: str, section: str, updates: dict) -> dict:
     path = ENTRY_FILES[platform]
     logger.debug("api: updating section %s of %s with keys %s.", section, path, sorted(updates))
 
+    # Create the section if needed and merge the updates into it.
     def mutate(data: Any) -> None:
         if not isinstance(data.get(section), dict):
             logger.debug("api: section %s missing or not a mapping in %s; creating it.", section, path)
@@ -38,6 +45,7 @@ def put_section(platform: str, section: str, updates: dict) -> dict:
     return plain(data.get(section) or {})
 
 
+# Return the field name and file holding a risk's global settings, or raise 404.
 def risk_settings_target(platform: str, risk_id: str) -> tuple[str, Path]:
     target = (RISK_SETTINGS.get(platform) or {}).get(risk_id)
     if target is None:
@@ -47,16 +55,19 @@ def risk_settings_target(platform: str, risk_id: str) -> tuple[str, Path]:
     return target
 
 
+# Return a risk's global settings.
 def get_risk_settings(platform: str, risk_id: str) -> dict:
     field_name, path = risk_settings_target(platform, risk_id)
     data = rt_yaml.load(path.read_text())
     return plain(data.get(field_name) or {})
 
 
+# Merge updates into a risk's global settings and return the saved settings.
 def put_risk_settings(platform: str, risk_id: str, updates: dict) -> dict:
     field_name, path = risk_settings_target(platform, risk_id)
     logger.debug("api: updating risk settings %s in %s with keys %s.", field_name, path, sorted(updates))
 
+    # Create the settings mapping if needed and merge the updates into it.
     def mutate(data: Any) -> None:
         if not isinstance(data.get(field_name), dict):
             data[field_name] = {}

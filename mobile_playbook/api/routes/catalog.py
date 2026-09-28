@@ -1,3 +1,7 @@
+"""
+Routes for the risk and feature catalogue, playbook images and the traffic-interception PAC.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -18,6 +22,7 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
+# List the platform's risks with metadata, demonstrations and control summaries.
 @router.get("/platforms/{platform}/risks")
 def platform_risks(platform: Platform) -> list[dict]:
     logger.debug("api: GET /platforms/%s/risks.", platform)
@@ -26,12 +31,14 @@ def platform_risks(platform: Platform) -> list[dict]:
     return risks
 
 
+# Update a risk's name, description or tactic metadata.
 @router.put("/platforms/{platform}/risks/{risk_id}")
 def put_platform_risk(platform: Platform, risk_id: str, body: RiskMetadataUpdateRequest) -> dict:
     logger.debug("api: PUT /platforms/%s/risks/%s fields=%s.", platform, risk_id, sorted(body.model_fields_set))
     return config_editor.put_risk_metadata(platform, risk_id, body.updates())
 
 
+# Replace a risk's YAML demonstration and return it with derived image fields.
 @router.put("/platforms/{platform}/risks/{risk_id}/demonstration")
 def put_platform_risk_demonstration(
     platform: Platform, risk_id: str, body: RiskDemonstrationUpdateRequest
@@ -42,6 +49,7 @@ def put_platform_risk_demonstration(
     return playbook_assets.decorate_demonstration(platform, stored)
 
 
+# Serve an image from the platform's playbook directory, or 404.
 @router.get("/platforms/{platform}/playbook/images/{image_path:path}")
 def playbook_image(platform: Platform, image_path: str) -> FileResponse:
     logger.debug("api: GET /platforms/%s/playbook/images/%s.", platform, image_path)
@@ -53,6 +61,7 @@ def playbook_image(platform: Platform, image_path: str) -> FileResponse:
     return FileResponse(resolved)
 
 
+# Serve the proxy auto-config file for traffic interception.
 @router.get("/platforms/{platform}/traffic-interception/proxy.pac")
 def traffic_interception_pac(platform: Platform, proxy_host: str | None = None) -> PlainTextResponse:
     logger.debug("api: GET /platforms/%s/traffic-interception/proxy.pac proxy_host=%r.", platform, proxy_host)
@@ -62,6 +71,7 @@ def traffic_interception_pac(platform: Platform, proxy_host: str | None = None) 
     )
 
 
+# List the platform's features with their names and descriptions.
 @router.get("/platforms/{platform}/features")
 def platform_features(platform: Platform) -> list[dict]:
     logger.debug("api: GET /platforms/%s/features.", platform)
@@ -70,6 +80,7 @@ def platform_features(platform: Platform) -> list[dict]:
     return features
 
 
+# Update a feature's name or description.
 @router.put("/platforms/{platform}/features/{feature_id}")
 def put_platform_feature(platform: Platform, feature_id: str, body: FeatureUpdateRequest) -> dict:
     logger.debug("api: PUT /platforms/%s/features/%s fields=%s.", platform, feature_id, sorted(body.model_fields_set))

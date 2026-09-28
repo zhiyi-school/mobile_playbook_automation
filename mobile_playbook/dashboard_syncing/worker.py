@@ -1,3 +1,7 @@
+"""
+Command-line worker that syncs completed automation reports into the dashboard database.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -19,6 +23,7 @@ from mobile_playbook.sync_state import SyncBusy, single_instance
 logger = logging.getLogger(__name__)
 
 
+# Builds the argument parser for the dashboard sync worker.
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Sync completed automation reports into the dashboard database.")
     parser.add_argument("--reports-dir", default=str(reports_root()))
@@ -45,6 +50,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+# Runs one sync pass under the host lock, or loops every --interval-seconds, recording each worker pass.
 def main(
     argv: Sequence[str] | None = None,
     *,

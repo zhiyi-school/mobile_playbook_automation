@@ -1,3 +1,7 @@
+"""
+Command-line entry point for validating configs and playbooks, listing risks, and running scans.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -44,6 +48,7 @@ _KNOWN_RISKS_BY_PLATFORM = {"ios": known_ios_risks, "android": known_android_ris
 logger = logging.getLogger(__name__)
 
 
+# Builds the argument parser for the validate, playbook, risk listing, run, acquire and inspect-ipa commands.
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m mobile_playbook")
     parser.add_argument("--verbose", action="store_true")
@@ -92,8 +97,8 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+# Prints what the configured playbook parsed to and its warnings; never prints archive contents or secrets.
 def _validate_playbook(platform: str) -> int:
-    """Names what the playbook parsed to; never prints archive contents or secrets."""
     from mobile_playbook.api.services import playbook as playbook_service
 
     report = playbook_service.status(platform)
@@ -132,6 +137,7 @@ def _validate_playbook(platform: str) -> int:
     return 0
 
 
+# Loads .env files, configures logging and dispatches the selected CLI command, returning its exit code.
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     load_env_file(Path(".env"))
@@ -237,34 +243,41 @@ def main(argv: list[str] | None = None) -> int:
 
 
 
+# Parses a comma-separated risk selection.
 def _selected_risks(risks: str | None) -> set[str] | None:
     return selected_csv(risks)
 
 
+# Parses a comma-separated app selection.
 def _selected_apps(apps: str | None) -> set[str] | None:
     return selected_app_csv(apps)
 
 
+# Validates the selected apps against the config's apps.
 def _validate_app_selection(config, selected_apps: set[str] | None) -> None:
     validate_app_selection(config.apps, selected_apps)
 
 
+# Prints the iOS dry-run plan for the selected risks and apps.
 def _print_dry_run(config, selected_risks: set[str] | None, selected_apps: set[str] | None = None) -> None:
     for line in IosPlatformRunner().dry_run_lines(config, selected_risks, selected_apps):
         print(line)
 
 
+# Prints the Android dry-run plan for the selected risks and apps.
 def _print_android_dry_run(config, selected_risks: set[str] | None, selected_apps: set[str] | None = None) -> None:
     for line in AndroidPlatformRunner().dry_run_lines(config, selected_risks, selected_apps):
         print(line)
 
 
+# Reserves a new run timestamp under root that also avoids existing acquire result files.
 def _new_run_timestamp(root: Path, now=None) -> str:
     from mobile_playbook.orchestration.scheduler import new_run_timestamp
 
     return new_run_timestamp(root, now=now, extra_files=("{timestamp}-acquire-results.json",))
 
 
+# Runs the iOS scan for the selection and prints where the reports were written.
 def _run(config, selected_risks: set[str] | None, selected_apps: set[str] | None, out_dir: Path) -> int:
     outcome = run_platform(
         config,
@@ -277,10 +290,12 @@ def _run(config, selected_risks: set[str] | None, selected_apps: set[str] | None
     return 0
 
 
+# Creates a ReportWriter that normalizes iOS results.
 def _ios_report_writer(out_dir: Path, run_timestamp: str) -> ReportWriter:
     return ReportWriter(out_dir, run_timestamp, result_adapter=normalize_ios_result, platform="ios")
 
 
+# Runs the Android scan for the selection and prints where the reports were written.
 def _run_android(config, selected_risks: set[str] | None, selected_apps: set[str] | None, out_dir: Path) -> int:
     outcome = run_platform(
         config,
@@ -293,10 +308,12 @@ def _run_android(config, selected_risks: set[str] | None, selected_apps: set[str
     return 0
 
 
+# Creates a ReportWriter that normalizes Android results.
 def _android_report_writer(out_dir: Path, run_timestamp: str) -> ReportWriter:
     return ReportWriter(out_dir, run_timestamp, result_adapter=normalize_android_result, platform="android")
 
 
+# Runs the iOS and Android flows concurrently in threads, each into its own run folder, and combines exit codes.
 def _run_all(
     ios_config,
     android_config,
@@ -304,16 +321,9 @@ def _run_all(
     selected_apps: set[str] | None,
     out_dir: Path,
 ) -> int:
-    """Run the existing iOS and Android `run` flows concurrently, unchanged.
-
-    Each platform reserves its own run_timestamp atomically and writes its own
-    reports/<run_timestamp>/ folder via _run / _run_android, so results stay
-    fully separate even when both threads start in the same second. Threads
-    (not processes) are enough here because the work is I/O-bound:
-    Appium/network calls and adb/apktool/xcodebuild subprocesses.
-    """
     outcomes: dict[str, tuple[int, Exception | None]] = {}
 
+    # Runs one platform flow and records its exit code or exception.
     def _invoke(name: str, fn) -> None:
         logger.debug("cli: run-all %s thread starting.", name)
         try:
@@ -350,10 +360,12 @@ def _run_all(
     return exit_code
 
 
+# Reports whether the iOS run for the selection needs a connected device.
 def _run_requires_device(config, selected_risks: set[str] | None, selected_apps: set[str] | None = None) -> bool:
     return IosPlatformRunner().requires_device(config, selected_risks, selected_apps)
 
 
+# Acquires iOS app artifacts for the selected apps and writes the results JSON to out_dir.
 def _acquire(config, selected_apps: set[str] | None, out_dir: Path) -> int:
     run_timestamp = _new_run_timestamp(out_dir)
     logger.debug("cli: acquiring artifacts for apps %s as %s into %s.", selected_apps, run_timestamp, out_dir)
@@ -365,6 +377,7 @@ def _acquire(config, selected_apps: set[str] | None, out_dir: Path) -> int:
     return 0
 
 
+# Prints IPA metadata and main-executable inspection as JSON after unpacking to a temp dir.
 def _inspect_ipa(ipa_path: Path) -> int:
     metadata = inspect_ipa_metadata(ipa_path)
     temp_dir = Path("/tmp") / f"mobile-playbook-automation-inspect-{uuid.uuid4().hex[:8]}"

@@ -1,3 +1,7 @@
+"""
+Persisted registry of API-triggered runs and the per-platform device claims.
+"""
+
 from __future__ import annotations
 
 import json
@@ -35,6 +39,7 @@ class RunRecord:
 class JobRegistry:
     """Persisted tracker for runs triggered through the API."""
 
+    # Create the registry and load any persisted records.
     def __init__(self, persist_path: Path | None = DEFAULT_PERSIST_PATH) -> None:
         self._lock = threading.Lock()
         self._persist_path = persist_path
@@ -42,6 +47,7 @@ class JobRegistry:
         self._busy_platforms: set[str] = set()
         self._load()
 
+    # Load persisted records, marking runs left running by a restart as failed.
     def _load(self) -> None:
         if self._persist_path is None or not self._persist_path.exists():
             logger.debug("api: no persisted run registry at %s; starting empty.", self._persist_path)
@@ -78,6 +84,7 @@ class JobRegistry:
             logger.info("api: marked %d still-'running' run(s) as failed (%s).", interrupted, INTERRUPTED_ERROR)
             self._save()
 
+    # Atomically write every record to the persist path, when one is set.
     def _save(self) -> None:
         if self._persist_path is None:
             logger.debug("api: run registry has no persist path; skipping save.")
@@ -97,8 +104,8 @@ class JobRegistry:
             raise
         logger.debug("api: saved %d run record(s) to %s.", len(payload), self._persist_path)
 
+    # Claim one physical device platform for the current process.
     def try_claim_platform(self, platform: str) -> bool:
-        """Claim one physical device platform for the current process."""
         with self._lock:
             if platform in self._busy_platforms:
                 logger.debug("api: platform %s is busy; claim refused.", platform)
@@ -107,17 +114,20 @@ class JobRegistry:
             logger.debug("api: claimed platform %s.", platform)
             return True
 
+    # Release a platform claim.
     def release_platform(self, platform: str) -> None:
         with self._lock:
             self._busy_platforms.discard(platform)
             logger.debug("api: released platform %s.", platform)
 
+    # Return whether a platform is currently claimed.
     def is_platform_busy(self, platform: str) -> bool:
         with self._lock:
             busy = platform in self._busy_platforms
         logger.debug("api: platform %s busy=%s.", platform, busy)
         return busy
 
+    # Record and persist a new running run.
     def create(
         self,
         run_id: str,
@@ -142,6 +152,7 @@ class JobRegistry:
         )
         return record
 
+    # Mark a run completed with its report directory and persist it.
     def mark_completed(self, run_id: str, run_dir: Path) -> None:
         with self._lock:
             record = self._records[run_id]
@@ -151,6 +162,7 @@ class JobRegistry:
             record.completed_at = datetime.now().astimezone().isoformat()
             self._save()
 
+    # Mark a run failed with its error and persist it.
     def mark_failed(self, run_id: str, error: str) -> None:
         with self._lock:
             record = self._records[run_id]
@@ -160,10 +172,12 @@ class JobRegistry:
             record.completed_at = datetime.now().astimezone().isoformat()
             self._save()
 
+    # Return a run's record, or None.
     def get(self, run_id: str) -> RunRecord | None:
         with self._lock:
             return self._records.get(run_id)
 
+    # Return every record, most recently started first.
     def list(self) -> list[RunRecord]:
         with self._lock:
             return sorted(self._records.values(), key=lambda r: r.started_at, reverse=True)

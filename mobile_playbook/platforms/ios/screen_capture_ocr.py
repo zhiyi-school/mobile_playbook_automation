@@ -1,3 +1,7 @@
+"""
+OCR and obscured-frame detection over screen-capture frames using the macOS Vision framework.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -10,6 +14,7 @@ _SHOT_MS = re.compile(r"broadcast-screenshot-(\d+)\.png$")
 _OBSCURED_SAMPLE_SIDE = 64
 
 
+# Return whether the Vision framework can be imported.
 def ocr_available() -> bool:
     try:
         import Vision  # noqa: F401
@@ -19,6 +24,7 @@ def ocr_available() -> bool:
         return False
 
 
+# Return the text lines Vision recognises in an image.
 def recognise_text(image: Path) -> list[str]:
     import Quartz
     import Vision
@@ -36,6 +42,7 @@ def recognise_text(image: Path) -> list[str]:
     return lines
 
 
+# Return the screenshot frames whose timestamped names fall inside the window, sorted.
 def frames_in_window(frames: list[Path], start_ms: int, end_ms: int) -> list[Path]:
     selected = []
     for frame in frames:
@@ -46,9 +53,9 @@ def frames_in_window(frames: list[Path], start_ms: int, end_ms: int) -> list[Pat
     return sorted(selected)
 
 
+# Extract PNG frames from the recording across the window; the fallback when no screenshots exist.
 def extract_frames(recording: Path, recording_started_ms: int, start_ms: int, end_ms: int,
                    every_seconds: float, dest: Path) -> list[Path]:
-    """Video fallback when the recorder saved no screenshots inside the window."""
     import AVFoundation
     import CoreMedia
     import Quartz
@@ -76,8 +83,8 @@ def extract_frames(recording: Path, recording_started_ms: int, start_ms: int, en
     return out
 
 
+# Return whether a frame is near-uniform, meaning the app blanked or covered itself during capture.
 def is_obscured(image: Path, threshold: float = 4.0) -> bool:
-    """A near-uniform frame: the app blanked or covered itself while being captured."""
     import Quartz
     from Foundation import NSURL
 
@@ -99,6 +106,7 @@ def is_obscured(image: Path, threshold: float = 4.0) -> bool:
     return deviation < threshold
 
 
+# OCR each unobscured frame and record which canaries appear in its text.
 def scan_frames(frames: list[Path], canaries: dict[str, str], recogniser=recognise_text) -> dict:
     matches, obscured = [], []
     logger.debug("ios ocr: scanning %s frames for canary kinds %s", len(frames), sorted(canaries))
@@ -118,6 +126,7 @@ def scan_frames(frames: list[Path], canaries: dict[str, str], recogniser=recogni
     return {"frames_scanned": len(frames), "obscured_frames": obscured, "matches": matches}
 
 
+# Write a CGImage to a PNG file, raising if Quartz cannot finalize it.
 def _write_png(Quartz, cg_image, path: Path) -> None:
     from Foundation import NSURL
 

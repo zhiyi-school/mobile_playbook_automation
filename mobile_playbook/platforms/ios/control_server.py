@@ -1,3 +1,7 @@
+"""
+Local HTTP pairing and input-queue server used by the ios-feature-04 custom-keyboard risks.
+"""
+
 from __future__ import annotations
 
 import json
@@ -14,6 +18,7 @@ from urllib.parse import parse_qs, urlparse
 logger = logging.getLogger(__name__)
 
 
+# Return the current UTC time as an ISO 8601 string.
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -41,12 +46,9 @@ class ControlServerState:
 
 
 class CommandControlServer:
-    """Small local HTTP server used by ios-feature-04 custom-keyboard risks.
+    """Small local HTTP server that pairs the keyboard, queues input for it and records app events."""
 
-    The server deliberately keeps only the primitives needed by the test:
-    pair, enqueue input, deliver the next queued input, and record app events.
-    """
-
+    # Configure the bind address and token, generating a random token when none is given.
     def __init__(
         self,
         host: str = "0.0.0.0",
@@ -62,6 +64,7 @@ class CommandControlServer:
         self._server: ThreadingHTTPServer | None = None
         self._thread: threading.Thread | None = None
 
+    # Return the server URL, showing 127.0.0.1 for a wildcard bind.
     @property
     def base_url(self) -> str:
         if self._server is None:
@@ -70,6 +73,7 @@ class CommandControlServer:
         display_host = "127.0.0.1" if host in {"0.0.0.0", ""} else host
         return f"http://{display_host}:{port}"
 
+    # Bind the HTTP server, record the actual port and serve it on a daemon thread.
     def start(self) -> "CommandControlServer":
         handler = self._make_handler()
         logger.debug(
@@ -85,6 +89,7 @@ class CommandControlServer:
         logger.debug("ios control server: listening at %s", self.base_url)
         return self
 
+    # Shut down the HTTP server and join its thread.
     def stop(self) -> None:
         logger.debug(
             "ios control server: stopping (server_running=%s, thread_running=%s)",
@@ -101,6 +106,7 @@ class CommandControlServer:
             self._thread = None
         logger.debug("ios control server: stopped")
 
+    # Append text to the input queue and return the queued item.
     def enqueue(self, text: str) -> QueuedInput:
         with self._lock:
             item = QueuedInput(id=self.state.next_id, text=text, created_at=_utc_now())
@@ -114,6 +120,7 @@ class CommandControlServer:
             )
             return item
 
+    # Pop and mark delivered the next queued input for a valid token, or return None.
     def next_input(self, token: str) -> QueuedInput | None:
         if token != self.state.token:
             logger.debug("ios control server: next_input rejected, token mismatch")
@@ -133,6 +140,7 @@ class CommandControlServer:
             )
             return item
 
+    # Poll until the keyboard app pairs or the timeout passes, returning whether it paired.
     def wait_for_pair(self, timeout_seconds: float) -> bool:
         logger.debug("ios control server: waiting up to %ss for pairing", timeout_seconds)
         started = time.monotonic()
@@ -146,6 +154,7 @@ class CommandControlServer:
         logger.debug("ios control server: pairing not observed within %ss", timeout_seconds)
         return False
 
+    # Poll until the input queue drains or the timeout passes, returning whether it drained.
     def wait_for_empty_queue(self, timeout_seconds: float) -> bool:
         logger.debug("ios control server: waiting up to %ss for queue to drain", timeout_seconds)
         started = time.monotonic()
@@ -161,6 +170,7 @@ class CommandControlServer:
         )
         return False
 
+    # Return the full server state, including request counts and the latest 100 requests.
     def snapshot(self) -> dict[str, Any]:
         with self._lock:
             next_requests = [item for item in self.state.requests if item.get("path") == "/next"]
@@ -181,6 +191,7 @@ class CommandControlServer:
                 "requests": list(self.state.requests[-100:]),
             }
 
+    # Return the queued and delivered input items.
     def queue_snapshot(self) -> dict[str, Any]:
         with self._lock:
             return {
@@ -190,6 +201,7 @@ class CommandControlServer:
                 "delivered": [item.__dict__.copy() for item in self.state.delivered],
             }
 
+    # Record a handled request, keeping only the latest 500.
     def _record_request(self, path: str, method: str, status: int, metadata: dict[str, Any] | None = None) -> None:
         with self._lock:
             self.state.requests.append(
@@ -211,12 +223,14 @@ class CommandControlServer:
             metadata or {},
         )
 
+    # Build the request handler class bound to this server instance.
     def _make_handler(self):
         outer = self
 
         class Handler(BaseHTTPRequestHandler):
             server_version = "Feature04KeyboardTest/0.1"
 
+            # Serve /health, token-checked /next, /events, /queue and /snapshot.
             def do_GET(self) -> None:
                 parsed = urlparse(self.path)
                 logger.debug(
@@ -258,6 +272,7 @@ class CommandControlServer:
                 outer._record_request(parsed.path, "GET", 404)
                 self._send_json(404, {"error": "not_found"})
 
+            # Handle /pair, /enqueue (token-checked when required) and token-checked /events.
             def do_POST(self) -> None:
                 parsed = urlparse(self.path)
                 logger.debug(
@@ -310,14 +325,17 @@ class CommandControlServer:
                 outer._record_request(parsed.path, "POST", 404)
                 self._send_json(404, {"error": "not_found"})
 
+            # Silence the default stderr access log.
             def log_message(self, format: str, *args: Any) -> None:
                 return
 
+            # Return whether the header or query token matches the server token.
             def _has_valid_token(self, parsed) -> bool:
                 header = self.headers.get("X-Control-Token")
                 query = parse_qs(parsed.query).get("token", [None])[0]
                 return (header or query) == outer.state.token
 
+            # Read the request body as a JSON object, returning {} when empty or invalid.
             def _read_json(self) -> dict[str, Any]:
                 length = int(self.headers.get("Content-Length", "0") or "0")
                 if length <= 0:
@@ -334,6 +352,7 @@ class CommandControlServer:
                     logger.debug("ios control server: request body JSON is %s, not an object", type(value).__name__)
                 return value if isinstance(value, dict) else {}
 
+            # Send a JSON response with the given status.
             def _send_json(self, status: int, payload: dict[str, Any]) -> None:
                 body = json.dumps(payload).encode("utf-8")
                 self.send_response(status)

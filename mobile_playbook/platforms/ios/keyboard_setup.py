@@ -1,3 +1,7 @@
+"""
+Adds a custom keyboard and enables Full Access through the Settings app UI via Appium.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -14,16 +18,21 @@ CANCEL_LABELS = ["Cancel"]
 
 
 class KeyboardSetupError(RuntimeError):
+    """Keyboard setup failure carrying a status and the setup state reached."""
+
+    # Store the failure status and setup state alongside the message.
     def __init__(self, status: str, message: str, state: dict[str, Any] | None = None):
         super().__init__(message)
         self.status = status
         self.state = state or {}
 
 
+# Return whether a switch value reads as on.
 def _on(value: str | None) -> bool:
     return str(value or "").strip().lower() in {"1", "true", "on"}
 
 
+# Return the unique keyboard names to look for, starting with the extension bundle ID.
 def _display_names(config: dict[str, Any]) -> list[str]:
     names = config.get("keyboard_display_names")
     if isinstance(names, str):
@@ -39,6 +48,7 @@ def _display_names(config: dict[str, Any]) -> list[str]:
     return ordered
 
 
+# Activate Settings and tap back until its root page shows, raising after max_attempts.
 def _return_to_settings_root(device_client, timeout: float, max_attempts: int = 8) -> None:
     logger.debug("ios keyboard setup: activating %s and returning to Settings root", SETTINGS_BUNDLE_ID)
     device_client.activate_app(SETTINGS_BUNDLE_ID)
@@ -54,6 +64,7 @@ def _return_to_settings_root(device_client, timeout: float, max_attempts: int = 
     raise RuntimeError("could not return to the Settings root page")
 
 
+# Navigate from the Settings root to General > Keyboard > Keyboards.
 def _open_keyboards_list(device_client, timeout: float) -> None:
     logger.debug("ios keyboard setup: opening General > Keyboard > Keyboards")
     device_client.activate_app(SPRINGBOARD_BUNDLE_ID)
@@ -63,6 +74,7 @@ def _open_keyboards_list(device_client, timeout: float) -> None:
     device_client.tap_row_label(["Keyboards"], timeout)
 
 
+# Return the first name already present in the Keyboards list, or None.
 def _added_keyboard_name(device_client, names: list[str], probe: float) -> str | None:
     for name in names:
         if device_client.has_label([name], probe):
@@ -72,6 +84,7 @@ def _added_keyboard_name(device_client, names: list[str], probe: float) -> str |
     return None
 
 
+# Add the first matching keyboard from the Add New Keyboard sheet, cancelling it when none match.
 def _add_keyboard(device_client, names: list[str], timeout: float, probe: float) -> str | None:
     logger.debug("ios keyboard setup: opening Add New Keyboard sheet")
     device_client.tap_row_label(ADD_NEW_KEYBOARD_LABELS, timeout)
@@ -88,6 +101,7 @@ def _add_keyboard(device_client, names: list[str], timeout: float, probe: float)
     return None
 
 
+# Turn on the keyboard's Full Access switch, confirming the prompt, with up to three attempts.
 def _enable_full_access(device_client, display_name: str, timeout: float) -> None:
     logger.debug("ios keyboard setup: opening %s to enable Full Access", display_name)
     device_client.tap_row_label([display_name], timeout)
@@ -108,6 +122,7 @@ def _enable_full_access(device_client, display_name: str, timeout: float) -> Non
     raise RuntimeError(f"Full Access was not enabled for {display_name}")
 
 
+# Ensure the configured keyboard is added and has Full Access when mode is appium_ui.
 def prepare_custom_keyboard(device_client, config: dict[str, Any], report_dir: Path) -> dict[str, Any]:
     if str(config.get("mode") or "").strip() != "appium_ui":
         logger.debug("ios keyboard setup: skipped (mode=%s)", config.get("mode") or "disabled")
@@ -129,8 +144,7 @@ def prepare_custom_keyboard(device_client, config: dict[str, Any], report_dir: P
 
         state["stage"] = "open_keyboards_list"
         _open_keyboards_list(device_client, timeout)
-        # 4 == foreground. A silent navigation miss otherwise surfaces only as
-        # NoSuchElementError with no indication of which app was on screen.
+        # App state 4 is foreground; checking it reports a navigation miss explicitly.
         state["settings_foreground"] = device_client.query_app_state("com.apple.Preferences") == 4
         logger.debug("ios keyboard setup: Settings foreground after navigation: %s", state["settings_foreground"])
         if not state["settings_foreground"]:

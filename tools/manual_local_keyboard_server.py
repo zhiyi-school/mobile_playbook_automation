@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+"""
+Manual LocalKeyboard collection server with an interactive queue prompt for ios-feature-04-risk-01 testing.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -11,6 +15,7 @@ from typing import Any
 from mobile_playbook.platforms.ios.control_server import CommandControlServer
 
 
+# Start the control server, print its URLs and token, queue initial items and run the prompt until quit.
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
     server = CommandControlServer(
@@ -55,6 +60,7 @@ def main(argv: list[str] | None = None) -> int:
         server.stop()
 
 
+# Parse the command-line options.
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Manual LocalKeyboard collection server for ios-feature-04-risk-01 testing.")
     parser.add_argument("--host", default="0.0.0.0", help="Bind host. Use 0.0.0.0 so the iPhone can reach the Mac.")
@@ -67,6 +73,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+# Read prompt commands to queue text, show state or clear it until quit or end of input.
 def _interactive_loop(server: CommandControlServer) -> None:
     print("Interactive commands:")
     print("  enqueue <text>  queue text")
@@ -115,6 +122,7 @@ def _interactive_loop(server: CommandControlServer) -> None:
         print(f"unknown command: {command}")
 
 
+# Return the Mac's routable LAN address, or None when it cannot be detected.
 def _detect_lan_ip() -> str | None:
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
@@ -126,14 +134,17 @@ def _detect_lan_ip() -> str | None:
         sock.close()
 
 
+# Decode backslash escape sequences in typed text.
 def _decode_text(value: str) -> str:
     return value.encode("utf-8").decode("unicode_escape")
 
 
+# Render newlines in text as a visible backslash-n.
 def _display_text(value: str) -> str:
     return value.replace("\n", "\\n")
 
 
+# Print the queued items and the last ten delivered items.
 def _print_queue(snapshot: dict[str, Any]) -> None:
     print(f"queued: {snapshot['queued_count']} | delivered: {snapshot['delivered_count']}")
     if snapshot["queue"]:
@@ -148,6 +159,7 @@ def _print_queue(snapshot: dict[str, Any]) -> None:
             print(f"  #{item['id']} text={_display_text(item['text'])} delivered_at={item['delivered_at']}")
 
 
+# Clear the server's queue, delivered items, events, errors and request history under its lock.
 def _clear_state(server: CommandControlServer) -> None:
     with server._lock:
         server.state.queue.clear()

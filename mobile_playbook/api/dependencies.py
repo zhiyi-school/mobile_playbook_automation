@@ -1,3 +1,7 @@
+"""
+Shared helpers that load platform configs for API requests.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -13,6 +17,7 @@ from mobile_playbook.platforms.ios.config import ConfigError, load_config
 logger = logging.getLogger(__name__)
 
 
+# Load the iOS or Android config at the given path.
 def load_platform_config(platform: Platform, config_path: str, dry_run: bool = False):
     path = Path(config_path)
     logger.debug("api: loading %s config %s (dry_run=%s).", platform, path, dry_run)
@@ -21,10 +26,12 @@ def load_platform_config(platform: Platform, config_path: str, dry_run: bool = F
     return load_config(path, dry_run=dry_run)
 
 
+# Return a config error's messages as a list.
 def config_error_detail(exc: ConfigError | AndroidConfigError) -> list[str]:
     return list(exc.errors)
 
 
+# Load a platform config, raising 422 for invalid config and 400 for an unreadable file.
 def load_config_or_400(platform: Platform, config_path: str):
     try:
         return load_platform_config(platform, config_path, dry_run=False)

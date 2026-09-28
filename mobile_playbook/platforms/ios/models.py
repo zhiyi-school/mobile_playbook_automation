@@ -1,3 +1,7 @@
+"""
+Configuration and result dataclasses for iOS runs, plus the recognised status sets.
+"""
+
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
@@ -81,6 +85,7 @@ BINARY_INSPECTION_STATUSES = {
 }
 
 
+# Convert paths, dataclasses, sequences and mappings into JSON-compatible values.
 def serialize(value: Any) -> Any:
     if isinstance(value, Path):
         return str(value)
@@ -97,6 +102,9 @@ def serialize(value: Any) -> Any:
 
 @dataclass
 class SerializableDataclass:
+    """Dataclass base that serializes itself to a JSON-compatible dict."""
+
+    # Return the dataclass as a JSON-compatible dict.
     def to_dict(self) -> dict[str, Any]:
         return serialize(asdict(self))
 
@@ -112,10 +120,7 @@ class DeviceConfig(SerializableDataclass):
     show_xcode_log: bool = False
     updated_wda_bundle_id: str | None = None
     allow_provisioning_device_registration: bool = False
-    # If set and appium_server_url isn't reachable, connect_device() launches
-    # appium_auto_start.command and waits for it to come up instead of
-    # failing preflight outright. Shape mirrors ipa_static_analysis.yaml's
-    # analyzer.auto_start: {enabled, command, wait_seconds, poll_interval_seconds}.
+    # Optional {enabled, command, wait_seconds, poll_interval_seconds} to start Appium when unreachable.
     appium_auto_start: dict[str, Any] = field(default_factory=dict)
 
 
@@ -247,9 +252,7 @@ class RiskRunResult(SerializableDataclass):
     launch_result: dict[str, Any] | None = None
     behavior_result: BehaviorResult | None = None
     final_status: str = "NOT_RUN"
-    # 3-way security verdict for the run summary: "At Risk", "Reduced Risk",
-    # or the default "Inconclusive". Each risk sets this directly alongside
-    # final_status, at the point it decides the outcome.
+    # "At Risk", "Reduced Risk" or "Inconclusive"; each risk sets it alongside final_status.
     verdict: str = "Inconclusive"
     errors: list[str] = field(default_factory=list)
     cleanup_result: CleanupResult | None = None

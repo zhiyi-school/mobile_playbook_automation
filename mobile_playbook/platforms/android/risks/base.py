@@ -1,12 +1,17 @@
+"""
+Base class for Android risk checks.
+"""
+
 from __future__ import annotations
 
 
 class AndroidRisk:
+    """Metadata and entry point shared by every Android risk check."""
+
     risk_id: str = ""
     feature_id: str = ""
     name: str = ""
-    #: Displayed text, owned by configs/split/android/risks.yaml — subclasses
-    #: leave these alone. See docs/android/risks.md#risk-metadata.
+    #: Owned by configs/split/android/risks.yaml, not subclasses; see docs/android/risks.md#risk-metadata.
     description: str = ""
     tactic: str | None = None
     is_blocking: bool = False
@@ -15,5 +20,6 @@ class AndroidRisk:
     requires: list[str] = []
     requires_device: bool = True
 
+    # Run the check for one app; subclasses implement it.
     def run(self, app_config, global_config, device_client, report_writer):
         raise NotImplementedError

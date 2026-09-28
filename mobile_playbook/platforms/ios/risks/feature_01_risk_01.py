@@ -1,3 +1,7 @@
+"""
+ios-feature-01-risk-01: acquires the IPA and runs static analysis to show its contents are exposed.
+"""
+
 from __future__ import annotations
 
 import json
@@ -29,6 +33,7 @@ class Feature01Risk01(Risk):
     requires_ipa_artifact = True
     requires_device = False
 
+    # Acquire and unpack the IPA, run the configured analyzer, write evidence and record the verdict.
     def run(self, app_config, global_config, device_client, report_writer):
         risk_config = merge_dicts(global_config.ipa_static_analysis, app_config.risks.get(self.risk_id) or {})
         result = self._base_result(report_writer.run_timestamp, app_config)
@@ -126,8 +131,8 @@ class Feature01Risk01(Risk):
                     analysis["critical_findings"].get("highest_severity"), [flag.get("id") for flag in flags[:20] if isinstance(flag, dict)],
                 )
             result.final_status = "IPA_ANALYSIS_COMPLETE"
-            # A completed static analysis is itself the finding — an acquired IPA
-            # can always be unpacked and inventoried for exposure once analysis runs.
+            
+            # A completed static analysis is itself the finding: any acquired IPA can be inventoried.
             result.verdict = "At Risk"
             logger.debug("ios-feature-01-risk-01[%s]: completed static analysis; verdict=%s", app_config.id, result.verdict)
             result.errors.extend(item["title"] for item in analysis["critical_findings"]["flags"][:3])
@@ -154,6 +159,7 @@ class Feature01Risk01(Risk):
             )
             report_writer.write_result(result, report_dir)
 
+    # Create the initial run result for this risk and app.
     def _base_result(self, run_timestamp: str, app_config) -> RiskRunResult:
         return RiskRunResult(
             run_timestamp=run_timestamp,
@@ -170,6 +176,7 @@ class Feature01Risk01(Risk):
             artifact_source=app_config.artifact.get("source", ""),
         )
 
+    # Run the builtin or MobSF analyzer, falling back to builtin when allowed.
     def _run_configured_analysis(
         self,
         ipa_path: Path,
@@ -222,6 +229,7 @@ class Feature01Risk01(Risk):
             return analysis
         raise ValueError(f"Unknown ios-feature-01-risk-01 analyzer provider: {provider}")
 
+    # Map an artifact acquisition status to the risk's final status.
     def _artifact_status_to_final(self, status: str) -> str:
         mapping = {
             "ARTIFACT_REQUIRED": "ARTIFACT_REQUIRED",

@@ -1,3 +1,7 @@
+"""
+Writes and reads the health record that marks a Burp capture file as verified for a proxy and device.
+"""
+
 from __future__ import annotations
 
 import hashlib
@@ -18,10 +22,12 @@ logger = logging.getLogger(__name__)
 HEALTH_SCHEMA_VERSION = 1
 
 
+# Return the .health.json path that sits beside a capture file.
 def health_record_path(capture_path: Path) -> Path:
     return capture_path.expanduser().resolve(strict=False).with_suffix(".health.json")
 
 
+# Normalize a proxy URL's scheme, host, port and path so equivalent URLs compare equal.
 def normalize_proxy_url(proxy_url: str) -> str:
     value = str(proxy_url or "").strip()
     parsed = urlsplit(value)
@@ -35,14 +41,17 @@ def normalize_proxy_url(proxy_url: str) -> str:
     return urlunsplit((parsed.scheme.lower(), host, path, parsed.query, ""))
 
 
+# Return the capture path expanded and resolved as a string.
 def canonical_capture_path(capture_path: Path) -> str:
     return str(capture_path.expanduser().resolve(strict=False))
 
 
+# Return the SHA-256 hex digest of a device UDID so the record never stores it raw.
 def device_udid_hash(device_udid: str) -> str:
     return hashlib.sha256(str(device_udid).encode("utf-8")).hexdigest()
 
 
+# Atomically write the health record for a verified capture and return its path.
 def write_health_record(
     *,
     capture_path: Path,
@@ -93,6 +102,7 @@ def write_health_record(
     return destination
 
 
+# Return the capture's health record, or None when it is missing, unreadable or not an object.
 def read_health_record(capture_path: Path) -> dict[str, Any] | None:
     try:
         value = json.loads(health_record_path(capture_path).read_text())
@@ -114,6 +124,7 @@ def read_health_record(capture_path: Path) -> dict[str, Any] | None:
     return value
 
 
+# Return the installed package version, falling back to the source __version__.
 def _tool_version() -> str:
     try:
         return package_version("mobile-playbook-automation")

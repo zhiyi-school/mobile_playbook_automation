@@ -1,3 +1,7 @@
+"""
+Runs the mobile_playbook CLI with `python -m mobile_playbook`.
+"""
+
 from mobile_playbook.cli import main
 
 

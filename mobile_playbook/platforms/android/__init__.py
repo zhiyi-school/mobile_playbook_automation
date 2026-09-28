@@ -1,1 +1,3 @@
-"""Android platform support placeholders."""
+"""
+Android platform support: configuration, device access, runner and risk checks.
+"""

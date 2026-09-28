@@ -1,3 +1,7 @@
+"""
+Artifact provider that verifies the app is already installed on the device instead of producing an IPA.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -12,6 +16,7 @@ logger = logging.getLogger(__name__)
 class InstalledAppReferenceProvider(ArtifactProvider):
     source = "installed_app_reference"
 
+    # Report whether the configured bundle is installed on the connected device.
     def acquire(self, app_config, global_config, device_client, run_timestamp: str, out_dir: Path) -> ArtifactAcquisitionResult:
         logger.debug("ios artifacts[%s]: %s checking installed bundle %s", app_config.id, self.source, app_config.bundle_id)
         if device_client is None:

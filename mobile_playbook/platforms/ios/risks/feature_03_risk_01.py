@@ -1,3 +1,7 @@
+"""
+ios-feature-03-risk-01: records the screen via a ReplayKit broadcast and OCRs frames for typed canaries.
+"""
+
 from __future__ import annotations
 
 import json
@@ -28,9 +32,11 @@ class Feature03Risk01(CompanionAppRiskBase):
     companion_config_key = "recorder_app"
     companion_label = "recorder"
 
+    # Store an optional OCR recogniser that replaces the Vision framework.
     def __init__(self, recogniser=None):
-        self.recogniser = recogniser  # injected by tests
+        self.recogniser = recogniser
 
+    # Install the recorder and app, broadcast while typing canaries, then OCR the recording for a verdict.
     def run(self, app_config, global_config, device_client, report_writer):
         result = self._base_result(report_writer.run_timestamp, app_config)
         report_dir = report_writer.test_report_dir(app_config.id, self.risk_id, "screen_capture")
@@ -171,6 +177,7 @@ class Feature03Risk01(CompanionAppRiskBase):
             )
             report_writer.write_result(result, report_dir)
 
+    # OCR the in-window screenshots or video frames for canaries and return the final status and verdict.
     def _verdict(self, pulled, recording, start_ms, end_ms, canaries, capture, report_dir, result):
         if not recording and not pulled["frames"]:
             logger.debug("ios-feature-03-risk-01: no recording and no frames pulled; broadcast not started")
@@ -216,6 +223,7 @@ class Feature03Risk01(CompanionAppRiskBase):
         result.errors.append("Recorded frames were readable but no canary was recognised; the screen recording is attached for manual review")
         return "CANARY_NOT_OBSERVED", "Inconclusive"
 
+    # Return the run-unique plain canary and, when enabled, the secure-field canary.
     def _canaries(self, run_timestamp: str, capture: dict) -> dict[str, str]:
         suffix = "".join(ch for ch in run_timestamp if ch.isalnum())[-6:]
         canaries = {"plain": f"{capture.get('canary_prefix', 'SCR')}{suffix}"}
@@ -223,8 +231,8 @@ class Feature03Risk01(CompanionAppRiskBase):
             canaries["secure"] = f"PWD{suffix}"
         return canaries
 
+    # Type the plain canary into a normal field and, where there is one, the secure canary into a SecureField.
     def _reveal(self, device_client, report_dir, capture, global_config, canaries) -> dict:
-        """Type the plain canary into a normal field and, where there is one, the secure canary into a SecureField."""
         focus = self._focus_text_field_with_navigation(device_client, report_dir, capture, global_config)
         logger.debug("ios-feature-03-risk-01: text field focus %.200s; typing plain canary", focus)
         typed = {"plain": device_client.type_text(canaries["plain"], capture.get("input") or {})}
@@ -240,6 +248,7 @@ class Feature03Risk01(CompanionAppRiskBase):
                 logger.debug("ios-feature-03-risk-01: secure canary typed")
         return {"focus": focus, "typed": typed}
 
+    # Move the pulled recording into the report directory as recording.mp4.
     def _keep_recording(self, recording: Path | None, report_dir: Path) -> Path | None:
         if recording is None:
             return None
@@ -248,10 +257,12 @@ class Feature03Risk01(CompanionAppRiskBase):
         logger.debug("ios-feature-03-risk-01: recording moved %s -> %s", recording, kept)
         return kept
 
+    # Return whether a file has an MP4 ftyp box near its start and is over 1 KiB.
     def _looks_like_mp4(self, path: Path) -> bool:
         head = path.read_bytes()[:4096]
         return b"ftyp" in head and path.stat().st_size > 1024
 
+    # Copy each frame with a canary match into the report's frames directory.
     def _keep_matched_frames(self, scan: dict, report_dir: Path) -> None:
         frames_dir = report_dir / "frames"
         for frame in dict.fromkeys(match["frame"] for match in scan["matches"]):
@@ -259,6 +270,7 @@ class Feature03Risk01(CompanionAppRiskBase):
             shutil.copy2(frame, frames_dir / Path(frame).name)
             logger.debug("ios-feature-03-risk-01: matched frame kept %s", frames_dir / Path(frame).name)
 
+    # Create the initial run result for this risk and app.
     def _base_result(self, run_timestamp: str, app_config) -> RiskRunResult:
         return RiskRunResult(
             run_timestamp=run_timestamp,

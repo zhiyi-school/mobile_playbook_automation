@@ -1,3 +1,7 @@
+"""
+Generic post-launch behavior checks: foreground state, screenshot and page-source assertions.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -12,6 +16,7 @@ logger = logging.getLogger(__name__)
 FOREGROUND_STATES = {3, 4}
 
 
+# Check the launched app against expected behavior, saving a screenshot and page source as evidence.
 def run_expected_behavior_checks(device_client, bundle_id: str, expected_behavior, report_dir: Path) -> BehaviorResult:
     report_dir = Path(report_dir)
     report_dir.mkdir(parents=True, exist_ok=True)

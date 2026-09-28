@@ -1,4 +1,6 @@
-"""Parse the playbook's Markdown into normalized blocks the API can serve as JSON."""
+"""
+Parses the playbook's Markdown into normalized blocks the API can serve as JSON.
+"""
 
 from __future__ import annotations
 
@@ -32,8 +34,8 @@ class Link(NamedTuple):
     is_image: bool
 
 
+# Split optional YAML front matter from a document, ignoring it when invalid or not a mapping.
 def split_front_matter(text: str) -> tuple[dict[str, Any], str]:
-    """Optional YAML front matter, so a playbook author can state control status in the source file."""
     match = FRONT_MATTER.match(text)
     if match is None:
         return {}, text
@@ -47,8 +49,8 @@ def split_front_matter(text: str) -> tuple[dict[str, Any], str]:
     return (data if isinstance(data, dict) else {}), text[match.end() :]
 
 
+# Yield Markdown links and images, tolerating balanced parentheses inside the target.
 def iter_links(text: str) -> Iterator[Link]:
-    """Markdown links, tolerating balanced parentheses inside the target."""
     index = 0
     while index < len(text):
         start = text.find("[", index)
@@ -78,6 +80,7 @@ def iter_links(text: str) -> Iterator[Link]:
         index = cursor + 1
 
 
+# Return the src, alt and width of each HTML `<img>` tag that has a src.
 def html_images(text: str) -> list[dict[str, str]]:
     images = []
     for match in HTML_IMG.finditer(text):
@@ -91,18 +94,20 @@ def html_images(text: str) -> list[dict[str, str]]:
     return images
 
 
+# Remove HTML tags and surrounding whitespace.
 def strip_inline_html(text: str) -> str:
     return HTML_TAG.sub("", text).strip()
 
 
+# Return the text of an emphasis-only paragraph, the playbook's screenshot caption form, or None.
 def caption_text(text: str) -> str | None:
-    """An emphasis-only paragraph, which is how the playbook writes screenshot captions."""
     match = EMPHASIS_ONLY.match(text.strip())
     if match is None:
         return None
     return " ".join((match.group(1) or match.group(2) or "").split()) or None
 
 
+# Remove up to the opening fence's indentation of leading spaces from a code line.
 def _strip_fence_indent(line: str, indent: int) -> str:
     removed = 0
     while removed < indent and removed < len(line) and line[removed] == " ":
@@ -110,6 +115,7 @@ def _strip_fence_indent(line: str, indent: int) -> str:
     return line[removed:]
 
 
+# Parse Markdown into heading, code, table, list, step id, paragraph, caption and image blocks.
 def parse_blocks(text: str) -> list[dict[str, Any]]:
     lines = text.replace("\r\n", "\n").split("\n")
     # A document's final newline terminates its last line rather than adding an empty one.
@@ -119,6 +125,7 @@ def parse_blocks(text: str) -> list[dict[str, Any]]:
     buffer: list[str] = []
     index = 0
 
+    # Emit the buffered lines as paragraph blocks and clear the buffer.
     def flush() -> None:
         nonlocal buffer
         if buffer:
@@ -142,8 +149,7 @@ def parse_blocks(text: str) -> list[dict[str, Any]]:
             index += 1
             while index < len(lines):
                 closing = FENCE_CLOSE.match(lines[index])
-                # Only a fence of the same marker and at least the opening length closes
-                # the block, so a shorter fence inside it stays content.
+                # Only a same-marker fence at least as long as the opener closes the block.
                 if closing is not None and closing.group(1)[0] == marker[0] and len(closing.group(1)) >= len(marker):
                     index += 1
                     break
@@ -195,8 +201,8 @@ def parse_blocks(text: str) -> list[dict[str, Any]]:
     return merged
 
 
+# Merge a caption block into the image directly before it when that image has no caption.
 def _attach_captions(blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """The playbook writes a screenshot caption as its own italic paragraph under the image."""
     merged: list[dict[str, Any]] = []
     for block in blocks:
         previous = merged[-1] if merged else None
@@ -208,8 +214,8 @@ def _attach_captions(blocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return merged
 
 
+# Return a paragraph or caption block plus its HTML and Markdown images as separate image blocks.
 def _paragraph_blocks(raw: str) -> list[dict[str, Any]]:
-    """A paragraph, plus any HTML images it contains lifted out as their own blocks."""
     images = html_images(raw)
     text = strip_inline_html(raw)
     blocks: list[dict[str, Any]] = []
@@ -234,10 +240,12 @@ def _paragraph_blocks(raw: str) -> list[dict[str, Any]]:
     return blocks
 
 
+# Report whether the next line is a table divider.
 def _is_table_start(lines: list[str], index: int) -> bool:
     return index + 1 < len(lines) and bool(TABLE_DIVIDER.match(lines[index + 1].strip()))
 
 
+# Parse a table from its header line and return it with the index after its last row.
 def _consume_table(lines: list[str], index: int) -> tuple[dict[str, Any], int]:
     columns = _table_cells(lines[index])
     index += 2
@@ -249,24 +257,27 @@ def _consume_table(lines: list[str], index: int) -> tuple[dict[str, Any], int]:
     return {"type": "table", "columns": columns, "rows": rows}, index
 
 
+# Split a table row into cells with inline HTML removed.
 def _table_cells(line: str) -> list[str]:
     return [strip_inline_html(cell.strip()) for cell in line.strip().strip("|").split("|")]
 
 
+# Report whether a step id comment labels an ordered list that follows it.
 def _opens_list(lines: list[str], index: int) -> bool:
-    """A step-id comment counts as the start of the list it labels."""
     if STEP_ID_COMMENT.match(lines[index].strip()) is None:
         return False
     following = _skip_step_ids(lines, index)
     return following < len(lines) and ORDERED_ITEM.match(lines[following].strip()) is not None
 
 
+# Return the index of the first line after consecutive step id comments.
 def _skip_step_ids(lines: list[str], index: int) -> int:
     while index < len(lines) and STEP_ID_COMMENT.match(lines[index].strip()) is not None:
         index += 1
     return index
 
 
+# Parse an ordered or bullet list with continuation lines and step ids, returning it and the next index.
 def _consume_list(lines: list[str], index: int) -> tuple[dict[str, Any], int]:
     ordered = ORDERED_ITEM.match(lines[_skip_step_ids(lines, index)].strip()) is not None
     items: list[dict[str, Any]] = []

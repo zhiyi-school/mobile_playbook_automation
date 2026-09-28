@@ -1,3 +1,7 @@
+"""
+Services that validate run requests, start runs on a background thread and read run state.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -38,6 +42,7 @@ KNOWN_RISKS_BY_PLATFORM = {"ios": known_ios_risks, "android": known_android_risk
 logger = logging.getLogger(__name__)
 
 
+# Return the report root, raising 422 when a requested out_dir names anything else.
 def api_out_dir(requested: str | None) -> Path:
     if requested is None:
         logger.debug("api: no out_dir requested; using %s.", REPORTS_ROOT)
@@ -57,15 +62,18 @@ def api_out_dir(requested: str | None) -> Path:
     return resolved
 
 
+# Return a factory that builds a ReportWriter with the platform's result adapter.
 def report_writer_factory(platform: Platform):
     _, result_adapter = PLATFORM_RUNNERS[platform]
 
+    # Build a ReportWriter for one run.
     def factory(out_dir: Path, run_timestamp: str) -> ReportWriter:
         return ReportWriter(out_dir, run_timestamp, result_adapter=result_adapter, platform=platform)
 
     return factory
 
 
+# Run one platform scan, record its outcome, then release the platform and trigger dashboard sync.
 def execute_run(run_timestamp: str, platform: Platform, config, options: RunOptions) -> None:
     runner_cls, _ = PLATFORM_RUNNERS[platform]
     logger.debug("api: executing %s run %s with %s.", platform, run_timestamp, runner_cls.__name__)
@@ -85,6 +93,7 @@ def execute_run(run_timestamp: str, platform: Platform, config, options: RunOpti
         trigger_dashboard_sync(options.out_dir, run_timestamp)
 
 
+# Validate a run request, claim the platform and start the run on a background thread.
 def create_run(body: RunRequest) -> dict:
     logger.debug(
         "api: creating %s run from %s (apps=%r, risks=%r).", body.platform, body.config_path, body.apps, body.risks
@@ -123,10 +132,12 @@ def create_run(body: RunRequest) -> dict:
     return {"run_id": record.run_id, "platform": record.platform, "status": record.status}
 
 
+# Return every registry record as a dict.
 def list_runs() -> list[dict]:
     return [vars(record) for record in registry.list()]
 
 
+# Return one run's registry record, or raise 404.
 def get_run(run_id: str) -> dict:
     record = registry.get(run_id)
     if record is None:
@@ -136,6 +147,7 @@ def get_run(run_id: str) -> dict:
     return vars(record)
 
 
+# Return a completed run's dashboard results, raising for unknown, running or failed runs.
 def run_summary(run_id: str) -> list[dict]:
     record = registry.get(run_id)
     if record is None:

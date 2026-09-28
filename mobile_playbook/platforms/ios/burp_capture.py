@@ -1,3 +1,7 @@
+"""
+Incremental reading of the Burp JSON-lines capture file, detecting replacement and truncation.
+"""
+
 from __future__ import annotations
 
 import json
@@ -37,12 +41,14 @@ class CaptureObservation:
     trailing_partial_line: bool = False
 
 
+# Return a stat result's device and inode, using None for missing or zero values.
 def _identity(stat_result) -> tuple[int | None, int | None]:
     device = getattr(stat_result, "st_dev", None)
     inode = getattr(stat_result, "st_ino", None)
     return (device or None, inode or None)
 
 
+# Record the capture file's identity and size so later polls read only appended lines.
 def snapshot_capture(path: Path) -> CaptureCursor:
     resolved = path.expanduser().resolve(strict=False)
     try:
@@ -68,6 +74,7 @@ def snapshot_capture(path: Path) -> CaptureCursor:
     )
 
 
+# Return the lowercase hostname from a host or URL value, without a trailing dot.
 def _normalize_host(value: object) -> str:
     raw = str(value or "").strip().lower()
     if not raw:
@@ -76,6 +83,7 @@ def _normalize_host(value: object) -> str:
     return str(parsed.hostname or "").rstrip(".")
 
 
+# Return whether a host equals or is a subdomain of an expected host; no expectations match all.
 def _matches_expected_host(host: str, expected_hosts: list[str]) -> bool:
     if not expected_hosts:
         return True
@@ -84,12 +92,14 @@ def _matches_expected_host(host: str, expected_hosts: list[str]) -> bool:
     )
 
 
+# Return whether the device or inode differs from the cursor's recorded identity.
 def _changed(cursor: CaptureCursor, device: int | None, inode: int | None) -> bool:
     if cursor.device is not None and device is not None and cursor.device != device:
         return True
     return cursor.inode is not None and inode is not None and cursor.inode != inode
 
 
+# Read lines appended since the cursor, classify and host-match them, and return the advanced cursor.
 def poll_capture(
     cursor: CaptureCursor,
     expected_hosts: list[str],

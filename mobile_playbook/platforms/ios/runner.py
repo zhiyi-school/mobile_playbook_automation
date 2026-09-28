@@ -1,3 +1,7 @@
+"""
+iOS platform runner: device connection, preflight, risk execution and artifact acquisition.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -36,11 +40,13 @@ logger = logging.getLogger(__name__)
 class IosPlatformRunner:
     platform = "ios"
 
+    # Return whether any selected test for the selected apps needs a device.
     def requires_device(self, config, selected_tests: set[str] | None, selected_apps: set[str] | None = None) -> bool:
         needed = requires_device(config, selected_tests, selected_apps, get_risk)
         logger.debug("ios runner: requires_device=%s (tests=%s, apps=%s)", needed, selected_tests, selected_apps)
         return needed
 
+    # Ensure Appium is running, pass device preflight, connect a session and try to unlock.
     def connect_device(self, config, run_dir: Path | None = None):
         log_dir = run_dir or ios_work_dir()
         logger.debug(
@@ -72,11 +78,9 @@ class IosPlatformRunner:
         self._unlock_best_effort(client, run_dir)
         return client
 
+    # Try to unlock the device screen, logging and recording an event when it was locked.
     def _unlock_best_effort(self, device_client, run_dir: Path | None) -> None:
-        # Best-effort: only meaningfully unlocks a passcode-less device (Appium
-        # can't enter a passcode or Face/Touch ID on a real device), and a
-        # failure here shouldn't abort a run over what's otherwise a recoverable
-        # device-state hiccup.
+        # Best-effort: Appium unlocks only passcode-less devices, and a failure must not abort the run.
         try:
             result = device_client.unlock()
         except Exception as exc:
@@ -89,11 +93,13 @@ class IosPlatformRunner:
             logger.info(message)
             append_event(run_dir or ios_work_dir(), "device_unlocked", message=message)
 
+    # Quit the Appium session.
     def close_device(self, device_client) -> None:
         logger.debug("ios runner: closing device session")
         device_client.quit()
         logger.debug("ios runner: device session closed")
 
+    # Check the Appium session and reconnect it when unhealthy.
     def ensure_device_healthy(self, config, device_client, run_dir: Path | None = None):
         logger.debug("ios runner: checking device health via %s", config.device.appium_server_url)
         return ensure_appium_session(
@@ -108,9 +114,11 @@ class IosPlatformRunner:
             on_reachable=lambda: self._unlock_best_effort(device_client, run_dir),
         )
 
+    # Yield the enabled tests for the selected apps and tests.
     def iter_enabled_tests(self, config, selected_tests: set[str] | None, selected_apps: set[str] | None):
         yield from iter_enabled_tests(config, selected_tests, selected_apps, get_risk)
 
+    # Collect traffic-interception, repackaging and screen-capture preflight warnings.
     def preflight_warnings(self, config, planned_tests):
         warnings = (
             check_traffic_interception_preflight(config, planned_tests)
@@ -124,6 +132,7 @@ class IosPlatformRunner:
         )
         return warnings
 
+    # Run a risk, retrying once after an unlock, and record a FAILED result if it raises.
     def run_test(self, app, test_id: str, config, device_client, report_writer) -> None:
         risk = get_risk(test_id)
         if risk is None:
@@ -157,10 +166,9 @@ class IosPlatformRunner:
                     exc = retry_exc
             self._record_failure(failure_result, report_writer, exc)
 
+    # Unlock the device and return True only if it had been locked.
     def _unlock_and_retry(self, device_client, exc: Exception) -> bool:
-        # Only worth retrying if the device actually was locked — an unrelated
-        # failure (bad selector, missing config, real app behavior) would just
-        # fail the same way again, so this isn't a blind retry-on-any-error.
+        # Retry only when the device was locked; other failures would fail the same way again.
         try:
             result = device_client.unlock()
         except Exception as unlock_exc:
@@ -172,6 +180,7 @@ class IosPlatformRunner:
         logger.debug("ios runner: device was not locked, not retrying (%s)", exc)
         return False
 
+    # Build the FAILED result recorded when a risk raises.
     def _failure_result_template(self, app, test_id: str, risk, report_writer) -> RiskRunResult:
         case_id = getattr(risk, "test_case_id", "") or "risk_execution_failed"
         return RiskRunResult(
@@ -191,6 +200,7 @@ class IosPlatformRunner:
             errors=[],
         )
 
+    # Write the FAILED result with the exception message and current timestamps.
     def _record_failure(self, failure_result: RiskRunResult, report_writer, exc: Exception) -> None:
         now = datetime.now().astimezone().isoformat()
         report_dir = report_writer.test_report_dir(
@@ -211,9 +221,11 @@ class IosPlatformRunner:
             report_dir,
         )
 
+    # Yield the enabled test IDs for an app.
     def enabled_test_ids(self, app, selected_tests: set[str] | None):
         yield from enabled_test_ids(app, selected_tests, get_risk)
 
+    # Acquire artifacts for the selected apps, connecting a device only when a source needs one.
     def acquire_artifacts(self, config, selected_apps: set[str] | None, run_timestamp: str, out_dir: Path) -> list[dict]:
         client = None
         results = []
@@ -262,6 +274,7 @@ class IosPlatformRunner:
         logger.debug("ios runner: artifact acquisition produced %s result(s)", len(results))
         return results
 
+    # Describe the planned apps and risks without touching files, devices or Appium.
     def dry_run_lines(self, config, selected_tests: set[str] | None, selected_apps: set[str] | None = None) -> list[str]:
         lines = ["Dry run: no files, devices, installs, uninstalls, or Appium session will be touched."]
         for app in config.apps:

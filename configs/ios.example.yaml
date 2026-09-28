@@ -1,4 +1,5 @@
 # Example iOS entry config. Copy to configs/ios.yaml and fill local values; see docs/ios/configuration.md.
+
 device:
   udid: "REPLACE_WITH_DEVICE_UDID"
   team_id: "REPLACE_WITH_APPLE_TEAM_ID"

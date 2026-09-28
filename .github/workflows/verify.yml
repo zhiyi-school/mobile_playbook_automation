@@ -1,3 +1,5 @@
+# CI checks for docs, the dependency mirror, the backend test suite and API contract tests.
+
 name: Verify
 
 on:

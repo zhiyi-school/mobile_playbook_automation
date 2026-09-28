@@ -1,11 +1,6 @@
 #!/usr/bin/env python3
-"""Renew the provisioning profiles of a companion IPA and re-sign it.
-
-Works for any development-signed companion app (LocalKeyboard, ReplayConsentRecorder):
-the bundle IDs and App Groups are read from the IPA itself, a placeholder project with
-the same identifiers mints fresh profiles, and those profiles are applied to the IPA.
-
-See docs/ios/reports-and-troubleshooting.md.
+"""
+Renew the provisioning profiles of a development-signed companion IPA and re-sign it. A placeholder project using the IPA's bundle IDs and App Groups mints the profiles; see docs/ios/reports-and-troubleshooting.md.
 """
 
 from __future__ import annotations
@@ -36,6 +31,7 @@ class SignedBundle:
     app_groups: list[str]
 
 
+# Run a command capturing text output, raising RuntimeError with its output when it fails.
 def run(cmd: list[str], **kwargs) -> subprocess.CompletedProcess:
     result = subprocess.run(cmd, capture_output=True, text=True, **kwargs)
     if result.returncode != 0:
@@ -43,11 +39,13 @@ def run(cmd: list[str], **kwargs) -> subprocess.CompletedProcess:
     return result
 
 
+# Decode a provisioning profile into its plist dictionary.
 def decode_profile(profile_path: Path) -> dict:
     result = run(["security", "cms", "-D", "-i", str(profile_path)])
     return plistlib.loads(result.stdout.encode())
 
 
+# Return a bundle's App Groups from its signed entitlements, falling back to its embedded profile.
 def signed_app_groups(bundle: Path) -> list[str]:
     signed = subprocess.run(
         ["codesign", "-d", "--entitlements", "-", "--xml", str(bundle)], capture_output=True
@@ -60,11 +58,13 @@ def signed_app_groups(bundle: Path) -> list[str]:
     return []
 
 
+# Read a bundle's identifier and App Groups.
 def read_bundle(bundle: Path) -> SignedBundle:
     info = plistlib.loads((bundle / "Info.plist").read_bytes())
     return SignedBundle(bundle, str(info["CFBundleIdentifier"]), signed_app_groups(bundle))
 
 
+# Build an automatically signed XcodeGen target for a bundle, with App Group entitlements when it has any.
 def _target(bundle: SignedBundle, kind: str, source_dir: str, team_id: str) -> dict:
     target: dict = {
         "type": kind,
@@ -88,8 +88,8 @@ def _target(bundle: SignedBundle, kind: str, source_dir: str, team_id: str) -> d
     return target
 
 
+# Write an XcodeGen project with the IPA's identifiers, reusing the keyboard placeholder for every extension.
 def write_placeholder_project(project_dir: Path, app: SignedBundle, extensions: list[SignedBundle], team_id: str) -> None:
-    """Profiles don't depend on the extension type, so the keyboard placeholder stands in for every extension."""
     (project_dir / "App").mkdir(parents=True)
     shutil.copy(APP_SOURCE, project_dir / "App" / APP_SOURCE.name)
     app_target = _target(app, "application", "App", team_id)
@@ -122,6 +122,7 @@ def write_placeholder_project(project_dir: Path, app: SignedBundle, extensions: 
     (project_dir / "project.yml").write_text(json.dumps(spec, indent=2))
 
 
+# Generate and build the placeholder project for the device so Xcode mints fresh profiles, returning the built app.
 def renew_profiles(project_dir: Path, udid: str, team_id: str) -> Path:
     run(["xcodegen", "generate"], cwd=project_dir)
     derived = project_dir / "DerivedData"
@@ -141,6 +142,7 @@ def renew_profiles(project_dir: Path, udid: str, team_id: str) -> Path:
     return derived / "Build" / "Products" / "Debug-iphoneos" / f"{APP_TARGET}.app"
 
 
+# Return the keychain's Apple Development identity whose certificate belongs to the team.
 def find_signing_identity(team_id: str) -> str:
     result = run(["security", "find-identity", "-v", "-p", "codesigning"])
     for line in result.stdout.splitlines():
@@ -155,6 +157,7 @@ def find_signing_identity(team_id: str) -> str:
     raise RuntimeError(f"no 'Apple Development' identity in the keychain has team (OU) {team_id}")
 
 
+# Embed a profile in a bundle and re-sign the bundle with that profile's entitlements.
 def apply_profile(bundle: Path, profile_path: Path, identity: str, entitlements_path: Path) -> None:
     profile = decode_profile(profile_path)
     print(f"  {bundle.name}: profile expires {profile['ExpirationDate']}")
@@ -163,6 +166,7 @@ def apply_profile(bundle: Path, profile_path: Path, identity: str, entitlements_
     run(["codesign", "--force", "--sign", identity, "--entitlements", str(entitlements_path), str(bundle)])
 
 
+# Extract the IPA, renew its profiles, re-sign its extensions and app, verify them and write the new IPA.
 def resign(ipa_path: Path, out_path: Path, udid: str, team_id: str) -> None:
     with tempfile.TemporaryDirectory(prefix="companion_resign_") as tmp:
         work_dir = Path(tmp)
@@ -182,9 +186,7 @@ def resign(ipa_path: Path, out_path: Path, udid: str, team_id: str) -> None:
         identity = find_signing_identity(team_id)
         print(f"Signing with: {identity}")
 
-        # Extensions first, then the app — codesign validates a signed app's
-        # nested PlugIns against the app's own signature, so the inner bundles
-        # must already carry a valid signature before the outer one is applied.
+        # Sign extensions first, since codesign validates nested PlugIns against the app's signature.
         for index, extension in enumerate(extensions):
             apply_profile(
                 extension.path,
@@ -206,6 +208,7 @@ def resign(ipa_path: Path, out_path: Path, udid: str, team_id: str) -> None:
     print(f"Resigned IPA written to {out_path}")
 
 
+# CLI entry point that re-signs the given IPA, overwriting it unless --out is set.
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--ipa", default="artifacts/companion/ios/ipas/LocalKeyboard.ipa", type=Path)

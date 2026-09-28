@@ -1,3 +1,7 @@
+"""
+Configures the device Wi-Fi proxy and Burp CA trust through the Settings UI, and restores the proxy afterwards.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -15,18 +19,23 @@ SPRINGBOARD_BUNDLE_ID = "com.apple.springboard"
 
 
 class TrafficInterceptionSetupError(RuntimeError):
+    """Traffic-interception setup failure carrying a status and the setup state reached."""
+
+    # Store the failure status and setup state alongside the message.
     def __init__(self, status: str, message: str, state: dict[str, Any] | None = None):
         super().__init__(message)
         self.status = status
         self.state = state or {}
 
 
+# Resolve the configured proxy host, or auto-detect the LAN address, for the device to use.
 def resolve_device_proxy_host(configured_host: str) -> str:
     resolved = resolve_lan_host(configured_host, label="device_setup.proxy_host")
     logger.debug("ios traffic setup: proxy host %s resolved to %s", configured_host or "(auto)", resolved)
     return resolved
 
 
+# Save device diagnostics and return a setup error carrying the status and state.
 def _save_failure(
     device_client,
     report_dir: Path,
@@ -47,6 +56,7 @@ def _save_failure(
     return TrafficInterceptionSetupError(status, str(error), details)
 
 
+# Activate Settings and tap back until its root page shows, raising after max_attempts.
 def _return_to_settings_root(device_client, timeout: float, max_attempts: int = 8) -> None:
     logger.debug("ios traffic setup: activating %s and returning to Settings root", SETTINGS_BUNDLE_ID)
     device_client.activate_app(SETTINGS_BUNDLE_ID)
@@ -63,6 +73,7 @@ def _return_to_settings_root(device_client, timeout: float, max_attempts: int = 
     raise RuntimeError("could not return to the Settings root page")
 
 
+# Open the details page for the named Wi-Fi network from the Settings root.
 def _open_wifi_details(device_client, wifi_ssid: str, timeout: float) -> None:
     _return_to_settings_root(device_client, timeout)
     logger.debug("ios traffic setup: opening Wi-Fi details for %s", wifi_ssid)
@@ -70,6 +81,7 @@ def _open_wifi_details(device_client, wifi_ssid: str, timeout: float) -> None:
     device_client.tap_label([wifi_ssid], timeout)
 
 
+# Read the current proxy mode, then open Configure Proxy and read its server, port and URL.
 def _read_proxy_state(device_client, timeout: float) -> dict[str, str | None]:
     mode = device_client.element_value_by_label(["Configure Proxy"]) or "Off"
     logger.debug("ios traffic setup: current Configure Proxy mode %s", mode)
@@ -84,11 +96,13 @@ def _read_proxy_state(device_client, timeout: float) -> dict[str, str | None]:
     return proxy_state
 
 
+# Tap Save or Done on the proxy page.
 def _save_proxy(device_client, timeout: float) -> None:
     logger.debug("ios traffic setup: saving proxy settings")
     device_client.tap_label(["Save", "Done"], timeout)
 
 
+# Select a manual proxy with the given host and port and save it.
 def _configure_manual_proxy(device_client, host: str, port: int, timeout: float) -> None:
     logger.debug("ios traffic setup: configuring manual proxy %s:%s", host, port)
     device_client.tap_label(["Manual"], timeout)
@@ -97,6 +111,7 @@ def _configure_manual_proxy(device_client, host: str, port: int, timeout: float)
     _save_proxy(device_client, timeout)
 
 
+# Open General > About > Certificate Trust Settings, returning False when the row is absent.
 def _open_certificate_trust_settings(device_client, timeout: float) -> bool:
     logger.debug("ios traffic setup: opening Certificate Trust Settings")
     device_client.activate_app(SPRINGBOARD_BUNDLE_ID)
@@ -113,10 +128,12 @@ def _open_certificate_trust_settings(device_client, timeout: float) -> bool:
     return True
 
 
+# Return whether a trust switch value reads as on.
 def _trusted_value(value: str | None) -> bool:
     return str(value or "").strip().lower() in {"1", "true", "on"}
 
 
+# Return whether the CA is fully trusted, or None when it is not installed.
 def _ca_trust_state(device_client, ca_display_name: str, timeout: float) -> bool | None:
     if not _open_certificate_trust_settings(device_client, timeout):
         logger.debug("ios traffic setup: CA %s trust state unknown (no trust settings page)", ca_display_name)
@@ -129,6 +146,7 @@ def _ca_trust_state(device_client, ca_display_name: str, timeout: float) -> bool
     return _trusted_value(value)
 
 
+# Download the CA profile in Safari and install it from Settings.
 def _install_ca(device_client, download_url: str, timeout: float) -> None:
     logger.debug("ios traffic setup: downloading CA profile from %s in Safari", safe_url(download_url))
     device_client.activate_app(SAFARI_BUNDLE_ID)
@@ -148,6 +166,7 @@ def _install_ca(device_client, download_url: str, timeout: float) -> None:
     logger.debug("ios traffic setup: CA profile installation taps complete")
 
 
+# Turn on full trust for the CA, confirming the prompt, with up to three attempts.
 def _enable_ca_trust(device_client, ca_display_name: str, timeout: float) -> None:
     if not _open_certificate_trust_settings(device_client, timeout):
         raise RuntimeError("Certificate Trust Settings is unavailable after CA installation")
@@ -169,6 +188,7 @@ def _enable_ca_trust(device_client, ca_display_name: str, timeout: float) -> Non
     raise RuntimeError(f"{ca_display_name} is not fully trusted")
 
 
+# Point the device proxy at Burp and ensure the CA is installed and trusted when mode is appium_ui.
 def prepare_traffic_interception(device_client, config: dict[str, Any], report_dir: Path) -> dict[str, Any]:
     mode = str(config.get("mode") or "").strip()
     if mode != "appium_ui":
@@ -268,6 +288,7 @@ def prepare_traffic_interception(device_client, config: dict[str, Any], report_d
     return state
 
 
+# Turn the proxy off or restore its original settings when setup changed it.
 def restore_traffic_interception(device_client, state: dict[str, Any], report_dir: Path) -> dict[str, Any]:
     if not state or not state.get("restore_required"):
         logger.debug("ios traffic restore: skipped (restore_required=%s)", (state or {}).get("restore_required"))

@@ -1,3 +1,7 @@
+"""
+Dashboard sync ledger, report digests, atomic writes and the host-wide single-instance lock.
+"""
+
 from __future__ import annotations
 
 import fcntl
@@ -20,9 +24,11 @@ logger = logging.getLogger(__name__)
 
 
 class SyncBusy(RuntimeError):
+    """Raised when another dashboard sync pass already holds the host lock."""
     pass
 
 
+# Returns a SHA-256 digest of the run's manifest and dashboard results files.
 def report_digest(run_dir: Path) -> str:
     digest = hashlib.sha256()
     for name in DIGEST_INPUTS:
@@ -33,10 +39,12 @@ def report_digest(run_dir: Path) -> str:
     return digest.hexdigest()
 
 
+# Returns the path of the sync ledger inside reports_dir.
 def ledger_path(reports_dir: Path) -> Path:
     return Path(reports_dir) / LEDGER_NAME
 
 
+# Loads the run-timestamp-to-digest ledger, treating a missing or malformed file as empty.
 def load_ledger(reports_dir: Path) -> dict[str, str]:
     try:
         data = json.loads(ledger_path(reports_dir).read_text())
@@ -54,12 +62,14 @@ def load_ledger(reports_dir: Path) -> dict[str, str]:
     return {str(k): str(v) for k, v in data.items()}
 
 
+# Reports whether the ledger records this run as synced with the same digest.
 def is_processed(reports_dir: Path, run_timestamp: str, digest: str) -> bool:
     processed = load_ledger(reports_dir).get(run_timestamp) == digest
     logger.debug("sync state: run %s processed with digest %s: %s.", run_timestamp, digest[:12], processed)
     return processed
 
 
+# Records the run's digest in the ledger as synced.
 def mark_processed(reports_dir: Path, run_timestamp: str, digest: str) -> None:
     ledger = load_ledger(reports_dir)
     ledger[run_timestamp] = digest
@@ -67,8 +77,8 @@ def mark_processed(reports_dir: Path, run_timestamp: str, digest: str) -> None:
     logger.debug("sync state: ledger marked %s processed (digest %s).", run_timestamp, digest[:12])
 
 
+# Replaces `path` in one step so a reader never sees a half-written file.
 def write_atomic(path: Path, text: str) -> None:
-    """Replace `path` in one step so a reader never sees a half-written file."""
     path.parent.mkdir(parents=True, exist_ok=True)
     handle, tmp_name = tempfile.mkstemp(dir=str(path.parent), prefix=f".{path.name}.", suffix=".tmp")
     try:
@@ -84,12 +94,13 @@ def write_atomic(path: Path, text: str) -> None:
     logger.debug("sync state: wrote %d characters to %s.", len(text), path)
 
 
+# Returns the path of the sync lock file inside reports_dir.
 def lock_path(reports_dir: Path) -> Path:
     return Path(reports_dir) / LOCK_NAME
 
 
+# Probes the host lock to see whether a sync pass holds it right now.
 def worker_running(reports_dir: Path) -> bool:
-    """Probe the host lock to see whether a sync pass holds it right now."""
     path = lock_path(reports_dir)
     if not path.exists():
         logger.debug("sync state: no lock file at %s; worker idle.", path)
@@ -112,14 +123,9 @@ def worker_running(reports_dir: Path) -> bool:
         handle.close()
 
 
+# Holds an exclusive host-wide lock for one sync pass, optionally waiting up to wait_seconds before SyncBusy.
 @contextmanager
 def single_instance(reports_dir: Path, wait_seconds: float = 0) -> Any:
-    """Hold an exclusive host-wide lock for the duration of one sync pass.
-
-    Manual and scheduled passes keep the default non-blocking behavior. A
-    post-run trigger may wait briefly so two platforms finishing together are
-    serialized instead of allowing the second trigger to disappear as busy.
-    """
     if wait_seconds < 0:
         raise ValueError("wait_seconds must be greater than or equal to 0")
     path = Path(reports_dir) / LOCK_NAME

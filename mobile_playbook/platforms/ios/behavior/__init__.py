@@ -1,1 +1,3 @@
-"""Behavior checks run after launch."""
+"""
+Behavior checks run after launch.
+"""

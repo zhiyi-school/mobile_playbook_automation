@@ -1,3 +1,7 @@
+"""
+iOS preflight checks: device connection and Appium errors, plus per-risk readiness warnings.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -51,6 +55,7 @@ class IosPreflightResult:
     warnings: list[IosPreflightWarning] = field(default_factory=list)
 
 
+# Check required device fields, device connection and Appium reachability, collecting errors.
 def check_ios_preflight(config) -> IosPreflightResult:
     errors: list[str] = []
     logger.debug(
@@ -78,6 +83,7 @@ def check_ios_preflight(config) -> IosPreflightResult:
     return IosPreflightResult(ok=not errors, errors=errors)
 
 
+# Warn about Burp proxy, capture file and health record problems for planned interception tests.
 def check_traffic_interception_preflight(
     config,
     planned_tests: list[tuple[AppConfig, str]],
@@ -131,6 +137,7 @@ def check_traffic_interception_preflight(
     return warnings
 
 
+# Warn when insert_dylib or codesign is unavailable for planned repackaging tests.
 def check_repackaging_preflight(
     config,
     planned_tests: list[tuple[AppConfig, str]],
@@ -185,6 +192,7 @@ def check_repackaging_preflight(
     return warnings
 
 
+# Warn when the recorder IPA is missing or Vision OCR is unavailable for planned capture tests.
 def check_screen_capture_preflight(
     config,
     planned_tests: list[tuple[AppConfig, str]],
@@ -234,6 +242,7 @@ def check_screen_capture_preflight(
     return warnings
 
 
+# Return the proxy, capture file and health record warnings for one interception configuration.
 def _traffic_interception_warnings(config, group: dict[str, Any]) -> list[IosPreflightWarning]:
     proxy_url = group["proxy_url"]
     capture_path: Path = group["capture_path"]
@@ -241,6 +250,7 @@ def _traffic_interception_warnings(config, group: dict[str, Any]) -> list[IosPre
     app_ids = tuple(sorted(group["app_ids"]))
     warnings: list[IosPreflightWarning] = []
 
+    # Record a warning for this configuration's apps.
     def warn(code: str, message: str) -> None:
         logger.debug("ios preflight: traffic interception warning %s for %s", code, app_ids)
         warnings.append(IosPreflightWarning(code, message, TRAFFIC_INTERCEPTION_RISK_ID, app_ids))
@@ -307,6 +317,7 @@ def _traffic_interception_warnings(config, group: dict[str, Any]) -> list[IosPre
     return warnings
 
 
+# Return whether a health record matches the proxy, capture file and device and saw valid entries.
 def _health_matches(record: dict[str, Any], config, capture_path: Path, proxy_url: str) -> bool:
     return (
         record.get("schema_version") == HEALTH_SCHEMA_VERSION
@@ -319,6 +330,7 @@ def _health_matches(record: dict[str, Any], config, capture_path: Path, proxy_ur
     )
 
 
+# Return the record's timezone-aware verified_at in UTC, or None when missing or invalid.
 def _verified_at(record: dict[str, Any]) -> datetime | None:
     value = record.get("verified_at")
     if not isinstance(value, str):
@@ -334,6 +346,7 @@ def _verified_at(record: dict[str, Any]) -> datetime | None:
     return parsed.astimezone(timezone.utc)
 
 
+# Return the health record's age in seconds, infinite when unverifiable.
 def _record_age_seconds(record: dict[str, Any]) -> float:
     verified_at = _verified_at(record)
     if verified_at is None:
@@ -343,6 +356,7 @@ def _record_age_seconds(record: dict[str, Any]) -> float:
     return age
 
 
+# Return seconds since a file was modified, infinite when it cannot be read.
 def _path_age_seconds(path: Path) -> float:
     try:
         modified_at = datetime.fromtimestamp(path.stat().st_mtime, timezone.utc)
@@ -354,6 +368,7 @@ def _path_age_seconds(path: Path) -> float:
     return age
 
 
+# Return whether the capture file can be opened for reading.
 def _capture_readable(path: Path) -> bool:
     try:
         with path.open("rb"):
@@ -363,10 +378,12 @@ def _capture_readable(path: Path) -> bool:
         return False
 
 
+# Return whether the process can write to a path.
 def _path_writable(path: Path) -> bool:
     return os.access(path, os.W_OK)
 
 
+# Record an error when the Appium server is not reachable.
 def _check_appium_reachable(appium_server_url: str, errors: list[str]) -> None:
     reachable = _tcp_reachable(appium_server_url)
     logger.debug("ios preflight: Appium %s reachable=%s", appium_server_url, reachable)
@@ -374,6 +391,7 @@ def _check_appium_reachable(appium_server_url: str, errors: list[str]) -> None:
         errors.append(f"appium: Appium server not reachable at {appium_server_url}. Start it with 'appium'.")
 
 
+# Record an error when the configured UDID is absent from a non-empty connected-device list.
 def _check_device_connected(udid: str, errors: list[str]) -> None:
     connected = connected_device_udids()
     logger.debug(
@@ -384,9 +402,7 @@ def _check_device_connected(udid: str, errors: list[str]) -> None:
     )
     if not connected:
         logger.debug("ios preflight: no devices listed, skipping connection check")
-    # An empty result means `xcrun xctrace` itself is unavailable/unusable, not that
-    # zero devices are connected (the Mac's own UDID always appears when it works) —
-    # skip this check rather than block a run on a tool we couldn't query.
+    # An empty list means xctrace is unusable, since the Mac itself always appears; skip the check.
     if connected and udid not in connected:
         errors.append(
             f"device.udid '{udid}' is not a connected iOS device. "
@@ -395,6 +411,7 @@ def _check_device_connected(udid: str, errors: list[str]) -> None:
         )
 
 
+# Return the UDIDs xctrace lists as connected, or an empty set when it cannot run.
 def connected_device_udids(timeout: float = 15.0) -> set[str]:
     argv = ["xcrun", "xctrace", "list", "devices"]
     logger.debug("ios preflight: running %s (timeout %ss)", argv, timeout)
@@ -418,6 +435,7 @@ def connected_device_udids(timeout: float = 15.0) -> set[str]:
     return udids
 
 
+# Parse the UDIDs from the Devices section of xctrace output.
 def _parse_connected_udids(output: str) -> set[str]:
     udids: set[str] = set()
     in_devices_section = False
