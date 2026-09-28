@@ -63,6 +63,12 @@ FINAL_STATUSES = {
     "RESIGN_FAILED",
     "BASELINE_FAILED",
     "GADGET_ATTACH_FAILED",
+    "SCREEN_CAPTURE_OBSCURED",
+    "CANARY_NOT_OBSERVED",
+    "BROADCAST_NOT_STARTED",
+    "RECORDING_RETRIEVAL_FAILED",
+    "OCR_UNAVAILABLE",
+    "DIRTY_STARTING_STATE",
     "CLEANUP_FAILED",
     "FAILED",
 }
@@ -162,6 +168,7 @@ class GlobalConfig(SerializableDataclass):
     keystroke_collection: dict[str, Any] = field(default_factory=dict)
     traffic_interception: dict[str, Any] = field(default_factory=dict)
     repackaging: dict[str, Any] = field(default_factory=dict)
+    screen_capture: dict[str, Any] = field(default_factory=dict)
     config_path: Path | None = None
 
 

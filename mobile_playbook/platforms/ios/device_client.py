@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+import base64
+import io
+import shutil
+import tempfile
 import time
 from pathlib import Path
 
+from mobile_playbook.platforms.ios.ipa.unpacker import safe_extract_zip
 from mobile_playbook.platforms.ios.models import InstallResult
 
 UNTRUSTED_DEVELOPER_CERT_MARKERS = (
@@ -453,16 +458,41 @@ class AppiumDeviceClient:
         config = config or {}
         method = str(config.get("method") or "active_element_send_keys")
         if method == "keyboard_buttons":
+            import time
+
+            from appium.webdriver.common.appiumby import AppiumBy
+            from selenium.webdriver.support.ui import WebDriverWait
+
             key_map = config.get("key_accessibility_ids") or {}
             template = str(config.get("key_accessibility_id_template") or "{char}")
             return_key = str(config.get("return_key_accessibility_id") or "Return")
+            key_timeout = float(config.get("key_timeout_seconds", 6))
+            inter_key_delay = float(config.get("inter_key_delay_seconds", 0.15))
             taps = []
-            for char in text:
+            for index, char in enumerate(text):
                 if char in {"\n", "\r"}:
                     accessibility_id = key_map.get(char) or return_key
                 else:
                     accessibility_id = key_map.get(char) or template.format(char=char)
-                taps.append(self.tap_by_accessibility_id(accessibility_id))
+                try:
+                    element = WebDriverWait(self.driver, key_timeout).until(
+                        lambda driver, aid=accessibility_id: driver.find_element(
+                            AppiumBy.ACCESSIBILITY_ID, aid
+                        )
+                    )
+                    element.click()
+                except Exception as exc:
+                    raise RuntimeError(
+                        f"keyboard key {accessibility_id!r} for character {char!r} (index {index}) "
+                        f"was not found within {key_timeout:g}s after typing "
+                        f"{text[:index]!r}; the on-screen keyboard changed or was dismissed "
+                        f"before the full probe text could be entered"
+                    ) from exc
+                taps.append(
+                    {"accessibility_id": accessibility_id, "char": char, "index": index, "tapped": True}
+                )
+                if inter_key_delay > 0:
+                    time.sleep(inter_key_delay)
             return {"method": method, "text": text, "taps": taps}
         active = self.driver.switch_to.active_element
         active.send_keys(text)
@@ -477,6 +507,7 @@ class AppiumDeviceClient:
         if not bool(config.get("enabled", True)):
             return {"status": "SKIPPED", "reason": "keyboard selection is disabled"}
         expected_terms = [str(value) for value in (config.get("expected_source_contains") or []) if value]
+        active_markers = [str(value) for value in (config.get("active_marker_contains") or []) if value] or expected_terms
         attempts = int(config.get("attempts", 5))
         settle_seconds = float(config.get("settle_seconds", 0.5))
         switch_button_ids = config.get("switch_button_accessibility_ids") or [
@@ -489,8 +520,8 @@ class AppiumDeviceClient:
             "globe",
             "keyboard",
         ]
-        if self._page_source_contains_any(expected_terms):
-            return {"status": "SELECTED", "matched": expected_terms, "attempts": []}
+        if self._keyboard_marker_present(active_markers, switch_button_ids):
+            return {"status": "SELECTED", "matched": active_markers, "attempts": []}
 
         tap_attempts = []
         for attempt in range(1, attempts + 1):
@@ -498,8 +529,8 @@ class AppiumDeviceClient:
             tapped["attempt"] = attempt
             tap_attempts.append(tapped)
             time.sleep(settle_seconds)
-            if expected_terms and self._page_source_contains_any(expected_terms):
-                return {"status": "SELECTED", "matched": expected_terms, "attempts": tap_attempts}
+            if active_markers and self._keyboard_marker_present(active_markers, switch_button_ids):
+                return {"status": "SELECTED", "matched": active_markers, "attempts": tap_attempts}
             if not expected_terms and tapped.get("tapped"):
                 return {"status": "ATTEMPTED", "reason": "no expected_source_contains configured", "attempts": tap_attempts}
         return {
@@ -528,6 +559,30 @@ class AppiumDeviceClient:
             return False
         source = self.page_source()
         return any(term in source for term in expected_terms)
+
+    def _keyboard_marker_present(self, markers: list[str], switcher_names: list[str]) -> bool:
+        markers = [str(marker).strip() for marker in markers if str(marker).strip()]
+        if not markers:
+            return False
+        from appium.webdriver.common.appiumby import AppiumBy
+
+        def escape(value: str) -> str:
+            return value.replace("\\", "\\\\").replace("'", "\\'")
+
+        match = " OR ".join(
+            f"label == '{escape(m)}' OR value == '{escape(m)}' OR name == '{escape(m)}'"
+            for m in markers
+        )
+        predicate = f"({match})"
+        excluded = [escape(str(name).strip()) for name in (switcher_names or []) if str(name).strip()]
+        if excluded:
+            not_switcher = " AND ".join(f"name != '{name}'" for name in excluded)
+            predicate = f"({match}) AND ({not_switcher})"
+        try:
+            self.driver.find_element(AppiumBy.IOS_PREDICATE, predicate)
+            return True
+        except Exception:
+            return False
 
     def tap_first_button_matching(
         self,
@@ -763,6 +818,29 @@ class AppiumDeviceClient:
             raise RuntimeError("Appium session is not connected")
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         self.driver.save_screenshot(str(path))
+
+    def pull_app_documents(self, bundle_id: str, subpath: str, dest: Path, max_bytes: int) -> list[Path]:
+        if self.driver is None:
+            raise RuntimeError("Appium session is not connected")
+        encoded = self.driver.pull_folder(f"@{bundle_id}:documents/{subpath.strip('/')}")
+        raw = base64.b64decode(encoded)
+        if len(raw) > max_bytes:
+            raise RuntimeError(f"Pulled evidence is {len(raw)} bytes, above max_pull_bytes={max_bytes}")
+        dest.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=dest) as staging:
+            staging_dir = Path(staging)
+            safe_extract_zip(io.BytesIO(raw), staging_dir)
+            # Appium may zip the folder from its parent, prefixing every entry with the folder's own name.
+            entries = list(staging_dir.iterdir())
+            root = entries[0] if len(entries) == 1 and entries[0].is_dir() and entries[0].name == Path(subpath).name else staging_dir
+            for entry in root.iterdir():
+                target = dest / entry.name
+                if target.is_dir():
+                    shutil.rmtree(target)
+                elif target.exists():
+                    target.unlink()
+                shutil.move(str(entry), target)
+        return sorted(path for path in dest.rglob("*") if path.is_file())
 
     def page_source(self) -> str:
         if self.driver is None:

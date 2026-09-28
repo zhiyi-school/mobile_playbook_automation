@@ -112,6 +112,41 @@ python tools/check_burp_interception.py --config configs/ios.yaml
 
 It checks Burp's proxy is reachable, opens a known HTTPS test URL (`https://example.com` by default) on the device via `mobile: deepLink` (no need to interact with Safari's address bar UI), and confirms that a matching HTTPS exchange shows up in the capture file — i.e. the full proxy → CA trust → extension chain is genuinely decrypting traffic, not just configured-looking. On `PASS`, it atomically writes the capture file's sibling `.health.json` record with the verification time, normalized proxy, canonical capture path, canary host, valid-entry count, hashed device UDID, and tool version. A selected traffic-interception run compares that record's proxy, path, device, and age during preflight and reports any mismatch or stale state as a non-blocking warning. A fresh record proves only that the canary worked at that recorded time; it does not make a later `Inconclusive` application result proof of pinning, because the capture source, app activity, or handshake outcome may differ during the later run. `FAILED` does not create or update the record and points at which part of the chain to check.
 
+## ios-feature-03-risk-01
+
+`ios-feature-03-risk-01` tests whether sensitive text shown in the target app can be read from a screen recording made by another app that the user has authorised to broadcast the screen. The recorder is the tester-owned ReplayConsentRecorder companion app (`artifacts/companion/ios/ipas/ReplayConsentRecorder.ipa`), which writes a ReplayKit broadcast to an `.mp4` and saves a screenshot from the broadcast every few seconds.
+
+Workflow:
+
+1. Clean start: remove any recorder left over from an earlier run. Uninstalling it also wipes its App Group folder, so old recordings cannot produce a false result. A recorder that cannot be removed ends the run as `DIRTY_STARTING_STATE`.
+2. Install the recorder IPA, re-signing it first when its profile has expired or the install is rejected for its signature (`recorder_app.resign`).
+3. Acquire and install the target app IPA.
+4. Open the recorder, fill its dummy sign-in (its start button stays disabled until both fields are filled), tap **Start Phone Screen Recording**, then **Start Broadcast** on the iOS sheet, and wait for the countdown.
+5. Record the capture-window start time, bring the target app to the front, focus a text field (with auto-navigation when configured), and type a unique canary. When the screen has a password field, type a second canary into it. Hold for `capture_window_seconds`, take one Appium reference screenshot, and record the window end time.
+6. Return to the recorder and tap the start button again, which brings up **Stop Broadcast**. Then tap **Export Evidence**, which copies the newest recording and the screenshots taken since it started into the recorder's Documents folder, writing `done.json` last.
+7. Pull `@<recorder>:documents/Evidence` through Appium, retrying until `done.json` arrives or `export_timeout_seconds` passes.
+8. Keep the video as `recording.mp4` in the report directory.
+9. OCR the broadcast screenshots whose timestamps fall inside the capture window with the macOS Vision framework. When none do, still frames are pulled from the `.mp4` instead.
+10. In `finally`: stop the broadcast if it is still running, uninstall both apps, and write the result.
+
+| Outcome | `final_status` | Verdict | Severity |
+| --- | --- | --- | --- |
+| A canary is readable in a frame | `RISK_EXISTS` | At Risk | high |
+| Every frame from the window is blank or hidden | `SCREEN_CAPTURE_OBSCURED` | Reduced Risk | low |
+| Frames are readable but no canary was recognised | `CANARY_NOT_OBSERVED` | Inconclusive | info |
+| The Vision OCR bindings are not installed, or `ocr_provider: none` | `OCR_UNAVAILABLE` | Inconclusive | info |
+| The broadcast never started, or no frames came back | `BROADCAST_NOT_STARTED` | Inconclusive | info |
+| The export, pull or `max_pull_bytes` limit failed | `RECORDING_RETRIEVAL_FAILED` | Inconclusive | info |
+| A leftover recorder could not be removed | `DIRTY_STARTING_STATE` | Inconclusive | info |
+
+A frame counts as blank when its pixels are nearly uniform, which is what an app that blanks or covers itself during capture produces. `CANARY_NOT_OBSERVED` stays Inconclusive because readable frames without the canary do not show that the app hid anything; review the attached video.
+
+The canary is unique per run: `canary_prefix` (default `SCR`) followed by the last six letters or digits of the run timestamp, and `PWD` plus the same suffix for the password field. A reused string could match an old recording and give a false positive. OCR ignores spaces and case when matching.
+
+When the password-field canary is readable, `launch_result.ocr.secure_field_exposed` is `true` and the summary says the password field was not masked. That links the finding to control-01 (use a `SecureField`).
+
+Whenever the recording is retrieved it is attached as `screen_recording` evidence, whatever the verdict, so a person can review it; this is the only evidence for `OCR_UNAVAILABLE` and `CANARY_NOT_OBSERVED`. `ocr_matches.json` lists every scanned frame's matches, and frames with a readable canary are copied to `frames/` and attached as screenshots.
+
 ## ios-feature-04-risk-01
 
 `ios-feature-04-risk-01` tests whether a third-party custom keyboard can collect text typed into a target app field.

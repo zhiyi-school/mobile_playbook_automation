@@ -29,6 +29,18 @@ The top-level `reports/<run_timestamp>/summary.md` and `dashboard_results.json` 
 - `critical_findings.md`
 - `mobsf_report.json` when MobSF analysis succeeds
 
+`ios-feature-03-risk-01`:
+
+- `report.json`
+- `logs.txt`
+- `recording.mp4`: the recorder's screen recording, attached as `screen_recording` evidence whenever it was retrieved
+- `ocr_matches.json`: frames scanned, frames judged blank, canary matches, where the frames came from (`screenshots` or `video`) and `secure_field_exposed`
+- `reference_screen.png`: Appium's own screenshot of the target app during the capture window
+- `frames/*.png`: the recorded frames in which a canary was readable
+- `pulled/`: what was pulled from the recorder's Documents folder, including `done.json` and the broadcast screenshots
+- `video_frames/`: still frames taken from the video when no screenshot fell inside the window
+- `broadcast-<stage>.png` / `.xml`: diagnostics when the broadcast could not be started
+
 `ios-feature-04-risk-01`:
 
 - `report.json`
@@ -69,6 +81,12 @@ Each test's `report.json` (and `logs.txt`) carries one of these precise statuses
 - `CAPTURE_SOURCE_CHANGED` (**info**): (`ios-feature-02-risk-01`) the capture file was replaced or truncated during the test.
 - `CAPTURE_SOURCE_UNAVAILABLE` (**info**): (`ios-feature-02-risk-01`) the capture file could not be read.
 - `TRAFFIC_INTERCEPTION_NOT_OBSERVED` (**low**): (`ios-feature-02-risk-01`) no valid HTTPS capture matched the configured hosts; plain HTTP, outdated entries without `scheme`, unrelated hosts, and failed handshakes do not establish the risk.
+- `SCREEN_CAPTURE_OBSCURED` (**low**): (`ios-feature-03-risk-01`) every recorded frame from the capture window was blank or covered.
+- `CANARY_NOT_OBSERVED` (**info**): (`ios-feature-03-risk-01`) recorded frames were readable but no canary was recognised; review the attached recording.
+- `OCR_UNAVAILABLE` (**info**): (`ios-feature-03-risk-01`) the Vision OCR bindings are not installed or `ocr_provider` is `none`; the recording is attached for manual review.
+- `BROADCAST_NOT_STARTED` (**info**): (`ios-feature-03-risk-01`) the broadcast could not be started, or no recording or frames came back.
+- `RECORDING_RETRIEVAL_FAILED` (**info**): (`ios-feature-03-risk-01`) the export, the pull, or the `max_pull_bytes` limit failed.
+- `DIRTY_STARTING_STATE` (**info**): (`ios-feature-03-risk-01`, `ios-feature-04-risk-01`) a companion app left by an earlier run could not be removed.
 - `INSTALL_FAILED`, `LAUNCH_FAILED`, `BEHAVIOR_FAILED`, `FAILED` (**medium**): setup, launch, behavior, or unexpected failure.
 
 `summary.md`'s `Status` column doesn't show these directly — it shows a 3-way security verdict (`RiskRunResult.verdict`) that each risk sets itself, alongside `final_status`, at the point it decides the outcome: **At Risk** (the risk was demonstrated, e.g. `IPA_ANALYSIS_COMPLETE`/`RISK_EXISTS`), **Reduced Risk** (the app mitigated it, e.g. `KEYSTROKE_COLLECTION_NOT_OBSERVED`/`CUSTOM_KEYBOARD_NOT_AVAILABLE`), or **Inconclusive** — the field's default, and what any status not listed above leaves it as (install/launch/pairing/behavior failures included). The precise underlying status is always still in that test's `report.json`.
@@ -89,6 +107,17 @@ Preflight warning codes and actions:
 - `BURP_HEALTH_MISMATCH`: rerun the canary check with the configured proxy, capture path, and device.
 - `BURP_CAPTURE_STALE`: verify the Burp extension is loaded and writing to the configured capture file.
 - `BURP_EXPECTED_HOSTS_EMPTY`: configure the application's exact API hosts to avoid attributing unrelated device traffic to it.
+
+Screen capture (`ios-feature-03-risk-01`) preflight warnings are advisory too:
+
+- `RECORDER_IPA_MISSING`: build ReplayConsentRecorder and place the IPA at `screen_capture.recorder_app.ipa` (by default `artifacts/companion/ios/ipas/ReplayConsentRecorder.ipa`). Outside a dry run the same condition is also a configuration error.
+- `OCR_UNAVAILABLE`: install the backend's dependencies on macOS (`python -m pip install -e .` brings in `pyobjc-framework-Vision` and `pyobjc-framework-AVFoundation`). Without them the recording is still collected but the result is `OCR_UNAVAILABLE`.
+
+`BROADCAST_NOT_STARTED`: the iOS broadcast sheet's button labels depend on the iOS version and language. Check `broadcast-start_broadcast.png`/`.xml` in the report directory and add the visible label to `recorder_app.start_broadcast_labels` (or `stop_broadcast_labels` for stopping). Raise `sheet_timeout_seconds` when the sheet is slow to appear.
+
+`RECORDING_RETRIEVAL_FAILED` with "never wrote done.json": the recorder did not finish exporting within `export_timeout_seconds`. Long recordings take longer to copy, so raise the timeout. Also check that the installed recorder build has file sharing enabled (`UIFileSharingEnabled`), which Appium needs to read its Documents folder.
+
+`RECORDING_RETRIEVAL_FAILED` naming `max_pull_bytes`: the evidence folder was larger than the limit. Shorten `capture_window_seconds` or raise `capture.max_pull_bytes`.
 
 `CAPTURE_PIPELINE_SILENT`: confirm the Burp extension is loaded and writing to the configured capture path, then generate a known request and check the raw Burp history.
 
@@ -126,17 +155,20 @@ IPA install failure:
 
 Check provisioning, entitlements, device compatibility, and whether the IPA is installable outside the framework.
 
-`Cannot install the com.example.LocalKeyboard.4228qcqtj9 application ... ApplicationVerificationFailed ... Failed to verify code signature`:
+`Cannot install the com.example.LocalKeyboard.4228qcqtj9 application ... ApplicationVerificationFailed ... Failed to verify code signature` (or the same for `com.example.ReplayConsentRecorder`):
 
-`ios-feature-04-risk-01`'s keyboard host app (`artifacts/intake/ios/ipas/LocalKeyboard.ipa`, configured via `keystroke_collection.keyboard_app.ipa`) is a prebuilt binary with no Xcode project source in this repo, so nothing rebuilds it automatically the way WDA gets rebuilt on every session. Its provisioning profile is free-tier (7-day validity) same as WDA's, but with no automatic renewal, it will eventually expire and every install attempt fails with this error until it's resigned.
+`ios-feature-04-risk-01`'s keyboard host app (`artifacts/companion/ios/ipas/LocalKeyboard.ipa`, configured via `keystroke_collection.keyboard_app.ipa`) is a prebuilt binary with no Xcode project source in this repo, so nothing rebuilds it automatically the way WDA gets rebuilt on every session. Its provisioning profile is free-tier (7-day validity) same as WDA's, but with no automatic renewal, it will eventually expire and every install attempt fails with this error until it's resigned.
 
-Fix it with `tools/localkeyboard_resign/resign.py`, which doesn't need the original LocalKeyboard source: it builds a placeholder Xcode project (`tools/localkeyboard_resign/project.yml`, generated via `xcodegen`) targeting the LocalKeyboard bundle IDs and App Group entitlement, with the device connected and Automatic Signing on — Apple ties profile issuance to (team + bundle ID + device), not to specific source code, so this mints a fresh profile without the real project. It then pulls that profile and a matching signing identity out of the build output and reapplies both directly to the existing `LocalKeyboard.ipa` via `codesign`, in place:
+`ios-feature-03-risk-01`'s ReplayConsentRecorder IPA (`artifacts/companion/ios/ipas/ReplayConsentRecorder.ipa`) is a development export with the same limited profile lifetime.
+
+Fix either with `tools/localkeyboard_resign/resign.py`, which re-signs any companion IPA without its source: it reads the app's and each extension's bundle IDs and App Groups from the IPA, generates a placeholder Xcode project with those identifiers in a temporary directory (via `xcodegen`), and builds it with the device connected and Automatic Signing on — Apple ties profile issuance to (team + bundle ID + device + capabilities), not to specific source code, so this mints fresh profiles without the real project. It then applies those profiles and a matching signing identity to the existing IPA via `codesign`, extensions first:
 
 ```bash
 python tools/localkeyboard_resign/resign.py --udid <device.udid> --team-id <device.team_id>
+python tools/localkeyboard_resign/resign.py --ipa artifacts/companion/ios/ipas/ReplayConsentRecorder.ipa --udid <device.udid> --team-id <device.team_id>
 ```
 
-Both values come from `configs/ios.yaml`'s `device` section. This overwrites `--ipa` (defaults to `artifacts/intake/ios/ipas/LocalKeyboard.ipa`) with the resigned version; pass `--out` to write elsewhere instead. Requires `xcodegen` (`brew install xcodegen`) and a signing identity in the keychain whose certificate's team (its X.509 `OU` field — not necessarily what its display name suggests) matches `--team-id`.
+Both values come from `configs/ios.yaml`'s `device` section. This overwrites `--ipa` (defaults to `artifacts/companion/ios/ipas/LocalKeyboard.ipa`) with the resigned version; pass `--out` to write elsewhere instead. With `resign.enabled`, both risks run it automatically when the companion's profile has expired or the install is rejected for its signature. Requires `xcodegen` (`brew install xcodegen`) and a signing identity in the keychain whose certificate's team (its X.509 `OU` field — not necessarily what its display name suggests) matches `--team-id`.
 
 Protected or encrypted iOS executable:
 

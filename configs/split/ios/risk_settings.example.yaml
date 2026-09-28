@@ -72,7 +72,7 @@ keystroke_collection:
   keyboard_app:
     bundle_id: "com.example.LocalKeyboard"
     keyboard_extension_bundle_id: "com.example.LocalKeyboard.KeyboardExtension"
-    ipa: "artifacts/intake/ios/ipas/LocalKeyboard.ipa"
+    ipa: "artifacts/companion/ios/ipas/LocalKeyboard.ipa"
     resign:
       enabled: true
       timeout_seconds: 900
@@ -159,3 +159,47 @@ keystroke_collection:
         - "next keyboard"
         - "globe"
         - "keyboard"
+
+screen_capture:
+  recorder_app:
+    bundle_id: "com.example.ReplayConsentRecorder"
+    ipa: "artifacts/companion/ios/ipas/ReplayConsentRecorder.ipa"
+    install: true
+    uninstall_after_test: true
+    require_clean_state: true
+    resign:
+      enabled: true
+      timeout_seconds: 900
+    sign_in:
+      username_accessibility_id: "recorder-username"
+      password_accessibility_id: "recorder-password"
+      username: "tester"
+      password: "tester"
+    start_button_accessibility_id: "start-phone-recording"
+    export_button_accessibility_id: "export-evidence"
+    start_broadcast_labels: ["Start Broadcast", "Start Recording"]
+    stop_broadcast_labels: ["Stop Broadcast", "Stop Recording", "Stop"]
+    sheet_timeout_seconds: 10
+    countdown_seconds: 4
+    evidence_documents_path: "Evidence"
+    export_timeout_seconds: 30
+  capture:
+    capture_window_seconds: 12
+    canary_prefix: "SCR"
+    type_secure_canary: true
+    ocr_provider: "vision"            # "none" skips OCR and relies on the attached video
+    video_frame_fallback: true
+    video_frame_interval_seconds: 1
+    max_pull_bytes: 209715200
+    input:
+      method: "send_keys"
+    text_field:
+      accessibility_id: null
+    auto_navigation:
+      enabled: true
+      max_steps: 4
+      settle_seconds: 1
+      allow_any_button: false
+      accessibility_ids: []
+      button_label_contains: ["Log in", "Login", "Sign in", "Continue", "Next", "Get started"]
+      exclude_button_label_contains: ["Delete", "Remove", "Cancel", "Log out", "Sign out", "Pay", "Purchase"]

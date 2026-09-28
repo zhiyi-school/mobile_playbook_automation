@@ -177,6 +177,28 @@ def test_put_risk_settings_preserves_comments_and_untouched_keys(config_root):
     assert settings["analyzer"]["provider"] == "mobsf"
 
 
+def test_screen_capture_risk_settings_are_editable(config_root):
+    path = config_root / "configs/split/ios/screen_capture.yaml"
+    path.write_text(
+        "# Global defaults for ios-feature-03-risk-01.\n"
+        "screen_capture:\n"
+        "  recorder_app:\n"
+        "    bundle_id: \"com.example.recorder\"\n"
+        "  capture:\n"
+        "    # seconds the canary stays on screen\n"
+        "    capture_window_seconds: 12\n"
+        "    ocr_provider: \"vision\"\n"
+    )
+
+    ce.put_risk_settings("ios", "ios-feature-03-risk-01", {"capture": {"capture_window_seconds": 20}})
+
+    text = path.read_text()
+    assert "# seconds the canary stays on screen" in text
+    settings = ce.get_risk_settings("ios", "ios-feature-03-risk-01")
+    assert settings["capture"] == {"capture_window_seconds": 20, "ocr_provider": "vision"}
+    assert settings["recorder_app"]["bundle_id"] == "com.example.recorder"
+
+
 def test_unknown_risk_settings_id_raises(config_root):
     with pytest.raises(Exception):
         ce.get_risk_settings("ios", "ios-does-not-exist")

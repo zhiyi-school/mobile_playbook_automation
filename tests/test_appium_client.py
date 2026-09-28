@@ -731,3 +731,37 @@ def test_an_alert_element_holding_no_text_falls_through_to_the_page():
     driver = EmptyAlertDriver({"XCUIElementTypeStaticText": [StaticText("Only on the page.")]})
 
     assert _client(driver)._alert_text() == "Only on the page."
+
+
+def _zipped(entries: dict[str, bytes]) -> str:
+    import base64
+    import io
+    import zipfile
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as zf:
+        for name, data in entries.items():
+            zf.writestr(name, data)
+    return base64.b64encode(buffer.getvalue()).decode()
+
+
+@pytest.mark.parametrize("prefix", ["", "Evidence/"])
+def test_pull_app_documents_extracts_the_folder_with_or_without_its_own_name(tmp_path, prefix):
+    pulled: list[str] = []
+    encoded = _zipped({f"{prefix}done.json": b"{}", f"{prefix}broadcast-1.mp4": b"mp4"})
+    driver = SimpleNamespace(pull_folder=lambda remote: pulled.append(remote) or encoded)
+
+    files = _client(driver).pull_app_documents("com.example.recorder", "/Evidence/", tmp_path / "pulled", max_bytes=10_000)
+
+    assert pulled == ["@com.example.recorder:documents/Evidence"]
+    assert [path.name for path in files] == ["broadcast-1.mp4", "done.json"]
+    assert (tmp_path / "pulled" / "done.json").read_bytes() == b"{}"
+
+
+def test_pull_app_documents_refuses_a_folder_above_the_size_limit(tmp_path):
+    driver = SimpleNamespace(pull_folder=lambda remote: _zipped({"big.bin": b"x" * 5000}))
+
+    with pytest.raises(RuntimeError, match="max_pull_bytes=100"):
+        _client(driver).pull_app_documents("com.example.recorder", "Evidence", tmp_path / "pulled", max_bytes=100)
+
+    assert not (tmp_path / "pulled").exists()

@@ -11,6 +11,9 @@ artifacts/
   intake/
     ios/ipas/            IPA inputs
     android/apks/        APK inputs
+  companion/
+    ios/ipas/            tester-owned helper apps a risk installs next to
+                         the target (LocalKeyboard, ReplayConsentRecorder)
   derived/
     icons/               extracted application icons
     artifacts/           artifact metadata, keyed by sha256

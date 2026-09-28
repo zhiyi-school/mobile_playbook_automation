@@ -16,6 +16,11 @@ dependencies = [
   "uvicorn[standard]>=0.29.0",
   "python-multipart>=0.0.9",
   "ruamel.yaml>=0.18.0",
+  "pyobjc-framework-Vision>=10; sys_platform == 'darwin'",
+  "pyobjc-framework-AVFoundation>=10; sys_platform == 'darwin'",
+  "pyobjc-framework-Quartz>=10; sys_platform == 'darwin'",
+  "pyobjc-framework-CoreMedia>=10; sys_platform == 'darwin'",
+  "pyobjc-framework-Cocoa>=10; sys_platform == 'darwin'",
 ]
 
 [tool.setuptools.packages.find]

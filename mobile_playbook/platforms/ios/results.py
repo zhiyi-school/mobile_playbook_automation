@@ -11,12 +11,14 @@ from mobile_playbook.platforms.ios.models import RiskRunResult
 CATEGORY_BY_RISK = {
     "ios-feature-01-risk-01": "static_analysis",
     "ios-feature-02-risk-01": "network_security",
+    "ios-feature-03-risk-01": "screen_security",
     "ios-feature-04-risk-01": "keyboard_security",
 }
 
 TEST_NAME_BY_RISK = {
     "ios-feature-01-risk-01": "IPA Static Analysis Exposure",
     "ios-feature-02-risk-01": "TLS Traffic Interception Exposure",
+    "ios-feature-03-risk-01": "Capture On-Screen Content",
     "ios-feature-04-risk-01": "Custom Keyboard Keystroke Collection",
 }
 
@@ -41,6 +43,11 @@ SEVERITY_BY_STATUS = {
     "CAPTURE_DATA_INVALID": "info",
     "CAPTURE_SOURCE_CHANGED": "info",
     "CAPTURE_SOURCE_UNAVAILABLE": "info",
+    "SCREEN_CAPTURE_OBSCURED": "low",
+    "CANARY_NOT_OBSERVED": "info",
+    "BROADCAST_NOT_STARTED": "info",
+    "RECORDING_RETRIEVAL_FAILED": "info",
+    "OCR_UNAVAILABLE": "info",
 }
 
 CAPTURE_STATUS_SUMMARIES = {
@@ -85,6 +92,8 @@ def normalize_ios_result(result: RiskRunResult) -> TestResult:
 
 
 def _summary(result: RiskRunResult) -> str:
+    if result.risk_id == "ios-feature-03-risk-01":
+        return _screen_capture_summary(result)
     if result.errors:
         return "; ".join(clean_message(e) for e in result.errors[:2])
     if result.behavior_result and result.behavior_result.errors:
@@ -111,6 +120,16 @@ def _traffic_interception_summary(result: RiskRunResult) -> str:
     return f"{count} decrypted request(s) captured through Burp ({shown})" if shown else f"{count} decrypted request(s) captured through Burp"
 
 
+def _screen_capture_summary(result: RiskRunResult) -> str:
+    ocr = (result.launch_result or {}).get("ocr") or {}
+    if result.final_status == "RISK_EXISTS":
+        masked = "password field NOT masked" if ocr.get("secure_field_exposed") else "password field masked"
+        return f"Canary text readable in {ocr.get('match_count', 0)} of {ocr.get('frames_scanned', 0)} recorded frame(s); {masked}"
+    if result.final_status == "SCREEN_CAPTURE_OBSCURED":
+        return "The recording captured the app, but no sensitive text was readable"
+    return result.final_status
+
+
 def _evidence(result: RiskRunResult) -> list[Evidence]:
     paths: list[tuple[str, Path | None, str]] = [
         ("ipa", result.acquired_ipa, "Acquired IPA"),
@@ -126,6 +145,14 @@ def _evidence(result: RiskRunResult) -> list[Evidence]:
         evidence_path = capture_summary.get("evidence_path")
         if evidence_path:
             paths.append(("report", Path(evidence_path), "Burp capture results"))
+    if result.risk_id == "ios-feature-03-risk-01":
+        recording_path = ((result.launch_result or {}).get("recording") or {}).get("path")
+        if recording_path:
+            paths.append(("screen_recording", Path(recording_path), "Screen recording (recorder app capture)"))
+            report_dir = Path(recording_path).parent
+            if (report_dir / "ocr_matches.json").exists():
+                paths.append(("report", report_dir / "ocr_matches.json", "Screen capture OCR matches"))
+            paths.extend(("screenshot", frame, "Frame with readable canary") for frame in sorted((report_dir / "frames").glob("*.png")))
     evidence = []
     seen = set()
     for kind, path, label in paths:

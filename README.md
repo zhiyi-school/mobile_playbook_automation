@@ -8,6 +8,7 @@ It uses platform-prefixed risk IDs:
 | --- | --- | --- |
 | `ios-feature-01-risk-01` | iOS | IPA acquisition and static-analysis exposure |
 | `ios-feature-02-risk-01` | iOS | TLS traffic interception exposure |
+| `ios-feature-03-risk-01` | iOS | On-screen content captured by an authorised screen recorder |
 | `ios-feature-04-risk-01` | iOS | Custom keyboard keystroke collection |
 | `android-feature-01-risk-02` | Android | APK repackaging, resigning, reinstall, and launch validation |
 | `android-feature-06-risk-01` | Android | Screen recording / `FLAG_SECURE` capture blocking |

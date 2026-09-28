@@ -446,6 +446,39 @@ class TestDownloadedBytesMatchTheSource:
         assert excinfo.value.status_code == 404
 
 
+class TestScreenCaptureEvidence:
+    def test_names_the_screen_capture_artifacts(self, tmp_path):
+        directory = _report_dir(tmp_path, "logs.txt", "reference_screen.png", "ocr_matches.json", "recording.mp4")
+
+        items = report_dir_evidence(directory)
+
+        assert [(item["kind"], item["label"]) for item in items] == [
+            ("screen_recording", "Screen recording (recorder app capture)"),
+            ("report", "Screen capture OCR matches"),
+            ("screenshot", "Target screen (Appium reference)"),
+            ("log", "Run log"),
+        ]
+
+    def test_the_recording_downloads_through_its_run_scoped_ref(self, tmp_path, monkeypatch):
+        reports = tmp_path / "reports"
+        run = "2026-01-02_00-00-00"
+        report_dir = reports / run / "ios" / "app_one" / "ios-feature-03-risk-01" / "screen_capture"
+        report_dir.mkdir(parents=True)
+        video = b"\x00\x00\x00 ftypmp42" + bytes(range(128))
+        (report_dir / "recording.mp4").write_bytes(video)
+        monkeypatch.setattr(reports_service, "REPORTS_ROOT", reports)
+        monkeypatch.setattr(reports_service, "WORK_ROOT", tmp_path / "work")
+
+        [item] = normalize_evidence([], report_dir, roots={"reports": reports.resolve()})
+
+        assert item["kind"] == "screen_recording"
+        assert item["path"] == f"reports/{run}/ios/app_one/ios-feature-03-risk-01/screen_capture/recording.mp4"
+        assert decode_ref(item["ref"]) == ("reports", f"{run}/ios/app_one/ios-feature-03-risk-01/screen_capture/recording.mp4")
+        response = api_reports.evidence_file(run, item["ref"])
+        assert response.media_type == "video/mp4"
+        assert Path(response.path).read_bytes() == video
+
+
 class TestRecordedPathsAreInstallationRelative:
     def test_a_declared_relative_path_resolves_against_the_installation(self, tmp_path, monkeypatch):
         artifact = tmp_path / "work" / "ios" / "original.ipa"

@@ -28,6 +28,7 @@ RISK_GLOBAL_SETTINGS_FIELD = {
     "ios-feature-01-risk-01": "ipa_static_analysis",
     "ios-feature-01-risk-02": "repackaging",
     "ios-feature-02-risk-01": "traffic_interception",
+    "ios-feature-03-risk-01": "screen_capture",
     "ios-feature-04-risk-01": "keystroke_collection",
 }
 
@@ -127,6 +128,7 @@ def parse_config(raw: dict[str, Any], config_path: Path | None = None) -> Global
         keystroke_collection=raw.get("keystroke_collection") or {},
         traffic_interception=raw.get("traffic_interception") or {},
         repackaging=raw.get("repackaging") or {},
+        screen_capture=raw.get("screen_capture") or {},
         config_path=config_path,
     )
 
@@ -191,6 +193,22 @@ def collect_config_errors(config: GlobalConfig, dry_run: bool = False) -> list[s
                 collection = effective.get("collection") or effective.get("control") or {}
                 if not str(collection.get("probe_text") or collection.get("expected_collected_text") or "").strip():
                     errors.append(f"{label}.risks.{risk_id}.collection.probe_text is required")
+            if risk_id == "ios-feature-03-risk-01":
+                recorder_app = effective.get("recorder_app") or {}
+                recorder_ipa = recorder_app.get("ipa")
+                if not recorder_ipa and not recorder_app.get("bundle_id"):
+                    errors.append(f"{label}.risks.{risk_id}.recorder_app.bundle_id or ipa is required")
+                if recorder_ipa and not dry_run and not Path(recorder_ipa).expanduser().exists():
+                    errors.append(f"{label}.risks.{risk_id}.recorder_app.ipa does not exist: {recorder_ipa}")
+                capture = effective.get("capture") or {}
+                try:
+                    window = float(capture.get("capture_window_seconds", 12))
+                except (TypeError, ValueError):
+                    window = 0
+                if window <= 0:
+                    errors.append(f"{label}.risks.{risk_id}.capture.capture_window_seconds must be greater than 0")
+                if capture.get("ocr_provider", "vision") not in {"vision", "none"}:
+                    errors.append(f"{label}.risks.{risk_id}.capture.ocr_provider must be vision or none")
             if risk_id == "ios-feature-02-risk-01":
                 burp = effective.get("burp") or {}
                 if not str(burp.get("proxy_url") or "").strip():
@@ -251,16 +269,20 @@ def _auto_fill_bundle_ids(config: GlobalConfig, errors: list[str]) -> None:
             # The keyboard host app is normally the same for every app under test, so its
             # settings usually live in the shared `keystroke_collection` global section rather
             # than this app's own risk_config; only fall back to a per-app override when present.
-            _auto_fill_keyboard_bundle_id(risk_config.get("keyboard_app"))
-    _auto_fill_keyboard_bundle_id(config.keystroke_collection.get("keyboard_app"))
+            _auto_fill_companion_bundle_id(risk_config.get("keyboard_app"))
+        risk_config = app.risks.get("ios-feature-03-risk-01")
+        if risk_config and risk_config.get("enabled", False):
+            _auto_fill_companion_bundle_id(risk_config.get("recorder_app"))
+    _auto_fill_companion_bundle_id(config.keystroke_collection.get("keyboard_app"))
+    _auto_fill_companion_bundle_id(config.screen_capture.get("recorder_app"))
 
 
-def _auto_fill_keyboard_bundle_id(keyboard_app: dict[str, Any] | None) -> None:
-    if not keyboard_app or keyboard_app.get("bundle_id"):
+def _auto_fill_companion_bundle_id(companion_app: dict[str, Any] | None) -> None:
+    if not companion_app or companion_app.get("bundle_id"):
         return
-    metadata = _inspect_metadata_if_available(keyboard_app.get("ipa"))
+    metadata = _inspect_metadata_if_available(companion_app.get("ipa"))
     if metadata and metadata.get("bundle_id"):
-        keyboard_app["bundle_id"] = metadata["bundle_id"]
+        companion_app["bundle_id"] = metadata["bundle_id"]
 
 
 def _inspect_metadata_if_available(ipa: Any) -> dict[str, Any] | None:

@@ -136,7 +136,7 @@ iOS risk IDs are prefixed `ios-feature...`. To configure a risk for an app:
        fallback_to_builtin: true
    ```
 
-   See `configs/split/ios/risk_settings.example.yaml` for the rest of this and `repackaging`/`traffic_interception`/`keystroke_collection`'s fields, and [Risks](risks.md) for what each field controls.
+   See `configs/split/ios/risk_settings.example.yaml` for the rest of this and `repackaging`/`traffic_interception`/`screen_capture`/`keystroke_collection`'s fields, and [Risks](risks.md) for what each field controls.
 3. Only add more fields under the app's own `risks.<risk_id>` entry when this one app needs to differ from those shared defaults — nest just the field being changed. Anything left unset there falls back to the global file; see [Global Risk Settings](#global-risk-settings) for how the two are merged.
 
 ### Repackaging
@@ -218,6 +218,81 @@ GET /platforms/ios/traffic-interception/proxy.pac
 
 For manual PAC setup, use Settings > Wi-Fi > Configure Proxy > Automatic and enter `http://<this-machine's-IP>:8080/platforms/ios/traffic-interception/proxy.pac`. If `burp.proxy_url` is loopback, the endpoint substitutes the detected LAN IP; use `?proxy_host=<ip>` when that detection is unsuitable.
 
+### Screen capture
+
+`ios-feature-03-risk-01` reads its shared defaults from the `screen_capture` block in `configs/split/ios/screen_capture.yaml`. `recorder_app` describes the ReplayConsentRecorder companion app and `capture` describes the capture window (see [Risks](risks.md#ios-feature-03-risk-01)):
+
+```yaml
+screen_capture:
+  recorder_app:
+    bundle_id: "com.example.ReplayConsentRecorder"
+    ipa: "artifacts/companion/ios/ipas/ReplayConsentRecorder.ipa"
+    install: true
+    uninstall_after_test: true
+    require_clean_state: true
+    resign:
+      enabled: true
+      timeout_seconds: 900
+    sign_in:
+      username_accessibility_id: "recorder-username"
+      password_accessibility_id: "recorder-password"
+      username: "tester"
+      password: "tester"
+    start_button_accessibility_id: "start-phone-recording"
+    export_button_accessibility_id: "export-evidence"
+    start_broadcast_labels: ["Start Broadcast", "Start Recording"]
+    stop_broadcast_labels: ["Stop Broadcast", "Stop Recording", "Stop"]
+    sheet_timeout_seconds: 10
+    countdown_seconds: 4
+    evidence_documents_path: "Evidence"
+    export_timeout_seconds: 30
+  capture:
+    capture_window_seconds: 12
+    canary_prefix: "SCR"
+    type_secure_canary: true
+    ocr_provider: "vision"
+    video_frame_fallback: true
+    video_frame_interval_seconds: 1
+    max_pull_bytes: 209715200
+    input:
+      method: "send_keys"
+    text_field:
+      accessibility_id: null
+    auto_navigation:
+      enabled: true
+      max_steps: 4
+      settle_seconds: 1
+      allow_any_button: false
+      accessibility_ids: []
+      button_label_contains: ["Log in", "Login", "Sign in", "Continue", "Next", "Get started"]
+      exclude_button_label_contains: ["Delete", "Remove", "Cancel", "Log out", "Sign out", "Pay", "Purchase"]
+```
+
+`recorder_app`:
+
+- `bundle_id` / `ipa`: at least one is required. A missing `bundle_id` is read from the IPA. Outside a dry run, a configured `ipa` must exist. Companion IPAs live under `artifacts/companion/ios/ipas/`.
+- `install`: install the IPA at the start of the risk. With `false`, the recorder must already be installed under `bundle_id`.
+- `uninstall_after_test`: remove the recorder afterwards, even when an earlier crashed run left it behind.
+- `require_clean_state`: remove a recorder that is already installed before the run. Uninstalling also wipes its App Group, so old recordings cannot match this run's canary. When removal fails, the result is `DIRTY_STARTING_STATE`.
+- `resign.enabled` / `resign.timeout_seconds`: re-sign the IPA with `tools/localkeyboard_resign/resign.py` when its profile has expired or the install is rejected for its signature (see [Reports And Troubleshooting](reports-and-troubleshooting.md#troubleshooting)).
+- `sign_in`: accessibility IDs and dummy values for the recorder's own sign-in fields. They only enable the recorder's start button and are not credentials for anything else.
+- `start_button_accessibility_id`: the recorder button that opens the iOS broadcast sheet, both to start and to stop.
+- `export_button_accessibility_id`: the recorder button that copies the evidence into its Documents folder.
+- `start_broadcast_labels` / `stop_broadcast_labels`: labels tried on the iOS broadcast sheet. `sheet_timeout_seconds` bounds the wait for them.
+- `countdown_seconds`: wait after **Start Broadcast** for the iOS countdown to finish.
+- `evidence_documents_path`: the folder under the recorder's Documents that is pulled through Appium.
+- `export_timeout_seconds`: how long to keep pulling until the recorder's `done.json` appears.
+
+`capture`:
+
+- `capture_window_seconds`: how long the canary stays on screen. Must be greater than 0.
+- `canary_prefix`: the start of the plain canary. The run timestamp supplies the unique suffix.
+- `type_secure_canary`: also type a `PWD…` canary into a password field when the screen has one.
+- `ocr_provider`: `vision` (macOS Vision through pyobjc) or `none`. `none` skips OCR, reports `OCR_UNAVAILABLE`, and relies on the attached video.
+- `video_frame_fallback` / `video_frame_interval_seconds`: when no recorder screenshot falls inside the window, pull still frames from the `.mp4` at this interval.
+- `max_pull_bytes`: the largest evidence folder accepted from the device. Anything larger is `RECORDING_RETRIEVAL_FAILED`.
+- `input`, `text_field` and `auto_navigation`: how the canary is typed and how a text field is found. They mean the same as the equivalent `collection` settings under `keystroke_collection`.
+
 ### Keystroke collection
 
 `ios-feature-04-risk-01` runs a command-and-control server on the Mac that the keyboard app on the iPhone connects back to. `collection.bind_host` is what that server binds to and stays `0.0.0.0` so the iPhone can reach it; `collection.advertised_host` is only the address typed into the keyboard app's server-URL field, and the two are not interchangeable.
@@ -241,6 +316,7 @@ include:
   ipa_static_analysis: split/ios/ipa_static_analysis.yaml
   traffic_interception: split/ios/traffic_interception.yaml
   keystroke_collection: split/ios/keystroke_collection.yaml
+  screen_capture: split/ios/screen_capture.yaml
   apps: split/ios/apps.yaml
 ```
 
@@ -248,9 +324,9 @@ Included paths are resolved relative to the entry-point file — here, that's `c
 
 ### Global Risk Settings
 
-`ipa_static_analysis`, `repackaging`, `traffic_interception`, and `keystroke_collection` each hold one risk's shared default settings — the analyzer config for `ios-feature-01-risk-01`, the repackaging config for `ios-feature-01-risk-02`, the Burp proxy config for `ios-feature-02-risk-01`, the keyboard-collection config for `ios-feature-04-risk-01` — used by every app that enables that risk. An app's own `risks.<risk_id>` entry in `apps.yaml` only needs `enabled: true`; any field nested under it there overrides the shared default for that app alone, merged recursively (so, for example, an app can override just `collection.auto_navigation.accessibility_ids` without repeating the rest of `collection`). See [Risks](risks.md) for what each field controls.
+`ipa_static_analysis`, `repackaging`, `traffic_interception`, `screen_capture`, and `keystroke_collection` each hold one risk's shared default settings — the analyzer config for `ios-feature-01-risk-01`, the repackaging config for `ios-feature-01-risk-02`, the Burp proxy config for `ios-feature-02-risk-01`, the screen-recorder config for `ios-feature-03-risk-01`, the keyboard-collection config for `ios-feature-04-risk-01` — used by every app that enables that risk. An app's own `risks.<risk_id>` entry in `apps.yaml` only needs `enabled: true`; any field nested under it there overrides the shared default for that app alone, merged recursively (so, for example, an app can override just `collection.auto_navigation.accessibility_ids` without repeating the rest of `collection`). See [Risks](risks.md) for what each field controls.
 
-`configs/split/ios/risk_settings.example.yaml` shows all three risks' settings together in one file for easier reading, but the real (git-ignored) config keeps them as separate files, one per risk, matching the `include:` map above.
+`configs/split/ios/risk_settings.example.yaml` shows these risks' settings together in one file for easier reading, but the real (git-ignored) config keeps them as separate files, one per risk, matching the `include:` map above.
 
 ### Splitting Out Shared Templates
 
@@ -265,7 +341,7 @@ include:
 
 Listed files are read and concatenated as raw text, in that order, then parsed as a single YAML document — not loaded and merged separately. This matters because YAML anchors (`&name`/`*name`) only resolve within one parsed document: if `templates.yaml` and `apps.yaml` were parsed independently, `apps.yaml`'s `<<: *local_ipa_artifact` aliases would fail with an undefined-anchor error. Concatenating the raw text first is what lets `templates.yaml` define reusable `x-*` blocks (artifact source, expected-behavior checks) that `apps.yaml`'s app entries reference, while still keeping the two concerns — reusable templates vs. the actual app roster — in separate files.
 
-`configs/ios.yaml` in this project uses exactly this: `device`/`runner` are inline, `ipa_static_analysis`/`keystroke_collection` are each split into one file, and `apps` is split across two — `configs/split/ios/templates.yaml` (the `x-*` anchors) and `configs/split/ios/apps.yaml` (the 11 app entries, referencing those anchors). All of `configs/split/ios/ipa_static_analysis.yaml`, `keystroke_collection.yaml`, `templates.yaml`, and `apps.yaml` are git-ignored, since they contain a real app roster — only the `*.example.yaml` files under `configs/split/ios/` are tracked (`configs/ios.yaml` itself is also git-ignored, since it holds the real device UDID).
+`configs/ios.yaml` in this project uses exactly this: `device`/`runner` are inline, `ipa_static_analysis`/`keystroke_collection` are each split into one file, and `apps` is split across two — `configs/split/ios/templates.yaml` (the `x-*` anchors) and `configs/split/ios/apps.yaml` (the 11 app entries, referencing those anchors). All of `configs/split/ios/ipa_static_analysis.yaml`, `keystroke_collection.yaml`, `screen_capture.yaml`, `templates.yaml`, and `apps.yaml` are git-ignored, since they contain a real app roster — only the `*.example.yaml` files under `configs/split/ios/` are tracked (`configs/ios.yaml` itself is also git-ignored, since it holds the real device UDID).
 
 ## Environment Files
 

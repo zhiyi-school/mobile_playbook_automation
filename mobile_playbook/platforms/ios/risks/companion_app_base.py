@@ -15,7 +15,6 @@ from mobile_playbook.platforms.ios.risks.base import Risk
 class CompanionAppRiskBase(Risk):
     """Target-app and companion-app helpers shared by risks that install a second, tester-owned app."""
 
-    #: Config key and report label of the companion app, e.g. "keyboard_app" / "keyboard".
     companion_config_key = "companion_app"
     companion_label = "companion"
 

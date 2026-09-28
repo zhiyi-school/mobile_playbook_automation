@@ -98,6 +98,10 @@ to the response. This enrichment is read-only: historical report files are not
 rewritten. A missing artifact is omitted from summary/history; a previously issued
 reference to a file that is now missing returns `404`.
 
+`kind` is `screen_recording` for a video. On iOS, `ios-feature-03-risk-01` attaches
+the recorder app's capture as `recording.mp4` with that kind. It downloads through
+its `ref` like any other evidence file and is served as `video/mp4`.
+
 `path` is display/report metadata. Downloads use only the opaque `ref` returned by
 the API:
 

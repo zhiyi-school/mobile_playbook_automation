@@ -6,11 +6,13 @@ from types import SimpleNamespace
 
 import pytest
 
+from mobile_playbook.platforms.ios import preflight as ios_preflight
 from mobile_playbook.platforms.ios.burp_health import health_record_path, write_health_record
 from mobile_playbook.platforms.ios.config import ConfigError, validate_config
 from mobile_playbook.platforms.ios.preflight import (
     _parse_connected_udids,
     check_ios_preflight,
+    check_screen_capture_preflight,
     check_traffic_interception_preflight,
 )
 from mobile_playbook.platforms.ios.runner import IosPlatformRunner
@@ -313,3 +315,67 @@ def test_negative_health_max_age_is_rejected(global_config):
 
     with pytest.raises(ConfigError, match="health_max_age_seconds must be non-negative"):
         validate_config(global_config, dry_run=True)
+
+
+def _screen_capture_config(recorder_ipa, ocr_provider="vision"):
+    return SimpleNamespace(
+        device=SimpleNamespace(udid="device-1", team_id="TEAM", appium_server_url="http://127.0.0.1:4723"),
+        screen_capture={
+            "recorder_app": {"bundle_id": "com.example.recorder", "ipa": str(recorder_ipa)},
+            "capture": {"ocr_provider": ocr_provider},
+        },
+    )
+
+
+def _screen_capture_app(app_id="app-one", enabled=True):
+    return SimpleNamespace(id=app_id, risks={"ios-feature-03-risk-01": {"enabled": enabled}})
+
+
+def test_screen_capture_preflight_warns_when_the_recorder_ipa_is_missing(tmp_path, monkeypatch):
+    monkeypatch.setattr(ios_preflight, "ocr_available", lambda: True)
+    config = _screen_capture_config(tmp_path / "missing.ipa")
+    planned = [(_screen_capture_app("b"), "ios-feature-03-risk-01"), (_screen_capture_app("a"), "ios-feature-03-risk-01")]
+
+    warnings = check_screen_capture_preflight(config, planned)
+
+    assert [(warning.code, warning.app_ids) for warning in warnings] == [("RECORDER_IPA_MISSING", ("a", "b"))]
+
+
+def test_a_missing_recorder_ipa_is_a_config_error_outside_dry_runs(global_config, tmp_path):
+    global_config.screen_capture = {"recorder_app": {"ipa": str(tmp_path / "missing.ipa")}}
+    global_config.apps[0].risks = {"ios-feature-03-risk-01": {"enabled": True}}
+
+    with pytest.raises(ConfigError) as error:
+        validate_config(global_config)
+
+    assert any("recorder_app.ipa does not exist" in message for message in error.value.errors)
+
+
+def test_screen_capture_preflight_only_warns_when_vision_is_missing(tmp_path, monkeypatch):
+    recorder_ipa = tmp_path / "Recorder.ipa"
+    recorder_ipa.write_bytes(b"ipa")
+    monkeypatch.setattr(ios_preflight, "ocr_available", lambda: False)
+
+    warnings = check_screen_capture_preflight(_screen_capture_config(recorder_ipa), [(_screen_capture_app(), "ios-feature-03-risk-01")])
+
+    assert _warning_codes(warnings) == {"OCR_UNAVAILABLE"}
+    assert check_screen_capture_preflight(
+        _screen_capture_config(recorder_ipa, ocr_provider="none"), [(_screen_capture_app(), "ios-feature-03-risk-01")]
+    ) == []
+
+
+def test_screen_capture_preflight_ignores_disabled_and_other_risks(tmp_path, monkeypatch):
+    monkeypatch.setattr(ios_preflight, "ocr_available", lambda: False)
+    config = _screen_capture_config(tmp_path / "missing.ipa")
+
+    assert check_screen_capture_preflight(config, [(_screen_capture_app(enabled=False), "ios-feature-03-risk-01")]) == []
+    assert check_screen_capture_preflight(config, [(_screen_capture_app(), "ios-feature-01-risk-01")]) == []
+
+
+def test_ios_runner_includes_screen_capture_preflight_warnings(tmp_path, monkeypatch):
+    monkeypatch.setattr(ios_preflight, "ocr_available", lambda: True)
+    config = _screen_capture_config(tmp_path / "missing.ipa")
+
+    warnings = IosPlatformRunner().preflight_warnings(config, [(_screen_capture_app(), "ios-feature-03-risk-01")])
+
+    assert "RECORDER_IPA_MISSING" in _warning_codes(warnings)

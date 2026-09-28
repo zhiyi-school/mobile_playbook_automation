@@ -310,3 +310,85 @@ def test_config_auto_fills_keyboard_bundle_id_from_global_keystroke_collection_s
     assert loaded.keystroke_collection["keyboard_app"]["bundle_id"] == "com.example.keyboard.inferred"
 
 
+
+
+def _screen_capture_config(tmp_path, fake_ipa, screen_capture: dict, app_risk: dict | None = None) -> dict:
+    return {
+        "device": {"udid": "u", "team_id": "t", "appium_server_url": "http://127.0.0.1:4723"},
+        "screen_capture": screen_capture,
+        "apps": [{
+            "id": "a",
+            "name": "A",
+            "bundle_id": "com.example.app",
+            "artifact": {"source": "local_ipa", "ipa": str(fake_ipa)},
+            "expected_behavior": {},
+            "risks": {"ios-feature-03-risk-01": {"enabled": True, **(app_risk or {})}},
+        }],
+    }
+
+
+def _load(tmp_path, cfg: dict, dry_run: bool = False):
+    path = tmp_path / "ios.yaml"
+    path.write_text(yaml.safe_dump(cfg))
+    return load_config(path, dry_run=dry_run)
+
+
+def test_screen_capture_requires_a_recorder_bundle_id_or_ipa(tmp_path, fake_ipa):
+    with pytest.raises(ConfigError) as error:
+        _load(tmp_path, _screen_capture_config(tmp_path, fake_ipa, {"recorder_app": {}}))
+
+    assert "apps[a].risks.ios-feature-03-risk-01.recorder_app.bundle_id or ipa is required" in error.value.errors
+
+
+def test_screen_capture_recorder_ipa_must_exist_unless_dry_run(tmp_path, fake_ipa):
+    cfg = _screen_capture_config(tmp_path, fake_ipa, {"recorder_app": {"ipa": str(tmp_path / "missing.ipa")}})
+
+    with pytest.raises(ConfigError) as error:
+        _load(tmp_path, cfg)
+    assert any("recorder_app.ipa does not exist" in message for message in error.value.errors)
+    _load(tmp_path, cfg, dry_run=True)
+
+
+@pytest.mark.parametrize("capture, expected", [
+    ({"capture_window_seconds": 0}, "capture.capture_window_seconds must be greater than 0"),
+    ({"capture_window_seconds": "soon"}, "capture.capture_window_seconds must be greater than 0"),
+    ({"ocr_provider": "tesseract"}, "capture.ocr_provider must be vision or none"),
+])
+def test_screen_capture_validates_the_capture_block(tmp_path, fake_ipa, capture, expected):
+    cfg = _screen_capture_config(tmp_path, fake_ipa, {"recorder_app": {"bundle_id": "com.example.recorder"}, "capture": capture})
+
+    with pytest.raises(ConfigError) as error:
+        _load(tmp_path, cfg)
+
+    assert f"apps[a].risks.ios-feature-03-risk-01.{expected}" in error.value.errors
+
+
+def test_screen_capture_app_override_merges_onto_global_defaults(tmp_path, fake_ipa):
+    cfg = _screen_capture_config(
+        tmp_path,
+        fake_ipa,
+        {"recorder_app": {"bundle_id": "com.example.recorder"}, "capture": {"capture_window_seconds": 12, "ocr_provider": "vision"}},
+        {"capture": {"capture_window_seconds": 20}},
+    )
+
+    loaded = _load(tmp_path, cfg)
+
+    effective = effective_risk_config(loaded, "ios-feature-03-risk-01", loaded.apps[0].risks["ios-feature-03-risk-01"])
+    assert effective["capture"] == {"capture_window_seconds": 20, "ocr_provider": "vision"}
+    assert effective["recorder_app"]["bundle_id"] == "com.example.recorder"
+
+
+def test_screen_capture_fills_the_recorder_bundle_id_from_its_ipa(tmp_path, fake_ipa):
+    recorder_ipa = make_ipa(tmp_path / "recorder.ipa", bundle_id="com.example.recorder.inferred")
+
+    loaded = _load(tmp_path, _screen_capture_config(tmp_path, fake_ipa, {"recorder_app": {"ipa": str(recorder_ipa)}}))
+
+    assert loaded.screen_capture["recorder_app"]["bundle_id"] == "com.example.recorder.inferred"
+
+
+def test_screen_capture_fills_a_per_app_recorder_bundle_id_from_its_ipa(tmp_path, fake_ipa):
+    recorder_ipa = make_ipa(tmp_path / "recorder.ipa", bundle_id="com.example.recorder.app")
+
+    loaded = _load(tmp_path, _screen_capture_config(tmp_path, fake_ipa, {}, {"recorder_app": {"ipa": str(recorder_ipa)}}))
+
+    assert loaded.apps[0].risks["ios-feature-03-risk-01"]["recorder_app"]["bundle_id"] == "com.example.recorder.app"

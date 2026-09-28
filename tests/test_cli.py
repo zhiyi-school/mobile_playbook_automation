@@ -141,9 +141,38 @@ def test_ios_registry_only_exposes_current_risks():
         "ios-feature-01-risk-01",
         "ios-feature-01-risk-02",
         "ios-feature-02-risk-01",
+        "ios-feature-03-risk-01",
         "ios-feature-04-risk-01",
         "ios-feature-99-risk-01",
     }
+
+
+def test_screen_capture_risk_is_listed_as_automated():
+    from mobile_playbook.platforms.ios.risks import list_risks
+
+    by_id = {risk["risk_id"]: risk for risk in list_risks()}
+
+    assert by_id["ios-feature-03-risk-01"]["feature_id"] == "feature-03"
+    assert by_id["ios-feature-03-risk-01"]["automation_available"] is True
+
+
+def test_ios_dry_run_describes_the_screen_capture_plan(global_config):
+    from mobile_playbook.platforms.ios.runner import IosPlatformRunner
+
+    global_config.screen_capture = {
+        "recorder_app": {"bundle_id": "com.example.recorder"},
+        "capture": {"capture_window_seconds": 12, "ocr_provider": "vision"},
+    }
+    global_config.apps[0].risks = {"ios-feature-03-risk-01": {"enabled": True, "capture": {"ocr_provider": "none"}}}
+
+    lines = IosPlatformRunner().dry_run_lines(global_config, None)
+
+    assert lines[-4:] == [
+        "  planned: ios-feature-03-risk-01 / screen_capture / replaykit_broadcast",
+        "    recorder bundle_id: com.example.recorder",
+        "    capture_window_seconds: 12",
+        "    ocr_provider: none",
+    ]
 
 
 def test_manual_only_risks_are_flagged_in_the_catalogue():

@@ -187,7 +187,13 @@ class Feature04Risk01(Feature04KeyboardRiskBase):
                 return result
 
             probe_text = self._probe_text(collection)
-            type_result = self._type_probe_text(device_client, probe_text, collection)
+            try:
+                type_result = self._type_probe_text(device_client, probe_text, collection)
+            except Exception as exc:
+                self._capture_target_debug(device_client, report_dir, suffix="-probe-input-failed")
+                result.final_status = "BEHAVIOR_FAILED"
+                result.errors.append(f"Could not type probe text into {app_config.name}: {exc}")
+                return result
             result.launch_result["probe_input"] = type_result
             probe_evidence = self._capture_probe_evidence(device_client, report_dir, probe_text)
             result.launch_result["probe_evidence"] = probe_evidence

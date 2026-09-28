@@ -21,11 +21,13 @@ from mobile_playbook.platforms.ios.burp_health import (
 from mobile_playbook.platforms.ios.config import effective_risk_config
 from mobile_playbook.platforms.ios.models import AppConfig
 from mobile_playbook.platforms.ios.mutations.repackage import resolve_insert_dylib
+from mobile_playbook.platforms.ios.screen_capture_ocr import ocr_available
 from mobile_playbook.storage import ios_capture_path, resolve_under_repository
 
 DEVICES_SECTION = "Devices"
 TRAFFIC_INTERCEPTION_RISK_ID = "ios-feature-02-risk-01"
 REPACKAGING_RISK_ID = "ios-feature-01-risk-02"
+SCREEN_CAPTURE_RISK_ID = "ios-feature-03-risk-01"
 DEFAULT_HEALTH_MAX_AGE_SECONDS = 300
 
 
@@ -138,6 +140,48 @@ def check_repackaging_preflight(
                 "'codesign' is not on PATH; repackaging cannot re-sign the build and reports RESIGN_FAILED.",
                 REPACKAGING_RISK_ID,
                 ids,
+            )
+        )
+    return warnings
+
+
+def check_screen_capture_preflight(
+    config,
+    planned_tests: list[tuple[AppConfig, str]],
+) -> list[IosPreflightWarning]:
+    missing_ipas: dict[str, set[str]] = {}
+    ocr_app_ids: set[str] = set()
+    for app, risk_id in planned_tests:
+        if risk_id != SCREEN_CAPTURE_RISK_ID:
+            continue
+        app_risk_config = (getattr(app, "risks", {}) or {}).get(risk_id) or {}
+        if not app_risk_config.get("enabled", False):
+            continue
+        effective = effective_risk_config(config, risk_id, app_risk_config)
+        recorder_ipa = (effective.get("recorder_app") or {}).get("ipa")
+        if recorder_ipa and not Path(str(recorder_ipa)).expanduser().exists():
+            missing_ipas.setdefault(str(recorder_ipa), set()).add(str(app.id))
+        if (effective.get("capture") or {}).get("ocr_provider", "vision") != "none":
+            ocr_app_ids.add(str(app.id))
+
+    warnings = [
+        IosPreflightWarning(
+            "RECORDER_IPA_MISSING",
+            f"The screen recorder IPA does not exist ('{ipa}'); build ReplayConsentRecorder.ipa and set "
+            "screen_capture.recorder_app.ipa. The screen capture risk cannot install the recorder without it.",
+            SCREEN_CAPTURE_RISK_ID,
+            tuple(sorted(app_ids)),
+        )
+        for ipa, app_ids in sorted(missing_ipas.items())
+    ]
+    if ocr_app_ids and not ocr_available():
+        warnings.append(
+            IosPreflightWarning(
+                "OCR_UNAVAILABLE",
+                "The Vision OCR bindings (pyobjc-framework-Vision) are not installed; the screen recording is still "
+                "collected, but the result is OCR_UNAVAILABLE and needs manual review.",
+                SCREEN_CAPTURE_RISK_ID,
+                tuple(sorted(ocr_app_ids)),
             )
         )
     return warnings

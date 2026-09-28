@@ -17,11 +17,13 @@ from mobile_playbook.orchestration.platform_runner import (
     iter_enabled_tests,
     requires_device,
 )
+from mobile_playbook.platforms.ios.config import effective_risk_config
 from mobile_playbook.platforms.ios.device import AppiumDeviceClient
 from mobile_playbook.platforms.ios.models import RiskRunResult
 from mobile_playbook.platforms.ios.preflight import (
     check_ios_preflight,
     check_repackaging_preflight,
+    check_screen_capture_preflight,
     check_traffic_interception_preflight,
 )
 from mobile_playbook.platforms.ios.risks import get_risk
@@ -87,7 +89,11 @@ class IosPlatformRunner:
         yield from iter_enabled_tests(config, selected_tests, selected_apps, get_risk)
 
     def preflight_warnings(self, config, planned_tests):
-        return check_traffic_interception_preflight(config, planned_tests) + check_repackaging_preflight(config, planned_tests)
+        return (
+            check_traffic_interception_preflight(config, planned_tests)
+            + check_repackaging_preflight(config, planned_tests)
+            + check_screen_capture_preflight(config, planned_tests)
+        )
 
     def run_test(self, app, test_id: str, config, device_client, report_writer) -> None:
         risk = get_risk(test_id)
@@ -198,6 +204,14 @@ class IosPlatformRunner:
                         f"{collection.get('evidence_timeout_seconds', collection.get('event_timeout_seconds', 30))}"
                     )
                     lines.append(f"    probe_text: {collection.get('probe_text', 'hello123')}")
+                elif risk_id == "ios-feature-03-risk-01":
+                    effective = effective_risk_config(config, risk_id, risk_config)
+                    recorder = effective.get("recorder_app") or {}
+                    capture = effective.get("capture") or {}
+                    lines.append("  planned: ios-feature-03-risk-01 / screen_capture / replaykit_broadcast")
+                    lines.append(f"    recorder bundle_id: {recorder.get('bundle_id')}")
+                    lines.append(f"    capture_window_seconds: {capture.get('capture_window_seconds', 12)}")
+                    lines.append(f"    ocr_provider: {capture.get('ocr_provider', 'vision')}")
                 elif risk_id == "ios-feature-01-risk-01":
                     lines.append("  planned: ios-feature-01-risk-01 / ipa_static_analysis / package_inventory")
                 else:

@@ -25,6 +25,8 @@ apps:
         enabled: false
         expected_hosts:
           - "api.example.com"
+      ios-feature-03-risk-01:
+        enabled: false
       ios-feature-04-risk-01:
         enabled: false
     sector: "Government"

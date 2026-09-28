@@ -160,3 +160,55 @@ def test_a_missing_risks_file_does_not_empty_the_catalogue(config_root):  # noqa
 
     assert [r["risk_id"] for r in risks]
     assert all(r["demonstration"] == [] for r in risks)
+
+
+SCREEN_CAPTURE_RISK_ID = "ios-feature-03-risk-01"
+
+SCREEN_CAPTURE_PLAYBOOK = """## platform-feature-03-risk-01
+
+### Title
+
+Screen content captured by an authorised recorder
+
+### Description
+
+An authored screen capture description. (MITRE ATT&CK: ***Collection*** - TA0035).
+
+### Demonstration
+
+#### 01. Start a broadcast
+
+Start the recorder's broadcast.
+"""
+
+
+@pytest.fixture
+def screen_capture_risks_file(config_root):  # noqa: F811
+    path = config_root / "configs/split/ios/risks.yaml"
+    path.write_text(
+        f"{SCREEN_CAPTURE_RISK_ID}:\n"
+        "  name: Capture on-screen content\n"
+        "  description: Because the iOS platform provides screen capture, your app is at risk.\n"
+        "  tactic: Collection\n"
+        "  demonstration: []\n"
+    )
+    return path
+
+
+def test_the_screen_capture_risk_falls_back_to_its_configured_metadata(screen_capture_risks_file):
+    risk = _risk(SCREEN_CAPTURE_RISK_ID)
+
+    assert risk["feature_id"] == "feature-03"
+    assert risk["name"] == "Capture on-screen content"
+    assert risk["tactic"] == "Collection"
+
+
+def test_the_playbook_overlays_the_screen_capture_metadata(screen_capture_risks_file, empty_playbook):
+    (empty_playbook / "platform-feature-03-risk-01.md").write_text(SCREEN_CAPTURE_PLAYBOOK)
+    catalogue.clear_cache()
+
+    risk = _risk(SCREEN_CAPTURE_RISK_ID)
+
+    assert risk["name"] == "Screen content captured by an authorised recorder"
+    assert risk["description"].startswith("An authored screen capture description")
+    assert risk["tactic_id"] == "TA0035"
