@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from mobile_playbook.api import config_editor
+from mobile_playbook.api import config_editing
 from mobile_playbook.api.cors import cors_allowed_origins
 from mobile_playbook.api.models import (
     ConfigAppRequest,
@@ -40,7 +40,7 @@ def test_risk_metadata_body_rejects_unknown_fields():
 def test_risk_metadata_body_allows_null_tactic(monkeypatch):
     seen: dict = {}
     monkeypatch.setattr(
-        config_editor,
+        config_editing,
         "put_risk_metadata",
         lambda platform, risk_id, updates: seen.setdefault("updates", updates),
     )
@@ -107,7 +107,7 @@ def test_risk_settings_body_must_be_an_object():
 def test_risk_settings_body_allows_open_ended_sections(monkeypatch):
     seen: dict = {}
     monkeypatch.setattr(
-        config_editor,
+        config_editing,
         "put_risk_settings",
         lambda platform, risk_id, body: seen.setdefault("body", body) or body,
     )

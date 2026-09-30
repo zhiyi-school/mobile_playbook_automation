@@ -9,7 +9,7 @@ import logging
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, Response
 
-from mobile_playbook.api import config_editor, provisioning
+from mobile_playbook.api import config_editing, provisioning
 from mobile_playbook.api.dependencies import load_config_or_400
 from mobile_playbook.api.services import artifacts as artifact_service
 from mobile_playbook.api.models import (
@@ -36,16 +36,16 @@ def validate_config(body: ValidateRequest) -> dict:
 
 _APPS_BY_PLATFORM = {
     "ios": (
-        config_editor.list_ios_apps,
-        config_editor.add_ios_app,
-        config_editor.edit_ios_app,
-        config_editor.delete_ios_app,
+        config_editing.list_ios_apps,
+        config_editing.add_ios_app,
+        config_editing.edit_ios_app,
+        config_editing.delete_ios_app,
     ),
     "android": (
-        config_editor.list_android_apps,
-        config_editor.add_android_app,
-        config_editor.edit_android_app,
-        config_editor.delete_android_app,
+        config_editing.list_android_apps,
+        config_editing.add_android_app,
+        config_editing.edit_android_app,
+        config_editing.delete_android_app,
     ),
 }
 
@@ -134,39 +134,39 @@ def get_app_icon(platform: Platform, app_id: str, request: Request) -> Response:
 @router.get("/config/{platform}/risk-settings/{risk_id}")
 def get_config_risk_settings(platform: Platform, risk_id: str) -> dict:
     logger.debug("api: GET /config/%s/risk-settings/%s.", platform, risk_id)
-    return config_editor.get_risk_settings(platform, risk_id)
+    return config_editing.get_risk_settings(platform, risk_id)
 
 
 # Update a risk's global settings.
 @router.put("/config/{platform}/risk-settings/{risk_id}")
 def put_config_risk_settings(platform: Platform, risk_id: str, body: RiskSettingsUpdateRequest) -> dict:
     logger.debug("api: PUT /config/%s/risk-settings/%s keys=%s.", platform, risk_id, sorted(body.root))
-    return config_editor.put_risk_settings(platform, risk_id, body.root)
+    return config_editing.put_risk_settings(platform, risk_id, body.root)
 
 
 # Return the platform config's device section.
 @router.get("/config/{platform}/device")
 def get_config_device(platform: Platform) -> dict:
     logger.debug("api: GET /config/%s/device.", platform)
-    return config_editor.get_section(platform, "device")
+    return config_editing.get_section(platform, "device")
 
 
 # Update the platform config's device section.
 @router.put("/config/{platform}/device")
 def put_config_device(platform: Platform, body: DeviceUpdateRequest) -> dict:
     logger.debug("api: PUT /config/%s/device fields=%s.", platform, sorted(body.model_fields_set))
-    return config_editor.put_section(platform, "device", body.updates())
+    return config_editing.put_section(platform, "device", body.updates())
 
 
 # Return the platform config's runner section.
 @router.get("/config/{platform}/runner")
 def get_config_runner(platform: Platform) -> dict:
     logger.debug("api: GET /config/%s/runner.", platform)
-    return config_editor.get_section(platform, "runner")
+    return config_editing.get_section(platform, "runner")
 
 
 # Update the platform config's runner section.
 @router.put("/config/{platform}/runner")
 def put_config_runner(platform: Platform, body: RunnerUpdateRequest) -> dict:
     logger.debug("api: PUT /config/%s/runner fields=%s.", platform, sorted(body.model_fields_set))
-    return config_editor.put_section(platform, "runner", body.updates())
+    return config_editing.put_section(platform, "runner", body.updates())

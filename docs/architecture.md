@@ -110,11 +110,11 @@ This is implemented generically once in [`mobile_playbook/orchestration/scan_run
 
 ### Config layer
 
-Config loading lives in `mobile_playbook/orchestration/preflight.py` (`load_yaml_config`, `resolve_config_includes`); `mobile_playbook/core/config_files.py` is just a re-export for a friendlier import path. YAML is parsed with `yaml.safe_load`. A config file may declare an `include:` mapping (section name → file path) to split `device`/`runner`/`apps` into separate files (see `configs/split/`); included values are deep-merged with the entry-point file's inline values always taking precedence over the included file's values when both are set.
+Config loading lives in `mobile_playbook/orchestration/preflight.py` (`load_yaml_config`, `resolve_config_includes`). YAML is parsed with `yaml.safe_load`. A config file may declare an `include:` mapping (section name → file path) to split `device`/`runner`/`apps` into separate files (see `configs/split/`); included values are deep-merged with the entry-point file's inline values always taking precedence over the included file's values when both are set.
 
 App/risk selection (`--apps`, `--risks`) is implemented in `mobile_playbook/orchestration/artifact_intake.py`. Selectors are normalized (lowercased, alphanumeric-only) and matched against an app's `id`, `name`, `package_name`, or `bundle_id`; an unmatched `--apps` value raises with the list of available app IDs, and an unmatched `--risks` value raises with the list of known risk IDs, rather than either silently running nothing.
 
-A risk's actual settings are resolved from two layers, not stored per app: a global, risk-scoped section on `GlobalConfig` (iOS: `ipa_static_analysis`, `keystroke_collection`; Android: `screen_capture`, `repackaging`) holds the shared defaults used by every app that enables that risk, and an app's own `risks.<risk_id>` entry only needs `enabled: true` plus whatever it wants to override for itself. iOS merges the two with `mobile_playbook.orchestration.preflight.merge_dicts` (re-exported from `core/config_files.py`), which recurses into nested dicts so an app can override one nested field (say, `collection.auto_navigation.accessibility_ids`) without repeating everything else; this is exposed through `effective_risk_config()` in `platforms/ios/config.py`, keyed by `RISK_GLOBAL_SETTINGS_FIELD`. Android's settings are flat, so its risk implementations merge inline with a one-level `{**global_config.screen_capture, **app_override}` spread instead.
+A risk's actual settings are resolved from two layers, not stored per app: a global, risk-scoped section on `GlobalConfig` (iOS: `ipa_static_analysis`, `keystroke_collection`; Android: `screen_capture`, `repackaging`) holds the shared defaults used by every app that enables that risk, and an app's own `risks.<risk_id>` entry only needs `enabled: true` plus whatever it wants to override for itself. iOS merges the two with `mobile_playbook.orchestration.preflight.merge_dicts`, which recurses into nested dicts so an app can override one nested field (say, `collection.auto_navigation.accessibility_ids`) without repeating everything else; this is exposed through `effective_risk_config()` in `platforms/ios/config.py`, keyed by `RISK_GLOBAL_SETTINGS_FIELD`. Android's settings are flat, so its risk implementations merge inline with a one-level `{**global_config.screen_capture, **app_override}` spread instead.
 
 ### Registries auto-discover their plugins, they don't list them
 
@@ -159,7 +159,7 @@ creation, lookup, registry state, history and synchronization, independent of th
 server working directory. CLI runs retain their existing custom `--out` behavior.
 See [api.md](api.md#report-root-and-evidence-contract) for the full contract.
 
-All result objects are `SerializableDataclass` subclasses (`mobile_playbook/reporting/serialization.py`; `mobile_playbook/core/serialization.py` re-exports it), whose `to_dict()` recursively converts `Path → str` and nested dataclasses/lists/dicts into plain JSON-safe structures. The platform-agnostic result schema — `TestResult` and `Evidence` — lives in `mobile_playbook/reporting/status_mapper.py`; iOS and Android each normalize their own richer result objects (`RiskRunResult`, `AndroidRiskRunResult`) into this common shape for the dashboard feed.
+All result objects are `SerializableDataclass` subclasses (`mobile_playbook/reporting/serialization.py`), whose `to_dict()` recursively converts `Path → str` and nested dataclasses/lists/dicts into plain JSON-safe structures. The platform-agnostic result schema — `TestResult` and `Evidence` — lives in `mobile_playbook/reporting/status_mapper.py`; iOS and Android each normalize their own richer result objects (`RiskRunResult`, `AndroidRiskRunResult`) into this common shape for the dashboard feed.
 
 `ReportWriter` (`mobile_playbook/reporting/report_writer.py`) owns a single run's directory: it creates `<output-root>/<run_timestamp>/`, an `evidence/` folder, and a `<platform>/` folder; `test_report_dir(app_id, risk_id, case_id)` creates and returns the per-test folder each risk writes `report.json`/`logs.txt`/evidence into; `write_summary()` writes `summary.md` and (via `dashboard_export.write_dashboard_results`) `dashboard_results.json`. `run_timestamp` itself comes from `orchestration/scheduler.py`'s `new_run_timestamp`, a local, second-resolution, sortable timestamp string that appends a numeric suffix if a run folder with that name already exists.
 
@@ -185,7 +185,7 @@ outcome, and `build_from_run_dir` returns `None` unless the manifest says
 Rule text comes from the authored risk metadata in
 `configs/split/<platform>/risks.yaml` merged over the Risk classes' own
 attributes, read here with plain `yaml.safe_load` rather than through
-`api/config_editor.py` — the reporting layer must not depend on the API layer.
+`api/config_editing/` — the reporting layer must not depend on the API layer.
 Fingerprints are a sha256 over `platform | app_id | test_id | test_case_id`, and
 results carry no `locations`, because a runtime finding about a device has no
 source line to point at. The exporter is strictly SARIF 2.1.0 conformant,
@@ -210,7 +210,7 @@ cache keyed on a fingerprint of the source files. Nothing is imported into a
 database and there is no second control catalogue — Supabase stores only the
 developer's progress against a `control_id` and `step_key` this layer reports.
 
-The package deliberately does not import FastAPI or `api/config_editor.py`; it
+The package deliberately does not import FastAPI or `api/config_editing/`; it
 reads `risks.yaml` with plain `yaml.safe_load` for the same reason the SARIF
 exporter does. `api/services/playbook.py` is the only adapter between it and
 HTTP, so the catalogue can be exercised without an app instance.
@@ -308,7 +308,7 @@ testable with an injected store.
 
 ### API configuration editing
 
-`mobile_playbook/api/config_editor.py` is a compatibility facade. Shared
+`mobile_playbook/api/config_editing/` is the public editing API. Shared
 round-trip YAML, validation, per-file locks and rollback live in
 `api/config_editing/shared.py`; `sections.py` owns device, runner and global
 risk settings; `android_apps.py` and `ios_apps.py` own their roster formats;
@@ -346,7 +346,7 @@ versioned, coordinated migration rather than a spelling-only edit.
 | API request/response contract | `mobile_playbook/api/models.py`, route and service modules; extend `tests/test_api_*.py` and the focused contract command in [testing.md](testing.md) |
 | Report/evidence behavior | `mobile_playbook/api/services/reports.py`, `mobile_playbook/reporting/`; preserve the configured report-root and opaque-ref rules in [api.md](api.md#report-root-and-evidence-contract) |
 | Dashboard synchronization | `mobile_playbook/dashboard_syncing/`; keep `mobile_playbook/dashboard_sync.py` as the supported `python -m` entry point |
-| Configuration editing | `mobile_playbook/api/config_editing/`; keep `api/config_editor.py` as the public compatibility facade |
+| Configuration editing | `mobile_playbook/api/config_editing/` |
 | Risk implementation | `mobile_playbook/platforms/<platform>/risks/`, discovered dynamically; follow the platform guide linked from [testing.md](testing.md#adding-a-risk) |
 | Playbook parsing/rendering contract | `mobile_playbook/playbook/`, sanitized `tests/fixtures/playbook_contract/`, and the versioned frontend transport fixture described in [developer-playbook.md](developer-playbook.md#parser-to-frontend-contract-fixture) |
 | Regression fixture | Prefer a local test factory or `tmp_path`; add shared files under `tests/fixtures/` only when several tests model the same stable contract |

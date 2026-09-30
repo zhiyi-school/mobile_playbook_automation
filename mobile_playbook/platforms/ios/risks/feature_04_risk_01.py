@@ -10,7 +10,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from mobile_playbook.core.config_files import merge_dicts
+from mobile_playbook.orchestration.preflight import merge_dicts
 from mobile_playbook.logging_setup import redacted
 from mobile_playbook.platforms.ios import keyboard_setup
 from mobile_playbook.platforms.ios.control_server import CommandControlServer

@@ -10,7 +10,7 @@ from mobile_playbook.core import network
 
 def test_pac_routes_apple_services_direct_and_other_hosts_to_configured_burp(monkeypatch):
     monkeypatch.setattr(
-        catalog_service.config_editor,
+        catalog_service.config_editing,
         "get_risk_settings",
         lambda platform, risk_id: {"burp": {"proxy_url": "http://10.132.0.9:8081"}},
     )
@@ -27,7 +27,7 @@ def test_pac_routes_apple_services_direct_and_other_hosts_to_configured_burp(mon
 
 def test_pac_substitutes_lan_ip_when_burp_host_is_loopback(monkeypatch):
     monkeypatch.setattr(
-        catalog_service.config_editor,
+        catalog_service.config_editing,
         "get_risk_settings",
         lambda platform, risk_id: {"burp": {"proxy_url": "http://127.0.0.1:8080"}},
     )
@@ -40,7 +40,7 @@ def test_pac_substitutes_lan_ip_when_burp_host_is_loopback(monkeypatch):
 
 def test_pac_prefers_explicit_proxy_host_override(monkeypatch):
     monkeypatch.setattr(
-        catalog_service.config_editor,
+        catalog_service.config_editing,
         "get_risk_settings",
         lambda platform, risk_id: {"burp": {"proxy_url": "http://127.0.0.1:8080"}},
     )
@@ -58,7 +58,7 @@ def test_pac_404_for_platform_without_traffic_interception():
 
 
 def test_pac_400_when_proxy_url_not_configured(monkeypatch):
-    monkeypatch.setattr(catalog_service.config_editor, "get_risk_settings", lambda platform, risk_id: {"burp": {}})
+    monkeypatch.setattr(catalog_service.config_editing, "get_risk_settings", lambda platform, risk_id: {"burp": {}})
 
     with pytest.raises(HTTPException) as exc_info:
         api_catalog.traffic_interception_pac("ios")

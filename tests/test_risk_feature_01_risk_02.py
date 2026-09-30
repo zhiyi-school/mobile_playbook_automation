@@ -10,7 +10,7 @@ import pytest
 
 from mobile_playbook.platforms.ios.models import InstallResult
 from mobile_playbook.platforms.ios.risks.feature_01_risk_02 import Feature01Risk02
-from mobile_playbook.report import ReportWriter
+from mobile_playbook.reporting.report_writer import ReportWriter
 from tests.conftest import MockDevice
 
 FAKE_CERT = b"fake-developer-cert"

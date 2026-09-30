@@ -4,7 +4,7 @@ import json
 import plistlib
 
 from mobile_playbook.platforms.ios.models import BinaryInspectionResult
-from mobile_playbook.report import ReportWriter
+from mobile_playbook.reporting.report_writer import ReportWriter
 from mobile_playbook.platforms.ios.risks.critical_markdown import critical_markdown
 from mobile_playbook.platforms.ios.risks.feature_01_risk_01 import Feature01Risk01
 from mobile_playbook.platforms.ios.risks.mobsf_client import mobsf_scan

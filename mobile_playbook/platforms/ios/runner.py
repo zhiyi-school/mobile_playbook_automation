@@ -23,7 +23,7 @@ from mobile_playbook.orchestration.platform_runner import (
     requires_device,
 )
 from mobile_playbook.platforms.ios.config import effective_risk_config
-from mobile_playbook.platforms.ios.device import AppiumDeviceClient
+from mobile_playbook.platforms.ios.device_client import AppiumDeviceClient
 from mobile_playbook.platforms.ios.models import RiskRunResult
 from mobile_playbook.platforms.ios.preflight import (
     check_ios_preflight,

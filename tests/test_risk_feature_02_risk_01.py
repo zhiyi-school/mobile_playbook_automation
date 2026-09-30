@@ -7,7 +7,7 @@ import time
 
 import pytest
 
-from mobile_playbook.report import ReportWriter
+from mobile_playbook.reporting.report_writer import ReportWriter
 from mobile_playbook.platforms.ios.burp_capture import CaptureObservation, snapshot_capture
 from mobile_playbook.platforms.ios.risks import feature_02_risk_01 as risk_module
 from mobile_playbook.platforms.ios.risks.feature_02_risk_01 import Feature02Risk01

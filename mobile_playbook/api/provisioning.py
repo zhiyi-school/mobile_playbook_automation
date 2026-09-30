@@ -8,7 +8,8 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from mobile_playbook.api import config_editor
+from mobile_playbook.api import config_editing
+from mobile_playbook.api.config_editing.shared import ENTRY_FILES
 from mobile_playbook.platforms.android.adb import AdbClient
 from mobile_playbook.platforms.android.config import ConfigError as AndroidConfigError
 from mobile_playbook.platforms.android.config import load_config as load_android_config
@@ -109,7 +110,7 @@ def _ios_configuration(app: dict) -> tuple[str, str | None, str | None]:
 # Build an adb client from the Android config, or a default client when it is unavailable.
 def _android_adb() -> AdbClient:
     try:
-        config = load_android_config(config_editor.ENTRY_FILES["android"], dry_run=True)
+        config = load_android_config(ENTRY_FILES["android"], dry_run=True)
         return AdbClient(adb_path=config.device.adb_path, serial=config.device.adb_serial)
     except (AndroidConfigError, OSError) as exc:
         logger.debug("api: Android config unavailable for adb (%s); using the default client.", type(exc).__name__)
@@ -220,7 +221,7 @@ _CONFIG_BLOCKER_BY_STAGE_STATE = {
 # Return whether the configured iOS device is attached, treating an empty probe as ready.
 def _ios_device_ready() -> bool:
     try:
-        config = load_ios_config(config_editor.ENTRY_FILES["ios"], dry_run=True)
+        config = load_ios_config(ENTRY_FILES["ios"], dry_run=True)
     except Exception:
         logger.debug("api: iOS config unreadable for device probe; treating device as ready.", exc_info=True)
         return True
@@ -248,9 +249,9 @@ def _device_required(platform: str, app: dict | None) -> bool:
     logger.debug("api: checking device requirement for app %r with risks %s.", app.get("id"), sorted(enabled))
     try:
         if platform == "ios":
-            config = load_ios_config(config_editor.ENTRY_FILES["ios"], dry_run=True)
+            config = load_ios_config(ENTRY_FILES["ios"], dry_run=True)
             return requires_device(config, set(enabled), {app.get("id")}, get_ios_risk)
-        config = load_android_config(config_editor.ENTRY_FILES["android"], dry_run=True)
+        config = load_android_config(ENTRY_FILES["android"], dry_run=True)
         return requires_device(config, set(enabled), {app.get("id")}, get_android_risk)
     except Exception:
         logger.debug(
@@ -337,13 +338,13 @@ def describe(platform: str, app_id: str) -> dict:
     detail = "The test configuration needs attention before this app can be tested."
     logger.debug("api: describing setup for %s app %r.", platform, app_id)
     try:
-        apps = config_editor.list_ios_apps() if platform == "ios" else config_editor.list_android_apps()
+        apps = config_editing.list_ios_apps() if platform == "ios" else config_editing.list_android_apps()
     except Exception as exc:
         logger.debug("api: listing %s apps failed.", platform, exc_info=True)
         logger.error("Config for platform %s could not be read: %s", platform, exc)
         return _config_failure(platform, app_id, detail)
 
-    errors = config_editor.app_config_errors(platform)
+    errors = config_editing.app_config_errors(platform)
     if errors.get(app_id) or errors.get(""):
         logger.error(
             "App %r cannot be tested: %s",

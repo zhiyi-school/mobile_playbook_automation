@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from mobile_playbook.api import config_editor as ce
+from mobile_playbook.api import config_editing as ce
 from mobile_playbook.api import provisioning
 from tests.conftest import make_ipa
 from tests.test_api_config_editor import config_root  # noqa: F401 — reused fixture

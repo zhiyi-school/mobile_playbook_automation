@@ -48,10 +48,10 @@ class AppArtifact:
 
 # Returns the configured app entry for a platform and id, or None if absent or the config is unreadable.
 def _app_entry(platform: str, app_id: str) -> dict[str, Any] | None:
-    from mobile_playbook.api import config_editor
+    from mobile_playbook.api import config_editing
 
     try:
-        apps = config_editor.list_ios_apps() if platform == "ios" else config_editor.list_android_apps()
+        apps = config_editing.list_ios_apps() if platform == "ios" else config_editing.list_android_apps()
     except Exception:
         logger.debug("artifact store: listing %s apps failed.", platform, exc_info=True)
         logger.warning("Config for platform %s could not be read while resolving an icon.", platform)
@@ -180,10 +180,10 @@ def app_icon_reference(platform: str, app_id: str, force: bool = False) -> dict[
 
 # Lists the configured app ids for a platform, or an empty list if the config is unreadable.
 def configured_app_ids(platform: str) -> list[str]:
-    from mobile_playbook.api import config_editor
+    from mobile_playbook.api import config_editing
 
     try:
-        apps = config_editor.list_ios_apps() if platform == "ios" else config_editor.list_android_apps()
+        apps = config_editing.list_ios_apps() if platform == "ios" else config_editing.list_android_apps()
     except Exception:
         logger.debug("artifact store: listing %s app ids failed.", platform, exc_info=True)
         logger.warning("Config for platform %s could not be read.", platform)

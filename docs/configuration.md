@@ -91,8 +91,8 @@ Device, runner and per-platform risk settings are documented per platform:
 The API editor preserves this layout rather than flattening it. Shared loading,
 round-trip YAML writes, per-file locks, validation and rollback live in
 `mobile_playbook/api/config_editing/shared.py`; platform app editors and the
-risk/feature editor own their respective formats. The public
-`mobile_playbook.api.config_editor` import remains as a compatibility facade.
+risk/feature editor own their respective formats, exported together from
+`mobile_playbook.api.config_editing`.
 
 ## Environment variables and the secret boundary
 

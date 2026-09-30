@@ -12,7 +12,7 @@ from pathlib import Path
 from mobile_playbook.storage import ios_work_dir
 from typing import Any
 
-from mobile_playbook.core.config_files import merge_dicts
+from mobile_playbook.orchestration.preflight import merge_dicts
 from mobile_playbook.platforms.ios.artifacts.registry import get_provider
 from mobile_playbook.platforms.ios.mutations.hashing import sha256_file
 from mobile_playbook.platforms.ios.mutations.mutability import inspect_main_executable

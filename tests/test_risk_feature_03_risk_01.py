@@ -10,7 +10,7 @@ from mobile_playbook.platforms.ios import screen_capture_ocr
 from mobile_playbook.platforms.ios.models import InstallResult
 from mobile_playbook.platforms.ios.results import normalize_ios_result
 from mobile_playbook.platforms.ios.risks.feature_03_risk_01 import Feature03Risk01
-from mobile_playbook.report import ReportWriter
+from mobile_playbook.reporting.report_writer import ReportWriter
 from tests.conftest import MockDevice
 
 RECORDER = "com.example.recorder"

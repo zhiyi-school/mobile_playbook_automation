@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from fastapi import HTTPException
 
-from mobile_playbook.api import config_editor as ce
+from mobile_playbook.api import config_editing as ce
 from tests.conftest import make_ipa
 
 
@@ -128,7 +128,7 @@ def test_ios_edit_reverts_file_on_invalid_config(config_root):
 def test_ios_edit_allows_a_build_that_has_not_been_provided_yet(config_root):
     """A path with no file behind it is a provisioning state, not a config error."""
     ce.edit_ios_app("app_one", {"artifact": {"ipa": "intake/ios/ipas/not_extracted_yet.ipa"}})
-    assert ce._effective_ios_app("app_one")["artifact"]["ipa"] == "intake/ios/ipas/not_extracted_yet.ipa"
+    assert ce.effective_ios_app("app_one")["artifact"]["ipa"] == "intake/ios/ipas/not_extracted_yet.ipa"
 
 
 def test_a_write_succeeds_despite_an_unrelated_pre_existing_problem(config_root):
@@ -143,7 +143,7 @@ def test_a_write_succeeds_despite_an_unrelated_pre_existing_problem(config_root)
 
     ce.edit_ios_app("app_one", {"name": "Renamed App One"})
 
-    assert ce._effective_ios_app("app_one")["name"] == "Renamed App One"
+    assert ce.effective_ios_app("app_one")["name"] == "Renamed App One"
 
 
 def test_ios_add_app_duplicate_id_rejected(config_root):

@@ -132,8 +132,8 @@ class TestRiskListIntegration:
         monkeypatch.setattr(
             catalog_service, "list_ios_risks", lambda: [{"risk_id": RISK_ID, "name": "Example risk"}]
         )
-        monkeypatch.setattr(catalog_service.config_editor, "get_risk_metadata", lambda *_: {})
-        monkeypatch.setattr(catalog_service.config_editor, "get_risk_demonstration", lambda *_: [])
+        monkeypatch.setattr(catalog_service.config_editing, "get_risk_metadata", lambda *_: {})
+        monkeypatch.setattr(catalog_service.config_editing, "get_risk_demonstration", lambda *_: [])
 
         risk = catalog_service.list_platform_risks("ios")[0]
         assert risk["controls_available"] is True
@@ -159,8 +159,8 @@ class TestRiskListIntegration:
         monkeypatch.setattr(
             catalog_service, "list_ios_risks", lambda: [{"risk_id": RISK_ID, "name": "Example risk"}]
         )
-        monkeypatch.setattr(catalog_service.config_editor, "get_risk_metadata", lambda *_: {})
-        monkeypatch.setattr(catalog_service.config_editor, "get_risk_demonstration", lambda *_: [])
+        monkeypatch.setattr(catalog_service.config_editing, "get_risk_metadata", lambda *_: {})
+        monkeypatch.setattr(catalog_service.config_editing, "get_risk_demonstration", lambda *_: [])
 
         risk = catalog_service.list_platform_risks("ios")[0]
         assert risk["controls"] == []
@@ -386,9 +386,9 @@ class TestHeadingFormatResponse:
         monkeypatch.setattr(
             catalog_service, "list_ios_risks", lambda: [{"risk_id": RISK_ID, "name": "Example risk"}]
         )
-        monkeypatch.setattr(catalog_service.config_editor, "get_risk_metadata", lambda *_: {})
+        monkeypatch.setattr(catalog_service.config_editing, "get_risk_metadata", lambda *_: {})
         monkeypatch.setattr(
-            catalog_service.config_editor,
+            catalog_service.config_editing,
             "get_risk_demonstration",
             lambda *_: [{"id": "configured", "type": "steps", "items": []}],
         )
@@ -418,9 +418,9 @@ class TestHeadingFormatResponse:
         monkeypatch.setattr(
             catalog_service, "list_ios_risks", lambda: [{"risk_id": RISK_ID, "name": "Example risk"}]
         )
-        monkeypatch.setattr(catalog_service.config_editor, "get_risk_metadata", lambda *_: {})
+        monkeypatch.setattr(catalog_service.config_editing, "get_risk_metadata", lambda *_: {})
         monkeypatch.setattr(
-            catalog_service.config_editor,
+            catalog_service.config_editing,
             "get_risk_demonstration",
             lambda *_: [{"id": "configured", "type": "steps", "items": []}],
         )

@@ -9,7 +9,7 @@ from urllib.parse import urlparse
 
 from fastapi import HTTPException
 
-from mobile_playbook.api import config_editor, playbook_assets
+from mobile_playbook.api import config_editing, playbook_assets
 from mobile_playbook.api.models import Platform
 from mobile_playbook.api.services import playbook as playbook_service
 from mobile_playbook.core import network
@@ -33,12 +33,12 @@ def list_platform_risks(platform: Platform) -> list[dict]:
         controls_error,
     )
     for risk in risks:
-        risk.update(config_editor.get_risk_metadata(platform, risk["risk_id"]))
+        risk.update(config_editing.get_risk_metadata(platform, risk["risk_id"]))
         _apply_playbook_overview(risk, playbook_service.risk_overview(platform, risk["risk_id"]))
         demonstration = playbook_service.risk_demonstration(platform, risk["risk_id"])
         if demonstration is None:
             logger.debug("api: risk %s has no playbook demonstration; using the YAML entry.", risk["risk_id"])
-            demonstration = config_editor.get_risk_demonstration(platform, risk["risk_id"])
+            demonstration = config_editing.get_risk_demonstration(platform, risk["risk_id"])
         risk["demonstration"] = playbook_assets.decorate_demonstration(platform, demonstration)
         risk["controls"] = controls_by_risk.get(risk["risk_id"], [])
         risk["controls_available"] = controls_error is None
@@ -67,7 +67,7 @@ def traffic_interception_pac(platform: Platform, proxy_host: str | None = None) 
     if risk_id is None:
         logger.debug("api: no traffic-interception risk for %s; responding 404.", platform)
         raise HTTPException(status_code=404, detail=f"No traffic-interception proxy config for platform {platform}")
-    settings = config_editor.get_risk_settings(platform, risk_id)
+    settings = config_editing.get_risk_settings(platform, risk_id)
     proxy_url = str((settings.get("burp") or {}).get("proxy_url") or "")
     if not proxy_url:
         logger.debug("api: %s.burp.proxy_url is empty; responding 400.", risk_id)

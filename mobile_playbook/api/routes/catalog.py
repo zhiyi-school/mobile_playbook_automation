@@ -9,7 +9,7 @@ import logging
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse, PlainTextResponse
 
-from mobile_playbook.api import config_editor, playbook_assets
+from mobile_playbook.api import config_editing, playbook_assets
 from mobile_playbook.api.models import (
     FeatureUpdateRequest,
     Platform,
@@ -35,7 +35,7 @@ def platform_risks(platform: Platform) -> list[dict]:
 @router.put("/platforms/{platform}/risks/{risk_id}")
 def put_platform_risk(platform: Platform, risk_id: str, body: RiskMetadataUpdateRequest) -> dict:
     logger.debug("api: PUT /platforms/%s/risks/%s fields=%s.", platform, risk_id, sorted(body.model_fields_set))
-    return config_editor.put_risk_metadata(platform, risk_id, body.updates())
+    return config_editing.put_risk_metadata(platform, risk_id, body.updates())
 
 
 # Replace a risk's YAML demonstration and return it with derived image fields.
@@ -44,7 +44,7 @@ def put_platform_risk_demonstration(
     platform: Platform, risk_id: str, body: RiskDemonstrationUpdateRequest
 ) -> list[dict]:
     logger.debug("api: PUT /platforms/%s/risks/%s/demonstration.", platform, risk_id)
-    stored = config_editor.put_risk_demonstration(platform, risk_id, playbook_assets.strip_derived(body.blocks()))
+    stored = config_editing.put_risk_demonstration(platform, risk_id, playbook_assets.strip_derived(body.blocks()))
     logger.debug("api: stored %d demonstration block(s) for %s/%s.", len(stored), platform, risk_id)
     return playbook_assets.decorate_demonstration(platform, stored)
 
@@ -75,7 +75,7 @@ def traffic_interception_pac(platform: Platform, proxy_host: str | None = None) 
 @router.get("/platforms/{platform}/features")
 def platform_features(platform: Platform) -> list[dict]:
     logger.debug("api: GET /platforms/%s/features.", platform)
-    features = config_editor.list_features(platform)
+    features = config_editing.list_features(platform)
     logger.debug("api: GET /platforms/%s/features -> %d feature(s).", platform, len(features))
     return features
 
@@ -84,4 +84,4 @@ def platform_features(platform: Platform) -> list[dict]:
 @router.put("/platforms/{platform}/features/{feature_id}")
 def put_platform_feature(platform: Platform, feature_id: str, body: FeatureUpdateRequest) -> dict:
     logger.debug("api: PUT /platforms/%s/features/%s fields=%s.", platform, feature_id, sorted(body.model_fields_set))
-    return config_editor.put_feature(platform, feature_id, body.updates())
+    return config_editing.put_feature(platform, feature_id, body.updates())

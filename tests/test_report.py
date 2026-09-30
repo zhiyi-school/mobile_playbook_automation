@@ -5,7 +5,7 @@ import json
 import pytest
 
 from mobile_playbook.platforms.ios.models import RiskRunResult
-from mobile_playbook.report import ReportWriter
+from mobile_playbook.reporting.report_writer import ReportWriter
 from mobile_playbook.platforms.ios.results import normalize_ios_result
 from mobile_playbook.reporting.run_events import append_event
 
