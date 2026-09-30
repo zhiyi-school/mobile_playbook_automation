@@ -9,8 +9,9 @@ from urllib.parse import urlparse
 
 from fastapi import HTTPException
 
-from mobile_playbook.api import config_editing, playbook_assets
-from mobile_playbook.api.models import Platform
+from mobile_playbook.api import config_editing
+from mobile_playbook.api.services import playbook_assets
+from mobile_playbook.api.schemas import Platform
 from mobile_playbook.api.services import playbook as playbook_service
 from mobile_playbook.common import network
 from mobile_playbook.platforms.android.risks import list_risks as list_android_risks

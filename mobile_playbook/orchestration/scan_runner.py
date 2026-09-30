@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Protocol
 
-from mobile_playbook.orchestration.scheduler import reserve_run_timestamp
+from mobile_playbook.orchestration.run_timestamps import reserve_run_timestamp
 from mobile_playbook.reporting.messages import clean_message
 from mobile_playbook.reporting.run_events import append_event
 from mobile_playbook.reporting.run_manifest import COMPLETED, FAILED, write_manifest

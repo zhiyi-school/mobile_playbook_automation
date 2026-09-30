@@ -9,8 +9,8 @@ from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Any
 
-from mobile_playbook.orchestration.appium_process import AppiumStartResult, tcp_reachable
-from mobile_playbook.orchestration.artifact_intake import app_matches_selector
+from mobile_playbook.orchestration.appium_server import AppiumStartResult, tcp_reachable
+from mobile_playbook.orchestration.selection import app_matches_selector
 from mobile_playbook.reporting.run_events import append_event
 
 RiskGetter = Callable[[str], Any]

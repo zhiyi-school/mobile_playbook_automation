@@ -14,7 +14,7 @@ import uvicorn
 from uvicorn.config import LOGGING_CONFIG
 
 from mobile_playbook.common.logging_setup import log_level
-from mobile_playbook.orchestration.appium_process import ensure_appium_running, stop_appium
+from mobile_playbook.orchestration.appium_server import ensure_appium_running, stop_appium
 from mobile_playbook.platforms.ios.config import load_config
 from mobile_playbook.common.storage_paths import config_path, ios_work_dir
 

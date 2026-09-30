@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from mobile_playbook.artifact_store import store
-from mobile_playbook.artifact_store.extraction import (
+from mobile_playbook.artifact_store.icon_extraction import (
     STATUS_UNAVAILABLE,
     IconExtraction,
     extract_icon,

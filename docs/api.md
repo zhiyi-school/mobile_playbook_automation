@@ -974,7 +974,7 @@ curl http://127.0.0.1:8080/config/ios/apps/example_app/provisioning
 
 Stage states are `done`, `in_progress`, `pending`, `failed`, and `unknown` (couldn't be checked cheaply — verify by hand). Overall `status` is `failed` if any stage failed, `ready` if every stage is `done` or `unknown`, else `pending`. **`unknown` deliberately does not block `ready`**, so an unverifiable check can't strand an app in setup forever.
 
-**Stage text is written for end users and deliberately discloses nothing about this repo's internals** — no paths, filenames, config field names, risk ids or bundle ids. A dashboard renders `label`/`detail` directly. Specifics (which build was ambiguous, which validator rule failed, which artifact path is missing) go to `mobile_playbook.api.provisioning`'s logger instead, so operators still get them from the server log. `bundle_id` is returned as its own field for callers to store, not as display text.
+**Stage text is written for end users and deliberately discloses nothing about this repo's internals** — no paths, filenames, config field names, risk ids or bundle ids. A dashboard renders `label`/`detail` directly. Specifics (which build was ambiguous, which validator rule failed, which artifact path is missing) go to `mobile_playbook.api.services.provisioning`'s logger instead, so operators still get them from the server log. `bundle_id` is returned as its own field for callers to store, not as display text.
 
 An app that isn't registered, or whose config no longer validates, returns `200` with a generic `failed`/`pending` report rather than an error code — the caller is polling to find out *why* it isn't ready. `404` is reserved for "this build has no provisioning support at all", so a client can tell the two apart.
 

@@ -10,7 +10,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
 
-from mobile_playbook.api.models import Platform
+from mobile_playbook.api.schemas import Platform
 from mobile_playbook.api.services import artifacts as artifact_service
 
 router = APIRouter()

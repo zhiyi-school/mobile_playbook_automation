@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from mobile_playbook.reporting.messages import clean_message
-from mobile_playbook.reporting.status_mapper import Evidence, TestResult
+from mobile_playbook.reporting.result_models import Evidence, TestResult
 from mobile_playbook.platforms.ios.models import RiskRunResult
 
 logger = logging.getLogger(__name__)

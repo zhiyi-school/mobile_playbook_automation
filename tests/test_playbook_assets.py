@@ -4,7 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from mobile_playbook.api import playbook_assets, settings
+from mobile_playbook.api import settings
+from mobile_playbook.api.services import playbook_assets
 from mobile_playbook.playbook import source
 
 

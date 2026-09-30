@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from mobile_playbook.orchestration.appium_process import AppiumStartResult
+from mobile_playbook.orchestration.appium_server import AppiumStartResult
 from mobile_playbook.platforms.android.runner import AndroidPlatformRunner
 from mobile_playbook.platforms.ios.runner import IosPlatformRunner
 

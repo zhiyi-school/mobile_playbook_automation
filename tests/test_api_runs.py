@@ -7,8 +7,8 @@ from types import SimpleNamespace
 import pytest
 from fastapi import HTTPException
 
-from mobile_playbook.api.job_registry import JobRegistry
-from mobile_playbook.api.models import RunRequest
+from mobile_playbook.api.run_registry import JobRegistry
+from mobile_playbook.api.schemas import RunRequest
 from mobile_playbook.api.services import runs as runs_service
 
 

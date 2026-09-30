@@ -15,7 +15,7 @@ from pathlib import Path
 from mobile_playbook.common.storage_paths import ios_work_dir, reports_root
 
 from mobile_playbook.orchestration.scan_runner import RunOptions, run_platform
-from mobile_playbook.orchestration.artifact_intake import (
+from mobile_playbook.orchestration.selection import (
     selected_app_csv,
     selected_csv,
     validate_app_selection,
@@ -270,7 +270,7 @@ def _print_android_dry_run(config, selected_risks: set[str] | None, selected_app
 
 # Reserves a new run timestamp under root that also avoids existing acquire result files.
 def _new_run_timestamp(root: Path, now=None) -> str:
-    from mobile_playbook.orchestration.scheduler import new_run_timestamp
+    from mobile_playbook.orchestration.run_timestamps import new_run_timestamp
 
     return new_run_timestamp(root, now=now, extra_files=("{timestamp}-acquire-results.json",))
 

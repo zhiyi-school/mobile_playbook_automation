@@ -11,8 +11,8 @@ import logging
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
-from mobile_playbook.api.job_registry import registry
-from mobile_playbook.api.models import (
+from mobile_playbook.api.run_registry import registry
+from mobile_playbook.api.schemas import (
     ReportResultResponse,
     RunCreatedResponse,
     RunRequest,

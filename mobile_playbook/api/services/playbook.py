@@ -12,7 +12,7 @@ from typing import Any
 
 from fastapi import HTTPException
 
-from mobile_playbook.api.models import Platform
+from mobile_playbook.api.schemas import Platform
 from mobile_playbook.playbook import catalogue, controls as control_parser, source
 
 SOURCE_DOWNLOAD_ENV = "PLAYBOOK_SOURCE_DOWNLOAD_ENABLED"

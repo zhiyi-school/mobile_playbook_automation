@@ -9,7 +9,7 @@ import logging
 from fastapi import APIRouter
 
 from mobile_playbook.api.services import sync as sync_service
-from mobile_playbook.api.models import WorkerSyncStatusResponse
+from mobile_playbook.api.schemas import WorkerSyncStatusResponse
 
 router = APIRouter()
 logger = logging.getLogger(__name__)

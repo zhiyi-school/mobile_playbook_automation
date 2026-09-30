@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from mobile_playbook.dashboard_sync.mapping import sync_application
-from mobile_playbook.artifact_store import extraction, resolver, store
+from mobile_playbook.artifact_store import icon_extraction, resolver, store
 from mobile_playbook.reporting.run_manifest import artifact_checksums, read_manifest, write_manifest
 from tests.icon_helpers import make_ipa, make_png, primary_icon_info
 
@@ -95,7 +95,7 @@ def test_sync_links_the_build_the_run_used_not_a_newer_upload(tmp_path, monkeypa
     digest_b = store.artifact_digest(artifact_b)
     assert digest_a != digest_b
 
-    extraction.extract_icon("ios", artifact_a)
+    icon_extraction.extract_icon("ios", artifact_a)
 
     # The config now points at the newer build, as it would after a fresh upload.
     entry = {"id": "example_app", "name": "Example App", "artifact": {"source": "local_ipa", "ipa": str(artifact_b)}}
@@ -189,7 +189,7 @@ def _assert_migration_compatible(fields: dict) -> None:
 def test_written_icon_fields_satisfy_the_migration_constraints(tmp_path, monkeypatch):
     artifact = _ipa(tmp_path / "a.ipa", (255, 0, 0, 255))
     digest = store.artifact_digest(artifact)
-    extraction.extract_icon("ios", artifact)
+    icon_extraction.extract_icon("ios", artifact)
     entry = {"id": "example_app", "name": "Example App", "artifact": {"source": "local_ipa", "ipa": str(artifact)}}
     monkeypatch.setattr(resolver, "_app_entry", lambda platform, app_id: entry)
 

@@ -10,7 +10,7 @@ from pathlib import Path
 from fastapi import HTTPException
 
 from mobile_playbook.dashboard_sync import run_status
-from mobile_playbook.api.job_registry import registry
+from mobile_playbook.api.run_registry import registry
 from mobile_playbook.api.services.reports import REPORTS_ROOT, resolved_run_dir
 from mobile_playbook.dashboard_sync.trigger import auto_trigger_enabled, trigger_dashboard_sync
 from mobile_playbook.dashboard_sync.ledger import worker_running

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from mobile_playbook.api.job_registry import DEFAULT_PERSIST_PATH, INTERRUPTED_ERROR, JobRegistry
+from mobile_playbook.api.run_registry import DEFAULT_PERSIST_PATH, INTERRUPTED_ERROR, JobRegistry
 from mobile_playbook.api.settings import REPORTS_ROOT
 
 

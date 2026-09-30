@@ -9,10 +9,11 @@ import logging
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, Response
 
-from mobile_playbook.api import config_editing, provisioning
+from mobile_playbook.api import config_editing
+from mobile_playbook.api.services import provisioning
 from mobile_playbook.api.dependencies import load_config_or_400
 from mobile_playbook.api.services import artifacts as artifact_service
-from mobile_playbook.api.models import (
+from mobile_playbook.api.schemas import (
     ConfigAppRequest,
     DeviceUpdateRequest,
     Platform,

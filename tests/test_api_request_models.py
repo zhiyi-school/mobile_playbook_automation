@@ -5,7 +5,7 @@ from pydantic import ValidationError
 
 from mobile_playbook.api import config_editing
 from mobile_playbook.api.cors import cors_allowed_origins
-from mobile_playbook.api.models import (
+from mobile_playbook.api.schemas import (
     ConfigAppRequest,
     DeviceUpdateRequest,
     RiskDemonstrationUpdateRequest,

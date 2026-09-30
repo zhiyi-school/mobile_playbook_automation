@@ -7,7 +7,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 
-from mobile_playbook.reporting.status_mapper import Evidence, TestResult
+from mobile_playbook.reporting.result_models import Evidence, TestResult
 from mobile_playbook.platforms.android.models import AndroidRiskRunResult
 
 logger = logging.getLogger(__name__)

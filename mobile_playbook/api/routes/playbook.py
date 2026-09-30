@@ -9,7 +9,7 @@ import logging
 from fastapi import APIRouter
 from fastapi.responses import FileResponse
 
-from mobile_playbook.api.models import Platform
+from mobile_playbook.api.schemas import Platform
 from mobile_playbook.api.services import playbook as playbook_service
 
 router = APIRouter()

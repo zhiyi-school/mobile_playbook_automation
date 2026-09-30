@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse, JSONResponse
 
 from mobile_playbook.api.services import reports as reports_service
 from mobile_playbook.api.downloads import safe_filename
-from mobile_playbook.api.models import ReportResultResponse
+from mobile_playbook.api.schemas import ReportResultResponse
 
 router = APIRouter()
 

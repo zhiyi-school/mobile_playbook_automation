@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from mobile_playbook.common.logging_setup import safe_url
-from mobile_playbook.orchestration.appium_process import tcp_reachable as _tcp_reachable
+from mobile_playbook.orchestration.appium_server import tcp_reachable as _tcp_reachable
 from mobile_playbook.platforms.ios.burp_health import (
     HEALTH_SCHEMA_VERSION,
     canonical_capture_path,

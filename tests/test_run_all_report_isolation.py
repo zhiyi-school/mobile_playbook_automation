@@ -7,7 +7,7 @@ from datetime import datetime
 import pytest
 
 from mobile_playbook.dashboard_sync.orchestrator import sync_reports
-from mobile_playbook.orchestration import scheduler
+from mobile_playbook.orchestration import run_timestamps
 from mobile_playbook.orchestration.scan_runner import RunOptions, run_platform
 from mobile_playbook.reporting.report_writer import ReportWriter
 from mobile_playbook.reporting.run_manifest import read_manifest
@@ -25,7 +25,7 @@ def frozen_second(monkeypatch):
         def now(cls, tz=None):
             return FROZEN
 
-    monkeypatch.setattr(scheduler, "datetime", FrozenDatetime)
+    monkeypatch.setattr(run_timestamps, "datetime", FrozenDatetime)
 
 
 class PlatformRunner:
@@ -158,7 +158,7 @@ def test_reserve_run_timestamp_is_unique_under_concurrency(tmp_path, frozen_seco
 
     def claim():
         barrier.wait()
-        timestamp = scheduler.reserve_run_timestamp(tmp_path)
+        timestamp = run_timestamps.reserve_run_timestamp(tmp_path)
         with lock:
             claimed.append(timestamp)
 

@@ -9,8 +9,9 @@ import logging
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse, PlainTextResponse
 
-from mobile_playbook.api import config_editing, playbook_assets
-from mobile_playbook.api.models import (
+from mobile_playbook.api import config_editing
+from mobile_playbook.api.services import playbook_assets
+from mobile_playbook.api.schemas import (
     FeatureUpdateRequest,
     Platform,
     RiskDemonstrationUpdateRequest,

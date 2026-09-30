@@ -112,7 +112,7 @@ This is implemented generically once in [`mobile_playbook/orchestration/scan_run
 
 Config loading lives in `mobile_playbook/common/config_loader.py` (`load_yaml_config`, `resolve_config_includes`). YAML is parsed with `yaml.safe_load`. A config file may declare an `include:` mapping (section name → file path) to split `device`/`runner`/`apps` into separate files (see `configs/split/`); included values are deep-merged with the entry-point file's inline values always taking precedence over the included file's values when both are set.
 
-App/risk selection (`--apps`, `--risks`) is implemented in `mobile_playbook/orchestration/artifact_intake.py`. Selectors are normalized (lowercased, alphanumeric-only) and matched against an app's `id`, `name`, `package_name`, or `bundle_id`; an unmatched `--apps` value raises with the list of available app IDs, and an unmatched `--risks` value raises with the list of known risk IDs, rather than either silently running nothing.
+App/risk selection (`--apps`, `--risks`) is implemented in `mobile_playbook/orchestration/selection.py`. Selectors are normalized (lowercased, alphanumeric-only) and matched against an app's `id`, `name`, `package_name`, or `bundle_id`; an unmatched `--apps` value raises with the list of available app IDs, and an unmatched `--risks` value raises with the list of known risk IDs, rather than either silently running nothing.
 
 A risk's actual settings are resolved from two layers, not stored per app: a global, risk-scoped section on `GlobalConfig` (iOS: `ipa_static_analysis`, `keystroke_collection`; Android: `screen_capture`, `repackaging`) holds the shared defaults used by every app that enables that risk, and an app's own `risks.<risk_id>` entry only needs `enabled: true` plus whatever it wants to override for itself. iOS merges the two with `mobile_playbook.common.config_loader.merge_dicts`, which recurses into nested dicts so an app can override one nested field (say, `collection.auto_navigation.accessibility_ids`) without repeating everything else; this is exposed through `effective_risk_config()` in `platforms/ios/config.py`, keyed by `RISK_GLOBAL_SETTINGS_FIELD`. Android's settings are flat, so its risk implementations merge inline with a one-level `{**global_config.screen_capture, **app_override}` spread instead.
 
@@ -159,9 +159,9 @@ creation, lookup, registry state, history and synchronization, independent of th
 server working directory. CLI runs retain their existing custom `--out` behavior.
 See [api.md](api.md#report-root-and-evidence-contract) for the full contract.
 
-All result objects are `SerializableDataclass` subclasses (`mobile_playbook/reporting/serialization.py`), whose `to_dict()` recursively converts `Path → str` and nested dataclasses/lists/dicts into plain JSON-safe structures. The platform-agnostic result schema — `TestResult` and `Evidence` — lives in `mobile_playbook/reporting/status_mapper.py`; iOS and Android each normalize their own richer result objects (`RiskRunResult`, `AndroidRiskRunResult`) into this common shape for the dashboard feed.
+All result objects are `SerializableDataclass` subclasses (`mobile_playbook/reporting/serialization.py`), whose `to_dict()` recursively converts `Path → str` and nested dataclasses/lists/dicts into plain JSON-safe structures. The platform-agnostic result schema — `TestResult` and `Evidence` — lives in `mobile_playbook/reporting/result_models.py`; iOS and Android each normalize their own richer result objects (`RiskRunResult`, `AndroidRiskRunResult`) into this common shape for the dashboard feed.
 
-`ReportWriter` (`mobile_playbook/reporting/report_writer.py`) owns a single run's directory: it creates `<output-root>/<run_timestamp>/`, an `evidence/` folder, and a `<platform>/` folder; `test_report_dir(app_id, risk_id, case_id)` creates and returns the per-test folder each risk writes `report.json`/`logs.txt`/evidence into; `write_summary()` writes `summary.md` and (via `dashboard_export.write_dashboard_results`) `dashboard_results.json`. `run_timestamp` itself comes from `orchestration/scheduler.py`'s `new_run_timestamp`, a local, second-resolution, sortable timestamp string that appends a numeric suffix if a run folder with that name already exists.
+`ReportWriter` (`mobile_playbook/reporting/report_writer.py`) owns a single run's directory: it creates `<output-root>/<run_timestamp>/`, an `evidence/` folder, and a `<platform>/` folder; `test_report_dir(app_id, risk_id, case_id)` creates and returns the per-test folder each risk writes `report.json`/`logs.txt`/evidence into; `write_summary()` writes `summary.md` and (via `dashboard_export.write_dashboard_results`) `dashboard_results.json`. `run_timestamp` itself comes from `orchestration/run_timestamps.py`'s `new_run_timestamp`, a local, second-resolution, sortable timestamp string that appends a numeric suffix if a run folder with that name already exists.
 
 Both outputs are deliberately kept human/dashboard-facing rather than a raw dump of every field: `mobile_playbook/reporting/messages.py`'s `clean_message()` reduces a raw error (which for a failed Appium/Selenium call is a multi-line "Message: ...\nStacktrace:\n..." block) down to its first meaningful line before it goes into `summary.md`'s Notes column or a `TestResult.summary`. The full untouched error text is never lost — it still lives in each per-test `logs.txt` and `report.json`, which `TestResult.report_path` points back to.
 
@@ -320,7 +320,7 @@ and `metadata.py` owns feature, risk metadata and demonstration edits. The iOS
 editor remains text-block based because its roster references anchors from a
 separately included templates file.
 
-HTTP response models live in `api/models.py`; report rows allow additional
+HTTP response models live in `api/schemas.py`; report rows allow additional
 fields because `dashboard_results.json` is extensible. Filename, media-type and
 containment primitives live in `api/downloads.py`, while each service still
 decides its allowed root, run binding and HTTP error.
@@ -347,7 +347,7 @@ versioned, coordinated migration rather than a spelling-only edit.
 
 | Change | Owner and required verification |
 | --- | --- |
-| API request/response contract | `mobile_playbook/api/models.py`, route and service modules; extend `tests/test_api_*.py` and the focused contract command in [testing.md](testing.md) |
+| API request/response contract | `mobile_playbook/api/schemas.py`, route and service modules; extend `tests/test_api_*.py` and the focused contract command in [testing.md](testing.md) |
 | Report/evidence behavior | `mobile_playbook/api/services/reports.py`, `mobile_playbook/reporting/`; preserve the configured report-root and opaque-ref rules in [api.md](api.md#report-root-and-evidence-contract) |
 | Dashboard synchronization | `mobile_playbook/dashboard_sync/`; keep `python -m mobile_playbook.dashboard_sync` as the supported entry point |
 | Configuration editing | `mobile_playbook/api/config_editing/` |

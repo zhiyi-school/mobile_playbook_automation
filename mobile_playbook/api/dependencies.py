@@ -9,7 +9,7 @@ from pathlib import Path
 
 from fastapi import HTTPException
 
-from mobile_playbook.api.models import Platform
+from mobile_playbook.api.schemas import Platform
 from mobile_playbook.platforms.android.config import ConfigError as AndroidConfigError
 from mobile_playbook.platforms.android.config import load_config as load_android_config
 from mobile_playbook.platforms.ios.config import ConfigError, load_config

@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 import mobile_playbook.api.__main__ as api_main
-from mobile_playbook.orchestration.appium_process import AppiumStartResult
+from mobile_playbook.orchestration.appium_server import AppiumStartResult
 
 
 def _configure_launcher(monkeypatch, tmp_path, result, events, uvicorn_run):

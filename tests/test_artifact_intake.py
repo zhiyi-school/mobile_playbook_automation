@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from mobile_playbook.orchestration.artifact_intake import validate_risk_selection
+from mobile_playbook.orchestration.selection import validate_risk_selection
 
 
 def test_validate_risk_selection_passes_when_none_selected():

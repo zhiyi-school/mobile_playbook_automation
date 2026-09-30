@@ -7,8 +7,8 @@ import sys
 
 import pytest
 
-import mobile_playbook.orchestration.appium_process as appium_process
-from mobile_playbook.orchestration.appium_process import ensure_appium_running, stop_appium, tcp_reachable
+import mobile_playbook.orchestration.appium_server as appium_process
+from mobile_playbook.orchestration.appium_server import ensure_appium_running, stop_appium, tcp_reachable
 
 
 def _free_port() -> int:
@@ -22,7 +22,7 @@ def test_tcp_reachable_false_when_nothing_listening():
 
 
 def test_already_reachable_short_circuits(monkeypatch):
-    monkeypatch.setattr("mobile_playbook.orchestration.appium_process.tcp_reachable", lambda url, timeout=2: True)
+    monkeypatch.setattr("mobile_playbook.orchestration.appium_server.tcp_reachable", lambda url, timeout=2: True)
     called = []
     monkeypatch.setattr("subprocess.Popen", lambda *a, **k: called.append(1) or pytest.fail("should not spawn"))
 
