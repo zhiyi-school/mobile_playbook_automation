@@ -18,20 +18,21 @@ from mobile_playbook.api.config_editing.shared import (
     rt_yaml,
     write_whole_file_validated,
 )
+from mobile_playbook.common.storage_paths import config_path
 
 logger = logging.getLogger(__name__)
 
 
 # Return one top-level section of the platform's entry config.
 def get_section(platform: str, section: str) -> dict:
-    logger.debug("api: reading section %s of %s.", section, ENTRY_FILES[platform])
-    data = rt_yaml.load(ENTRY_FILES[platform].read_text())
+    logger.debug("api: reading section %s of %s.", section, config_path(ENTRY_FILES[platform]))
+    data = rt_yaml.load(config_path(ENTRY_FILES[platform]).read_text())
     return plain(data.get(section) or {})
 
 
 # Merge updates into a section of the entry config and return the saved section.
 def put_section(platform: str, section: str, updates: dict) -> dict:
-    path = ENTRY_FILES[platform]
+    path = config_path(ENTRY_FILES[platform])
     logger.debug("api: updating section %s of %s with keys %s.", section, path, sorted(updates))
 
     # Create the section if needed and merge the updates into it.
@@ -51,8 +52,10 @@ def risk_settings_target(platform: str, risk_id: str) -> tuple[str, Path]:
     if target is None:
         logger.debug("api: no global settings file for %s risk %s; responding 404.", platform, risk_id)
         raise HTTPException(status_code=404, detail=f"No global risk settings for {risk_id} on platform {platform}")
-    logger.debug("api: risk %s settings live in %s field %s.", risk_id, target[1], target[0])
-    return target
+    field_name, relative_path = target
+    path = config_path(relative_path)
+    logger.debug("api: risk %s settings live in %s field %s.", risk_id, path, field_name)
+    return field_name, path
 
 
 # Return a risk's global settings.

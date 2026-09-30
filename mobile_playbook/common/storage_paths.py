@@ -1,5 +1,5 @@
 """
-Resolves runtime storage locations from their settings or ARTIFACTS_DIR. See docs/storage.md.
+Resolves the platform config directory and runtime storage locations from their settings or ARTIFACTS_DIR. See docs/storage.md.
 """
 
 from __future__ import annotations
@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+CONFIG_ROOT = REPOSITORY_ROOT / "configs"
 
 ARTIFACTS_DIR_ENV = "ARTIFACTS_DIR"
 DEFAULT_ARTIFACTS_DIR = REPOSITORY_ROOT / "artifacts"
@@ -117,6 +118,11 @@ def ios_capture_path() -> Path:
 # Returns the Android work directory.
 def android_work_dir() -> Path:
     return work_root() / "android"
+
+
+# Resolves a config file path, treating a relative one as relative to the configs directory.
+def config_path(relative: str | Path) -> Path:
+    return CONFIG_ROOT / relative
 
 
 # Resolves a path value, treating a relative one as relative to the repository root.

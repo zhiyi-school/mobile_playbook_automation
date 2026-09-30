@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from mobile_playbook.common import storage_paths
 from mobile_playbook.platforms.ios.models import (
     AppConfig,
     DeviceConfig,
@@ -35,6 +36,12 @@ def make_ipa(path: Path, bundle_id: str = "com.example.app", executable: bytes =
 def touch_future(path: Path) -> None:
     future = os.path.getmtime(path) + 10
     os.utime(path, (future, future))
+
+
+# Points config resolution at the test's temp directory so no test reads or writes the real configs/.
+@pytest.fixture(autouse=True)
+def isolated_config_root(tmp_path, monkeypatch):
+    monkeypatch.setattr(storage_paths, "CONFIG_ROOT", tmp_path / "configs")
 
 
 @pytest.fixture

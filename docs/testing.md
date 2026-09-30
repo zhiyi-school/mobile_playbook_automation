@@ -91,7 +91,10 @@ need no secrets or devices, and perform no deployment or synchronization.
 **Tests must not read your machine.** Anything that resolves a real path —
 `.env`, `reports/`, a config file — takes an injectable path so the test can
 point it at `tmp_path`. A test that reads the repository's real `.env` will
-pass on your checkout and fail on someone else's.
+pass on your checkout and fail on someone else's. An autouse fixture in
+`tests/conftest.py` points `storage_paths.CONFIG_ROOT` at each test's
+`tmp_path / "configs"`, so anything resolved through `config_path()` never
+touches the real `configs/`.
 
 **Fakes enforce the real constraints.** `FakeStore` in `test_dashboard_sync.py`
 emulates the database's unique indexes, `sync_key` deduplication and column
@@ -131,9 +134,10 @@ Three things make that work and are worth preserving:
   `example-feature-01-risk-01-control-01`. No test refers to an application that
   is actually being assessed.
 - **The fixture also monkeypatches `settings.ENV_FILE`, `source.RISK_CONFIG_FILES`
-  and `catalogue.CONTROL_OVERRIDE_FILES`.** Without all three, a test would fall
-  through to the repository's real `.env` and `configs/`, and would pass or fail
-  depending on whose checkout it ran on.
+  and `catalogue.CONTROL_OVERRIDE_FILES`.** Without `ENV_FILE`, a test would fall
+  through to the repository's real `.env` and pass or fail depending on whose
+  checkout it ran on. Emptying the two config maps also keeps the catalogue from
+  reading any override file under the isolated config root.
 - **`catalogue.clear_cache()` runs before and after each test.** The catalogue is
   a module-level cache keyed by platform, so a leaked entry makes a later test
   read the previous test's directory.

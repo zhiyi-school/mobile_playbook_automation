@@ -13,6 +13,7 @@ from importlib.metadata import PackageNotFoundError, version as package_version
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from mobile_playbook.common.storage_paths import config_path
 from mobile_playbook.reporting.run_manifest import is_completed, read_manifest
 
 SARIF_NAME = "results.sarif"
@@ -24,7 +25,6 @@ FINGERPRINT_KEY = "mobilePlaybook/v1"
 AUTOMATION_ID_PREFIX = "mobile-playbook"
 
 RESULTS_NAME = "dashboard_results.json"
-RISK_CONFIG_ROOT = Path("configs/split")
 RISK_METADATA_FIELDS = ("name", "description", "tactic", "tactic_id")
 
 FAIL_KIND = "fail"
@@ -353,7 +353,7 @@ def _default_rule_metadata(rows: Sequence[Mapping[str, Any]]) -> dict[str, dict[
 
 # Returns the authored risk text from the platform's risks.yaml, which the Risk classes do not carry.
 def _risk_yaml_metadata(platform: str) -> dict[str, dict[str, Any]]:
-    path = RISK_CONFIG_ROOT / platform / "risks.yaml"
+    path = config_path(Path("split") / platform / "risks.yaml")
     try:
         import yaml
 

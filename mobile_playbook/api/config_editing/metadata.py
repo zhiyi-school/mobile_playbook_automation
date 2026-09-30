@@ -17,6 +17,7 @@ from mobile_playbook.api.config_editing.shared import (
     rt_yaml,
     write_whole_file_validated,
 )
+from mobile_playbook.common.storage_paths import config_path
 from mobile_playbook.platforms.android.risks import list_risks as list_android_risks
 from mobile_playbook.platforms.ios.risks import list_risks as list_ios_risks
 
@@ -36,7 +37,7 @@ def known_feature_ids(platform: str) -> list[str]:
 
 # List every known feature with its stored name and description.
 def list_features(platform: str) -> list[dict]:
-    stored = plain(rt_yaml.load(FEATURES_FILES[platform].read_text()) or {})
+    stored = plain(rt_yaml.load(config_path(FEATURES_FILES[platform]).read_text()) or {})
     return [
         {
             "feature_id": feature_id,
@@ -52,7 +53,7 @@ def put_feature(platform: str, feature_id: str, updates: dict) -> dict:
     if feature_id not in known_feature_ids(platform):
         logger.debug("api: %s feature %s unknown; responding 404.", platform, feature_id)
         raise HTTPException(status_code=404, detail=f"Unknown feature_id: {feature_id}")
-    path = FEATURES_FILES[platform]
+    path = config_path(FEATURES_FILES[platform])
     logger.debug("api: updating feature %s in %s with keys %s.", feature_id, path, sorted(updates))
 
     # Create the feature entry if needed and merge the updates into it.
@@ -77,12 +78,12 @@ def require_known_risk(platform: str, risk_id: str) -> None:
 # Return a risk's entry from the risks YAML, or an empty dict.
 def risk_entry(platform: str, risk_id: str) -> dict:
     try:
-        data = plain(rt_yaml.load(RISK_FILES[platform].read_text()) or {})
+        data = plain(rt_yaml.load(config_path(RISK_FILES[platform]).read_text()) or {})
     except OSError:
-        logger.debug("api: risk file %s unreadable; no entry for %s.", RISK_FILES[platform], risk_id, exc_info=True)
+        logger.debug("api: risk file %s unreadable; no entry for %s.", config_path(RISK_FILES[platform]), risk_id, exc_info=True)
         return {}
     entry = data.get(risk_id)
-    logger.debug("api: risk entry %s in %s present=%s.", risk_id, RISK_FILES[platform], isinstance(entry, dict))
+    logger.debug("api: risk entry %s in %s present=%s.", risk_id, config_path(RISK_FILES[platform]), isinstance(entry, dict))
     return entry if isinstance(entry, dict) else {}
 
 
@@ -100,7 +101,7 @@ def put_risk_metadata(platform: str, risk_id: str, updates: dict) -> dict:
     if unknown:
         logger.debug("api: risk %s update has unknown fields %s; responding 422.", risk_id, unknown)
         raise HTTPException(status_code=422, detail=f"Unknown risk fields: {', '.join(unknown)}")
-    path = RISK_FILES[platform]
+    path = config_path(RISK_FILES[platform])
     logger.debug("api: updating risk metadata %s in %s with keys %s.", risk_id, path, sorted(updates))
 
     # Create the risk entry if needed and merge the updates into it.
@@ -122,7 +123,7 @@ def get_risk_demonstration(platform: str, risk_id: str) -> list:
 # Replace a risk's YAML demonstration and return the saved blocks.
 def put_risk_demonstration(platform: str, risk_id: str, demonstration: list) -> list:
     require_known_risk(platform, risk_id)
-    path = RISK_FILES[platform]
+    path = config_path(RISK_FILES[platform])
     logger.debug("api: replacing demonstration for %s in %s with %d block(s).", risk_id, path, len(demonstration))
 
     # Create the risk entry if needed and set its demonstration.

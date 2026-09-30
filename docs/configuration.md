@@ -94,6 +94,13 @@ round-trip YAML writes, per-file locks, validation and rollback live in
 risk/feature editor own their respective formats, exported together from
 `mobile_playbook.api.config_editing`.
 
+The editor, the playbook catalogue and the SARIF exporter resolve these files
+under `<repository>/configs/` through `config_path()` in
+`mobile_playbook/common/storage_paths.py`, so they read and write the same files
+wherever the API is started. The `config_path` field of a run request is not
+affected: a relative value still resolves against the API process's working
+directory.
+
 ## Environment variables and the secret boundary
 
 `.env` at the repository root holds local secrets. It is read by different

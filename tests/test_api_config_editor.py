@@ -4,6 +4,7 @@ import pytest
 from fastapi import HTTPException
 
 from mobile_playbook.api import config_editing as ce
+from mobile_playbook.common import storage_paths
 from tests.conftest import make_ipa
 
 
@@ -96,7 +97,6 @@ def config_root(tmp_path, monkeypatch):
         "  apps: split/android/apps.yaml\n"
     )
 
-    monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("INTAKE_DIR", str(tmp_path / "intake"))
     return tmp_path
 
@@ -116,6 +116,21 @@ def test_ios_add_edit_delete_app_preserves_untouched_entries(config_root):
     ce.delete_ios_app(added["id"])
     assert len(ce.list_ios_apps()) == 1
     assert (config_root / "configs/split/ios/apps.yaml").read_text() != original_apps_text  # app_one was edited
+
+
+def test_edits_land_in_the_config_root_whatever_the_working_directory(config_root, tmp_path_factory, monkeypatch):
+    elsewhere = tmp_path_factory.mktemp("elsewhere")
+    monkeypatch.chdir(elsewhere)
+
+    ce.edit_ios_app("app_one", {"name": "Renamed From Elsewhere"})
+
+    assert "Renamed From Elsewhere" in (config_root / "configs/split/ios/apps.yaml").read_text()
+    assert not (elsewhere / "configs").exists()
+
+
+def test_config_path_joins_relative_paths_and_keeps_absolute_ones(config_root):
+    assert storage_paths.config_path("split/ios/apps.yaml") == config_root / "configs/split/ios/apps.yaml"
+    assert storage_paths.config_path(config_root / "other.yaml") == config_root / "other.yaml"
 
 
 def test_ios_edit_reverts_file_on_invalid_config(config_root):

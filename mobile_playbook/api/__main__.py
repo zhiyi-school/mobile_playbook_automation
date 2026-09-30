@@ -16,7 +16,7 @@ from uvicorn.config import LOGGING_CONFIG
 from mobile_playbook.common.logging_setup import log_level
 from mobile_playbook.orchestration.appium_process import ensure_appium_running, stop_appium
 from mobile_playbook.platforms.ios.config import load_config
-from mobile_playbook.common.storage_paths import ios_work_dir
+from mobile_playbook.common.storage_paths import config_path, ios_work_dir
 
 MOBILE_PLAYBOOK_LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
 logger = logging.getLogger(__name__)
@@ -50,7 +50,7 @@ def main() -> None:
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8080)  # 8000 collides with MobSF's default port
     parser.add_argument("--reload", action="store_true")
-    parser.add_argument("--ios-config", default="configs/ios.yaml")
+    parser.add_argument("--ios-config", default=str(config_path("ios.yaml")))
     args = parser.parse_args()
     logger.debug(
         "api: starting on %s:%s (reload=%s, ios_config=%s).", args.host, args.port, args.reload, args.ios_config

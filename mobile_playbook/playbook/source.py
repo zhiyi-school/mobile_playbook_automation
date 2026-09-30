@@ -10,13 +10,14 @@ from pathlib import Path
 import yaml
 
 from mobile_playbook.api import settings
+from mobile_playbook.common.storage_paths import config_path
 
 logger = logging.getLogger(__name__)
 
 PLAYBOOK_DIR_ENV = {"ios": "IOS_PLAYBOOK_DIR", "android": "ANDROID_PLAYBOOK_DIR"}
 RISK_CONFIG_FILES = {
-    "ios": Path("configs/split/ios/risks.yaml"),
-    "android": Path("configs/split/android/risks.yaml"),
+    "ios": Path("split/ios/risks.yaml"),
+    "android": Path("split/android/risks.yaml"),
 }
 RISK_CONFIG_KEY = "playbook_dir"
 
@@ -39,6 +40,12 @@ def playbook_dir_env_key(platform: str) -> str | None:
     return PLAYBOOK_DIR_ENV.get(platform)
 
 
+# Return the resolved risk config file for a platform, or None when the platform has none.
+def risk_config_file(platform: str) -> Path | None:
+    relative = RISK_CONFIG_FILES.get(platform)
+    return config_path(relative) if relative is not None else None
+
+
 # Return the configured playbook directory, existing or not, from the env var and then the risk config.
 def configured_root(platform: str) -> Path | None:
     key = PLAYBOOK_DIR_ENV.get(platform)
@@ -47,7 +54,7 @@ def configured_root(platform: str) -> Path | None:
         logger.debug("playbook source: %s playbook dir from env %s: %s", platform, key, configured)
     if not configured:
         configured = _risk_config_playbook_dir(platform)
-        logger.debug("playbook source: %s playbook dir from risk config %s: %s", platform, RISK_CONFIG_FILES.get(platform), configured)
+        logger.debug("playbook source: %s playbook dir from risk config %s: %s", platform, risk_config_file(platform), configured)
     if not configured:
         logger.debug("playbook source: no playbook dir configured for platform %s", platform)
         return None
@@ -74,9 +81,12 @@ def require_root(platform: str) -> Path:
     if root is None:
         logger.debug("playbook source: require_root failed, no playbook dir configured for %s", platform)
         key = PLAYBOOK_DIR_ENV.get(platform, "the playbook directory setting")
+        # This message is an API response detail, so it names the repository-relative path, not the absolute one.
+        relative = RISK_CONFIG_FILES.get(platform)
+        config_file = Path("configs") / relative if relative is not None else "the platform risk config"
         raise PlaybookUnavailableError(
             f"No developer playbook directory is configured for platform {platform}. "
-            f"Set {key} or {RISK_CONFIG_KEY} in {RISK_CONFIG_FILES.get(platform, 'the platform risk config')}."
+            f"Set {key} or {RISK_CONFIG_KEY} in {config_file}."
         )
     if not root.is_dir():
         logger.debug("playbook source: require_root failed, %s playbook root %s is not a directory", platform, root)
@@ -90,7 +100,7 @@ def require_root(platform: str) -> Path:
 
 # Read `playbook_dir` from the platform risk config, or None when absent or unreadable.
 def _risk_config_playbook_dir(platform: str) -> str | None:
-    path = RISK_CONFIG_FILES.get(platform)
+    path = risk_config_file(platform)
     if path is None or not path.exists():
         logger.debug("playbook source: no risk config file for %s at %s", platform, path)
         return None

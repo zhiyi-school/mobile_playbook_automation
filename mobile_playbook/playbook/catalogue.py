@@ -16,14 +16,15 @@ from typing import Any
 
 import yaml
 
+from mobile_playbook.common.storage_paths import config_path
 from mobile_playbook.playbook import controls as control_parser
 from mobile_playbook.playbook import source
 
 logger = logging.getLogger(__name__)
 
 CONTROL_OVERRIDE_FILES = {
-    "ios": Path("configs/split/ios/controls.yaml"),
-    "android": Path("configs/split/android/controls.yaml"),
+    "ios": Path("split/ios/controls.yaml"),
+    "android": Path("split/android/controls.yaml"),
 }
 
 RISK_DOCUMENT = re.compile(r"^(?P<prefix>[a-z0-9]+)-feature-(?P<feature>\d+)-risk-(?P<risk>\d+)$", re.I)
@@ -535,7 +536,8 @@ def _note_identity(
 
 # Load the platform's control overrides keyed by lowercase control id, or an empty dict.
 def _load_overrides(platform: str) -> dict[str, dict[str, Any]]:
-    path = CONTROL_OVERRIDE_FILES.get(platform)
+    relative = CONTROL_OVERRIDE_FILES.get(platform)
+    path = config_path(relative) if relative is not None else None
     if path is None or not path.exists():
         logger.debug("playbook catalogue: no control override file for %s at %s", platform, path)
         return {}

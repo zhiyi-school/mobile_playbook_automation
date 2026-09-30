@@ -15,7 +15,7 @@ from mobile_playbook.platforms.android.config import ConfigError as AndroidConfi
 from mobile_playbook.platforms.android.config import load_config as load_android_config
 from mobile_playbook.platforms.android.permissions import is_installed as android_is_installed
 from mobile_playbook.api.job_registry import registry
-from mobile_playbook.common.storage_paths import ios_intake_dir
+from mobile_playbook.common.storage_paths import config_path, ios_intake_dir
 from mobile_playbook.orchestration.platform_runner import requires_device
 from mobile_playbook.platforms.android.risks import get_risk as get_android_risk
 from mobile_playbook.platforms.ios.artifacts.intake_ipa import resolve_intake_ipa
@@ -110,7 +110,7 @@ def _ios_configuration(app: dict) -> tuple[str, str | None, str | None]:
 # Build an adb client from the Android config, or a default client when it is unavailable.
 def _android_adb() -> AdbClient:
     try:
-        config = load_android_config(ENTRY_FILES["android"], dry_run=True)
+        config = load_android_config(config_path(ENTRY_FILES["android"]), dry_run=True)
         return AdbClient(adb_path=config.device.adb_path, serial=config.device.adb_serial)
     except (AndroidConfigError, OSError) as exc:
         logger.debug("api: Android config unavailable for adb (%s); using the default client.", type(exc).__name__)
@@ -221,7 +221,7 @@ _CONFIG_BLOCKER_BY_STAGE_STATE = {
 # Return whether the configured iOS device is attached, treating an empty probe as ready.
 def _ios_device_ready() -> bool:
     try:
-        config = load_ios_config(ENTRY_FILES["ios"], dry_run=True)
+        config = load_ios_config(config_path(ENTRY_FILES["ios"]), dry_run=True)
     except Exception:
         logger.debug("api: iOS config unreadable for device probe; treating device as ready.", exc_info=True)
         return True
@@ -249,9 +249,9 @@ def _device_required(platform: str, app: dict | None) -> bool:
     logger.debug("api: checking device requirement for app %r with risks %s.", app.get("id"), sorted(enabled))
     try:
         if platform == "ios":
-            config = load_ios_config(ENTRY_FILES["ios"], dry_run=True)
+            config = load_ios_config(config_path(ENTRY_FILES["ios"]), dry_run=True)
             return requires_device(config, set(enabled), {app.get("id")}, get_ios_risk)
-        config = load_android_config(ENTRY_FILES["android"], dry_run=True)
+        config = load_android_config(config_path(ENTRY_FILES["android"]), dry_run=True)
         return requires_device(config, set(enabled), {app.get("id")}, get_android_risk)
     except Exception:
         logger.debug(

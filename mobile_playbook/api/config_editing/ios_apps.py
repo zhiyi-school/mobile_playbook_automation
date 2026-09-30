@@ -21,6 +21,7 @@ from mobile_playbook.api.config_editing.shared import (
     load_with_errors,
     lock_for,
 )
+from mobile_playbook.common.storage_paths import config_path
 from mobile_playbook.common.config_loader import merge_dicts
 from mobile_playbook.platforms.ios.config import _slugify as ios_slugify
 
@@ -88,7 +89,7 @@ def render_ios_app_block(app: dict) -> str:
 
 # Load the iOS templates YAML, or an empty dict when it is missing.
 def ios_templates() -> dict:
-    path = TEMPLATE_FILES["ios"]
+    path = config_path(TEMPLATE_FILES["ios"])
     return yaml.safe_load(path.read_text()) or {} if path.exists() else {}
 
 
@@ -127,7 +128,7 @@ def effective_ios_app(app_id: str) -> dict | None:
 
 # Append a new iOS app block, raising 409 on a duplicate and rolling back on new validation errors.
 def add_ios_app(app: dict) -> dict:
-    path = APPS_FILES["ios"]
+    path = config_path(APPS_FILES["ios"])
     with lock_for(path):
         original_text = path.read_text()
         baseline = config_errors("ios")
@@ -151,7 +152,7 @@ def add_ios_app(app: dict) -> dict:
 
 # Rewrite an iOS app block with merged updates, rolling back on new validation errors.
 def edit_ios_app(app_id: str, updates: dict) -> dict:
-    path = APPS_FILES["ios"]
+    path = config_path(APPS_FILES["ios"])
     with lock_for(path):
         original_text = path.read_text()
         baseline = config_errors("ios")
@@ -182,7 +183,7 @@ def edit_ios_app(app_id: str, updates: dict) -> dict:
 
 # Remove an iOS app block, raising 404 when missing and rolling back on new validation errors.
 def delete_ios_app(app_id: str) -> None:
-    path = APPS_FILES["ios"]
+    path = config_path(APPS_FILES["ios"])
     with lock_for(path):
         original_text = path.read_text()
         baseline = config_errors("ios")

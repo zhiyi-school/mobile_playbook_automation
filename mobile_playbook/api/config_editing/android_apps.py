@@ -16,6 +16,7 @@ from mobile_playbook.api.config_editing.shared import (
     rt_yaml,
     write_whole_file_validated,
 )
+from mobile_playbook.common.storage_paths import config_path
 from mobile_playbook.platforms.android.config import _slugify as android_slugify
 
 APP_METADATA_KEYS = {"sector", "agency", "version", "cisos"}
@@ -29,7 +30,7 @@ def android_app_id(item: dict) -> str:
 
 # List Android apps from the apps YAML with id and metadata defaults filled in.
 def list_android_apps() -> list[dict]:
-    data = rt_yaml.load(APPS_FILES["android"].read_text())
+    data = rt_yaml.load(config_path(APPS_FILES["android"]).read_text())
     items = [plain(item) for item in (data.get("apps") or [])]
     for item in items:
         item.setdefault("id", android_app_id(item))
@@ -37,13 +38,13 @@ def list_android_apps() -> list[dict]:
         item.setdefault("agency", "")
         item.setdefault("version", "")
         item.setdefault("cisos", [])
-    logger.debug("api: listed %d Android app(s) from %s.", len(items), APPS_FILES["android"])
+    logger.debug("api: listed %d Android app(s) from %s.", len(items), config_path(APPS_FILES["android"]))
     return items
 
 
 # Append a new Android app, raising 409 when its id already exists.
 def add_android_app(app: dict) -> dict:
-    path = APPS_FILES["android"]
+    path = config_path(APPS_FILES["android"])
 
     # Append the app unless an app with the same id exists.
     def mutate(data: Any) -> None:
@@ -63,7 +64,7 @@ def add_android_app(app: dict) -> dict:
 
 # Merge updates into an Android app and return the saved entry, or raise 404.
 def edit_android_app(app_id: str, updates: dict) -> dict:
-    path = APPS_FILES["android"]
+    path = config_path(APPS_FILES["android"])
 
     # Merge the updates into the matching app, replacing metadata keys outright.
     def mutate(data: Any) -> None:
@@ -87,7 +88,7 @@ def edit_android_app(app_id: str, updates: dict) -> dict:
 
 # Remove an Android app, raising 404 when it does not exist.
 def delete_android_app(app_id: str) -> None:
-    path = APPS_FILES["android"]
+    path = config_path(APPS_FILES["android"])
 
     # Drop the matching app from the apps list.
     def mutate(data: Any) -> None:

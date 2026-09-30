@@ -15,6 +15,7 @@ from fastapi import HTTPException
 from ruamel.yaml import YAML
 
 from mobile_playbook.common.config_loader import load_yaml_config
+from mobile_playbook.common.storage_paths import config_path
 from mobile_playbook.platforms.android.config import ConfigError as AndroidConfigError
 from mobile_playbook.platforms.android.config import collect_config_errors as collect_android_errors
 from mobile_playbook.platforms.android.config import parse_config as parse_android_config
@@ -23,27 +24,27 @@ from mobile_playbook.platforms.ios.config import RISK_GLOBAL_SETTINGS_FIELD
 from mobile_playbook.platforms.ios.config import collect_config_errors as collect_ios_errors
 from mobile_playbook.platforms.ios.config import parse_config as parse_ios_config
 
-ENTRY_FILES = {"ios": Path("configs/ios.yaml"), "android": Path("configs/android.yaml")}
-APPS_FILES = {"ios": Path("configs/split/ios/apps.yaml"), "android": Path("configs/split/android/apps.yaml")}
+ENTRY_FILES = {"ios": Path("ios.yaml"), "android": Path("android.yaml")}
+APPS_FILES = {"ios": Path("split/ios/apps.yaml"), "android": Path("split/android/apps.yaml")}
 FEATURES_FILES = {
-    "ios": Path("configs/split/ios/features.yaml"),
-    "android": Path("configs/split/android/features.yaml"),
+    "ios": Path("split/ios/features.yaml"),
+    "android": Path("split/android/features.yaml"),
 }
 RISK_FILES = {
-    "ios": Path("configs/split/ios/risks.yaml"),
-    "android": Path("configs/split/android/risks.yaml"),
+    "ios": Path("split/ios/risks.yaml"),
+    "android": Path("split/android/risks.yaml"),
 }
 RISK_SETTINGS = {
     "ios": {
-        risk_id: (field, Path(f"configs/split/ios/{field}.yaml"))
+        risk_id: (field, Path(f"split/ios/{field}.yaml"))
         for risk_id, field in RISK_GLOBAL_SETTINGS_FIELD.items()
     },
     "android": {
-        "android-feature-01-risk-02": ("repackaging", Path("configs/split/android/repackaging.yaml")),
-        "android-feature-06-risk-01": ("screen_capture", Path("configs/split/android/screen_capture.yaml")),
+        "android-feature-01-risk-02": ("repackaging", Path("split/android/repackaging.yaml")),
+        "android-feature-06-risk-01": ("screen_capture", Path("split/android/screen_capture.yaml")),
     },
 }
-TEMPLATE_FILES = {"ios": Path("configs/split/ios/templates.yaml")}
+TEMPLATE_FILES = {"ios": Path("split/ios/templates.yaml")}
 
 rt_yaml = YAML(typ="rt")
 rt_yaml.preserve_quotes = True
@@ -67,7 +68,7 @@ def lock_for(path: Path) -> threading.Lock:
 
 # Parse the platform config and return it with its validation errors, or None and the parse error.
 def load_with_errors(platform: str):
-    entry_path = ENTRY_FILES[platform]
+    entry_path = config_path(ENTRY_FILES[platform])
     logger.debug("api: loading %s config from %s for validation.", platform, entry_path)
     try:
         raw = load_yaml_config(entry_path)
