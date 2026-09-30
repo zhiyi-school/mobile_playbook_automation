@@ -1,0 +1,25 @@
+# Example iOS traffic_interception settings. Copy to traffic_interception.yaml; see docs/ios/configuration.md.
+
+traffic_interception:
+  burp:
+    proxy_url: "http://127.0.0.1:8081"
+    capture_path: "artifacts/work/ios/traffic_interception/capture.jsonl"
+    health_max_age_seconds: 300
+  device_setup:
+    mode: "appium_ui"
+    wifi_ssid: "REPLACE_WITH_TEST_WIFI_NAME"
+    proxy_host: "auto"
+    proxy_port: 8081
+    ca_download_url: "http://burp/cert"
+    ca_display_name: "PortSwigger CA"
+    configure_ca_if_missing: true
+    restore_proxy_after_test: true
+    proxy_cleanup_mode: "restore"
+    navigation_timeout_seconds: 20
+  expected_hosts:
+    - "REPLACE_WITH_APP_API_HOSTNAME"
+  capture_timeout_seconds: 30
+  exercise:
+    exercise_wait_seconds: 20
+    settle_seconds: 1
+    accessibility_ids: []

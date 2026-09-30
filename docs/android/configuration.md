@@ -7,12 +7,14 @@ The Android config lives at `configs/android.yaml`. `device` and `runner` are wr
 Set up the split config from the tracked examples:
 
 ```bash
-cp configs/android.example.yaml configs/android.yaml
-cp configs/split/android/apps.example.yaml configs/split/android/apps.yaml
-for f in tools repackaging screen_capture; do cp configs/split/android/risk_settings.example.yaml "configs/split/android/$f.yaml"; done
+for example in configs/*.example.yaml configs/split/*/*.example.yaml; do
+  target="${example%.example.yaml}.yaml"
+  [ -e "$target" ] || cp "$example" "$target"
+done
 ```
 
-`risk_settings.example.yaml` shows `tools`, `repackaging`, and `screen_capture` together in one file for easier reading; trim each copy above down to just its own top-level key.
+Every file an entry config includes has its own `*.example.yaml` next to it, so
+the copies load as they are. The loop skips any real config you already have.
 
 The config contains `device`, `runner`, `tools`, per-risk timing blocks, and `apps` — the first two inline, the rest via `include:`.
 
@@ -101,7 +103,7 @@ Android risk IDs are prefixed `android-feature...`. To configure a risk for an a
        enabled: true
    ```
 
-2. Its actual settings come from that risk's global settings file, shared by every app that enables it — here's the start of `repackaging.yaml`, taken directly from `configs/split/android/risk_settings.example.yaml`:
+2. Its actual settings come from that risk's global settings file, shared by every app that enables it — here's the start of `repackaging.yaml`, taken directly from `configs/split/android/repackaging.example.yaml`:
 
    ```yaml
    repackaging:
@@ -112,7 +114,7 @@ Android risk IDs are prefixed `android-feature...`. To configure a risk for an a
      keystore_pass: "REPLACE_WITH_KEYSTORE_PASSWORD"
    ```
 
-   See `configs/split/android/risk_settings.example.yaml` for the rest of this and `screen_capture`'s fields, and the field references below for what each controls.
+   See `configs/split/android/repackaging.example.yaml` and `screen_capture.example.yaml` for the rest of these fields, and the field references below for what each controls.
 3. Only add more fields under the app's own `risks.<risk_id>` entry when this one app needs to differ from those shared defaults — nest just the field being changed. Anything left unset there falls back to the global file.
 
 Risks run in the order they're listed under an app's `risks` mapping, not sorted by ID — keep that in mind if the order of your own `risks:` blocks matters to you.

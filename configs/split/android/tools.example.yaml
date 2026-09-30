@@ -1,0 +1,6 @@
+# Example Android tools settings. Copy to tools.yaml; see docs/android/configuration.md.
+
+tools:
+  mobsf_url: "http://localhost:8000"
+  mobsf_api_key: ""
+  burp_proxy: "http://127.0.0.1:8080"

@@ -68,21 +68,14 @@ inline and pulls the app roster and per-risk settings in through `include:`.
 Copy from the tracked examples:
 
 ```bash
-cp configs/ios.example.yaml configs/ios.yaml
-cp configs/split/ios/apps.example.yaml configs/split/ios/apps.yaml
-for f in ipa_static_analysis traffic_interception keystroke_collection; do
-  cp configs/split/ios/risk_settings.example.yaml "configs/split/ios/$f.yaml"
-done
-
-cp configs/android.example.yaml configs/android.yaml
-cp configs/split/android/apps.example.yaml configs/split/android/apps.yaml
-for f in tools repackaging screen_capture; do
-  cp configs/split/android/risk_settings.example.yaml "configs/split/android/$f.yaml"
+for example in configs/*.example.yaml configs/split/*/*.example.yaml; do
+  target="${example%.example.yaml}.yaml"
+  [ -e "$target" ] || cp "$example" "$target"
 done
 ```
 
-`risk_settings.example.yaml` shows every risk's settings together for reading;
-trim each real copy down to its own top-level key.
+Every file an entry config includes has its own `*.example.yaml` next to it, so
+the copies load as they are. The loop skips any real config you already have.
 
 A minimal app entry looks like this — replace every value:
 

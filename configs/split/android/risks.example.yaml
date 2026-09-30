@@ -1,0 +1,16 @@
+# Example Android risk text shown in the dashboard. Copy to risks.yaml; see docs/android/risks.md#risk-metadata.
+
+# Where the developer remediation playbook lives; ANDROID_PLAYBOOK_DIR in .env takes precedence. See docs/configuration.md.
+playbook_dir: "REPLACE_WITH_PLAYBOOK_DIR"
+
+android-feature-01-risk-02:
+  name: "Android Repackaging Test"
+  description: "Describe what this risk demonstrates."
+  tactic: null
+  demonstration: []
+
+android-feature-06-risk-01:
+  name: "Android Screen Capture Test"
+  description: "Describe what this risk demonstrates."
+  tactic: null
+  demonstration: []

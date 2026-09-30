@@ -1,0 +1,9 @@
+# Example Android feature names shown in the dashboard. Copy to features.yaml; see docs/android/risks.md#risk-metadata.
+
+feature-01:
+  name: "Example feature 01"
+  description: "Describe what this feature covers."
+
+feature-06:
+  name: "Example feature 06"
+  description: "Describe what this feature covers."

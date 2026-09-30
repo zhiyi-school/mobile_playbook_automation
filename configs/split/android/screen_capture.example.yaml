@@ -1,0 +1,6 @@
+# Example Android screen_capture settings. Copy to screen_capture.yaml; see docs/android/configuration.md.
+
+screen_capture:
+  record_lead_in: 2
+  launch_wait: 4
+  record_tail: 5

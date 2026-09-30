@@ -29,7 +29,10 @@ runner:
 
 include:
   ipa_static_analysis: split/ios/ipa_static_analysis.yaml
+  repackaging: split/ios/repackaging.yaml
   traffic_interception: split/ios/traffic_interception.yaml
   keystroke_collection: split/ios/keystroke_collection.yaml
   screen_capture: split/ios/screen_capture.yaml
-  apps: split/ios/apps.yaml
+  apps:
+    - split/ios/templates.yaml
+    - split/ios/apps.yaml

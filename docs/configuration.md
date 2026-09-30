@@ -24,8 +24,9 @@ configs/
   split/android/...                 the same shape for Android
 ```
 
-`*.example.yaml` files are tracked; the real files are not. `risks.yaml` is
-tracked because its content is authored documentation rather than local state.
+`*.example.yaml` files are tracked; the real files, `risks.yaml` included, are
+git-ignored. Every file an entry config includes has a tracked example, and
+`tests/test_example_configs.py` loads a copy of the whole example set.
 
 ### YAML includes
 

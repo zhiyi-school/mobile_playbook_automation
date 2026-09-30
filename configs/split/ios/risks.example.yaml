@@ -1,0 +1,40 @@
+# Example iOS risk text shown in the dashboard. Copy to risks.yaml; see docs/ios/risks.md#risk-metadata.
+
+# Where the developer remediation playbook lives; IOS_PLAYBOOK_DIR in .env takes precedence. See docs/configuration.md.
+playbook_dir: "REPLACE_WITH_PLAYBOOK_DIR"
+
+ios-feature-01-risk-01:
+  name: "IPA acquisition static analysis exposure"
+  description: "Describe what this risk demonstrates."
+  tactic: null
+  demonstration: []
+
+ios-feature-01-risk-02:
+  name: "IPA repackaging resistance"
+  description: "Describe what this risk demonstrates."
+  tactic: null
+  demonstration: []
+
+ios-feature-02-risk-01:
+  name: "TLS traffic interception exposure"
+  description: "Describe what this risk demonstrates."
+  tactic: null
+  demonstration: []
+
+ios-feature-03-risk-01:
+  name: "Capture on-screen content"
+  description: "Describe what this risk demonstrates."
+  tactic: null
+  demonstration: []
+
+ios-feature-04-risk-01:
+  name: "Custom keyboard keystroke collection"
+  description: "Describe what this risk demonstrates."
+  tactic: null
+  demonstration: []
+
+ios-feature-99-risk-01:
+  name: "Manual review placeholder"
+  description: "Describe what this risk demonstrates."
+  tactic: null
+  demonstration: []

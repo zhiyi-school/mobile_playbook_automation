@@ -1,0 +1,27 @@
+# Example iOS repackaging settings. Copy to repackaging.yaml; see docs/ios/configuration.md.
+
+repackaging:
+  frida:
+    dylib_path: "tools/vendor/frida/FridaGadget.dylib"
+    config_path: "tools/vendor/frida/FridaGadget.config"
+  # Defaults to tools/vendor/insert_dylib; see docs/ios/configuration.md#repackaging.
+  insert_dylib_path: null
+  resign:
+    # Unset resolves the codesign identity from device.team_id; see docs/ios/configuration.md#repackaging.
+    identity: null
+    # Unset auto-discovers a matching installed profile; see docs/ios/configuration.md#repackaging.
+    provisioning_profile: null
+    # Bundle id you hold a dev profile for (free-account path); see docs/ios/configuration.md#repackaging.
+    rewrite_bundle_id: null
+    auto_provision: true                # mint/renew the profile via Xcode automatic signing when none valid
+    profile_expiry_margin_seconds: 3600 # treat a profile expiring within this window as invalid and regenerate
+  tamper_markers:
+    - "Tamper detected"
+    - "Integrity check failed"
+    - "Jailbreak detected"
+  exercise:
+    sample_window_seconds: 15
+    sample_interval_seconds: 1
+    tap_text_field: false
+    button_label_contains: []
+  restore_original_after_test: true

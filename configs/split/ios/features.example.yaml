@@ -1,0 +1,21 @@
+# Example iOS feature names shown in the dashboard. Copy to features.yaml; see docs/ios/risks.md#risk-metadata.
+
+feature-01:
+  name: "Example feature 01"
+  description: "Describe what this feature covers."
+
+feature-02:
+  name: "Example feature 02"
+  description: "Describe what this feature covers."
+
+feature-03:
+  name: "Example feature 03"
+  description: "Describe what this feature covers."
+
+feature-04:
+  name: "Example feature 04"
+  description: "Describe what this feature covers."
+
+feature-99:
+  name: "Example feature 99"
+  description: "Describe what this feature covers."

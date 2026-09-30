@@ -1,0 +1,13 @@
+# Example shared YAML anchors for iOS app entries. Copy to templates.yaml; see docs/configuration.md#yaml-includes.
+
+x-local-ipa-artifact: &local_ipa_artifact
+  source: "local_ipa"
+  expected_bundle_id: ""
+
+x-default-launch-check: &default_launch_check
+  app_state_must_be_foreground: true
+  source_contains: []
+  source_not_contains:
+    - "Tamper detected"
+    - "Integrity check failed"
+  app_specific_check: null

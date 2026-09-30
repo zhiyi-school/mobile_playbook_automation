@@ -1,0 +1,33 @@
+# Example Android control overrides. Copy to controls.yaml; see docs/developer-playbook.md.
+#
+# The controls themselves live in the external playbook directory (see
+# ANDROID_PLAYBOOK_DIR in .env.example and docs/configuration.md). That directory is
+# read-only to this backend, so this file is where security can change how a
+# control is presented without editing the playbook.
+#
+# Each key is a control id as the catalogue reports it — the platform prefix,
+# not the generic `platform-` prefix the Markdown files are written with. For
+# example, the playbook document `platform-feature-01-risk-01-control-01.md`
+# is keyed here as `android-feature-01-risk-01-control-01`.
+#
+# Every field is optional:
+#
+#   status:   active | deprecated | deprioritized
+#             Only an `active` control counts as required developer work.
+#             Defaults to the status declared in the control document's YAML
+#             front matter, then to one inferred from a `(deprioritise)` or
+#             `(deprecated)` marker in the filename, then to `active`.
+#   required: true | false
+#             Overrides the default, which is `true` only for an active control.
+#             Set this when a control is active but optional for developers.
+#   title:    A human-readable name shown in the developer Resolve workspace.
+#             Defaults to `Control <n>` taken from the control id.
+#
+# Example:
+#
+# android-feature-01-risk-01-control-01:
+#   title: Obfuscate plaintext literals at build time
+#
+# android-feature-04-risk-02-control-01:
+#   status: deprioritized
+#   required: false

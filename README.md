@@ -44,16 +44,14 @@ appium
 This project's own configs write `device`/`runner` inline in each platform's entry-point file (there's only ever one device and one runner profile per project), and split the app roster and per-risk settings — which don't fit comfortably in one file — into their own files under `configs/split/<platform>/`. Set it up from the tracked examples:
 
 ```bash
-cp configs/ios.example.yaml configs/ios.yaml
-cp configs/split/ios/apps.example.yaml configs/split/ios/apps.yaml
-for f in ipa_static_analysis keystroke_collection; do cp configs/split/ios/risk_settings.example.yaml "configs/split/ios/$f.yaml"; done
-
-cp configs/android.example.yaml configs/android.yaml
-cp configs/split/android/apps.example.yaml configs/split/android/apps.yaml
-for f in tools repackaging screen_capture; do cp configs/split/android/risk_settings.example.yaml "configs/split/android/$f.yaml"; done
+for example in configs/*.example.yaml configs/split/*/*.example.yaml; do
+  target="${example%.example.yaml}.yaml"
+  [ -e "$target" ] || cp "$example" "$target"
+done
 ```
 
-Each `risk_settings.example.yaml` shows every risk's global settings together in one file for easier reading; trim each real copy above down to just its own top-level key (`ipa_static_analysis:`, `keystroke_collection:`, `tools:`, `repackaging:`, `screen_capture:`).
+Every file an entry config includes has its own `*.example.yaml` next to it, so
+the copies load as they are. The loop skips any real config you already have.
 
 Use `configs/ios.yaml` for iOS apps, IPA paths, signing, Appium, and enabled iOS risks. Put IPAs under `intake/ios/ipas/` or another local path.
 
