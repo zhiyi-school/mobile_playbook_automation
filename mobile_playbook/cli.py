@@ -35,7 +35,7 @@ from mobile_playbook.platforms.ios.ipa.plist_utils import inspect_ipa_metadata
 from mobile_playbook.platforms.ios.ipa.unpacker import unpack_ipa
 from mobile_playbook.env_file import load_env_file
 from mobile_playbook.playbook import catalogue as playbook_catalogue
-from mobile_playbook.dashboard_sync_trigger import trigger_dashboard_sync
+from mobile_playbook.dashboard_sync.trigger import trigger_dashboard_sync
 from mobile_playbook.logging_setup import configure_logging
 from mobile_playbook.reporting.messages import clean_message
 from mobile_playbook.reporting.report_writer import ReportWriter

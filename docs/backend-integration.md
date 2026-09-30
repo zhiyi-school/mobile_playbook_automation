@@ -340,7 +340,8 @@ Monitoring, locking, ledger and retry semantics are in
 [operations.md](operations.md).
 
 For embedded integrations, depend on the store protocol and orchestration under
-`mobile_playbook.dashboard_syncing`, not the CLI facade. A different
+`mobile_playbook.dashboard_sync` (`contracts`, `mapping`, `orchestrator`), not
+the worker entry point. A different
 `DashboardSyncStore` implementation can retain the same mapping and retry
 ordering. The bundled `SupabaseRestStore` remains worker-only because it reads
 the service-role credential.

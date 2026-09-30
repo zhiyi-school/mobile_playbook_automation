@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from mobile_playbook.dashboard_syncing.contracts import SyncSummary
-from mobile_playbook.dashboard_syncing.identity import finding_status, is_older_run, rows_by_app, sync_key
-from mobile_playbook.dashboard_syncing import worker
+from mobile_playbook.dashboard_sync.contracts import SyncSummary
+from mobile_playbook.dashboard_sync.identity import finding_status, is_older_run, rows_by_app, sync_key
+from mobile_playbook.dashboard_sync import worker
 
 
 def test_identity_mapping_needs_no_store_or_filesystem():

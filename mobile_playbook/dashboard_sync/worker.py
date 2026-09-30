@@ -12,13 +12,13 @@ from pathlib import Path
 
 from mobile_playbook.storage import reports_root
 
-from mobile_playbook import sync_status
-from mobile_playbook.dashboard_syncing.contracts import SupabaseRestError
-from mobile_playbook.dashboard_syncing.orchestrator import sync_reports
-from mobile_playbook.dashboard_syncing.supabase import SupabaseRestStore
+from mobile_playbook.dashboard_sync import run_status
+from mobile_playbook.dashboard_sync.contracts import SupabaseRestError
+from mobile_playbook.dashboard_sync.orchestrator import sync_reports
+from mobile_playbook.dashboard_sync.supabase_store import SupabaseRestStore
 from mobile_playbook.env_file import load_env_file
 from mobile_playbook.logging_setup import log_level
-from mobile_playbook.sync_state import SyncBusy, single_instance
+from mobile_playbook.dashboard_sync.ledger import SyncBusy, single_instance
 
 logger = logging.getLogger(__name__)
 
@@ -108,9 +108,9 @@ def main(
             continue
         except Exception as exc:
             logger.debug("dashboard sync: pass raised; recording a failed worker pass.", exc_info=True)
-            sync_status.record_worker_pass(reports_dir, succeeded=False, error=str(exc))
+            run_status.record_worker_pass(reports_dir, succeeded=False, error=str(exc))
             raise
-        sync_status.record_worker_pass(
+        run_status.record_worker_pass(
             reports_dir,
             succeeded=not summary.failed_reports,
             error=f"{summary.failed_reports} report(s) failed to sync" if summary.failed_reports else None,

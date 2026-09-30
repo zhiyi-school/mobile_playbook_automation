@@ -10,13 +10,13 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from mobile_playbook.dashboard_syncing.contracts import (
+from mobile_playbook.dashboard_sync.contracts import (
     AmbiguousApplicationError,
     DashboardSyncStore,
     SupabaseRestError,
     SyncSummary,
 )
-from mobile_playbook.dashboard_syncing.identity import finding_status, is_older_run, now, rows_by_app, sync_key
+from mobile_playbook.dashboard_sync.identity import finding_status, is_older_run, now, rows_by_app, sync_key
 from mobile_playbook.platforms.android.risks import known_risks as known_android_risks
 from mobile_playbook.platforms.ios.risks import known_risks as known_ios_risks
 

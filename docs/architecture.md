@@ -64,7 +64,7 @@ The consequences that matter in practice:
 | CLI | `argparse` (`mobile_playbook/cli.py`) |
 | Config format | YAML via `PyYAML` (`yaml.safe_load`) |
 | API | `FastAPI` (`mobile_playbook/api/app.py`) for dashboard/run/config endpoints |
-| Dashboard sync worker | stdlib `urllib.request` (`mobile_playbook/dashboard_syncing/supabase.py`) for Supabase REST writes |
+| Dashboard sync worker | stdlib `urllib.request` (`mobile_playbook/dashboard_sync/supabase_store.py`) for Supabase REST writes |
 | Device automation | `Appium-Python-Client` + `selenium` (Appium is the only automation engine used for both platforms) |
 | iOS driver | Appium `XCUITest` driver, real device only |
 | Android driver | Appium `UiAutomator2` driver |
@@ -244,7 +244,7 @@ key at a time instead: `env_setting()` checks `ALLOWED_ENV_KEYS` (currently just
 and its parser returns a single requested key rather than importing the file
 into `os.environ`. It deliberately does not reuse `load_env_file()` and does not
 import that module at all, so there is no code path from the API package to
-whole-file loading — the same trade-off `dashboard_sync_trigger.py` already made
+whole-file loading — the same trade-off `dashboard_sync/trigger.py` already made
 for reading `DASHBOARD_SYNC_AUTO_TRIGGER`. The small duplicated parser is the
 price of that guarantee.
 
@@ -260,15 +260,17 @@ fragile. Resolving on call is correct for every entrypoint and leaves
 ### Dashboard sync layer
 
 Publishing results to the dashboard is a second workflow that runs after — and
-independently of — the automation run. `mobile_playbook/dashboard_sync.py` is
-the compatibility entry point; ownership lives under `dashboard_syncing/`:
+independently of — the automation run. Everything lives in
+`mobile_playbook/dashboard_sync/`, whose `__main__.py` is the `python -m` entry point:
 `contracts.py` defines the injected store and result types, `identity.py` owns
 pure identities/status mapping, `mapping.py` maps report rows to ordered store
 mutations, `orchestrator.py` coordinates manifests, status and the processed
-ledger, `supabase.py` is the credential-bearing PostgREST adapter, and
-`worker.py` owns argument parsing and the loop. The worker has no HTTP surface
+ledger, `ledger.py` owns the processed ledger, report digests and the host-wide
+lock, `run_status.py` owns the per-run status records, `supabase_store.py` is
+the credential-bearing PostgREST adapter, and `worker.py` owns argument parsing
+and the loop. The worker has no HTTP surface
 and is the only writer of dashboard rows from automation results. It is started
-by `dashboard_sync_trigger.py` after a terminal manifest and by the recovery
+by `trigger.py` after a terminal manifest and by the recovery
 sweep.
 
 The two workflows have separate lifecycles and separate meanings of "completed".
@@ -287,7 +289,7 @@ Three files carry the state, each with one job:
   timestamp resync rather than being skipped.
 - `reports/<run_timestamp>/sync_status.json` — the lifecycle *around* that fact
   for one run: status, attempt, timings, a redacted error, and the row counts the
-  last attempt reconciled. `mobile_playbook/sync_status.py` writes it atomically
+  last attempt reconciled. `mobile_playbook/dashboard_sync/run_status.py` writes it atomically
   under a per-run `flock`, and rebuilds it from the manifest and ledger when it is
   missing or unreadable, so it is a projection rather than a competing truth.
 - `reports/.dashboard_sync.lock` — the host-wide `flock` that serializes passes.
@@ -301,7 +303,9 @@ duplicate insert conflicts and is swallowed; and a finding's status and
 pre-run state for the retry to find. Replaying an older run never regresses a
 finding that a newer run already moved.
 
-The API package does not import `dashboard_syncing.supabase` or `worker`; it
+The API package does not import `dashboard_sync.supabase_store` or `worker`, and
+the package `__init__.py` imports nothing so importing `ledger`, `run_status` or
+`trigger` never loads them; it
 only launches the module entry point in a child process. This keeps service-role
 credentials outside the API process while mapping and orchestration remain
 testable with an injected store.
@@ -345,7 +349,7 @@ versioned, coordinated migration rather than a spelling-only edit.
 | --- | --- |
 | API request/response contract | `mobile_playbook/api/models.py`, route and service modules; extend `tests/test_api_*.py` and the focused contract command in [testing.md](testing.md) |
 | Report/evidence behavior | `mobile_playbook/api/services/reports.py`, `mobile_playbook/reporting/`; preserve the configured report-root and opaque-ref rules in [api.md](api.md#report-root-and-evidence-contract) |
-| Dashboard synchronization | `mobile_playbook/dashboard_syncing/`; keep `mobile_playbook/dashboard_sync.py` as the supported `python -m` entry point |
+| Dashboard synchronization | `mobile_playbook/dashboard_sync/`; keep `python -m mobile_playbook.dashboard_sync` as the supported entry point |
 | Configuration editing | `mobile_playbook/api/config_editing/` |
 | Risk implementation | `mobile_playbook/platforms/<platform>/risks/`, discovered dynamically; follow the platform guide linked from [testing.md](testing.md#adding-a-risk) |
 | Playbook parsing/rendering contract | `mobile_playbook/playbook/`, sanitized `tests/fixtures/playbook_contract/`, and the versioned frontend transport fixture described in [developer-playbook.md](developer-playbook.md#parser-to-frontend-contract-fixture) |

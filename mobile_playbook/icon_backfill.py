@@ -148,7 +148,7 @@ def main(argv: list[str] | None = None) -> int:
         "icon backfill: platform=%s apps=%s force=%s dry_run=%s.", args.platform, args.apps, args.force, args.dry_run
     )
 
-    from mobile_playbook.dashboard_syncing.supabase import SupabaseRestStore
+    from mobile_playbook.dashboard_sync.supabase_store import SupabaseRestStore
 
     try:
         store = SupabaseRestStore.from_env()

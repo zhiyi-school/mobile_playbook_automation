@@ -4,8 +4,9 @@ import json
 from pathlib import Path
 from typing import Any
 
-from mobile_playbook import sync_status
-from mobile_playbook.dashboard_sync import SupabaseRestError, sync_reports
+from mobile_playbook.dashboard_sync import run_status
+from mobile_playbook.dashboard_sync.contracts import SupabaseRestError
+from mobile_playbook.dashboard_sync.orchestrator import sync_reports
 from mobile_playbook.reporting.run_manifest import write_manifest
 from tests.test_dashboard_sync import FakeStore, _row
 
@@ -35,7 +36,7 @@ def test_a_successful_pass_ends_completed_with_the_rows_it_reconciled(tmp_path):
 
     sync_reports(tmp_path, FakeStore(), risk_counts={"ios": 3})
 
-    recorded = sync_status.read_status(run_dir)
+    recorded = run_status.read_status(run_dir)
     assert recorded["status"] == "completed"
     assert recorded["started_at"] is not None
     assert recorded["completed_at"] is not None
@@ -58,7 +59,7 @@ def test_a_failing_pass_ends_failed_with_a_retryable_message(tmp_path):
 
     summary = sync_reports(tmp_path, Broken(), risk_counts={"ios": 3})
 
-    recorded = sync_status.read_status(run_dir)
+    recorded = run_status.read_status(run_dir)
     assert summary.failed_reports == 1
     assert recorded["status"] == "failed"
     assert recorded["retryable"] is True
@@ -75,7 +76,7 @@ def test_an_ambiguous_application_is_reported_as_needing_a_person(tmp_path):
 
     sync_reports(tmp_path, store, risk_counts={"ios": 3})
 
-    recorded = sync_status.read_status(run_dir)
+    recorded = run_status.read_status(run_dir)
     assert recorded["status"] == "failed"
     assert recorded["retryable"] is False
 
@@ -85,9 +86,9 @@ def test_a_failed_automation_run_needs_no_dashboard_sync(tmp_path):
 
     sync_reports(tmp_path, FakeStore(), risk_counts={"ios": 3})
 
-    recorded = sync_status.read_status(run_dir)
+    recorded = run_status.read_status(run_dir)
     assert recorded["status"] == "not_required"
-    assert recorded["counts"] == sync_status.empty_counts()
+    assert recorded["counts"] == run_status.empty_counts()
 
 
 def test_a_legacy_report_without_a_manifest_needs_no_dashboard_sync(tmp_path):
@@ -97,18 +98,18 @@ def test_a_legacy_report_without_a_manifest_needs_no_dashboard_sync(tmp_path):
 
     sync_reports(tmp_path, FakeStore(), risk_counts={"ios": 3})
 
-    assert sync_status.read_status(run_dir)["status"] == "not_required"
+    assert run_status.read_status(run_dir)["status"] == "not_required"
 
 
 def test_a_repeat_pass_stays_completed_without_writing_again(tmp_path):
     run_dir = _report(tmp_path)
     store = FakeStore()
     sync_reports(tmp_path, store, risk_counts={"ios": 3})
-    first = sync_status.read_status(run_dir)
+    first = run_status.read_status(run_dir)
 
     summary = sync_reports(tmp_path, store, risk_counts={"ios": 3})
 
-    repeated = sync_status.read_status(run_dir)
+    repeated = run_status.read_status(run_dir)
     assert summary.unchanged_reports == 1
     assert repeated["status"] == "completed"
     assert repeated["completed_at"] == first["completed_at"]
@@ -133,11 +134,11 @@ def test_a_retry_after_a_failure_converges_without_duplicating_rows(tmp_path):
 
     store = FailsOnce()
     sync_reports(tmp_path, store, risk_counts={"ios": 3})
-    assert sync_status.read_status(run_dir)["status"] == "failed"
+    assert run_status.read_status(run_dir)["status"] == "failed"
 
     sync_reports(tmp_path, store, risk_counts={"ios": 3})
 
-    recorded = sync_status.read_status(run_dir)
+    recorded = run_status.read_status(run_dir)
     assert recorded["status"] == "completed"
     assert recorded["attempt"] >= 1
     assert len(store.findings) == 1
@@ -148,9 +149,9 @@ def test_a_retry_after_a_failure_converges_without_duplicating_rows(tmp_path):
 def test_the_ledger_still_decides_completion_if_the_status_write_is_lost(tmp_path):
     run_dir = _report(tmp_path)
     sync_reports(tmp_path, FakeStore(), risk_counts={"ios": 3})
-    sync_status.status_path(run_dir).unlink()
+    run_status.status_path(run_dir).unlink()
 
-    assert sync_status.describe(tmp_path, run_dir.name)["status"] == "completed"
+    assert run_status.describe(tmp_path, run_dir.name)["status"] == "completed"
 
 
 def test_a_run_still_syncing_is_visible_while_the_automation_run_is_already_done(tmp_path):
@@ -159,10 +160,10 @@ def test_a_run_still_syncing_is_visible_while_the_automation_run_is_already_done
 
     class Slow(FakeStore):
         def upsert_application(self, fields):
-            observed.append(sync_status.describe(tmp_path, run_dir.name)["status"])
+            observed.append(run_status.describe(tmp_path, run_dir.name)["status"])
             return super().upsert_application(fields)
 
     sync_reports(tmp_path, Slow(), risk_counts={"ios": 3})
 
     assert observed == ["running"]
-    assert sync_status.describe(tmp_path, run_dir.name)["status"] == "completed"
+    assert run_status.describe(tmp_path, run_dir.name)["status"] == "completed"

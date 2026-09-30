@@ -6,10 +6,10 @@ from pathlib import Path
 import pytest
 from fastapi import HTTPException
 
-from mobile_playbook import sync_status
+from mobile_playbook.dashboard_sync import run_status
 from mobile_playbook.api.services import sync as sync_service
 from mobile_playbook.reporting.run_manifest import write_manifest
-from mobile_playbook.sync_state import mark_processed, report_digest, single_instance
+from mobile_playbook.dashboard_sync.ledger import mark_processed, report_digest, single_instance
 
 
 @pytest.fixture
@@ -52,13 +52,13 @@ def test_sync_status_shape_is_stable_for_a_run_awaiting_the_worker(reports):
         "counts",
     }
     assert payload["status"] == "queued"
-    assert set(payload["counts"]) == set(sync_status.COUNT_FIELDS)
+    assert set(payload["counts"]) == set(run_status.COUNT_FIELDS)
     assert json.loads(json.dumps(payload)) == payload
 
 
 def test_sync_status_reports_completion_once_the_worker_has_landed(reports):
     run_dir = _report(reports)
-    sync_status.mark_completed(run_dir, {"findings": 2, "history": 1, "activity": 1})
+    run_status.mark_completed(run_dir, {"findings": 2, "history": 1, "activity": 1})
 
     payload = sync_service.run_sync_status(run_dir.name)
 
@@ -76,7 +76,7 @@ def test_sync_status_for_an_unknown_run_is_a_404(reports):
 def test_sync_status_never_leaks_a_service_role_key_in_its_error(reports):
     run_dir = _report(reports)
     token = "eyJhbGciOiJIUzI1NiJ9.eyJyb2xlIjoic2VydmljZV9yb2xlIn0.c2ln"
-    sync_status.mark_failed(run_dir, f"Supabase rejected apikey={token}")
+    run_status.mark_failed(run_dir, f"Supabase rejected apikey={token}")
 
     payload = sync_service.run_sync_status(run_dir.name)
 
@@ -106,7 +106,7 @@ def test_worker_status_reports_an_idle_worker_and_an_empty_queue(monkeypatch, re
 def test_worker_status_sees_a_pass_that_holds_the_host_lock(monkeypatch, reports):
     monkeypatch.setattr(sync_service, "auto_trigger_enabled", lambda: True)
     _report(reports, "2026-01-01_00-00-00")
-    sync_status.mark_queued(reports / "2026-01-01_00-00-00")
+    run_status.mark_queued(reports / "2026-01-01_00-00-00")
 
     with single_instance(reports):
         payload = sync_service.worker_status()
@@ -118,7 +118,7 @@ def test_worker_status_sees_a_pass_that_holds_the_host_lock(monkeypatch, reports
 
 def test_worker_status_surfaces_the_last_failure_for_an_operator(monkeypatch, reports):
     monkeypatch.setattr(sync_service, "auto_trigger_enabled", lambda: False)
-    sync_status.record_worker_pass(reports, succeeded=False, error="1 report(s) failed to sync")
+    run_status.record_worker_pass(reports, succeeded=False, error="1 report(s) failed to sync")
 
     payload = sync_service.worker_status()
 
@@ -129,7 +129,7 @@ def test_worker_status_surfaces_the_last_failure_for_an_operator(monkeypatch, re
 
 def test_resync_queues_a_worker_for_a_failed_run(monkeypatch, reports):
     run_dir = _report(reports)
-    sync_status.mark_failed(run_dir, "Supabase POST findings failed with 500")
+    run_status.mark_failed(run_dir, "Supabase POST findings failed with 500")
     monkeypatch.setattr(sync_service, "auto_trigger_enabled", lambda: True)
     triggered: list[tuple] = []
     monkeypatch.setattr(
@@ -146,7 +146,7 @@ def test_resync_queues_a_worker_for_a_failed_run(monkeypatch, reports):
 
 def test_resync_is_a_no_op_while_a_pass_is_already_pending(monkeypatch, reports):
     run_dir = _report(reports)
-    sync_status.mark_running(run_dir)
+    run_status.mark_running(run_dir)
     monkeypatch.setattr(sync_service, "auto_trigger_enabled", lambda: True)
     monkeypatch.setattr(
         sync_service, "trigger_dashboard_sync", lambda *args: pytest.fail("must not start a second worker")
@@ -183,7 +183,7 @@ def test_resync_refuses_a_run_already_recorded_in_the_ledger(monkeypatch, report
 
 def test_resync_reports_a_worker_that_will_not_start(monkeypatch, reports):
     run_dir = _report(reports)
-    sync_status.mark_failed(run_dir, "boom")
+    run_status.mark_failed(run_dir, "boom")
     monkeypatch.setattr(sync_service, "auto_trigger_enabled", lambda: True)
     monkeypatch.setattr(sync_service, "trigger_dashboard_sync", lambda *args: None)
 

@@ -9,11 +9,11 @@ from pathlib import Path
 
 from fastapi import HTTPException
 
-from mobile_playbook import sync_status
+from mobile_playbook.dashboard_sync import run_status
 from mobile_playbook.api.job_registry import registry
 from mobile_playbook.api.services.reports import REPORTS_ROOT, resolved_run_dir
-from mobile_playbook.dashboard_sync_trigger import auto_trigger_enabled, trigger_dashboard_sync
-from mobile_playbook.sync_state import worker_running
+from mobile_playbook.dashboard_sync.trigger import auto_trigger_enabled, trigger_dashboard_sync
+from mobile_playbook.dashboard_sync.ledger import worker_running
 
 LAUNCH_AGENT = Path.home() / "Library" / "LaunchAgents" / "com.mobile-playbook.dashboard-sync.plist"
 logger = logging.getLogger(__name__)
@@ -25,19 +25,19 @@ def run_sync_status(run_id: str) -> dict:
     if not run_dir.is_dir() and registry.get(run_id) is None:
         logger.debug("api: run %s has no report directory or registry record; responding 404.", run_id)
         raise HTTPException(status_code=404, detail=f"Unknown run_id: {run_id}")
-    described = sync_status.describe(REPORTS_ROOT, run_id)
+    described = run_status.describe(REPORTS_ROOT, run_id)
     logger.debug("api: sync status for run %s is %s (attempt %s).", run_id, described["status"], described["attempt"])
     return described
 
 
 # Summarize the dashboard sync worker's state, queue depth and last outcomes.
 def worker_status() -> dict:
-    state = sync_status.read_worker_state(REPORTS_ROOT)
+    state = run_status.read_worker_state(REPORTS_ROOT)
     logger.debug("api: reading dashboard sync worker status from %s.", REPORTS_ROOT)
     return {
         "enabled": auto_trigger_enabled(),
         "worker_state": "running" if worker_running(REPORTS_ROOT) else "idle",
-        "queue_depth": len(sync_status.pending_run_timestamps(REPORTS_ROOT)),
+        "queue_depth": len(run_status.pending_run_timestamps(REPORTS_ROOT)),
         "last_success_at": state["last_success_at"],
         "last_failure_at": state["last_failure_at"],
         "last_error": state["last_error"],
@@ -55,17 +55,17 @@ def resync_run(run_id: str) -> dict:
     if not auto_trigger_enabled():
         logger.debug("api: dashboard sync disabled; resync of %s refused with 409.", run_id)
         raise HTTPException(status_code=409, detail="Automatic dashboard sync is disabled on this host")
-    current = sync_status.describe(REPORTS_ROOT, run_id)
+    current = run_status.describe(REPORTS_ROOT, run_id)
     logger.debug("api: run %s current sync status %s.", run_id, current["status"])
-    if current["status"] == sync_status.NOT_REQUIRED:
+    if current["status"] == run_status.NOT_REQUIRED:
         logger.debug("api: run %s does not need a sync; responding 409.", run_id)
         raise HTTPException(status_code=409, detail="This run does not need a dashboard sync")
-    if current["status"] in sync_status.PENDING_STATUSES:
+    if current["status"] in run_status.PENDING_STATUSES:
         logger.debug("api: run %s already %s; returning current status.", run_id, current["status"])
         return current
     # No --force: the ledger keeps a retry from writing an already-landed run twice.
     if trigger_dashboard_sync(REPORTS_ROOT, run_id) is None:
         logger.debug("api: sync worker for run %s did not start; marking failed and responding 503.", run_id)
-        sync_status.mark_failed(run_dir, "Could not start the dashboard sync worker", retryable=True)
+        run_status.mark_failed(run_dir, "Could not start the dashboard sync worker", retryable=True)
         raise HTTPException(status_code=503, detail="Could not start the dashboard sync worker")
-    return sync_status.describe(REPORTS_ROOT, run_id)
+    return run_status.describe(REPORTS_ROOT, run_id)

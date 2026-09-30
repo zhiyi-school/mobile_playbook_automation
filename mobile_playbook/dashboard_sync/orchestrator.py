@@ -9,11 +9,11 @@ from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
 
-from mobile_playbook import sync_status
-from mobile_playbook.dashboard_syncing.contracts import AmbiguousApplicationError, DashboardSyncStore, SyncSummary
-from mobile_playbook.dashboard_syncing.mapping import sync_report_dir, sync_retest
+from mobile_playbook.dashboard_sync import run_status
+from mobile_playbook.dashboard_sync.contracts import AmbiguousApplicationError, DashboardSyncStore, SyncSummary
+from mobile_playbook.dashboard_sync.mapping import sync_report_dir, sync_retest
 from mobile_playbook.reporting.run_manifest import artifact_checksums, is_completed, read_manifest
-from mobile_playbook.sync_state import is_processed, mark_processed, report_digest
+from mobile_playbook.dashboard_sync.ledger import is_processed, mark_processed, report_digest
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +55,7 @@ def sync_reports(
             if manifest is not None:
                 logger.debug("dashboard sync: failing the reassessment lifecycle for skipped run %s.", run_dir.name)
                 fail_report_lifecycle(run_dir, manifest, store)
-            sync_status.mark_not_required(run_dir, skip_reason)
+            run_status.mark_not_required(run_dir, skip_reason)
             logger.info("dashboard sync: skipping %s (%s).", run_dir.name, skip_reason)
             summary = summary.plus(SyncSummary(skipped_reports=1))
             continue
@@ -64,11 +64,11 @@ def sync_reports(
             logger.debug(
                 "dashboard sync: %s unchanged since last sync (digest %s); skipping.", run_dir.name, digest[:12]
             )
-            sync_status.mark_completed(run_dir)
+            run_status.mark_completed(run_dir)
             summary = summary.plus(SyncSummary(unchanged_reports=1))
             continue
         logger.debug("dashboard sync: processing %s (digest %s, force=%s).", run_dir.name, digest[:12], force)
-        sync_status.mark_running(run_dir)
+        run_status.mark_running(run_dir)
         try:
             current = sync_report_dir(
                 run_dir,
@@ -79,12 +79,12 @@ def sync_reports(
             )
         except Exception as exc:
             logger.exception("dashboard sync: failed to sync report %s: %s", run_dir.name, exc)
-            sync_status.mark_failed(run_dir, str(exc), retryable=not isinstance(exc, AmbiguousApplicationError))
+            run_status.mark_failed(run_dir, str(exc), retryable=not isinstance(exc, AmbiguousApplicationError))
             summary = summary.plus(SyncSummary(failed_reports=1))
             continue
         mark_processed(reports_dir, run_dir.name, digest)
         logger.debug("dashboard sync: ledger updated for %s; counts %s.", run_dir.name, current.counts())
-        sync_status.mark_completed(run_dir, current.counts())
+        run_status.mark_completed(run_dir, current.counts())
         logger.info(
             "dashboard sync: synced %s (%d app(s), %d finding(s)).",
             run_dir.name,

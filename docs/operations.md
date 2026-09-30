@@ -6,9 +6,9 @@ the dashboard falls behind. For the endpoints referenced here see
 [api.md](api.md); for the design behind them see
 [architecture.md](architecture.md#dashboard-sync-layer).
 
-The stable command remains `python -m mobile_playbook.dashboard_sync`. That
-module is a thin compatibility entry point; argument parsing and the worker
-loop live in `mobile_playbook/dashboard_syncing/worker.py`, and only the
+The stable command remains `python -m mobile_playbook.dashboard_sync`. The
+package's `__main__.py` only calls the worker; argument parsing and the worker
+loop live in `mobile_playbook/dashboard_sync/worker.py`, and only the
 worker-owned Supabase adapter reads service-role credentials.
 
 Skip this page entirely if you use the backend standalone. Reports and evidence

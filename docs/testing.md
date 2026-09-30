@@ -98,7 +98,7 @@ emulates the database's unique indexes, `sync_key` deduplication and column
 defaults. A fake that accepts anything proves nothing about production, so
 extend the fake when you add a constraint.
 
-Pure identity and report mapping code under `dashboard_syncing/` is tested
+Pure identity and report mapping code under `dashboard_sync/` is tested
 without HTTP, environment credentials or a real database. Worker tests inject
 the store factory and pass an argument list; they do not start a long-running
 worker or contact Supabase. Configuration-editor tests use `tmp_path`, including

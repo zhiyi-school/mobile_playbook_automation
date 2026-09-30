@@ -15,7 +15,7 @@ from typing import Any, Callable, Iterator, Mapping
 
 from mobile_playbook.reporting.messages import clean_message
 from mobile_playbook.reporting.run_manifest import is_completed, read_manifest
-from mobile_playbook.sync_state import is_processed, report_digest, write_atomic
+from mobile_playbook.dashboard_sync.ledger import is_processed, report_digest, write_atomic
 
 QUEUED = "queued"
 RUNNING = "running"

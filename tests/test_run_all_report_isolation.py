@@ -6,7 +6,7 @@ from datetime import datetime
 
 import pytest
 
-from mobile_playbook.dashboard_sync import sync_reports
+from mobile_playbook.dashboard_sync.orchestrator import sync_reports
 from mobile_playbook.orchestration import scheduler
 from mobile_playbook.orchestration.scan_runner import RunOptions, run_platform
 from mobile_playbook.reporting.report_writer import ReportWriter

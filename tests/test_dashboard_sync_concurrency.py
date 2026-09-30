@@ -8,8 +8,9 @@ from typing import Any, Mapping
 
 import pytest
 
-from mobile_playbook import sync_state
-from mobile_playbook.dashboard_sync import SupabaseRestError, sync_reports
+from mobile_playbook.dashboard_sync import ledger
+from mobile_playbook.dashboard_sync.contracts import SupabaseRestError
+from mobile_playbook.dashboard_sync.orchestrator import sync_reports
 from mobile_playbook.reporting.run_manifest import write_manifest
 from tests.test_dashboard_sync import FakeStore, _row
 
@@ -130,7 +131,7 @@ def test_replaying_an_older_run_does_not_regress_the_finding(tmp_path):
 
 
 def test_collision_suffix_orders_numerically_not_lexically(tmp_path):
-    from mobile_playbook.dashboard_syncing.identity import is_older_run
+    from mobile_playbook.dashboard_sync.identity import is_older_run
 
     assert is_older_run("2026-01-01_12-00-00-2", "2026-01-01_12-00-00-10") is True
     assert is_older_run("2026-01-01_12-00-00-10", "2026-01-01_12-00-00-2") is False
@@ -170,12 +171,12 @@ def test_changed_report_is_resynced_after_the_ledger_entry(tmp_path):
 
 
 def test_single_instance_lock_reports_busy_instead_of_overlapping(tmp_path):
-    with sync_state.single_instance(tmp_path):
-        with pytest.raises(sync_state.SyncBusy):
-            with sync_state.single_instance(tmp_path):
+    with ledger.single_instance(tmp_path):
+        with pytest.raises(ledger.SyncBusy):
+            with ledger.single_instance(tmp_path):
                 pass
 
-    with sync_state.single_instance(tmp_path):
+    with ledger.single_instance(tmp_path):
         pass
 
 
@@ -183,7 +184,7 @@ def test_single_instance_can_wait_for_a_post_run_trigger(tmp_path):
     holding = threading.Event()
 
     def hold_lock():
-        with sync_state.single_instance(tmp_path):
+        with ledger.single_instance(tmp_path):
             holding.set()
             time.sleep(0.1)
 
@@ -191,7 +192,7 @@ def test_single_instance_can_wait_for_a_post_run_trigger(tmp_path):
     holder.start()
     assert holding.wait(timeout=1)
 
-    with sync_state.single_instance(tmp_path, wait_seconds=1):
+    with ledger.single_instance(tmp_path, wait_seconds=1):
         acquired_after_holder = True
 
     holder.join(timeout=1)
@@ -200,11 +201,11 @@ def test_single_instance_can_wait_for_a_post_run_trigger(tmp_path):
 
 
 def test_ledger_survives_a_corrupt_file(tmp_path):
-    sync_state.ledger_path(tmp_path).parent.mkdir(parents=True, exist_ok=True)
-    sync_state.ledger_path(tmp_path).write_text("{ not json")
+    ledger.ledger_path(tmp_path).parent.mkdir(parents=True, exist_ok=True)
+    ledger.ledger_path(tmp_path).write_text("{ not json")
 
-    assert sync_state.load_ledger(tmp_path) == {}
+    assert ledger.load_ledger(tmp_path) == {}
 
-    sync_state.mark_processed(tmp_path, "2026-01-01_00-00-00", "abc")
-    assert sync_state.is_processed(tmp_path, "2026-01-01_00-00-00", "abc") is True
-    assert sync_state.is_processed(tmp_path, "2026-01-01_00-00-00", "different") is False
+    ledger.mark_processed(tmp_path, "2026-01-01_00-00-00", "abc")
+    assert ledger.is_processed(tmp_path, "2026-01-01_00-00-00", "abc") is True
+    assert ledger.is_processed(tmp_path, "2026-01-01_00-00-00", "different") is False

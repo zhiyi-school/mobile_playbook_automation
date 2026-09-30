@@ -15,7 +15,7 @@ from mobile_playbook.api.job_registry import registry
 from mobile_playbook.api.models import Platform, RunRequest
 from mobile_playbook.api.services.reports import REPORTS_ROOT, read_dashboard_results
 from mobile_playbook.api.settings import REPOSITORY_ROOT
-from mobile_playbook.dashboard_sync_trigger import trigger_dashboard_sync
+from mobile_playbook.dashboard_sync.trigger import trigger_dashboard_sync
 from mobile_playbook.orchestration.artifact_intake import (
     selected_app_csv,
     selected_csv,

@@ -12,9 +12,9 @@
 ## Ownership and boundaries
 
 - `mobile_playbook/api/routes/` owns HTTP routing and response construction. API services coordinate requests; shared domain logic should not depend on FastAPI.
-- `mobile_playbook/dashboard_syncing/` separates contracts, identities, mapping, orchestration, Supabase transport, and worker startup. Keep pure calculations free of environment loading and network access.
+- `mobile_playbook/dashboard_sync/` separates contracts, identities, mapping, orchestration, ledger, run status, trigger, Supabase transport, and worker startup. Its `__init__.py` stays import-free so API imports of `ledger`, `run_status` and `trigger` never load the Supabase transport. Keep pure calculations free of environment loading and network access.
 - Keep worker-only credentials out of API imports and configuration. Preserve the API settings allowlist; never print secrets or put real credentials in fixtures.
-- `mobile_playbook/sync_state.py` and `mobile_playbook/sync_status.py` own ledger/locking and lifecycle state. Do not introduce competing versions of these mechanisms.
+- `mobile_playbook/dashboard_sync/ledger.py` and `mobile_playbook/dashboard_sync/run_status.py` own ledger/locking and lifecycle state. Do not introduce competing versions of these mechanisms.
 - `mobile_playbook/api/config_editing/` owns shared validated file handling and platform-specific editors. Preserve YAML comments, includes, ordering, defaults, merge behavior, and rollback semantics supported by the existing editor.
 - `mobile_playbook/reporting/` owns persisted report representations. API response enrichment must not silently rewrite historical report files.
 - `mobile_playbook/playbook/` parses the external authored source. Reuse its parser for validation and contract generation rather than implementing another interpretation.

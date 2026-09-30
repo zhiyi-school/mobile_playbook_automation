@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from mobile_playbook.dashboard_syncing.mapping import sync_application
+from mobile_playbook.dashboard_sync.mapping import sync_application
 from mobile_playbook.artifact_store import extraction, resolver, store
 from mobile_playbook.reporting.run_manifest import artifact_checksums, read_manifest, write_manifest
 from tests.icon_helpers import make_ipa, make_png, primary_icon_info

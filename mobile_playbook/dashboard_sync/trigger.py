@@ -11,6 +11,7 @@ import sys
 from pathlib import Path
 
 from mobile_playbook.storage import work_root
+from mobile_playbook.storage.paths import REPOSITORY_ROOT
 from typing import Mapping
 
 logger = logging.getLogger(__name__)
@@ -18,7 +19,6 @@ logger = logging.getLogger(__name__)
 AUTO_TRIGGER_ENV = "DASHBOARD_SYNC_AUTO_TRIGGER"
 FALSE_VALUES = {"0", "false", "no", "off"}
 LOCK_WAIT_SECONDS = 60
-REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 
 
 # Reports whether the post-run sync trigger is on, from the environment, then the repository .env, default true.
@@ -106,15 +106,15 @@ def trigger_dashboard_sync(reports_dir: Path, run_timestamp: str | None = None) 
 # Marks a run's sync status queued if it completed, else not required; failures are only logged.
 def _mark_queued(run_dir: Path) -> None:
     try:
-        from mobile_playbook import sync_status
+        from mobile_playbook.dashboard_sync import run_status
         from mobile_playbook.reporting.run_manifest import is_completed, read_manifest
 
         if is_completed(read_manifest(run_dir)):
             logger.debug("dashboard sync: run %s completed; marking it queued.", run_dir.name)
-            sync_status.mark_queued(run_dir)
+            run_status.mark_queued(run_dir)
         else:
             logger.debug("dashboard sync: run %s did not complete; marking sync not required.", run_dir.name)
-            sync_status.mark_not_required(run_dir, "the automation run did not complete")
+            run_status.mark_not_required(run_dir, "the automation run did not complete")
     except Exception as exc:
         logger.debug("dashboard sync: queued-status update for %s failed.", run_dir.name, exc_info=True)
         logger.warning("dashboard sync: could not record queued status for %s: %s", run_dir.name, exc)

@@ -6,7 +6,9 @@ from typing import Any
 
 import pytest
 
-from mobile_playbook.dashboard_sync import AmbiguousApplicationError, sync_dashboard_results, sync_reports
+from mobile_playbook.dashboard_sync.contracts import AmbiguousApplicationError
+from mobile_playbook.dashboard_sync.mapping import sync_dashboard_results
+from mobile_playbook.dashboard_sync.orchestrator import sync_reports
 from mobile_playbook.reporting.run_manifest import write_manifest
 from tests.test_dashboard_sync import FakeStore, _row
 
@@ -229,7 +231,7 @@ def test_a_run_linked_to_two_requests_is_refused_rather_than_guessed(tmp_path):
         }
     )
 
-    from mobile_playbook.dashboard_syncing.supabase import SupabaseRestStore
+    from mobile_playbook.dashboard_sync.supabase_store import SupabaseRestStore
 
     rows = [row for row in store.retest_runs if row["external_test_run_id"] == RUN]
     assert len(rows) == 2

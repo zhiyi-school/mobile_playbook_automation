@@ -4,12 +4,9 @@ import json
 from pathlib import Path
 from typing import Any, Mapping
 
-from mobile_playbook.dashboard_sync import (
-    SyncSummary,
-    sync_dashboard_results,
-    sync_report_dir,
-    sync_reports,
-)
+from mobile_playbook.dashboard_sync.contracts import SyncSummary
+from mobile_playbook.dashboard_sync.mapping import sync_dashboard_results, sync_report_dir
+from mobile_playbook.dashboard_sync.orchestrator import sync_reports
 from mobile_playbook.reporting.run_manifest import write_manifest
 
 

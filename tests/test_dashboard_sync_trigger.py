@@ -5,7 +5,7 @@ from pathlib import Path
 from mobile_playbook.storage import work_root
 from types import SimpleNamespace
 
-from mobile_playbook import dashboard_sync_trigger
+from mobile_playbook.dashboard_sync import trigger
 from mobile_playbook.api.services import runs as runs_service
 from mobile_playbook.orchestration.scan_runner import RunOptions
 
@@ -19,11 +19,11 @@ def test_post_run_trigger_starts_detached_worker(monkeypatch, tmp_path):
         calls.append((command, kwargs))
         return SimpleNamespace(pid=4321)
 
-    monkeypatch.delenv(dashboard_sync_trigger.AUTO_TRIGGER_ENV, raising=False)
-    monkeypatch.setattr(dashboard_sync_trigger, "REPOSITORY_ROOT", repository)
-    monkeypatch.setattr(dashboard_sync_trigger.subprocess, "Popen", fake_popen)
+    monkeypatch.delenv(trigger.AUTO_TRIGGER_ENV, raising=False)
+    monkeypatch.setattr(trigger, "REPOSITORY_ROOT", repository)
+    monkeypatch.setattr(trigger.subprocess, "Popen", fake_popen)
 
-    pid = dashboard_sync_trigger.trigger_dashboard_sync(reports)
+    pid = trigger.trigger_dashboard_sync(reports)
 
     assert pid == 4321
     command, kwargs = calls[0]
@@ -42,14 +42,14 @@ def test_post_run_trigger_starts_detached_worker(monkeypatch, tmp_path):
 
 
 def test_post_run_trigger_can_be_disabled(monkeypatch, tmp_path):
-    monkeypatch.setenv(dashboard_sync_trigger.AUTO_TRIGGER_ENV, "false")
+    monkeypatch.setenv(trigger.AUTO_TRIGGER_ENV, "false")
 
     def unexpected_popen(*args, **kwargs):
         raise AssertionError("disabled trigger must not launch a worker")
 
-    monkeypatch.setattr(dashboard_sync_trigger.subprocess, "Popen", unexpected_popen)
+    monkeypatch.setattr(trigger.subprocess, "Popen", unexpected_popen)
 
-    assert dashboard_sync_trigger.trigger_dashboard_sync(tmp_path) is None
+    assert trigger.trigger_dashboard_sync(tmp_path) is None
 
 
 def test_post_run_trigger_reads_only_its_flag_from_repository_env(tmp_path):
@@ -60,20 +60,20 @@ def test_post_run_trigger_reads_only_its_flag_from_repository_env(tmp_path):
     )
     environment = {}
 
-    assert dashboard_sync_trigger.auto_trigger_enabled(environment, env_path) is False
+    assert trigger.auto_trigger_enabled(environment, env_path) is False
     assert environment == {}
 
 
 def test_post_run_trigger_failure_does_not_change_run_outcome(monkeypatch, tmp_path):
-    monkeypatch.delenv(dashboard_sync_trigger.AUTO_TRIGGER_ENV, raising=False)
-    monkeypatch.setattr(dashboard_sync_trigger, "REPOSITORY_ROOT", tmp_path)
+    monkeypatch.delenv(trigger.AUTO_TRIGGER_ENV, raising=False)
+    monkeypatch.setattr(trigger, "REPOSITORY_ROOT", tmp_path)
 
     def fail_to_start(*args, **kwargs):
         raise OSError("process table unavailable")
 
-    monkeypatch.setattr(dashboard_sync_trigger.subprocess, "Popen", fail_to_start)
+    monkeypatch.setattr(trigger.subprocess, "Popen", fail_to_start)
 
-    assert dashboard_sync_trigger.trigger_dashboard_sync(tmp_path / "reports") is None
+    assert trigger.trigger_dashboard_sync(tmp_path / "reports") is None
 
 
 def test_api_completion_updates_registry_before_trigger(monkeypatch, tmp_path):

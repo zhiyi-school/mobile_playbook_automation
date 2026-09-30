@@ -12,7 +12,7 @@ from mobile_playbook.assessment_worker import (
     backoff_seconds,
     process_once,
 )
-from mobile_playbook.dashboard_sync import SupabaseRestError
+from mobile_playbook.dashboard_sync.contracts import SupabaseRestError
 
 ASSESSMENT = "assessment-1"
 APPLICATION = "application-1"
