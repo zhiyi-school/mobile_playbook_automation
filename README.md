@@ -193,3 +193,4 @@ Documentation examples use placeholder identifiers (`Example App`,
 `example-app`, `com.example.placeholder`, `<RUN_TIMESTAMP>`). Real applications
 under test appear only in local configuration and generated reports, neither of
 which is committed.
+
