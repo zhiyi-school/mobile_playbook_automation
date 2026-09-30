@@ -136,6 +136,7 @@ Both platforms connect through the same Appium Python client, just with differen
 - **Metadata** (`platforms/ios/ipa/plist.py`): stdlib `plistlib`, reading `Payload/<App>.app/Info.plist` directly out of the zip without extracting the whole archive.
 - **Binary mutability/encryption** (`platforms/ios/ipa/encryption.py`): shells out to `otool -l <executable>` and regex-scans the output for `cryptid` in `LC_ENCRYPTION_INFO`/`LC_ENCRYPTION_INFO_64` load commands. A nonzero `cryptid` is reported as `PROTECTED_OR_ENCRYPTED_BINARY`; this is a read-only inspection; the framework does not attempt to decrypt or patch around it.
 - **Hashing** (`platforms/ios/ipa/hashing.py`): `hashlib.sha256`, streamed in 1MB chunks, used to fingerprint acquired/inspected IPAs for the report.
+- **IPA store** (`platforms/ios/ipa/store.py`): each distinct IPA is copied once into `acquired/.by-sha256/<sha256>.ipa`, verified and made read-only; a run's `original.ipa` is a hard link to it, falling back to a plain copy when linking fails. Rewriting the intake file therefore never changes an earlier run's evidence.
 - **Signing config** (`platforms/ios/signing.py`): just a config dataclass (`team_id`, `signing_id`, `updated_wda_bundle_id`, device-registration flag) that feeds the Appium XCUITest capabilities above — there is no direct `xcodebuild`/`codesign` invocation in this repo; actual code-signing during install happens inside Appium/WebDriverAgent's own build step.
 
 ### iOS custom-keyboard control server

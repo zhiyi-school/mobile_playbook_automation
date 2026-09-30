@@ -126,12 +126,15 @@ def _prune_work(older_than_days: int, apply: bool) -> int:
         reasons[reason] = reasons.get(reason, 0) + 1
     for reason, count in sorted(reasons.items()):
         print(f"keep {count} folder(s): {reason}")
+    if plan.stored_ipas:
+        stored = _format_bytes(sum(size for _, size in plan.stored_ipas))
+        print(f"{'delete' if apply else 'would delete'} {len(plan.stored_ipas)} stored IPA(s) no run links to any more, {stored}")
     total = _format_bytes(plan.reclaimable_bytes)
     if not apply:
         print(f"{len(plan.delete)} folder(s), {total}, older than {plan.cutoff:%Y-%m-%d}. Re-run with --apply to delete them.")
         return 0
-    deleted = apply_prune(plan, root)
-    print(f"Deleted {len(deleted)} folder(s), {total}.")
+    apply_prune(plan, root)
+    print(f"Deleted {len(plan.delete)} folder(s) and {len(plan.stored_ipas)} stored IPA(s), {total}.")
     return 0
 
 

@@ -121,7 +121,7 @@ python -m mobile_playbook acquire --config configs/ios.yaml --apps example-app -
 Inspect IPA mutability:
 
 ```bash
-python -m mobile_playbook inspect-ipa --ipa work/ios/acquired/<run_timestamp>/<app_id>/<timestamp>-original.ipa
+python -m mobile_playbook inspect-ipa --ipa artifacts/work/ios/acquired/<run_id>/<app_id>/original.ipa
 ```
 
 Serve the same run/report flows over HTTP:

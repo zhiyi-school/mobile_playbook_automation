@@ -8,10 +8,12 @@ import json
 import logging
 import re
 import shutil
+from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from mobile_playbook.platforms.ios.ipa.store import STORE_DIR_NAME
 from mobile_playbook.reporting.run_manifest import COMPLETED, FAILED, read_manifest
 
 logger = logging.getLogger(__name__)
@@ -24,6 +26,8 @@ HEX_RUN_ID = re.compile(r"^[0-9a-f]{12}$")
 # Captures a run folder's path under the work root from a recorded path, whether absolute or relative.
 WORK_REFERENCE = re.compile(r"work/((?:ios|android)/(?:acquired/)?[^/\"\\]+)/")
 TERMINAL_STATUSES = {COMPLETED, FAILED}
+# A stored IPA this new may be between being stored and being linked by its run.
+STORE_GRACE = timedelta(hours=1)
 
 
 @dataclass(frozen=True)
@@ -39,11 +43,12 @@ class PrunePlan:
     cutoff: datetime
     delete: list[WorkFolder] = field(default_factory=list)
     keep: list[tuple[WorkFolder, str]] = field(default_factory=list)
+    stored_ipas: list[tuple[Path, int]] = field(default_factory=list)
 
-    # Total bytes the plan would free.
+    # Total bytes the plan would free, counting a shared stored IPA once.
     @property
     def reclaimable_bytes(self) -> int:
-        return sum(folder.size_bytes for folder in self.delete)
+        return sum(folder.size_bytes for folder in self.delete) + sum(size for _, size in self.stored_ipas)
 
 
 # Reports whether a folder name has the shape of a run id.
@@ -72,7 +77,7 @@ def run_folders(work_root: Path) -> list[Path]:
     return folders
 
 
-# Measures a folder's size and newest modification time without following symlinks.
+# Measures the bytes a folder holds alone, skipping files shared by hard link, and its newest modification time.
 def describe_folder(path: Path) -> WorkFolder:
     size = 0
     newest = path.lstat().st_mtime
@@ -82,7 +87,7 @@ def describe_folder(path: Path) -> WorkFolder:
         except OSError:
             continue
         newest = max(newest, stat.st_mtime)
-        if item.is_file() and not item.is_symlink():
+        if item.is_file() and not item.is_symlink() and stat.st_nlink == 1:
             size += stat.st_size
     named = run_id_time(path.name)
     modified = named or datetime.fromtimestamp(newest).astimezone()
@@ -141,23 +146,54 @@ def plan_prune(work_root: Path, reports_root: Path, older_than: timedelta, now: 
             plan.keep.append((folder, "referenced by a retained report"))
         else:
             plan.delete.append(folder)
-    logger.debug("work retention: delete %d, keep %d, cutoff %s.", len(plan.delete), len(plan.keep), cutoff)
+    plan.stored_ipas = orphaned_stored_ipas(work_root, plan.delete, now or datetime.now().astimezone())
+    logger.debug(
+        "work retention: delete %d folder(s) and %d stored IPA(s), keep %d, cutoff %s.",
+        len(plan.delete), len(plan.stored_ipas), len(plan.keep), cutoff,
+    )
     return plan
+
+
+# Returns the stored IPAs that no run folder will link to once the given folders are deleted.
+def orphaned_stored_ipas(work_root: Path, deleting: list[WorkFolder], now: datetime) -> list[tuple[Path, int]]:
+    store = work_root / "ios" / "acquired" / STORE_DIR_NAME
+    if not store.is_dir():
+        return []
+    removed_links: Counter[tuple[int, int]] = Counter()
+    for folder in deleting:
+        for item in folder.path.rglob("*"):
+            if item.is_file() and not item.is_symlink():
+                stat = item.lstat()
+                if stat.st_nlink > 1:
+                    removed_links[(stat.st_dev, stat.st_ino)] += 1
+    orphans = []
+    for entry in sorted(store.glob("*.ipa")):
+        stat = entry.lstat()
+        if now.timestamp() - stat.st_ctime < STORE_GRACE.total_seconds():
+            continue
+        if stat.st_nlink - removed_links[(stat.st_dev, stat.st_ino)] <= 1:
+            orphans.append((entry, stat.st_size))
+    return orphans
 
 
 # Deletes the planned folders, refusing any path that does not resolve inside the work root.
 def apply_prune(plan: PrunePlan, work_root: Path) -> list[Path]:
     root = work_root.resolve()
     # Check every target before deleting any, so one bad entry leaves the whole plan unapplied.
-    for folder in plan.delete:
-        if folder.path.is_symlink() or root not in folder.path.resolve().parents:
-            raise ValueError(f"refusing to delete {folder.path}: not a folder inside {root}")
+    for path in [*(folder.path for folder in plan.delete), *(entry for entry, _ in plan.stored_ipas)]:
+        if path.is_symlink() or root not in path.resolve().parents:
+            raise ValueError(f"refusing to delete {path}: not inside {root}")
     deleted = []
     for folder in plan.delete:
         target = folder.path.resolve()
         shutil.rmtree(target)
         deleted.append(target)
         logger.info("work retention: deleted %s (%d bytes).", target, folder.size_bytes)
+    # Stored IPAs go last: they were planned on the assumption that their run folders are already gone.
+    for entry, size in plan.stored_ipas:
+        entry.unlink(missing_ok=True)
+        deleted.append(entry)
+        logger.info("work retention: deleted stored IPA %s (%d bytes).", entry.name, size)
     return deleted
 
 

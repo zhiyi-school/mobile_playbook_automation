@@ -1,16 +1,16 @@
 """
-Artifact provider that validates a configured local IPA and copies it into the run directory.
+Artifact provider that validates a configured local IPA and places it in the run directory via the shared IPA store.
 """
 
 from __future__ import annotations
 
 import logging
-import shutil
 from pathlib import Path
 
 from mobile_playbook.platforms.ios.acquisition.base import ArtifactProvider
 from mobile_playbook.platforms.ios.ipa.hashing import sha256_file
 from mobile_playbook.platforms.ios.ipa.plist import inspect_ipa_metadata
+from mobile_playbook.platforms.ios.ipa.store import STORE_DIR_NAME, place_ipa
 from mobile_playbook.platforms.ios.models import ArtifactAcquisitionResult
 
 logger = logging.getLogger(__name__)
@@ -24,7 +24,7 @@ class LocalIpaProvider(ArtifactProvider):
         value = artifact.get("ipa") or artifact.get("path")
         return Path(value).expanduser() if value else None
 
-    # Validate the configured IPA and its bundle ID, copy it into the run directory and hash it.
+    # Validate the configured IPA and its bundle ID, place it in the run directory and hash it.
     def acquire(self, app_config, global_config, device_client, run_timestamp: str, out_dir: Path) -> ArtifactAcquisitionResult:
         artifact = app_config.artifact
         ipa_path = self._configured_path(artifact)
@@ -65,11 +65,11 @@ class LocalIpaProvider(ArtifactProvider):
         app_out.mkdir(parents=True, exist_ok=True)
         copied = app_out / "original.ipa"
         if ipa_path.resolve() != copied.resolve():
-            logger.debug("ios artifacts[%s]: copying %s -> %s", app_config.id, ipa_path, copied)
-            shutil.copy2(ipa_path, copied)
+            logger.debug("ios artifacts[%s]: placing %s -> %s", app_config.id, ipa_path, copied)
+            digest = place_ipa(ipa_path, copied, Path(out_dir) / STORE_DIR_NAME)
         else:
             logger.debug("ios artifacts[%s]: %s already in the run directory; not copying", app_config.id, copied)
-        digest = sha256_file(copied)
+            digest = sha256_file(copied)
         logger.debug("ios artifacts[%s]: acquired %s sha256=%s", app_config.id, copied, digest)
         return ArtifactAcquisitionResult(
             app_id=app_config.id,

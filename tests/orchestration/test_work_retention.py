@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 from datetime import datetime, timedelta
 
 import pytest
@@ -185,3 +186,58 @@ def test_run_ids_are_recognized_by_shape():
     assert work_retention.is_run_id("0123456789ab")
     assert not work_retention.is_run_id("traffic_interception")
     assert not work_retention.is_run_id("acquired")
+
+
+def _linked_runs(tmp_path, now):
+    from mobile_playbook.platforms.ios.ipa.store import STORE_DIR_NAME, place_ipa
+
+    work, reports = tmp_path / "work", tmp_path / "reports"
+    source = _write(tmp_path / "intake" / "App.ipa", "ipa bytes" * 100)
+    store_dir = work / "ios" / "acquired" / STORE_DIR_NAME
+    runs = {
+        "old": (now - timedelta(days=60)).strftime("%Y-%m-%d_%H-%M-%S"),
+        "older": (now - timedelta(days=90)).strftime("%Y-%m-%d_%H-%M-%S"),
+        "new": (now - timedelta(days=1)).strftime("%Y-%m-%d_%H-%M-%S"),
+    }
+    for run_id in runs.values():
+        placed = work / "ios" / "acquired" / run_id / "example_app" / "original.ipa"
+        placed.parent.mkdir(parents=True)
+        place_ipa(source, placed, store_dir)
+    reports.mkdir()
+    return work, reports, runs, next(store_dir.glob("*.ipa"))
+
+
+def test_a_stored_ipa_is_kept_while_a_retained_run_links_it(tmp_path):
+    now = datetime.now().astimezone() + timedelta(hours=2)
+    work, reports, runs, stored = _linked_runs(tmp_path, now)
+
+    plan = plan_prune(work, reports, RETENTION, now=now)
+
+    assert _deleted(plan, work) == sorted([f"ios/acquired/{runs['old']}", f"ios/acquired/{runs['older']}"])
+    assert plan.stored_ipas == []
+    assert plan.reclaimable_bytes == 0
+
+
+def test_a_stored_ipa_is_deleted_with_the_last_run_that_links_it(tmp_path):
+    now = datetime.now().astimezone() + timedelta(hours=2)
+    work, reports, runs, stored = _linked_runs(tmp_path, now)
+    shutil.rmtree(work / "ios" / "acquired" / runs["new"])
+
+    plan = plan_prune(work, reports, RETENTION, now=now)
+
+    assert plan.stored_ipas == [(stored, stored.stat().st_size)]
+    assert plan.reclaimable_bytes == stored.stat().st_size
+
+    apply_prune(plan, work)
+
+    assert not stored.exists()
+    assert list((work / "ios" / "acquired").iterdir()) == [stored.parent]
+
+
+def test_a_freshly_stored_ipa_is_never_collected(tmp_path):
+    now = datetime.now().astimezone()
+    work, reports, runs, stored = _linked_runs(tmp_path, now)
+    for run_id in runs.values():
+        shutil.rmtree(work / "ios" / "acquired" / run_id)
+
+    assert plan_prune(work, reports, RETENTION, now=now).stored_ipas == []

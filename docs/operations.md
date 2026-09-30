@@ -299,8 +299,10 @@ the API's output into a file, which grows without limit.
 ## Pruning old run work folders
 
 Every run writes working files under `artifacts/work/<platform>/<run_id>/` and
-copies the IPA it tests into `artifacts/work/ios/acquired/<run_id>/`. Nothing
-removes them, so the work folder grows with every run. `prune-work` lists the
+places the IPA it tests at `artifacts/work/ios/acquired/<run_id>/<app_id>/original.ipa`.
+That file is a hard link into `acquired/.by-sha256/`, which holds one read-only
+copy of each distinct IPA, so repeated runs of the same build take no extra space.
+Nothing removes run folders, so the work folder still grows with every run. `prune-work` lists the
 per-run folders older than the retention period, 30 days by default, and deletes
 them only with `--apply`:
 
@@ -316,6 +318,11 @@ A folder is deleted only when all of these hold:
 - it is older than the cutoff, by the timestamp in its name or else its newest file;
 - no report newer than the cutoff references it; and
 - its run is not in progress, according to the API run registry or the run's manifest.
+
+A stored IPA in `acquired/.by-sha256/` is deleted once no remaining run folder
+links to it, except one stored within the last hour, which a starting run may be
+about to link. Folder sizes count only files the folder does not share, so
+reclaimable space is not counted twice.
 
 State that is not per-run is never a candidate: `ios/traffic_interception/` (the
 Burp capture file and its health record), `android/repackaging/` (the repackaging
