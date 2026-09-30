@@ -357,8 +357,13 @@ versioned, coordinated migration rather than a spelling-only edit.
 
 The supported executable entry points remain `python -m mobile_playbook`,
 `python -m mobile_playbook.api`, `python -m mobile_playbook.dashboard_sync`,
-`python -m mobile_playbook.assessment_worker`, and the read-only playbook
-validator/identity/contract modules. Only the sync and assessment workers load
+`python -m mobile_playbook.workers.assessment_worker`,
+`python -m mobile_playbook.workers.icon_backfill`, and the read-only playbook
+validator/identity/contract modules. `[project.scripts]` in `pyproject.toml`
+installs the first five as `mobile-playbook`, `mobile-playbook-api`,
+`mobile-playbook-dashboard-sync`, `mobile-playbook-assessment-worker` and
+`mobile-playbook-icon-backfill`; prefer those in deployment configs, because
+they do not change when a module moves. Only the sync and assessment workers load
 service-role credentials; API credential loading stays allowlisted as described
 above.
 

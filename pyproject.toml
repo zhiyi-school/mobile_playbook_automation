@@ -25,6 +25,13 @@ dependencies = [
   "pyobjc-framework-Cocoa>=10; sys_platform == 'darwin'",
 ]
 
+[project.scripts]
+mobile-playbook = "mobile_playbook.cli:main"
+mobile-playbook-api = "mobile_playbook.api.__main__:main"
+mobile-playbook-dashboard-sync = "mobile_playbook.dashboard_sync.worker:main"
+mobile-playbook-assessment-worker = "mobile_playbook.workers.assessment_worker:main"
+mobile-playbook-icon-backfill = "mobile_playbook.workers.icon_backfill:main"
+
 [tool.setuptools.packages.find]
 include = ["mobile_playbook*"]
 

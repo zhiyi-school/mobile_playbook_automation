@@ -71,8 +71,13 @@ assessments into runs, so execution never depends on a browser tab staying open.
 SUPABASE_URL=https://dashboard.example.supabase.co \
 SUPABASE_SERVICE_ROLE_KEY=<SERVICE_ROLE_KEY> \
 AUTOMATION_API_URL=http://127.0.0.1:8080 \
-python -m mobile_playbook.assessment_worker
+python -m mobile_playbook.workers.assessment_worker
 ```
+
+The installed `mobile-playbook-assessment-worker` command is equivalent. The
+module moved from `mobile_playbook.assessment_worker`; a launch agent or service
+that still runs the old module path fails with `No module named` and must be
+updated.
 
 It requires migration `0023_assessment_run_requests.sql`. Without it every pass
 logs a Supabase error and nothing runs.
@@ -303,8 +308,8 @@ as unavailable until something re-derives them.
 **Filling in existing applications.**
 
 ```bash
-python -m mobile_playbook.icon_backfill --dry-run
-python -m mobile_playbook.icon_backfill
+python -m mobile_playbook.workers.icon_backfill --dry-run
+python -m mobile_playbook.workers.icon_backfill
 ```
 
 Run it once after applying `0016_application_icon_refs.sql`. It only updates

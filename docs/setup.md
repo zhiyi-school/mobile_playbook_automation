@@ -26,7 +26,11 @@ python -m pip install -e .
 ```
 
 This installs the runtime dependencies (Appium client, Selenium, PyYAML,
-FastAPI, uvicorn, python-multipart, ruamel.yaml) and `pytest`.
+FastAPI, uvicorn, python-multipart, ruamel.yaml) and `pytest`. It also
+installs the `mobile-playbook`, `mobile-playbook-api`,
+`mobile-playbook-dashboard-sync`, `mobile-playbook-assessment-worker` and
+`mobile-playbook-icon-backfill` commands into the environment's `bin/`; each is
+equivalent to the matching `python -m` form used throughout these docs.
 
 ## 3. Configure `.env`
 

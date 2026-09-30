@@ -6,7 +6,7 @@ import pytest
 
 from mobile_playbook.common.storage_paths import reports_root
 
-from mobile_playbook.assessment_worker import (
+from mobile_playbook.workers.assessment_worker import (
     AutomationUnavailable,
     RunRejected,
     backoff_seconds,

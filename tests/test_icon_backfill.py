@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from mobile_playbook import icon_backfill
+from mobile_playbook.workers import icon_backfill
 from mobile_playbook.artifact_store import resolver, store
 from tests.icon_helpers import make_ipa, make_png, primary_icon_info
 

@@ -737,11 +737,11 @@ in. Two things do:
 - a one-time sweep for every configured app that already exists in the dashboard:
 
 ```bash
-python -m mobile_playbook.icon_backfill                    # both platforms
-python -m mobile_playbook.icon_backfill --platform ios
-python -m mobile_playbook.icon_backfill --platform android
-python -m mobile_playbook.icon_backfill --app <APP_ID>
-python -m mobile_playbook.icon_backfill --dry-run
+python -m mobile_playbook.workers.icon_backfill                    # both platforms
+python -m mobile_playbook.workers.icon_backfill --platform ios
+python -m mobile_playbook.workers.icon_backfill --platform android
+python -m mobile_playbook.workers.icon_backfill --app <APP_ID>
+python -m mobile_playbook.workers.icon_backfill --dry-run
 ```
 
 The sweep matches an application by backend id **and** platform first. If no row

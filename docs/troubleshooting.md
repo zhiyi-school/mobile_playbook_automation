@@ -92,7 +92,7 @@ paste them into issue trackers unredacted.
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| Every app shows the dashboard placeholder | `0016_application_icon_refs.sql` not applied, or no reference written yet | apply the migration, then `python -m mobile_playbook.icon_backfill` |
+| Every app shows the dashboard placeholder | `0016_application_icon_refs.sql` not applied, or no reference written yet | apply the migration, then `python -m mobile_playbook.workers.icon_backfill` |
 | Sync fails with `column ... does not exist` | same migration missing | apply it; the worker writes icon fields on every application row |
 | One app keeps its placeholder | its build has no icon this backend can read | check the reason in `derived/artifacts/<ARTIFACT_ID>.json`; `asset_catalog_no_extractor` and `adaptive_icon_vector_only` are known limits |
 | Icon endpoint returns 404 for an app that has one | the API process predates the route | restart the API; `curl .../openapi.json` should list `/config/{platform}/apps/{app_id}/icon` |
