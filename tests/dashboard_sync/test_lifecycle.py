@@ -10,7 +10,7 @@ from mobile_playbook.dashboard_sync.contracts import AmbiguousApplicationError
 from mobile_playbook.dashboard_sync.mapping import sync_dashboard_results
 from mobile_playbook.dashboard_sync.orchestrator import sync_reports
 from mobile_playbook.reporting.run_manifest import write_manifest
-from tests.test_dashboard_sync import FakeStore, _row
+from tests.dashboard_sync.test_sync import FakeStore, _row
 
 RUN = "2026-01-01_00-00-00"
 

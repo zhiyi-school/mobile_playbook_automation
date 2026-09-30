@@ -16,10 +16,11 @@ is faked or injected, which is why it is safe to run on any checkout.
 Useful subsets:
 
 ```bash
-python -m pytest tests/test_sarif_writer.py -q          # one module
-python -m pytest -q -k "sync_status"                     # by name
-python -m pytest tests/test_dashboard_sync.py -q -x      # stop at first failure
-python -m pytest -q --lf                                 # last failures only
+python -m pytest tests/reporting/test_sarif_writer.py -q    # one module
+python -m pytest tests/dashboard_sync -q                    # one package
+python -m pytest -q -k "sync_status"                        # by name
+python -m pytest tests/dashboard_sync/test_sync.py -q -x    # stop at first failure
+python -m pytest -q --lf                                    # last failures only
 ```
 
 Compile check without running anything:
@@ -34,8 +35,8 @@ Maintenance checks are independent so a failure retains its own diagnostics:
 python scripts/check_requirements.py
 python scripts/check_docs.py
 python -m ruff check .
-python -m pytest -q tests/test_api_reports.py tests/test_report_evidence.py \
-  tests/test_api_playbook.py tests/test_playbook_validator.py
+python -m pytest -q tests/api/test_reports.py tests/api/test_report_evidence.py \
+  tests/api/test_playbook.py tests/playbook/test_validator.py
 ```
 
 The first command enforces dependency-declaration synchronization. The second
@@ -75,19 +76,25 @@ need no secrets or devices, and perform no deployment or synchronization.
 
 ## What is covered
 
-| Area | Modules |
+The layout of `tests/` mirrors `mobile_playbook/`, so a module's tests live under
+the matching path. Paths below are relative to `tests/`.
+
+| Area | Where |
 | --- | --- |
-| Config loading, includes, validation | `test_config.py`, `test_android_config.py`, `test_ios_preflight.py` |
-| Plugin discovery for risks | `test_discovery.py` |
-| Artifact intake, IPA handling, zip safety | `test_artifacts.py`, `test_artifact_intake.py`, `test_intake_ipa_artifact.py`, `test_ipa_mutability.py`, `test_safe_zip.py` |
-| Individual risks | `test_risk_feature_01_risk_01.py`, `test_risk_feature_02_risk_01.py`, `test_risk_feature_04_risk_01.py`, `test_android_screen_capture_verdict.py`, `test_android_apk_tools.py` |
-| Appium session handling and recovery | `test_appium_client.py`, `test_appium_process.py`, `test_platform_runner_appium_recovery.py`, `test_scan_runner_appium_recovery.py` |
-| Run orchestration, manifests, events | `test_run_manifest.py`, `test_run_events.py`, `test_run_all_report_isolation.py`, `test_report.py` |
+| Config loading, includes, validation | `platforms/ios/test_config.py`, `platforms/ios/test_config_work_dir.py`, `platforms/android/test_config.py`, `platforms/ios/test_preflight.py` |
+| Example configs and repository scripts | `repository/` |
+| Shared helpers and plugin discovery | `common/` |
+| IPA acquisition, handling and zip safety | `platforms/ios/acquisition/`, `platforms/ios/ipa/`, `orchestration/test_selection.py` |
+| Individual risks | `platforms/ios/risks/`, `platforms/android/risks/`, `platforms/android/test_apk_tools.py` |
+| iOS capabilities | `platforms/ios/keyboard/`, `platforms/ios/traffic_interception/`, `platforms/ios/screen_capture/` |
+| Appium session handling and recovery | `platforms/ios/test_device_client.py`, `orchestration/test_appium_server.py`, `orchestration/test_*_appium_recovery.py` |
+| Run orchestration, manifests, events | `orchestration/`, `reporting/` |
 | CLI | `test_cli.py` |
-| API routes, models, CORS, logging | `test_api_*.py` |
-| Dashboard sync mapping, worker entry point and idempotency | `test_dashboard_sync*.py`, `test_sync_status.py`, `test_job_registry.py` |
-| SARIF export | `test_sarif_writer.py`, `test_api_sarif.py` |
-| Developer playbook catalogue | `test_playbook_catalogue.py`, `test_api_playbook.py` |
+| API routes, schemas, CORS, logging | `api/` |
+| Dashboard sync mapping, worker entry point and idempotency | `dashboard_sync/`, `api/test_sync_status.py`, `api/test_run_registry.py` |
+| SARIF export | `reporting/test_sarif_writer.py`, `api/test_sarif.py` |
+| Developer playbook catalogue | `playbook/`, `api/test_playbook.py` |
+| App icons and background workers | `artifact_store/`, `workers/` |
 
 ## Conventions worth following
 
@@ -99,7 +106,7 @@ pass on your checkout and fail on someone else's. An autouse fixture in
 `tmp_path / "configs"`, so anything resolved through `config_path()` never
 touches the real `configs/`.
 
-**Fakes enforce the real constraints.** `FakeStore` in `test_dashboard_sync.py`
+**Fakes enforce the real constraints.** `FakeStore` in `tests/dashboard_sync/test_sync.py`
 emulates the database's unique indexes, `sync_key` deduplication and column
 defaults. A fake that accepts anything proves nothing about production, so
 extend the fake when you add a constraint.
@@ -115,7 +122,7 @@ and confirm the test fails, then restore it. Several tests in this suite exist
 because that step caught an assertion that would have passed either way.
 
 **Prefer structural assertions over golden files** where a format is involved.
-`test_sarif_writer.py`'s `assert_valid_sarif` checks SARIF 2.1.0 structure —
+`tests/reporting/test_sarif_writer.py`'s `assert_valid_sarif` checks SARIF 2.1.0 structure —
 required fields, enum membership, rule/result index consistency, relative URIs,
 and the §3.27.10 rule that only a `fail` result may carry a level other than
 `none`. That last one matters: the official SARIF JSON Schema does **not**
@@ -129,7 +136,7 @@ The validator, exact identity preview, sanitized contract source, and frontend
 artifact regeneration process are documented in
 [developer-playbook.md](developer-playbook.md#validation-and-diagnostics).
 
-`test_playbook_catalogue.py` builds a whole playbook directory under `tmp_path`
+`tests/playbook/test_catalogue.py` builds a whole playbook directory under `tmp_path`
 from the fixtures at the top of the module and points `IOS_PLAYBOOK_DIR` at it.
 Three things make that work and are worth preserving:
 
@@ -145,18 +152,18 @@ Three things make that work and are worth preserving:
   a module-level cache keyed by platform, so a leaked entry makes a later test
   read the previous test's directory.
 
-`test_api_playbook.py` imports `write_playbook` from that module and exercises
-the route functions directly, the same way the other `test_api_*.py` modules do
+`tests/api/test_playbook.py` imports `write_playbook` from that module and exercises
+the route functions directly, the same way the other `tests/api/` modules do
 — the suite carries no HTTP client dependency.
 
-Two cases in `test_playbook_catalogue.py` exist because mutation testing found
+Two cases in `tests/playbook/test_catalogue.py` exist because mutation testing found
 the tests were not actually checking what they claimed: a control whose filename
 genuinely differs from its heading — which uncovered a real bug, since the
 catalogue was dispatching on the filename and dropping such a control entirely —
 and the `__MACOSX` case, whose original form could never reach the ignore filter
 it was meant to exercise.
 
-`test_playbook_validator.py` runs the actual catalogue against the portable
+`tests/playbook/test_validator.py` runs the actual catalogue against the portable
 fixture and generated invalid directories. It covers stable diagnostics,
 strict/JSON behavior, exact identity previews, and the backend half of the
 parser-to-renderer contract without reading the external playbook.
@@ -170,7 +177,7 @@ subclass with a unique `risk_id`, then:
 1. Add its authored text to `configs/split/<platform>/risks.yaml`.
 2. Add a settings file under `configs/split/<platform>/` if it needs one, and
    an `include:` entry.
-3. Add a test module. `test_discovery.py` checks the registry sees it;
+3. Add a test module. `tests/common/test_plugin_discovery.py` checks the registry sees it;
    `list-risks` and `GET /platforms/{platform}/risks` pick it up automatically.
 
 ## Frontend tests

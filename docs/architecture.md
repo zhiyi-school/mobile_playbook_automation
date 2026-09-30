@@ -347,7 +347,7 @@ versioned, coordinated migration rather than a spelling-only edit.
 
 | Change | Owner and required verification |
 | --- | --- |
-| API request/response contract | `mobile_playbook/api/schemas.py`, route and service modules; extend `tests/test_api_*.py` and the focused contract command in [testing.md](testing.md) |
+| API request/response contract | `mobile_playbook/api/schemas.py`, route and service modules; extend the modules under `tests/api/` and the focused contract command in [testing.md](testing.md) |
 | Report/evidence behavior | `mobile_playbook/api/services/reports.py`, `mobile_playbook/reporting/`; preserve the configured report-root and opaque-ref rules in [api.md](api.md#report-root-and-evidence-contract) |
 | Dashboard synchronization | `mobile_playbook/dashboard_sync/`; keep `python -m mobile_playbook.dashboard_sync` as the supported entry point |
 | Configuration editing | `mobile_playbook/api/config_editing/` |

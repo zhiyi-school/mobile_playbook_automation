@@ -12,7 +12,7 @@ from mobile_playbook.dashboard_sync import ledger
 from mobile_playbook.dashboard_sync.contracts import SupabaseRestError
 from mobile_playbook.dashboard_sync.orchestrator import sync_reports
 from mobile_playbook.reporting.run_manifest import write_manifest
-from tests.test_dashboard_sync import FakeStore, _row
+from tests.dashboard_sync.test_sync import FakeStore, _row
 
 
 def _report(tmp_path: Path, timestamp: str, rows: list[dict[str, Any]]) -> Path:

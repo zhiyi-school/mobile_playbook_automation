@@ -11,7 +11,7 @@ from mobile_playbook.api.routes import reports as reports_route
 from mobile_playbook.api.services import reports as reports_service
 from mobile_playbook.reporting.run_manifest import write_manifest
 from mobile_playbook.reporting.sarif_writer import sarif_path
-from tests.test_sarif_writer import _row, assert_valid_sarif
+from tests.reporting.test_sarif_writer import _row, assert_valid_sarif
 
 
 @pytest.fixture

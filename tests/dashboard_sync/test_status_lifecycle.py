@@ -8,7 +8,7 @@ from mobile_playbook.dashboard_sync import run_status
 from mobile_playbook.dashboard_sync.contracts import SupabaseRestError
 from mobile_playbook.dashboard_sync.orchestrator import sync_reports
 from mobile_playbook.reporting.run_manifest import write_manifest
-from tests.test_dashboard_sync import FakeStore, _row
+from tests.dashboard_sync.test_sync import FakeStore, _row
 
 
 def _report(

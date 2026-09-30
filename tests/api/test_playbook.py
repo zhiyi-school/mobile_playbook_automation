@@ -8,7 +8,7 @@ from fastapi import HTTPException
 from mobile_playbook.api import settings
 from mobile_playbook.api.routes import playbook as playbook_route
 from mobile_playbook.playbook import catalogue, source
-from tests.test_playbook_catalogue import write_playbook
+from tests.playbook.test_catalogue import write_playbook
 
 CONTROL_ID = "ios-feature-01-risk-01-control-01"
 RISK_ID = "ios-feature-01-risk-01"
@@ -299,7 +299,7 @@ class TestHeadingFormatResponse:
     """The heading-based format must reach the dashboard in the shape it already reads."""
 
     def _heading_playbook(self, tmp_path, monkeypatch):
-        from tests.test_playbook_catalogue import HEADING_CONTROL
+        from tests.playbook.test_catalogue import HEADING_CONTROL
 
         root = write_playbook(tmp_path / "playbooks", control=HEADING_CONTROL)
         monkeypatch.setenv("IOS_PLAYBOOK_DIR", str(root))
@@ -373,7 +373,7 @@ class TestHeadingFormatResponse:
 
     def test_the_risk_list_prefers_the_markdown_demonstration(self, tmp_path, monkeypatch):
         from mobile_playbook.api.services import catalog as catalog_service
-        from tests.test_playbook_catalogue import TestHeadingRiskDemonstration
+        from tests.playbook.test_catalogue import TestHeadingRiskDemonstration
 
         root = write_playbook(
             tmp_path / "playbooks", risk=TestHeadingRiskDemonstration.HEADING_RISK
@@ -405,7 +405,7 @@ class TestHeadingFormatResponse:
 
     def test_the_configured_demonstration_is_used_when_markdown_has_none(self, tmp_path, monkeypatch):
         from mobile_playbook.api.services import catalog as catalog_service
-        from tests.test_playbook_catalogue import RISK
+        from tests.playbook.test_catalogue import RISK
 
         root = write_playbook(
             tmp_path / "playbooks", risk=RISK.replace("### Demonstration", "### Ignored")

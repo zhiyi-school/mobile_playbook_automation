@@ -350,7 +350,7 @@ of the same run are byte-identical.
 
 Documents validate against the official SARIF 2.1.0 JSON Schema. Note that the
 schema does not encode the §3.27.10 constraint on `level` — that is prose — so
-`tests/test_sarif_writer.py` asserts it directly on every generated document
+`tests/reporting/test_sarif_writer.py` asserts it directly on every generated document
 rather than relying on schema validation to catch it.
 
 ### Two workflows, two meanings of "completed"

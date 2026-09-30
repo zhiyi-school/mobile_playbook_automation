@@ -11,7 +11,7 @@ from mobile_playbook.orchestration import run_timestamps
 from mobile_playbook.orchestration.scan_runner import RunOptions, run_platform
 from mobile_playbook.reporting.report_writer import ReportWriter
 from mobile_playbook.reporting.run_manifest import read_manifest
-from tests.test_dashboard_sync import FakeStore
+from tests.dashboard_sync.test_sync import FakeStore
 
 FROZEN = datetime(2026, 1, 1, 12, 0, 0).astimezone()
 

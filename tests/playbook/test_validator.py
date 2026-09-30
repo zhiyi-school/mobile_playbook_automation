@@ -7,7 +7,7 @@ from mobile_playbook.playbook.contract_fixture import export_contract, main as c
 from mobile_playbook.playbook.identity_preview import preview
 from mobile_playbook.playbook.validator import main, validate
 
-FIXTURE = Path(__file__).parent / "fixtures" / "playbook_contract"
+FIXTURE = Path(__file__).parents[1] / "fixtures" / "playbook_contract"
 
 
 def test_sanitized_contract_fixture_parses_and_validates():
