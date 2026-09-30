@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from mobile_playbook.core import network
+from mobile_playbook.common import network
 
 LABEL = "example.host"
 

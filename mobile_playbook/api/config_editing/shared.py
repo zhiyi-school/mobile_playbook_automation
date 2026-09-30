@@ -14,7 +14,7 @@ from typing import Any, Callable
 from fastapi import HTTPException
 from ruamel.yaml import YAML
 
-from mobile_playbook.orchestration.preflight import load_yaml_config
+from mobile_playbook.common.config_loader import load_yaml_config
 from mobile_playbook.platforms.android.config import ConfigError as AndroidConfigError
 from mobile_playbook.platforms.android.config import collect_config_errors as collect_android_errors
 from mobile_playbook.platforms.android.config import parse_config as parse_android_config

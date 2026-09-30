@@ -8,8 +8,8 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from mobile_playbook.logging_setup import safe_url
-from mobile_playbook.core.network import resolve_lan_host
+from mobile_playbook.common.logging_setup import safe_url
+from mobile_playbook.common.network import resolve_lan_host
 
 logger = logging.getLogger(__name__)
 

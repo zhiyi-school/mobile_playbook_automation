@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 import mobile_playbook.platforms.ios.traffic_interception_setup as setup
-from mobile_playbook.core import network
+from mobile_playbook.common import network
 
 
 class FakeElement:

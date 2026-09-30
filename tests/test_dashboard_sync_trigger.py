@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from mobile_playbook.storage import work_root
+from mobile_playbook.common.storage_paths import work_root
 from types import SimpleNamespace
 
 from mobile_playbook.dashboard_sync import trigger

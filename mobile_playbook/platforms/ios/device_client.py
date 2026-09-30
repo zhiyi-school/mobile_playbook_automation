@@ -12,7 +12,7 @@ import tempfile
 import time
 from pathlib import Path
 
-from mobile_playbook.logging_setup import redacted
+from mobile_playbook.common.logging_setup import redacted
 from mobile_playbook.platforms.ios.ipa.unpacker import safe_extract_zip
 from mobile_playbook.platforms.ios.models import InstallResult
 

@@ -11,7 +11,7 @@ from datetime import datetime
 from pathlib import Path
 
 from mobile_playbook.platforms.android.models import AndroidRiskRunResult
-from mobile_playbook.logging_setup import redacted
+from mobile_playbook.common.logging_setup import redacted
 from mobile_playbook.platforms.android.risks.base import AndroidRisk
 
 logger = logging.getLogger(__name__)

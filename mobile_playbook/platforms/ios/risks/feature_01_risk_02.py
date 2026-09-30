@@ -30,8 +30,8 @@ from mobile_playbook.platforms.ios.repackage_resign import (
 )
 from mobile_playbook.platforms.ios.risks.base import Risk
 from mobile_playbook.platforms.ios.risks.repackaging_evidence import compare, confirm_gadget, exercise_and_observe
-from mobile_playbook.logging_setup import redacted
-from mobile_playbook.storage import ios_work_dir
+from mobile_playbook.common.logging_setup import redacted
+from mobile_playbook.common.storage_paths import ios_work_dir
 
 logger = logging.getLogger(__name__)
 

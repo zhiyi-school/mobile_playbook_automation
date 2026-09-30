@@ -10,7 +10,7 @@ from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 
-from mobile_playbook.storage import android_work_dir
+from mobile_playbook.common.storage_paths import android_work_dir
 
 from mobile_playbook.orchestration.appium_process import ensure_appium_running, tcp_reachable
 from mobile_playbook.orchestration.artifact_intake import app_matches_selector

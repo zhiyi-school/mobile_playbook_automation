@@ -80,11 +80,11 @@ def repository_path_setting(name: str, default: str, env_path: Path | None = Non
 
 # Import the shared storage paths module lazily.
 def _storage() -> Any:
-    from mobile_playbook.storage import paths
+    from mobile_playbook.common import storage_paths
 
-    return paths
+    return storage_paths
 
 
-# Kept for existing importers; resolved by mobile_playbook.storage.paths.
+# Kept for existing importers; resolved by mobile_playbook.common.storage_paths.
 REPORTS_ROOT = _storage().reports_root()
 WORK_ROOT = _storage().work_root()

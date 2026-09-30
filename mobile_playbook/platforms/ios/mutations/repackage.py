@@ -15,7 +15,7 @@ import zipfile
 from pathlib import Path
 
 from mobile_playbook.platforms.ios.ipa.plist_utils import get_bundle_executable
-from mobile_playbook.storage import resolve_under_repository
+from mobile_playbook.common.storage_paths import resolve_under_repository
 
 FRIDA_DYLIB = "tools/vendor/frida/FridaGadget.dylib"
 FRIDA_CONFIG = "tools/vendor/frida/FridaGadget.config"

@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from mobile_playbook.storage import android_work_dir
+from mobile_playbook.common.storage_paths import android_work_dir
 
 from mobile_playbook.reporting.serialization import SerializableDataclass
 

@@ -10,7 +10,7 @@ from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 
-from mobile_playbook.storage import ios_work_dir
+from mobile_playbook.common.storage_paths import ios_work_dir
 
 from mobile_playbook.platforms.ios.artifacts.registry import get_provider
 from mobile_playbook.orchestration.appium_process import ensure_appium_running, tcp_reachable

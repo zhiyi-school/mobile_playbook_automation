@@ -5,7 +5,7 @@ from fastapi import HTTPException
 
 from mobile_playbook.api.routes import catalog as api_catalog
 from mobile_playbook.api.services import catalog as catalog_service
-from mobile_playbook.core import network
+from mobile_playbook.common import network
 
 
 def test_pac_routes_apple_services_direct_and_other_hosts_to_configured_burp(monkeypatch):

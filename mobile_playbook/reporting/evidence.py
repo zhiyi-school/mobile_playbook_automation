@@ -9,7 +9,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from mobile_playbook.storage.paths import resolve_recorded_path
+from mobile_playbook.common.storage_paths import resolve_recorded_path
 
 logger = logging.getLogger(__name__)
 

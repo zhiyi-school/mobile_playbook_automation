@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
-from mobile_playbook.storage.paths import REPOSITORY_ROOT, resolve_under_repository
+from mobile_playbook.common.storage_paths import REPOSITORY_ROOT, resolve_under_repository
 
 RESIGN_SCRIPT = "tools/companion_apps/localkeyboard_resign/resign.py"
 VERIFICATION_MARKERS = ("ApplicationVerificationFailed", "Failed to verify code signature")

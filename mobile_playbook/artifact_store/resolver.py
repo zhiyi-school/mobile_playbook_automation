@@ -21,14 +21,14 @@ logger = logging.getLogger(__name__)
 
 # Returns the Android intake directory.
 def _android_intake_dir() -> Path:
-    from mobile_playbook.storage import android_intake_dir
+    from mobile_playbook.common.storage_paths import android_intake_dir
 
     return android_intake_dir()
 
 
 # Returns the directory holding APKs acquired by the Android repackaging workflow.
 def _android_workflow_apk_dir() -> Path:
-    from mobile_playbook.storage import android_work_dir
+    from mobile_playbook.common.storage_paths import android_work_dir
 
     return android_work_dir() / "repackaging"
 

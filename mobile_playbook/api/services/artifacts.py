@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 # Return the current iOS and Android intake directories.
 def intake_dirs() -> dict[Platform, Path]:
-    from mobile_playbook.storage import android_intake_dir, ios_intake_dir
+    from mobile_playbook.common.storage_paths import android_intake_dir, ios_intake_dir
 
     return {"ios": ios_intake_dir(), "android": android_intake_dir()}
 

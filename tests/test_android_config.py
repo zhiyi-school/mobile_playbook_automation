@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 from mobile_playbook.platforms.android.config import parse_config
 from mobile_playbook.platforms.android.results import normalize_android_result
-from mobile_playbook.storage import android_work_dir
+from mobile_playbook.common.storage_paths import android_work_dir
 from mobile_playbook.platforms.android.risks import get_risk, known_risks
 from mobile_playbook.platforms.android.runner import AndroidPlatformRunner
 from mobile_playbook.reporting.report_writer import ReportWriter

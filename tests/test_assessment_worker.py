@@ -4,7 +4,7 @@ from typing import Any, Mapping
 
 import pytest
 
-from mobile_playbook.storage import reports_root
+from mobile_playbook.common.storage_paths import reports_root
 
 from mobile_playbook.assessment_worker import (
     AutomationUnavailable,

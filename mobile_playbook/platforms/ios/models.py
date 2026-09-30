@@ -8,7 +8,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-from mobile_playbook.storage import ios_work_dir
+from mobile_playbook.common.storage_paths import ios_work_dir
 
 
 ARTIFACT_STATUSES = {

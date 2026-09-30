@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 
 from mobile_playbook import cli as cli_module
 from mobile_playbook.cli import _new_run_timestamp, _run, _run_all
-from mobile_playbook.env_file import load_env_file
+from mobile_playbook.common.env_file import load_env_file
 from mobile_playbook.platforms.android.config import parse_config as parse_android_config
 from mobile_playbook.platforms.ios.risks import get_risk, known_risks
 

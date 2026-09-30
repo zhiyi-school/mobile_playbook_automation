@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from mobile_playbook.core import network
+from mobile_playbook.common import network
 from mobile_playbook.reporting.report_writer import ReportWriter
 from mobile_playbook.platforms.ios import keyboard_resign, keyboard_setup
 from mobile_playbook.platforms.ios.models import InstallResult

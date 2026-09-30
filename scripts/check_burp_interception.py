@@ -21,7 +21,7 @@ from mobile_playbook.platforms.ios.traffic_interception_setup import (
     prepare_traffic_interception,
     restore_traffic_interception,
 )
-from mobile_playbook.storage import ios_capture_path, resolve_under_repository
+from mobile_playbook.common.storage_paths import ios_capture_path, resolve_under_repository
 
 DEFAULT_TEST_URL = "https://example.com"
 

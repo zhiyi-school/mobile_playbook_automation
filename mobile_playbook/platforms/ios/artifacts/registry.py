@@ -7,7 +7,7 @@ from __future__ import annotations
 import logging
 import os
 
-from mobile_playbook.core.discovery import discover_plugins
+from mobile_playbook.common.plugin_discovery import discover_plugins
 from mobile_playbook.platforms.ios.artifacts.base import ArtifactProvider
 
 _PACKAGE_NAME = __name__.rsplit(".", 1)[0]

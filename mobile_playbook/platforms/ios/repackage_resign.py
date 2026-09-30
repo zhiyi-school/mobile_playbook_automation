@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from mobile_playbook.storage import resolve_under_repository
+from mobile_playbook.common.storage_paths import resolve_under_repository
 
 DEFAULT_PROFILE_DIR = "~/Library/Developer/Xcode/UserData/Provisioning Profiles/"
 REPACK_PROVISION_DIR = "tools/companion_apps/repack_provision"

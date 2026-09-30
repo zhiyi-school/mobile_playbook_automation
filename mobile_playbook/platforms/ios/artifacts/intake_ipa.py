@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 # Return the storage-configured intake directory.
 def _default_intake_dir() -> Path:
-    from mobile_playbook.storage import ios_intake_dir
+    from mobile_playbook.common.storage_paths import ios_intake_dir
 
     return ios_intake_dir()
 

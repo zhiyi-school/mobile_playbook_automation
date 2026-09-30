@@ -13,9 +13,9 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from mobile_playbook.storage import android_work_dir
+from mobile_playbook.common.storage_paths import android_work_dir
 
-from mobile_playbook.logging_setup import REDACTED, redacted
+from mobile_playbook.common.logging_setup import REDACTED, redacted
 from mobile_playbook.platforms.android.models import AndroidRiskRunResult
 from mobile_playbook.platforms.android.risks.base import AndroidRisk
 

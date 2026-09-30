@@ -13,7 +13,7 @@ from urllib import error, parse, request
 
 from mobile_playbook.dashboard_sync.contracts import SupabaseRestError
 from mobile_playbook.dashboard_sync.identity import now
-from mobile_playbook.logging_setup import redacted
+from mobile_playbook.common.logging_setup import redacted
 
 logger = logging.getLogger(__name__)
 

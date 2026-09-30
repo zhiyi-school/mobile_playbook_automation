@@ -19,7 +19,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-from mobile_playbook.logging_setup import redacted
+from mobile_playbook.common.logging_setup import redacted
 from mobile_playbook.platforms.ios.models import ArtifactAcquisitionResult
 from mobile_playbook.platforms.ios.risks.critical_markdown import mobsf_critical_findings, sort_flags_by_severity
 from mobile_playbook.platforms.ios.risks.ipa_inventory import is_interesting_resource

@@ -37,7 +37,7 @@ Each location resolves in this order, highest first:
 
 A relative value resolves against the repository root, never the process
 working directory, so the API, CLI and workers agree wherever they are started
-from. Everything goes through `mobile_playbook/storage/paths.py`; no module
+from. Everything goes through `mobile_playbook/common/storage_paths.py`; no module
 builds its own path string. `ARTIFACTS_DIR`, `INTAKE_DIR` and `WORK_DIR` sit on
 the API's `.env` allowlist alongside `ARTIFACT_STORE_DIR` and `REPORTS_DIR`, so
 no other key in `.env` becomes readable by the API process.

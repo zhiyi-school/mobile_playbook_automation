@@ -21,7 +21,7 @@ from mobile_playbook.api.config_editing.shared import (
     load_with_errors,
     lock_for,
 )
-from mobile_playbook.orchestration.preflight import merge_dicts
+from mobile_playbook.common.config_loader import merge_dicts
 from mobile_playbook.platforms.ios.config import _slugify as ios_slugify
 
 APP_ITEM_START_RE = re.compile(r"^  - ", re.MULTILINE)

@@ -5,7 +5,7 @@ import warnings
 
 import pytest
 
-from mobile_playbook.core.discovery import discover_plugins
+from mobile_playbook.common.plugin_discovery import discover_plugins
 
 
 def test_discover_plugins_finds_valid_classes_and_skips_broken_or_abstract_ones(tmp_path, monkeypatch):

@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from mobile_playbook.platforms.ios.mutations.hashing import sha256_file
-from mobile_playbook.storage import LOCATION_ENV
+from mobile_playbook.common.storage_paths import LOCATION_ENV
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 STORE_DIR_ENV = LOCATION_ENV["derived"]
@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 # Returns the derived artifact store root.
 def store_root() -> Path:
-    from mobile_playbook.storage import derived_root
+    from mobile_playbook.common.storage_paths import derived_root
 
     return derived_root()
 

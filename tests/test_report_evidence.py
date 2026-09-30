@@ -544,7 +544,7 @@ class TestPathsRecordedBeforeTheMove:
 
     @pytest.fixture
     def moved(self, tmp_path, monkeypatch):
-        from mobile_playbook.storage import paths
+        from mobile_playbook.common import storage_paths as paths
 
         monkeypatch.setattr(paths, "REPOSITORY_ROOT", tmp_path)
         monkeypatch.setattr(paths, "DEFAULT_ARTIFACTS_DIR", tmp_path / "artifacts")
@@ -554,7 +554,7 @@ class TestPathsRecordedBeforeTheMove:
         return tmp_path
 
     def test_a_recorded_path_resolves_to_its_file_under_artifacts(self, moved):
-        from mobile_playbook.storage import paths
+        from mobile_playbook.common import storage_paths as paths
 
         current = moved / "artifacts/work/ios/acquired/run-1/original.ipa"
         current.parent.mkdir(parents=True)
@@ -564,7 +564,7 @@ class TestPathsRecordedBeforeTheMove:
         assert paths.resolve_recorded_path(recorded) == current
 
     def test_a_path_outside_the_known_locations_is_left_alone(self, moved):
-        from mobile_playbook.storage import paths
+        from mobile_playbook.common import storage_paths as paths
 
         outside = moved / "elsewhere/file.bin"
         assert paths.resolve_recorded_path(outside) == outside

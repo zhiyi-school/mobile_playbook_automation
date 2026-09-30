@@ -7,7 +7,7 @@ from __future__ import annotations
 import logging
 import time
 
-from mobile_playbook.logging_setup import redacted
+from mobile_playbook.common.logging_setup import redacted
 
 logger = logging.getLogger(__name__)
 

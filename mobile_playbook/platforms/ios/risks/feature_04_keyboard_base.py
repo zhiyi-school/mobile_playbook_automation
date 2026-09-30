@@ -7,7 +7,7 @@ from __future__ import annotations
 import logging
 from urllib.parse import urlparse
 
-from mobile_playbook.core.network import resolve_lan_host
+from mobile_playbook.common.network import resolve_lan_host
 from mobile_playbook.platforms.ios.control_server import CommandControlServer
 from mobile_playbook.platforms.ios.risks.companion_app_base import CompanionAppRiskBase
 

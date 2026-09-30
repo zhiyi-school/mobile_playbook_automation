@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from mobile_playbook.logging_setup import safe_url
+from mobile_playbook.common.logging_setup import safe_url
 from mobile_playbook.orchestration.appium_process import tcp_reachable as _tcp_reachable
 from mobile_playbook.platforms.ios.burp_health import (
     HEALTH_SCHEMA_VERSION,
@@ -29,7 +29,7 @@ from mobile_playbook.platforms.ios.config import effective_risk_config
 from mobile_playbook.platforms.ios.models import AppConfig
 from mobile_playbook.platforms.ios.mutations.repackage import resolve_insert_dylib
 from mobile_playbook.platforms.ios.screen_capture_ocr import ocr_available
-from mobile_playbook.storage import ios_capture_path, resolve_under_repository
+from mobile_playbook.common.storage_paths import ios_capture_path, resolve_under_repository
 
 logger = logging.getLogger(__name__)
 

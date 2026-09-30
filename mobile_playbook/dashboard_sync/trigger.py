@@ -10,8 +10,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from mobile_playbook.storage import work_root
-from mobile_playbook.storage.paths import REPOSITORY_ROOT
+from mobile_playbook.common.storage_paths import REPOSITORY_ROOT, work_root
 from typing import Mapping
 
 logger = logging.getLogger(__name__)

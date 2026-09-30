@@ -29,7 +29,7 @@ tracked because its content is authored documentation rather than local state.
 
 ### YAML includes
 
-`load_yaml_config` in `mobile_playbook/orchestration/preflight.py` resolves
+`load_yaml_config` in `mobile_playbook/common/config_loader.py` resolves
 `include:` (or `includes:`) after loading the entry-point file.
 
 ```yaml
@@ -119,7 +119,7 @@ processes in deliberately different ways.
 ### Who may read what
 
 - **The dashboard sync worker** loads the whole `.env` through
-  `mobile_playbook/env_file.py`'s `load_env_file()`, because it genuinely needs
+  `mobile_playbook/common/env_file.py`'s `load_env_file()`, because it genuinely needs
   the service-role key. It is the only process that ever holds that key.
 - **The API** must not. `mobile_playbook/api/settings.py` reads one allowlisted
   key at a time. `ALLOWED_ENV_KEYS` currently contains `CORS_ALLOWED_ORIGINS`,

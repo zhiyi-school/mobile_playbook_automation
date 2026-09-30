@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 
 from mobile_playbook.api.__main__ import api_log_config
-from mobile_playbook.logging_setup import REDACTED, log_level, redacted, safe_url
+from mobile_playbook.common.logging_setup import REDACTED, log_level, redacted, safe_url
 
 
 def test_log_level_defaults_to_info(monkeypatch):

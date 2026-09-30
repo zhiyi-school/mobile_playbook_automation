@@ -12,7 +12,7 @@ from fastapi import HTTPException
 from mobile_playbook.api import config_editing, playbook_assets
 from mobile_playbook.api.models import Platform
 from mobile_playbook.api.services import playbook as playbook_service
-from mobile_playbook.core import network
+from mobile_playbook.common import network
 from mobile_playbook.platforms.android.risks import list_risks as list_android_risks
 from mobile_playbook.platforms.ios.risks import list_risks as list_ios_risks
 

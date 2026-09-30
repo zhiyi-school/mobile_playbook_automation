@@ -15,7 +15,7 @@ from mobile_playbook.platforms.android.config import ConfigError as AndroidConfi
 from mobile_playbook.platforms.android.config import load_config as load_android_config
 from mobile_playbook.platforms.android.permissions import is_installed as android_is_installed
 from mobile_playbook.api.job_registry import registry
-from mobile_playbook.storage import ios_intake_dir
+from mobile_playbook.common.storage_paths import ios_intake_dir
 from mobile_playbook.orchestration.platform_runner import requires_device
 from mobile_playbook.platforms.android.risks import get_risk as get_android_risk
 from mobile_playbook.platforms.ios.artifacts.intake_ipa import resolve_intake_ipa
