@@ -42,6 +42,9 @@ builds its own path string. `ARTIFACTS_DIR`, `INTAKE_DIR` and `WORK_DIR` sit on
 the API's `.env` allowlist alongside `ARTIFACT_STORE_DIR` and `REPORTS_DIR`, so
 no other key in `.env` becomes readable by the API process.
 
+Per-run folders under the work location accumulate until they are pruned; see
+[operations.md](operations.md#pruning-old-run-work-folders).
+
 ## Historical path references
 
 A few older reports record absolute paths under the previous repository-root

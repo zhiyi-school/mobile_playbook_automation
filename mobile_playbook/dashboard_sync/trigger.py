@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 AUTO_TRIGGER_ENV = "DASHBOARD_SYNC_AUTO_TRIGGER"
 FALSE_VALUES = {"0", "false", "no", "off"}
 LOCK_WAIT_SECONDS = 60
+LOG_MAX_BYTES = 10 * 1024 * 1024
 
 
 # Reports whether the post-run sync trigger is on, from the environment, then the repository .env, default true.
@@ -58,6 +59,20 @@ def _env_file_value(path: Path, wanted_key: str) -> str | None:
     return None
 
 
+# Moves an oversized log aside to `<name>.1`, replacing the previous one; a writer still holding the old file keeps writing to it.
+def rotate_log(log_path: Path, max_bytes: int = LOG_MAX_BYTES) -> bool:
+    try:
+        if log_path.stat().st_size <= max_bytes:
+            return False
+        os.replace(log_path, log_path.with_name(f"{log_path.name}.1"))
+    except OSError:
+        # Rotation is housekeeping; it must never stop the sync worker from starting.
+        logger.debug("dashboard sync: could not rotate %s.", log_path, exc_info=True)
+        return False
+    logger.debug("dashboard sync: rotated %s past %d bytes.", log_path, max_bytes)
+    return True
+
+
 # Launches a detached, best-effort one-shot dashboard sync that loads its own credentials and returns its pid.
 def trigger_dashboard_sync(reports_dir: Path, run_timestamp: str | None = None) -> int | None:
     if not auto_trigger_enabled():
@@ -83,6 +98,7 @@ def trigger_dashboard_sync(reports_dir: Path, run_timestamp: str | None = None) 
 
     try:
         log_path.parent.mkdir(parents=True, exist_ok=True)
+        rotate_log(log_path, LOG_MAX_BYTES)
         with log_path.open("a") as output:
             process = subprocess.Popen(
                 command,

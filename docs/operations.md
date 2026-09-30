@@ -264,7 +264,11 @@ Read `/sync/status` first, then:
 | a run stays `not_required` | its manifest is not `completed`, or it predates the manifest | expected; use `--allow-legacy-report` deliberately for historical folders |
 
 `artifacts/work/dashboard-sync.log` accumulates every detached worker's output and is the
-first place to look for anything the endpoints do not explain.
+first place to look for anything the endpoints do not explain. When a post-run
+worker starts and the log is over 10 MB, the trigger first moves it aside to
+`dashboard-sync.log.1`, replacing the previous one, so the two files together stay
+around 20 MB. The launchd sweep appends without rotating. A worker already
+running at the moment of rotation finishes its pass in the `.1` file.
 
 ## Retrying one run
 
@@ -279,6 +283,49 @@ partway is reconciled by the same upsert-and-`sync_key` path that makes an
 ordinary repeat pass safe. A run already `queued` or `running` returns its
 current status without starting a second worker; a `not_required` run is
 refused with `409`.
+
+## Log files
+
+The API writes its logs to the terminal. To also keep them on disk, start it
+with `--log-file`; the file rotates at 10 MB and keeps five older copies:
+
+```bash
+python -m mobile_playbook.api --port 8080 --log-file artifacts/work/logs/api.log
+```
+
+A relative path resolves against the repository root. Prefer this to redirecting
+the API's output into a file, which grows without limit.
+
+## Pruning old run work folders
+
+Every run writes working files under `artifacts/work/<platform>/<run_id>/` and
+copies the IPA it tests into `artifacts/work/ios/acquired/<run_id>/`. Nothing
+removes them, so the work folder grows with every run. `prune-work` lists the
+per-run folders older than the retention period, 30 days by default, and deletes
+them only with `--apply`:
+
+```bash
+python -m mobile_playbook prune-work                   # list what would be deleted
+python -m mobile_playbook prune-work --older-than 60   # a longer retention period
+python -m mobile_playbook prune-work --apply           # delete the listed folders
+```
+
+A folder is deleted only when all of these hold:
+
+- its name is a run id: a run timestamp, or the 12-character ids older runs used;
+- it is older than the cutoff, by the timestamp in its name or else its newest file;
+- no report newer than the cutoff references it; and
+- its run is not in progress, according to the API run registry or the run's manifest.
+
+State that is not per-run is never a candidate: `ios/traffic_interception/` (the
+Burp capture file and its health record), `android/repackaging/` (the repackaging
+keystore and APKs pulled from devices), log files, and any folder whose name is
+not a run id.
+
+A report and its evidence age out together. Reports themselves are never
+deleted, but once a report is past the cutoff, its evidence files under the work
+folder can be, and the API then drops those items from the report's evidence
+list. Deletion cannot be undone, so review the list before adding `--apply`.
 
 ## Limitations
 

@@ -10,11 +10,13 @@ import logging
 import sys
 import threading
 import uuid
+from datetime import timedelta
 from pathlib import Path
 
-from mobile_playbook.common.storage_paths import ios_work_dir, reports_root
+from mobile_playbook.common.storage_paths import ios_work_dir, reports_root, work_root
 
 from mobile_playbook.orchestration.scan_runner import RunOptions, run_platform
+from mobile_playbook.orchestration.work_retention import DEFAULT_RETENTION_DAYS, apply_prune, plan_prune
 from mobile_playbook.orchestration.selection import (
     selected_app_csv,
     selected_csv,
@@ -92,7 +94,45 @@ def build_parser() -> argparse.ArgumentParser:
     inspect = sub.add_parser("inspect-ipa")
     inspect.add_argument("--ipa", required=True)
 
+    prune = sub.add_parser(
+        "prune-work",
+        help="List per-run work folders older than the retention period that no retained report references; --apply deletes them.",
+    )
+    prune.add_argument("--older-than", type=int, default=DEFAULT_RETENTION_DAYS, metavar="DAYS")
+    prune.add_argument("--apply", action="store_true", help="Delete the listed folders instead of only listing them.")
+
     return parser
+
+
+# Returns a byte count as a short human-readable size.
+def _format_bytes(size: int) -> str:
+    value = float(size)
+    for unit in ("B", "KB", "MB"):
+        if value < 1024:
+            return f"{value:.0f} {unit}" if unit == "B" else f"{value:.1f} {unit}"
+        value /= 1024
+    return f"{value:.1f} GB"
+
+
+# Prints the prune plan for the work root and deletes it when apply is set.
+def _prune_work(older_than_days: int, apply: bool) -> int:
+    root = work_root()
+    plan = plan_prune(root, reports_root(), timedelta(days=older_than_days))
+    for folder in plan.delete:
+        print(f"{'delete' if apply else 'would delete'}  {_format_bytes(folder.size_bytes):>9}  "
+              f"{folder.modified:%Y-%m-%d}  {folder.path.relative_to(root)}")
+    reasons: dict[str, int] = {}
+    for _, reason in plan.keep:
+        reasons[reason] = reasons.get(reason, 0) + 1
+    for reason, count in sorted(reasons.items()):
+        print(f"keep {count} folder(s): {reason}")
+    total = _format_bytes(plan.reclaimable_bytes)
+    if not apply:
+        print(f"{len(plan.delete)} folder(s), {total}, older than {plan.cutoff:%Y-%m-%d}. Re-run with --apply to delete them.")
+        return 0
+    deleted = apply_prune(plan, root)
+    print(f"Deleted {len(deleted)} folder(s), {total}.")
+    return 0
 
 
 # Prints what the configured playbook parsed to and its warnings; never prints archive contents or secrets.
@@ -157,6 +197,11 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.command == "validate-playbook":
             return _validate_playbook(args.platform)
+        if args.command == "prune-work":
+            if args.older_than < 1:
+                print("--older-than must be at least 1 day", file=sys.stderr)
+                return 2
+            return _prune_work(args.older_than, args.apply)
         if args.command == "list-risks":
             risks = list_android_risks() if args.platform == "android" else list_risks()
             for risk in risks:

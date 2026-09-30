@@ -2,12 +2,20 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from mobile_playbook.common.storage_paths import work_root
 from types import SimpleNamespace
 
 from mobile_playbook.dashboard_sync import trigger
 from mobile_playbook.api.services import runs as runs_service
 from mobile_playbook.orchestration.scan_runner import RunOptions
+
+
+@pytest.fixture(autouse=True)
+def isolated_work_root(tmp_path, monkeypatch):
+    # The trigger opens and rotates work_root()/dashboard-sync.log; keep it off the real work folder.
+    monkeypatch.setenv("WORK_DIR", str(tmp_path / "work"))
 
 
 def test_post_run_trigger_starts_detached_worker(monkeypatch, tmp_path):
@@ -110,3 +118,39 @@ def test_api_failure_updates_registry_before_trigger(monkeypatch, tmp_path):
     runs_service.execute_run("run-id", "ios", object(), options)
 
     assert events == ["failed", "released", "triggered"]
+
+
+def test_the_sync_log_is_rotated_once_it_passes_the_size_limit(tmp_path):
+    log = tmp_path / "dashboard-sync.log"
+    log.write_text("new" * 10)
+    (tmp_path / "dashboard-sync.log.1").write_text("older")
+
+    assert trigger.rotate_log(log, max_bytes=16) is True
+
+    assert not log.exists()
+    assert (tmp_path / "dashboard-sync.log.1").read_text() == "new" * 10
+
+
+def test_a_small_or_missing_sync_log_is_left_alone(tmp_path):
+    log = tmp_path / "dashboard-sync.log"
+
+    assert trigger.rotate_log(log, max_bytes=16) is False
+    log.write_text("small")
+    assert trigger.rotate_log(log, max_bytes=16) is False
+    assert log.read_text() == "small"
+
+
+def test_a_failed_rotation_still_starts_the_worker(monkeypatch, tmp_path):
+    monkeypatch.delenv(trigger.AUTO_TRIGGER_ENV, raising=False)
+    monkeypatch.setattr(trigger, "LOG_MAX_BYTES", 0)
+    log = work_root() / "dashboard-sync.log"
+    log.parent.mkdir(parents=True)
+    log.write_text("x")
+
+    def refuse(*args, **kwargs):
+        raise PermissionError("read-only")
+
+    monkeypatch.setattr(trigger.os, "replace", refuse)
+    monkeypatch.setattr(trigger.subprocess, "Popen", lambda command, **kwargs: SimpleNamespace(pid=99))
+
+    assert trigger.trigger_dashboard_sync(tmp_path / "reports") == 99
