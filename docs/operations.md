@@ -183,12 +183,12 @@ The plist carries **no credentials** — it is world-readable in
 
 ## Safety properties
 
-**Single instance.** `reports/.dashboard_sync.lock` is a host-wide `flock` held
+**Single instance.** `artifacts/reports/.dashboard_sync.lock` is a host-wide `flock` held
 for the duration of a pass. A second pass exits as busy, or waits when
 `--lock-wait-seconds` is set (post-run triggers use 60s so two platforms
 finishing together serialise rather than one vanishing).
 
-**Processed ledger.** `reports/.dashboard_sync_ledger.json` maps a run timestamp
+**Processed ledger.** `artifacts/reports/.dashboard_sync_ledger.json` maps a run timestamp
 to the sha256 digest of that run's manifest and results feed. A matching digest
 short-circuits the report as unchanged. A re-run that rewrites the same
 timestamp changes the digest and is resynced.
@@ -218,7 +218,7 @@ rows are read.
 | `failed` | a write failed; `error` is short and redacted, `retryable` says whether repeating could help |
 | `not_required` | no sync is expected — the run did not complete, or the folder predates the manifest |
 
-State lives in `reports/<RUN_TIMESTAMP>/sync_status.json`, written atomically
+State lives in `artifacts/reports/<RUN_TIMESTAMP>/sync_status.json`, written atomically
 under a per-run lock. It is a *projection*: if it is missing or unreadable the
 API derives the status from the manifest and the ledger instead, so runs made
 before this existed report correctly and deleting a sidecar cannot make a
@@ -353,7 +353,7 @@ database holds only a checksum and a logical `icons/<ARTIFACT_ID>.png`
 reference. See [api.md](api.md#application-icons) for the endpoint, the
 extraction rules and their limits.
 
-**Storage.** `ARTIFACT_STORE_DIR` (default `<repository root>/derived`) must be
+**Storage.** `ARTIFACT_STORE_DIR` (default `<repository root>/artifacts/derived`) must be
 on a volume that survives a redeploy wherever the checkout is disposable —
 [configuration.md](configuration.md#artifact_store_dir) covers persistence,
 cleanup and retention. Losing the store is not a data-loss event: icons report

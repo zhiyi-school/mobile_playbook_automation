@@ -1,7 +1,7 @@
 # Testing
 
-How to run and extend the backend test suite. The tests are the source of truth
-for behaviour: where this documentation and a test disagree, the test is right.
+How to run and extend the backend test suite. When a test and the docs
+disagree, inspect the current code and intended contract; either can be stale.
 
 ## Running
 
@@ -63,8 +63,8 @@ transitive versions, so a clean installation is reproducible only within those
 constraints; review resolver changes when refreshing an environment.
 
 Python 3.11 is the minimum supported runtime and the CI runtime. The repository
-has no separately configured Python linter or type checker; `compileall` and
-pytest are the existing static/runtime checks.
+uses Ruff for correctness linting, plus `compileall` and pytest. There is no
+configured type checker.
 
 ### Continuous integration
 
@@ -99,7 +99,7 @@ the matching path. Paths below are relative to `tests/`.
 ## Conventions worth following
 
 **Tests must not read your machine.** Anything that resolves a real path —
-`.env`, `reports/`, a config file — takes an injectable path so the test can
+`.env`, `artifacts/reports/`, a config file — takes an injectable path so the test can
 point it at `tmp_path`. A test that reads the repository's real `.env` will
 pass on your checkout and fail on someone else's. An autouse fixture in
 `tests/conftest.py` points `storage_paths.CONFIG_ROOT` at each test's

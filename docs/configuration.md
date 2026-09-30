@@ -70,7 +70,7 @@ apps:
     test_bundle_id: com.example.placeholder.bundle
     artifact:
       source: local_ipa
-      ipa: intake/ios/ipas/example-app.ipa
+      ipa: artifacts/intake/ios/ipas/example-app.ipa
       expected_bundle_id: com.example.placeholder
     risks:
       ios-feature-01-risk-01:
@@ -110,8 +110,8 @@ processes in deliberately different ways.
 | Variable | Read by | Purpose |
 | --- | --- | --- |
 | `MOBSF_API_KEY` | run process | authenticates to a local MobSF instance for the iOS static-analysis risk |
-| `SUPABASE_URL` | sync worker only | dashboard project URL |
-| `SUPABASE_SERVICE_ROLE_KEY` | sync worker only | bypasses row-level security |
+| `SUPABASE_URL` | dashboard sync, assessment, and icon backfill workers | dashboard project URL |
+| `SUPABASE_SERVICE_ROLE_KEY` | dashboard sync, assessment, and icon backfill workers | bypasses row-level security |
 | `DASHBOARD_SYNC_AUTO_TRIGGER` | API and CLI | `false` disables the post-run worker launch |
 | `CORS_ALLOWED_ORIGINS` | API process | exact browser origins allowed to call the API |
 | `ARTIFACTS_DIR` | API, CLI, workers | root holding intake, derived, reports and work; default `<repository>/artifacts`. Each location below overrides it — see [storage](./storage.md) |
@@ -121,24 +121,25 @@ processes in deliberately different ways.
 | `ARTIFACT_STORE_DIR` | API, sync worker, backfill | derived artifact metadata and icons; default `<ARTIFACTS_DIR>/derived` |
 | `IOS_PLAYBOOK_DIR` | API | where the iOS developer remediation playbook lives |
 | `ANDROID_PLAYBOOK_DIR` | API | where the Android developer remediation playbook lives |
-| `PLAYBOOK_SOURCE_DOWNLOAD_ENABLED` | API | `false` refuses implemented-control archive downloads |
+| `PLAYBOOK_SOURCE_DOWNLOAD_ENABLED` | API process environment only | exported `false` refuses implemented-control archive downloads; `.env` is ignored |
 | `LOG_LEVEL` | API, CLI, workers | `DEBUG` enables verbose logging; default `INFO` — see [`LOG_LEVEL`](#log_level) |
 
 ### Who may read what
 
-- **The dashboard sync worker** loads the whole `.env` through
-  `mobile_playbook/common/env_file.py`'s `load_env_file()`, because it genuinely needs
-  the service-role key. It is the only process that ever holds that key.
+- **The sync, assessment, and icon backfill workers** load the whole `.env`
+  through `mobile_playbook/common/env_file.py` because they use the service-role
+  key for database access. The CLI also loads the whole file, even though a run
+  does not use that key.
 - **The API** must not. `mobile_playbook/api/settings.py` reads one allowlisted
   key at a time. `ALLOWED_ENV_KEYS` currently contains `CORS_ALLOWED_ORIGINS`,
   `ARTIFACTS_DIR`, `ARTIFACT_STORE_DIR`, `INTAKE_DIR`, `IOS_PLAYBOOK_DIR`,
   `ANDROID_PLAYBOOK_DIR`, `REPORTS_DIR` and `WORK_DIR`, all
-  non-secret; any other key raises `DisallowedSettingError`. The API package does not import `load_env_file` at
-  all, so there is no code path from it to whole-file loading.
+  non-secret; any other key raises `DisallowedSettingError`. The API package
+  does not import `load_env_file`, so it has no path to whole-file loading.
 
-The practical consequence: putting `SUPABASE_SERVICE_ROLE_KEY` in `.env` does
-not put it in the API process's environment, even though both read the same
-file.
+Putting `SUPABASE_SERVICE_ROLE_KEY` in `.env` does not load it into the
+API process. An exported shell variable is still inherited by that process,
+so start the API without the service-role key in its environment.
 
 ### Precedence
 
@@ -204,12 +205,12 @@ catalogue. See [developer-playbook.md](developer-playbook.md).
 
 ### `PLAYBOOK_SOURCE_DOWNLOAD_ENABLED`
 
-```env
-PLAYBOOK_SOURCE_DOWNLOAD_ENABLED=true
+```bash
+export PLAYBOOK_SOURCE_DOWNLOAD_ENABLED=false
 ```
 
-Defaults to true. Set `false` on any host reachable beyond the trusted LAN:
-`GET /platforms/{platform}/controls/{control_id}/source/download` then answers
+Defaults to true. On a host reachable beyond the trusted LAN, export `false` in the API process environment. This key is not on the API `.env` allowlist, so setting it only in `.env` has no effect. When disabled,
+`GET /platforms/{platform}/controls/{control_id}/source/download` answers
 `403` and the corresponding `…/source` metadata reports
 `download_enabled: false`, while the control's steps, screenshots and archive
 metadata stay available. This API has no authentication of its own, so this
@@ -240,7 +241,7 @@ ARTIFACT_STORE_DIR="/var/lib/mobile-playbook/derived"
 ```
 
 Where extracted artifact metadata and application icons are written. Defaults to
-`<repository root>/derived`.
+`<repository root>/artifacts/derived`.
 
 ```text
 <ARTIFACT_STORE_DIR>/artifacts/<ARTIFACT_ID>.json   extracted metadata
@@ -250,7 +251,7 @@ Where extracted artifact metadata and application icons are written. Defaults to
 `<ARTIFACT_ID>` is the SHA-256 of the build the entry was derived from, so the
 layout deduplicates by checksum on its own and every path is relative to the
 store root. Original IPA/APK files are **not** moved here; they stay in
-`intake/{ios,android}/{ipas,apks}/` exactly as before.
+`artifacts/intake/{ios,android}/{ipas,apks}/`.
 
 **Persistence.** Point this at a volume that survives a redeploy in any posture
 where the repository checkout is disposable. If the store is lost, icons simply

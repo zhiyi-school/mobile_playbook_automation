@@ -30,16 +30,16 @@ the split-file setup steps.
 python -m mobile_playbook list-risks --platform android
 
 python -m mobile_playbook run --platform android --config configs/android.yaml \
-  --risks android-feature-06-risk-01 --out reports
+  --risks android-feature-06-risk-01
 
 python -m mobile_playbook run --platform android --config configs/android.yaml \
-  --risks android-feature-01-risk-02 --out reports
+  --risks android-feature-01-risk-02
 ```
 
 Outputs land under:
 
 ```text
-reports/<RUN_TIMESTAMP>/android/<APP_ID>/<RISK_ID>/<CASE_ID>/
+artifacts/reports/<RUN_TIMESTAMP>/android/<APP_ID>/<RISK_ID>/<CASE_ID>/
 ```
 
 ## Requirements
@@ -82,7 +82,7 @@ apps:
 
 An older flat package-list shape is still accepted; see
 [Configuration](configuration.md). Where a local file is supplied instead, it
-goes under `intake/android/apks/` and is referenced as `<APK_PATH>`.
+goes under `artifacts/intake/android/apks/` and is referenced as `<APK_PATH>`.
 
 ## Risk execution
 
@@ -92,7 +92,7 @@ goes under `intake/android/apks/` and is referenced as `<APK_PATH>`.
 | `android-feature-01-risk-02` — APK repackaging | ADB, Appium, plus `apktool`, `apksigner`, `keytool` | pulls, decodes, rebuilds, resigns, reinstalls and launches |
 
 The repackaging risk modifies device state. Working files are left under
-`work/android/repackaging/` for inspection, and the original APK is reinstalled
+`artifacts/work/android/repackaging/` for inspection, and the original APK is reinstalled
 afterwards when `restore_original_after_test` is true. Use a test device.
 
 Stages, statuses and how to add a new Android risk: [Risks](risks.md).

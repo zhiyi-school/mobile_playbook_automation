@@ -7,6 +7,7 @@ It uses platform-prefixed risk IDs:
 | Risk ID | Platform | Purpose |
 | --- | --- | --- |
 | `ios-feature-01-risk-01` | iOS | IPA acquisition and static-analysis exposure |
+| `ios-feature-01-risk-02` | iOS | IPA repackaging and reinstall validation |
 | `ios-feature-02-risk-01` | iOS | TLS traffic interception exposure |
 | `ios-feature-03-risk-01` | iOS | On-screen content captured by an authorised screen recorder |
 | `ios-feature-04-risk-01` | iOS | Custom keyboard keystroke collection |
@@ -53,7 +54,7 @@ done
 Every file an entry config includes has its own `*.example.yaml` next to it, so
 the copies load as they are. The loop skips any real config you already have.
 
-Use `configs/ios.yaml` for iOS apps, IPA paths, signing, Appium, and enabled iOS risks. Put IPAs under `intake/ios/ipas/` or another local path.
+Use `configs/ios.yaml` for iOS apps, IPA paths, signing, Appium, and enabled iOS risks. Put IPAs under `artifacts/intake/ios/ipas/` or another local path.
 
 Use `configs/android.yaml` for Android package names, ADB/Appium settings, and enabled Android risks.
 
@@ -80,42 +81,44 @@ python -m mobile_playbook list-risks --platform android
 Run iOS risks:
 
 ```bash
-python -m mobile_playbook run --platform ios --config configs/ios.yaml --risks ios-feature-01-risk-01 --out reports
-python -m mobile_playbook run --platform ios --config configs/ios.yaml --risks ios-feature-04-risk-01 --out reports
+python -m mobile_playbook run --platform ios --config configs/ios.yaml --risks ios-feature-01-risk-01
+python -m mobile_playbook run --platform ios --config configs/ios.yaml --risks ios-feature-04-risk-01
 ```
 
 Run one iOS app:
 
 ```bash
-python -m mobile_playbook run --platform ios --config configs/ios.yaml --apps example-app --risks ios-feature-01-risk-01 --out reports
+python -m mobile_playbook run --platform ios --config configs/ios.yaml --apps example-app --risks ios-feature-01-risk-01
 ```
 
 Run Android risks:
 
 ```bash
-python -m mobile_playbook run --platform android --config configs/android.yaml --risks android-feature-06-risk-01 --out reports
-python -m mobile_playbook run --platform android --config configs/android.yaml --risks android-feature-01-risk-02 --out reports
+python -m mobile_playbook run --platform android --config configs/android.yaml --risks android-feature-06-risk-01
+python -m mobile_playbook run --platform android --config configs/android.yaml --risks android-feature-01-risk-02
 ```
 
 Dry run:
 
 ```bash
-python -m mobile_playbook run --platform ios --config configs/ios.yaml --risks ios-feature-01-risk-01 --dry-run --out reports
-python -m mobile_playbook run --platform android --config configs/android.yaml --risks android-feature-06-risk-01 --dry-run --out reports
+python -m mobile_playbook run --platform ios --config configs/ios.yaml --risks ios-feature-01-risk-01 --dry-run
+python -m mobile_playbook run --platform android --config configs/android.yaml --risks android-feature-06-risk-01 --dry-run
 ```
 
 Run both platforms in one command:
 
 ```bash
-python -m mobile_playbook run-all --ios-config configs/ios.yaml --android-config configs/android.yaml --apps example-app,other-example-app --out reports
+python -m mobile_playbook run-all --ios-config configs/ios.yaml --android-config configs/android.yaml
 ```
 
-`run-all` runs the iOS and Android `run` flows concurrently in one process (Appium/adb/network calls are I/O-bound, so a thread per platform is enough). It is additive on top of `run` — nothing about single-platform `run` changes. `--apps`/`--risks` are applied to both configs, and each platform still writes its own `reports/<run_timestamp>/ios/...` or `.../android/...` tree exactly as it would from a standalone `run`, so results are never merged. Each platform reserves its own `<run_timestamp>` atomically, by creating the directory as part of claiming the name, so two platforms starting in the same second get separate folders (the second one takes a `-2` suffix) and each keeps its own top-level `summary.md`, `dashboard_results.json`, and `run_manifest.json`.
+`run-all` runs the iOS and Android `run` flows concurrently in one process (Appium/adb/network calls are I/O-bound, so a thread per platform is enough). It is additive on top of `run` — nothing about single-platform `run` changes. `--apps`/`--risks` are applied to both configs, and each platform still writes its own `artifacts/reports/<run_timestamp>/ios/...` or `.../android/...` tree exactly as it would from a standalone `run`, so results are never merged. Each platform reserves its own `<run_timestamp>` atomically, by creating the directory as part of claiming the name, so two platforms starting in the same second get separate folders (the second one takes a `-2` suffix) and each keeps its own top-level `summary.md`, `dashboard_results.json`, and `run_manifest.json`.
+
+Without storage overrides, the commands above use `artifacts/reports/`. CLI `--out` can select another directory; see [runtime storage](docs/storage.md).
 
 Acquire iOS artifacts only:
 
 ```bash
-python -m mobile_playbook acquire --config configs/ios.yaml --apps example-app --out work/ios/acquired
+python -m mobile_playbook acquire --config configs/ios.yaml --apps example-app
 ```
 
 Inspect IPA mutability:
@@ -137,11 +140,12 @@ See [docs/api.md](docs/api.md) for the endpoint list and how to explore it at `/
 ```text
 mobile_playbook/       Python package
 configs/               iOS and Android YAML configs
-intake/ios/ipas/       local IPA drop-zone
-intake/android/apks/   local APK drop-zone for future APK-intake flows
-work/ios/              generated iOS working files
-work/android/          generated Android working files
-reports/               timestamped run reports
+artifacts/intake/ios/ipas/       local IPA drop-zone
+artifacts/intake/android/apks/   local APK upload drop-zone
+artifacts/work/ios/              generated iOS working files
+artifacts/work/android/          generated Android working files
+artifacts/derived/               artifact metadata and icons
+artifacts/reports/               timestamped run reports
 ```
 
 ## Contributor verification

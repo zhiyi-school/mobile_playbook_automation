@@ -506,7 +506,7 @@ filename, size and SHA-256; `…/source/download` serves the bytes.
 **Limitation.** This API has no authentication of its own, so an archive
 download is protected only by the network posture of the host (see
 [architecture.md](architecture.md)). On any host reachable beyond the trusted
-LAN, set `PLAYBOOK_SOURCE_DOWNLOAD_ENABLED=false`; `…/source` then reports
+LAN, export `PLAYBOOK_SOURCE_DOWNLOAD_ENABLED=false` when starting the API; a value only in `.env` is ignored; `…/source` then reports
 `download_enabled: false` and `…/source/download` answers `403`, while the
 metadata and the rest of the control stay available.
 

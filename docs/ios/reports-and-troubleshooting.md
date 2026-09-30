@@ -3,7 +3,7 @@
 Each run creates a timestamped report directory:
 
 ```text
-reports/<run_timestamp>/
+artifacts/reports/<run_timestamp>/
 ```
 
 The timestamp format is `YYYY-MM-DD_HH-MM-SS` in the workstation's local timezone. If a timestamp already exists, the next run gets a suffix such as `-2`.
@@ -11,10 +11,11 @@ The timestamp format is `YYYY-MM-DD_HH-MM-SS` in the workstation's local timezon
 iOS per-app risk outputs are written under:
 
 ```text
-reports/<run_timestamp>/ios/<app_id>/<risk_id>/<test_case_id>/
+artifacts/reports/<run_timestamp>/ios/<app_id>/<risk_id>/<test_case_id>/
 ```
 
-The top-level `reports/<run_timestamp>/summary.md` and `dashboard_results.json` cover all platforms in a single run; see [docs/android/reports-and-troubleshooting.md](../android/reports-and-troubleshooting.md) for the Android side. If `device.appium_auto_start` is enabled, that same top-level directory also gets an `appium.log` with every Appium launch attempt for the run, including any restarts after a mid-run crash. That directory also gets an `events.jsonl`, one JSON line per `risk_started`/`risk_completed`/`appium_recovery` event as the run progresses — used by the API's `GET /runs/{run_id}/events` stream (see [docs/api.md](../api.md#watching-a-runs-progress-live)) but readable directly too.
+The top-level `artifacts/reports/<run_timestamp>/summary.md` and `dashboard_results.json` cover the app results in this run. `run-all` creates a separate run directory
+for each platform. See [docs/android/reports-and-troubleshooting.md](../android/reports-and-troubleshooting.md) for the Android side. If `device.appium_auto_start` is enabled, that same top-level directory also gets an `appium.log` with every Appium launch attempt for the run, including any restarts after a mid-run crash. That directory also gets an `events.jsonl`, one JSON line per `risk_started`/`risk_completed`/`appium_recovery` event as the run progresses — used by the API's `GET /runs/{run_id}/events` stream (see [docs/api.md](../api.md#watching-a-runs-progress-live)) but readable directly too.
 
 `summary.md`'s table and each `dashboard_results.json` record carry a short, cleaned one-line message rather than a raw error dump (a failed Appium call's full "Message: ...\nStacktrace:\n..." text is reduced to just its first line) — the complete untouched error still lives in that test's `logs.txt`/`report.json`. For iOS, each `dashboard_results.json` record also carries a `report_path` field (e.g. `ios/<app_id>/ios-feature-04-risk-01/collection_server`) pointing at that per-test folder, and `summary.md` links to it directly from a `Report` column.
 
@@ -129,7 +130,7 @@ Screen capture (`ios-feature-03-risk-01`) preflight warnings are advisory too:
 
 Local IPA not found:
 
-Check `artifact.ipa` and make sure the file exists under `intake/ios/ipas/` or the configured absolute path.
+Check `artifact.ipa` and make sure the file exists under `artifacts/intake/ios/ipas/` or the configured absolute path.
 
 Bundle ID mismatch:
 

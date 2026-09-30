@@ -66,7 +66,7 @@ runner:
   uninstall_after_each_test: true
   app_install_timeout_ms: 480000
   launch_wait_seconds: 5
-  work_dir: "work/ios"
+  work_dir: "artifacts/work/ios"
   permission_alerts:
     enabled: true
     action: "dismiss"
@@ -86,8 +86,8 @@ apps:
     test_bundle_id: ""
     artifact:
       source: "local_ipa"
-      ipa: "intake/ios/ipas/example_app.ipa"
-      workspace_dir: "work/ios/acquired"
+      ipa: "artifacts/intake/ios/ipas/example_app.ipa"
+      workspace_dir: "artifacts/work/ios/acquired"
       expected_bundle_id: ""
     expected_behavior:
       app_state_must_be_foreground: true

@@ -17,7 +17,7 @@ All examples use placeholders — `Example App`, `example-app`,
 ## Four integration shapes
 
 **1. Standalone automation service.** Run the CLI on a host with a device
-attached, read `reports/<RUN_TIMESTAMP>/` off disk. No HTTP, no dashboard.
+attached, read `artifacts/reports/<RUN_TIMESTAMP>/` off disk by default. No HTTP, no dashboard.
 Simplest and least coupled.
 
 **2. An API behind your own web application.** Run
@@ -78,7 +78,7 @@ apps:
     bundle_id: com.example.placeholder
     artifact:
       source: local_ipa
-      ipa: intake/ios/ipas/example-app.ipa
+      ipa: artifacts/intake/ios/ipas/example-app.ipa
       expected_bundle_id: com.example.placeholder
     risks:
       <RISK_ID>:
@@ -110,7 +110,7 @@ curl http://127.0.0.1:8080/config/<PLATFORM>/apps
 
 iOS risks that need a binary read it from an `artifact` block. `source` is
 `local_ipa` (a path you provide), `intake_ipa` (a file dropped in
-`intake/ios/ipas/`) or `installed_app_reference` (no binary; device-only
+`artifacts/intake/ios/ipas/`) or `installed_app_reference` (no binary; device-only
 checks). Upload through the API with `POST /artifacts/{platform}` if your
 integration needs to accept files.
 
@@ -205,7 +205,7 @@ curl -N http://127.0.0.1:8080/runs/<RUN_ID>/events
 
 SSE carries `risk_started`, `risk_completed`, `appium_recovery` and
 `device_unlocked` events, ending with a `done` event, then closes. The stream
-re-reads `reports/<RUN_ID>/events.jsonl` from the start on every connection, so
+re-reads `artifacts/reports/<RUN_ID>/events.jsonl` from the start on every connection, so
 a client that connects late still receives the whole history, and any number of
 clients can watch the same run.
 
@@ -268,7 +268,7 @@ curl http://127.0.0.1:8080/reports/<RUN_TIMESTAMP>/sarif
 ```
 
 SARIF 2.1.0, `application/sarif+json`, sent as a download. Generated from the
-same `dashboard_results.json` and written to `reports/<RUN_TIMESTAMP>/results.sarif`.
+same `dashboard_results.json` and written to `artifacts/reports/<RUN_TIMESTAMP>/results.sarif` by default.
 Only completed runs produce it; `404` otherwise. Deterministic and free of
 absolute host paths, with stable per-finding fingerprints. It is an **export**
 — nothing in the pipeline reads it back. Field mapping and limitations:
@@ -360,8 +360,8 @@ landed.
 
 | Path | Growth | Notes |
 | --- | --- | --- |
-| `reports/<RUN_TIMESTAMP>/` | one directory per run, retained indefinitely | includes screenshots and recordings; the bulk of the footprint |
-| `artifacts/work/<PLATFORM>/` | per-app unpacked bundles and logs | can be pruned between runs |
+| `artifacts/reports/<RUN_TIMESTAMP>/` (default) | one directory per run, retained indefinitely | includes screenshots and recordings; the bulk of the footprint |
+| `artifacts/work/<PLATFORM>/` | per-run work files and logs | eligible old run folders can be pruned with `prune-work` |
 | `artifacts/intake/` | artifacts you supply | yours to manage |
 
 Nothing prunes automatically. Plan retention yourself; report contents are
@@ -411,7 +411,7 @@ treat those as sensitive.
   against.
 - **No API versioning.** Endpoint paths are unversioned; a breaking change
   would break clients silently.
-- **No retention or pruning** of reports and working files.
+- **No automatic retention.** Reports remain until an operator removes them; eligible old work folders can be pruned manually with `python -m mobile_playbook prune-work` (see [operations.md](operations.md#pruning-old-run-work-folders)).
 - **One run per platform**, single host — no queue, no horizontal scaling.
 - **Implemented-control archives have no per-user authorisation.** The only
   host-level control is `PLAYBOOK_SOURCE_DOWNLOAD_ENABLED`, which is

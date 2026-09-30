@@ -106,7 +106,7 @@ This is implemented generically once in [`mobile_playbook/orchestration/scan_run
 
 ### CLI layer
 
-`mobile_playbook/cli.py` builds an `argparse` parser with subcommands `validate`, `list-risks`, `run`, `run-all`, `acquire`, `inspect-ipa`. `--platform` is required with no default (there is no implicit platform). `run-all` is additive: it loads both platform configs and runs `_run()`/`_run_android()` — the same functions `run` uses — concurrently on two `threading.Thread`s, so the single-platform code path is never duplicated or changed. See [docs/README.md](README.md#running-both-platforms-together) for that command.
+`mobile_playbook/cli.py` builds an `argparse` parser with subcommands `validate`, `validate-playbook`, `list-risks`, `run`, `run-all`, `acquire`, `inspect-ipa`, and `prune-work`. `--platform` is required for `validate`, `validate-playbook`, `list-risks` and `run`; the other commands have their own arguments. `run-all` is additive: it loads both platform configs and runs `_run()`/`_run_android()` — the same functions `run` uses — concurrently on two `threading.Thread`s, so the single-platform code path is never duplicated or changed. See [docs/README.md](README.md#running-both-platforms-together) for that command.
 
 ### Config layer
 
@@ -169,7 +169,7 @@ Both outputs are deliberately kept human/dashboard-facing rather than a raw dump
 ### SARIF export layer
 
 `mobile_playbook/reporting/sarif_writer.py` converts a completed run's
-`dashboard_results.json` into `reports/<run_timestamp>/results.sarif`, a SARIF
+`dashboard_results.json` into `artifacts/reports/<run_timestamp>/results.sarif`, a SARIF
 2.1.0 document. SARIF is the OASIS interchange format security tools use to pass
 findings between each other, so this exists purely for interoperability with
 tooling outside this project.
@@ -232,17 +232,18 @@ three call `catalogue.build`; none reimplements Markdown interpretation.
 ### API configuration and the secret boundary
 
 The repository `.env` holds both non-secret settings and real credentials, so
-the two processes that read it read it very differently.
+the API and other processes read it differently.
 
-The **dashboard sync worker** loads the whole file through
-`mobile_playbook/common/env_file.py`'s `load_env_file()`, because it genuinely needs
-`SUPABASE_SERVICE_ROLE_KEY` — a key that bypasses row-level security — plus
-`SUPABASE_URL`. That is the only process that ever holds it.
+The **dashboard sync, assessment, and icon backfill workers** load the whole
+file because they use `SUPABASE_SERVICE_ROLE_KEY` — a key that bypasses
+row-level security — and `SUPABASE_URL`. The CLI loads the whole `.env` as well,
+although a run does not use the service-role key.
 
 The **API** must not. `mobile_playbook/api/settings.py` reads one allowlisted
-key at a time instead: `env_setting()` checks `ALLOWED_ENV_KEYS` (currently just
-`CORS_ALLOWED_ORIGINS`) and raises `DisallowedSettingError` for anything else,
-and its parser returns a single requested key rather than importing the file
+key at a time instead. `env_setting()` checks `ALLOWED_ENV_KEYS` (the eight
+non-secret settings listed in [configuration.md](configuration.md#who-may-read-what))
+and raises `DisallowedSettingError` for anything else. Its parser returns a
+single requested key rather than importing the file
 into `os.environ`. It deliberately does not reuse `load_env_file()` and does not
 import that module at all, so there is no code path from the API package to
 whole-file loading — the same trade-off `dashboard_sync/trigger.py` already made
@@ -284,16 +285,16 @@ results and evidence fully available.
 
 Three files carry the state, each with one job:
 
-- `reports/.dashboard_sync_ledger.json` — the authority on *whether* a report was
+- `artifacts/reports/.dashboard_sync_ledger.json` — the authority on *whether* a report was
   published, mapping a run timestamp to the sha256 digest of the manifest and
   feed that were synced. A digest mismatch is what makes a re-run of the same
   timestamp resync rather than being skipped.
-- `reports/<run_timestamp>/sync_status.json` — the lifecycle *around* that fact
+- `artifacts/reports/<run_timestamp>/sync_status.json` — the lifecycle *around* that fact
   for one run: status, attempt, timings, a redacted error, and the row counts the
   last attempt reconciled. `mobile_playbook/dashboard_sync/run_status.py` writes it atomically
   under a per-run `flock`, and rebuilds it from the manifest and ledger when it is
   missing or unreadable, so it is a projection rather than a competing truth.
-- `reports/.dashboard_sync.lock` — the host-wide `flock` that serializes passes.
+- `artifacts/reports/.dashboard_sync.lock` — the host-wide `flock` that serializes passes.
   The API reads it (without holding it) to answer whether a worker is running.
 
 Idempotency does not depend on any of that state being correct. Applications and

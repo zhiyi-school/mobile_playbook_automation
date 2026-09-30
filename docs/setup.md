@@ -39,23 +39,29 @@ equivalent to the matching `python -m` form used throughout these docs.
 cp .env.example .env
 ```
 
-`.env` holds local secrets and is not committed. Two processes read it very
-differently, and the difference is deliberate:
+`.env` holds local secrets and is not committed. The API reads only
+allowlisted settings from it; the CLI and database workers load the whole file:
 
-| Key | Read by | Notes |
+| Key | Used by | Notes |
 | --- | --- | --- |
 | `MOBSF_API_KEY` | the run, when the iOS static-analysis risk uses the MobSF provider | |
-| `SUPABASE_URL` | the dashboard sync worker only | |
-| `SUPABASE_SERVICE_ROLE_KEY` | the dashboard sync worker only | bypasses row-level security; never expose it to a browser |
+| `SUPABASE_URL` | dashboard sync, assessment, and icon backfill workers | dashboard project URL |
+| `SUPABASE_SERVICE_ROLE_KEY` | dashboard sync, assessment, and icon backfill workers | bypasses row-level security; never expose it to a browser |
 | `DASHBOARD_SYNC_AUTO_TRIGGER` | the API and CLI, to decide whether to launch a post-run worker | |
-| `CORS_ALLOWED_ORIGINS` | the API process | one of the four keys the API reads from `.env` |
-| `ARTIFACT_STORE_DIR` | the API, worker and backfill | where derived icons and artifact metadata live; empty means `<repo>/derived` |
+| `CORS_ALLOWED_ORIGINS` | API | exact browser origins |
+| `ARTIFACTS_DIR` | API, CLI, workers | base directory for runtime data; default `<repo>/artifacts` |
+| `INTAKE_DIR` | API, CLI, workers | override for IPA/APK intake |
+| `REPORTS_DIR` | API, CLI, workers | override for reports; empty uses `<repo>/artifacts/reports` |
+| `WORK_DIR` | API, CLI, workers | override for work files |
+| `ARTIFACT_STORE_DIR` | the API, worker and backfill | where derived icons and artifact metadata live; empty means `<repo>/artifacts/derived` |
 | `IOS_PLAYBOOK_DIR` | the API process | where the iOS developer remediation playbook lives; empty falls back to `playbook_dir` in `configs/split/ios/risks.yaml` |
 | `ANDROID_PLAYBOOK_DIR` | the API process | the same for Android |
-| `PLAYBOOK_SOURCE_DOWNLOAD_ENABLED` | the API process | `false` refuses implemented-control archive downloads |
 
-The API process never loads the whole file — it reads one allowlisted key at a
-time, so `SUPABASE_SERVICE_ROLE_KEY` never enters it. See
+The CLI also loads the full `.env` into its process, although it does not use
+the service-role key for a run. The API reads one allowlisted key at a time, so
+it does not load that key from `.env`. To disable source archive downloads,
+export `PLAYBOOK_SOURCE_DOWNLOAD_ENABLED=false` before starting the API; a
+value in `.env` is ignored. See
 [configuration.md](configuration.md#environment-variables-and-the-secret-boundary)
 for precedence rules and the allowlist that enforces this.
 
@@ -88,7 +94,7 @@ apps:
     test_bundle_id: com.example.placeholder.bundle
     artifact:
       source: local_ipa
-      ipa: intake/ios/ipas/example-app.ipa
+      ipa: artifacts/intake/ios/ipas/example-app.ipa
       expected_bundle_id: com.example.placeholder
     risks:
       ios-feature-01-risk-01:
@@ -102,9 +108,11 @@ described in [configuration.md](configuration.md#yaml-includes).
 
 Only needed if you want results published to a Supabase dashboard. Set
 `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` in `.env`, and apply the
-dashboard's SQL migrations from the frontend repository. Skip this entirely to
-run the backend standalone — reports and evidence still land on disk and the
-API still serves them. See [operations.md](operations.md).
+dashboard's SQL migrations from the frontend repository. To run standalone,
+set `DASHBOARD_SYNC_AUTO_TRIGGER=false` in `.env`; the copied example enables
+automatic sync, which otherwise starts a worker after each run even without
+usable credentials. Reports and evidence still land on disk and the API still
+serves them. See [operations.md](operations.md).
 
 ## 6. Device and Appium prerequisites
 
@@ -136,7 +144,7 @@ starting Appium or a device session:
 
 ```bash
 python -m mobile_playbook run --platform ios --config configs/ios.yaml \
-  --risks ios-feature-01-risk-01 --dry-run --out reports
+  --risks ios-feature-01-risk-01 --dry-run
 ```
 
 List what is available:
@@ -150,14 +158,14 @@ python -m mobile_playbook list-risks --platform android
 
 ```bash
 python -m mobile_playbook run --platform ios --config configs/ios.yaml \
-  --apps example-app --risks ios-feature-01-risk-01 --out reports
+  --apps example-app --risks ios-feature-01-risk-01
 ```
 
 Both platforms concurrently in one process:
 
 ```bash
 python -m mobile_playbook run-all --ios-config configs/ios.yaml \
-  --android-config configs/android.yaml --out reports
+  --android-config configs/android.yaml
 ```
 
 Other commands: `acquire` (fetch iOS artifacts only) and `inspect-ipa` (report
@@ -171,7 +179,7 @@ python -m mobile_playbook.api --port 8080
 
 ```bash
 curl http://127.0.0.1:8080/health
-# {"status": "ok"}
+# The response includes status, code_revision, and started_at.
 ```
 
 Interactive endpoint browser: <http://127.0.0.1:8080/docs>. Flags are `--host`
@@ -184,17 +192,17 @@ Read [api.md](api.md#security-model) before binding it to anything else.
 
 | Path | Contents |
 | --- | --- |
-| `reports/<RUN_TIMESTAMP>/` | one run: `summary.md`, `dashboard_results.json`, `run_manifest.json`, `results.sarif`, `events.jsonl` |
-| `reports/<RUN_TIMESTAMP>/<PLATFORM>/<APP_ID>/<RISK_ID>/<CASE_ID>/` | per-test `report.json`, `logs.txt`, evidence |
-| `reports/<RUN_TIMESTAMP>/evidence/` | run-level evidence |
+| `artifacts/reports/<RUN_TIMESTAMP>/` | one run: `summary.md`, `dashboard_results.json`, `run_manifest.json`, `results.sarif`, `events.jsonl` |
+| `artifacts/reports/<RUN_TIMESTAMP>/<PLATFORM>/<APP_ID>/<RISK_ID>/<CASE_ID>/` | per-test `report.json`, `logs.txt`, evidence |
+| `artifacts/reports/<RUN_TIMESTAMP>/evidence/` | run-level evidence |
 | `artifacts/work/ios/`, `artifacts/work/android/` | intermediate artifacts, unpacked bundles, Appium logs |
 | `artifacts/work/dashboard-sync.log` | output of every detached sync worker |
-| `intake/ios/ipas/`, `intake/android/apks/` | drop-zone for local artifacts |
+| `artifacts/intake/ios/ipas/`, `artifacts/intake/android/apks/` | drop-zone for local artifacts |
 
 `artifacts/reports/` and `artifacts/work/` are gitignored. Report contents are real assessment
 data — treat them as sensitive.
 
-For API runs, `REPORTS_DIR` selects one root for creation, lookup, registry
+With the copied example `.env` and no storage overrides, both CLI and API runs use `artifacts/reports/`. For API runs, `REPORTS_DIR` selects one root for creation, lookup, registry
 state, history and synchronization; relative values are repository-relative.
 CLI `--out` remains custom and working-directory-relative. See the
 [report-root contract](api.md#report-root-and-evidence-contract).

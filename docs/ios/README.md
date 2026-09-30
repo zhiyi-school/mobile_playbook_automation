@@ -34,16 +34,16 @@ the split-file setup steps.
 python -m mobile_playbook list-risks --platform ios
 
 python -m mobile_playbook run --platform ios --config configs/ios.yaml \
-  --risks <RISK_ID> --dry-run --out reports
+  --risks <RISK_ID> --dry-run
 
 python -m mobile_playbook run --platform ios --config configs/ios.yaml \
-  --apps example-app --risks <RISK_ID> --out reports
+  --apps example-app --risks <RISK_ID>
 ```
 
 Outputs land under:
 
 ```text
-reports/<RUN_TIMESTAMP>/ios/<APP_ID>/<RISK_ID>/<CASE_ID>/
+artifacts/reports/<RUN_TIMESTAMP>/ios/<APP_ID>/<RISK_ID>/<CASE_ID>/
 ```
 
 ## Requirements
@@ -69,7 +69,7 @@ yourself and point the config at it.
 | `artifact.source` | Meaning |
 | --- | --- |
 | `local_ipa` | a path you provide, anywhere on disk |
-| `intake_ipa` | a file dropped into `intake/ios/ipas/` |
+| `intake_ipa` | a file dropped into `artifacts/intake/ios/ipas/` |
 | `installed_app_reference` | no binary — device-only checks against an already-installed app |
 
 ```yaml

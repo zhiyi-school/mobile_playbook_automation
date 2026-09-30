@@ -33,7 +33,7 @@ own pages:
   [Reports And Troubleshooting](android/reports-and-troubleshooting.md)
 
 Both platforms share the same CLI (`python -m mobile_playbook ...`), the same
-run orchestration, and the same report layout under `reports/<RUN_TIMESTAMP>/`.
+run orchestration, and the same report layout under `artifacts/reports/<RUN_TIMESTAMP>/`.
 
 ## Two statuses
 
@@ -54,13 +54,12 @@ runs the two platforms concurrently in one process:
 ```bash
 python -m mobile_playbook run-all \
   --ios-config configs/ios.yaml \
-  --android-config configs/android.yaml \
-  --out reports
+  --android-config configs/android.yaml
 ```
 
 It is additive on top of `run` — nothing about single-platform `run` changes.
 Each platform reserves its own `<RUN_TIMESTAMP>` atomically and writes its own
-`reports/<RUN_TIMESTAMP>/<PLATFORM>/...` tree, so results are never merged even
+`artifacts/reports/<RUN_TIMESTAMP>/<PLATFORM>/...` tree, so results are never merged even
 when both start in the same second.
 
 ## The dashboard

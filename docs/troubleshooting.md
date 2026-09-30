@@ -8,10 +8,10 @@ and [android/reports-and-troubleshooting.md](android/reports-and-troubleshooting
 
 | Question | Source |
 | --- | --- |
-| Did the run execute? | `reports/<RUN_TIMESTAMP>/run_manifest.json` — `status` is `completed` or `failed` |
-| What did each risk decide? | `reports/<RUN_TIMESTAMP>/summary.md`, or `dashboard_results.json` for the machine-readable feed |
-| What happened during one test? | `reports/<RUN_TIMESTAMP>/<PLATFORM>/<APP_ID>/<RISK_ID>/<CASE_ID>/logs.txt` and `report.json` |
-| What happened moment to moment? | `reports/<RUN_TIMESTAMP>/events.jsonl`, or `GET /runs/<RUN_ID>/events` live |
+| Did the run execute? | `artifacts/reports/<RUN_TIMESTAMP>/run_manifest.json` — `status` is `completed` or `failed` |
+| What did each risk decide? | `artifacts/reports/<RUN_TIMESTAMP>/summary.md`, or `dashboard_results.json` for the machine-readable feed |
+| What happened during one test? | `artifacts/reports/<RUN_TIMESTAMP>/<PLATFORM>/<APP_ID>/<RISK_ID>/<CASE_ID>/logs.txt` and `report.json` |
+| What happened moment to moment? | `artifacts/reports/<RUN_TIMESTAMP>/events.jsonl`, or `GET /runs/<RUN_ID>/events` live |
 | Did the dashboard get it? | `GET /runs/<RUN_ID>/sync-status` |
 | Is the sync worker healthy? | `GET /sync/status`, then `artifacts/work/dashboard-sync.log` |
 | What did the API do? | its stdout — `mobile_playbook.*` records are formatted by the API's log config |
@@ -94,7 +94,7 @@ paste them into issue trackers unredacted.
 | --- | --- | --- |
 | Every app shows the dashboard placeholder | `0016_application_icon_refs.sql` not applied, or no reference written yet | apply the migration, then `python -m mobile_playbook.workers.icon_backfill` |
 | Sync fails with `column ... does not exist` | same migration missing | apply it; the worker writes icon fields on every application row |
-| One app keeps its placeholder | its build has no icon this backend can read | check the reason in `derived/artifacts/<ARTIFACT_ID>.json`; `asset_catalog_no_extractor` and `adaptive_icon_vector_only` are known limits |
+| One app keeps its placeholder | its build has no icon this backend can read | check the reason in `artifacts/derived/artifacts/<ARTIFACT_ID>.json`; `asset_catalog_no_extractor` and `adaptive_icon_vector_only` are known limits |
 | Icon endpoint returns 404 for an app that has one | the API process predates the route | restart the API; `curl .../openapi.json` should list `/config/{platform}/apps/{app_id}/icon` |
 | Icon is stale after a new build | the run that produced the dashboard row used the older build | expected — icons are pinned to the build under test; the next run re-pins |
 | `asset_catalog_tool_unavailable` on every iOS app | not running on macOS, or `assetutil` missing | expected off macOS; loose-PNG extraction still works |

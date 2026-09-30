@@ -1,6 +1,6 @@
 # HTTP API
 
-`mobile_playbook/api/` is a thin HTTP wrapper around the same functions the CLI (`python -m mobile_playbook ...`) calls — config loading/validation, risk listing, `run_platform()`, and the `reports/<run_timestamp>/` files each run already writes. It exists so a separate dashboard (or `curl`, or the interactive docs) can trigger runs and read results without shelling out to the CLI.
+`mobile_playbook/api/` is a thin HTTP wrapper around the same functions the CLI (`python -m mobile_playbook ...`) calls — config loading/validation, risk listing, `run_platform()`, and the configured report-root files each run already writes. It exists so a separate dashboard (or `curl`, or the interactive docs) can trigger runs and read results without shelling out to the CLI.
 
 Nothing about the CLI changes because of this — `python -m mobile_playbook ...` still works exactly as before, and both entry points share the same underlying code.
 
@@ -130,7 +130,7 @@ curl http://127.0.0.1:8080/runs/<RUN_TIMESTAMP>
 ```
 
 ```json
-{"run_id": "<RUN_TIMESTAMP>", "platform": "ios", "config_path": "configs/ios.yaml", "status": "completed", "run_timestamp": "<RUN_TIMESTAMP>", "run_dir": "reports/<RUN_TIMESTAMP>", "error": null, "started_at": "...", "completed_at": "...", "apps": "example-app", "risks": "ios-feature-01-risk-01"}
+{"run_id": "<RUN_TIMESTAMP>", "platform": "ios", "config_path": "configs/ios.yaml", "status": "completed", "run_timestamp": "<RUN_TIMESTAMP>", "run_dir": "<ABSOLUTE_REPORTS_DIR>/<RUN_TIMESTAMP>", "error": null, "started_at": "...", "completed_at": "...", "apps": "example-app", "risks": "ios-feature-01-risk-01"}
 ```
 
 `apps` and `risks` echo back the selection the run was started with, so a client
@@ -182,13 +182,13 @@ data: {"type": "done", "status": "completed", "error": null}
 
 Every `risk_started`/`risk_completed` event comes from the same run loop that writes each test's `report.json`, and `appium_recovery` fires from the same mid-run health check that restarts Appium after a crash (see [Appium auto-start](ios/configuration.md#appium-auto-start)) — so this is the same information already available in `summary.md`/`appium.log` after the fact, just pushed live instead of read after the run finishes. A `preflight_warning` is a non-blocking run-level diagnostic: `code` is its stable machine-readable identifier, `risk_id` identifies the affected risk, `message` is the path-safe human-readable action, and `app_ids` lists the selected apps sharing that effective configuration. The stream ends with a `"done"` event once `GET /runs/{run_id}` would report anything other than `"running"`, then closes; a browser can consume it directly with `new EventSource(url)`.
 
-These events are read from `reports/{run_id}/events.jsonl`, appended to as the run progresses — a client that connects late still gets every event from the start (each poll re-reads the whole file), and any number of clients can watch the same run independently.
+These events are read from `artifacts/reports/{run_id}/events.jsonl`, appended to as the run progresses — a client that connects late still gets every event from the start (each poll re-reads the whole file), and any number of clients can watch the same run independently.
 
 A `POST /runs` call still needs everything a CLI `run` needs to actually succeed — Appium running and the device connected/trusted. The API doesn't remove those requirements, it just lets you kick the run off and check on it over HTTP instead of watching a terminal. Device *unlocking* specifically is handled automatically now (see [Automatic unlock](ios/configuration.md#automatic-unlock)) as long as the device has no passcode/Face ID/Touch ID set — Appium can't enter a passcode or biometric on a real device, so a locked, secured device still needs a person.
 
 ## Durable dashboard sync
 
-Every run writes `reports/{run_id}/run_manifest.json` alongside its
+Every run writes `artifacts/reports/{run_id}/run_manifest.json` alongside its
 `dashboard_results.json`. The manifest is written atomically at the
 orchestration boundary and records the run timestamp, platform, the app and
 risk IDs actually attempted, `started_at`, `completed_at`, a terminal `status`
@@ -247,7 +247,7 @@ nothing in the pipeline consumes SARIF back. The flow is:
 run → normalized TestResult rows → dashboard_results.json → results.sarif → download / external tool
 ```
 
-Each completed run writes `reports/<run_timestamp>/results.sarif` alongside its
+Each completed run writes `artifacts/reports/<run_timestamp>/results.sarif` alongside its
 feed, from the same rows. The write is best-effort at the orchestration boundary,
 so a SARIF failure can never change a run's outcome. A run whose manifest is not
 `completed` produces **no** SARIF at all, so a partial or failed run is never
@@ -517,11 +517,11 @@ post-run and manual invocations.
 
 ### Repeat and overlap safety
 
-The worker takes a host-wide lock (`reports/.dashboard_sync.lock`) for each
+The worker takes a host-wide lock (`artifacts/reports/.dashboard_sync.lock`) for each
 pass, so a manual invocation and a scheduled one cannot overlap; the loser
 reports `skipped, another dashboard sync is already running` and exits 0.
 
-Processed runs are recorded in `reports/.dashboard_sync_ledger.json`, keyed by
+Processed runs are recorded in `artifacts/reports/.dashboard_sync_ledger.json`, keyed by
 run timestamp against a digest of the manifest and the report feed. A pass over
 unchanged reports performs no database writes at all. Editing a report's feed
 changes its digest and makes it eligible again; `--force` re-syncs regardless,
@@ -548,8 +548,8 @@ same rows. If it adopts a dashboard-created `manual::...` assessment
 placeholder, the update is conditional so a concurrent browser sync cannot
 cause it to re-key the wrong row.
 
-Keep `SUPABASE_SERVICE_ROLE_KEY` only in this worker's server-side
-environment. Do not put it in frontend `.env`, any `VITE_*` variable,
+Keep `SUPABASE_SERVICE_ROLE_KEY` in the server-side environment of
+workers that need dashboard database access. Do not put it in frontend `.env`, any `VITE_*` variable,
 checked-in examples, or the FastAPI process environment unless that process is
 separately redesigned and authenticated. The FastAPI API remains a localhost
 or trusted-lab service and does not need database-wide credentials.
@@ -570,7 +570,7 @@ This is per-platform, not global — an iOS run and an Android run are always fr
 
 ## Uploading an IPA or APK
 
-`POST /artifacts/{platform}` accepts a multipart file upload and drops it straight into this repo's existing intake drop-zone (`intake/ios/ipas/` or `intake/android/apks/`), then inspects it for metadata to help fill in an app's config:
+`POST /artifacts/{platform}` accepts a multipart file upload and drops it straight into this repo's existing intake drop-zone (`artifacts/intake/ios/ipas/` or `artifacts/intake/android/apks/`), then inspects it for metadata to help fill in an app's config:
 
 ```bash
 curl -X POST http://127.0.0.1:8080/artifacts/ios -F "file=@example_app.ipa"
@@ -578,7 +578,7 @@ curl -X POST http://127.0.0.1:8080/artifacts/ios -F "file=@example_app.ipa"
 
 ```json
 {
-  "path": "intake/ios/ipas/<IPA_PATH>",
+  "path": "<ABSOLUTE_INTAKE_DIR>/<IPA_PATH>",
   "metadata": {
     "bundle_id": "com.example.placeholder",
     "display_name": "Example App",
@@ -589,7 +589,7 @@ curl -X POST http://127.0.0.1:8080/artifacts/ios -F "file=@example_app.ipa"
 }
 ```
 
-The `artifact_id`/`sha256` and `icon` fields come from the same inspection pass — see [Application icons](#application-icons).
+`path` is an absolute path under the configured intake directory. The `artifact_id`/`sha256` and `icon` fields come from the same inspection pass — see [Application icons](#application-icons).
 
 The file must match the platform's expected extension (`.ipa` for `ios`, `.apk` for `android`) or the request is rejected with `400`. Uploads are streamed to disk, capped at 2 GiB by default, and can be adjusted with `MAX_ARTIFACT_UPLOAD_BYTES`. Metadata comes from `inspect_ipa_metadata()` or `inspect_apk_metadata()`: iOS reads bundle ID, display name, version and `Info.plist`; Android reads package name, display name and version through `aapt`, `aapt2` or `apkanalyzer`. A file with the same name overwrites whatever was already in the intake folder after the upload completes, matching how that folder already works as a plain drop-zone.
 
@@ -617,15 +617,15 @@ them — see [Backfilling existing apps](#backfilling-existing-apps).
 ### Storage layout
 
 ```text
-intake/ios/ipas/<IPA_PATH>          original builds, unchanged
-intake/android/apks/<APK_PATH>
-derived/artifacts/<ARTIFACT_ID>.json   extracted metadata
-derived/icons/<ARTIFACT_ID>.png        normalized icon
+artifacts/intake/ios/ipas/<IPA_PATH>          original builds, unchanged
+artifacts/intake/android/apks/<APK_PATH>
+artifacts/derived/artifacts/<ARTIFACT_ID>.json   extracted metadata
+artifacts/derived/icons/<ARTIFACT_ID>.png        normalized icon
 ```
 
 `<ARTIFACT_ID>` is the build's SHA-256, so two uploads of the same file share one
-entry and re-extraction is free. `artifacts/derived/` is set by `ARTIFACT_STORE_DIR` and
-defaults to `<repository root>/derived` — see
+entry and re-extraction is free. The derived-store location is set by `ARTIFACT_STORE_DIR` and
+defaults to `<repository root>/artifacts/derived` — see
 [configuration.md](configuration.md#artifact_store_dir) for persistence and
 retention.
 
@@ -765,7 +765,7 @@ credentials as the sync worker and is not reachable from the API.
 ```bash
 curl -X POST http://127.0.0.1:8080/config/ios/apps \
   -H "Content-Type: application/json" \
-  -d '{"name": "REPLACE_WITH_APP_NAME", "bundle_id": "com.example.app", "test_bundle_id": "com.example.app", "artifact": {"source": "local_ipa", "ipa": "intake/ios/ipas/example_app.ipa"}, "risks": {"ios-feature-01-risk-01": {"enabled": true}}}'
+  -d '{"name": "REPLACE_WITH_APP_NAME", "bundle_id": "com.example.app", "test_bundle_id": "com.example.app", "artifact": {"source": "local_ipa", "ipa": "artifacts/intake/ios/ipas/example_app.ipa"}, "risks": {"ios-feature-01-risk-01": {"enabled": true}}}'
 # {"id": "replace_with_app_name"}
 
 curl -X PUT http://127.0.0.1:8080/config/ios/apps/replace_with_app_name \
@@ -1076,10 +1076,10 @@ contains them.
 
 Dashboard sync state lives on disk beside the report it describes, so it
 survives an API restart and is readable whether the run came from the CLI or the
-API. The **processed ledger** (`reports/.dashboard_sync_ledger.json`) remains the
+API. The **processed ledger** (`artifacts/reports/.dashboard_sync_ledger.json`) remains the
 authority on whether a report was published: it maps a run timestamp to the
 digest of the manifest and feed that were synced. The per-run
-`reports/<run_timestamp>/sync_status.json` sidecar adds the lifecycle around
+`artifacts/reports/<run_timestamp>/sync_status.json` sidecar adds the lifecycle around
 that fact — attempt, timings, error, counts — and is written atomically under a
 per-run lock, so a reader never sees a half-written file and two writers cannot
 interleave.
@@ -1091,7 +1091,7 @@ instead: a `failed` manifest or a folder with no manifest reads as
 `completed`, and a completed manifest that is not reads as `queued`. That is why
 runs that predate this feature report a sensible status without a backfill, and
 why deleting a sidecar cannot make a published run look unpublished.
-`reports/.dashboard_sync_worker.json` holds the last pass's outcome for
+`artifacts/reports/.dashboard_sync_worker.json` holds the last pass's outcome for
 `/sync/status`.
 
 Summary, history, run and sync-status routes have explicit response models.
@@ -1113,7 +1113,15 @@ CORS_ALLOWED_ORIGINS="http://localhost:5173,https://dashboard.example.com"
 
 Precedence is **exported environment variable → repository `.env` → built-in localhost defaults**. An explicitly exported value always wins, including an exported empty string, which falls back to the defaults rather than reaching into `.env`. An unset, empty or absent value in every source leaves the defaults in place. Values may be quoted, and surrounding whitespace around each origin is trimmed.
 
-**Only allowlisted keys are read from `.env` by the API** — currently `CORS_ALLOWED_ORIGINS`, `ARTIFACT_STORE_DIR`, `IOS_PLAYBOOK_DIR`, `ANDROID_PLAYBOOK_DIR` and `REPORTS_DIR`, all non-secret. `mobile_playbook/api/settings.py` holds an explicit allowlist and refuses any other key, and it parses one key at a time rather than importing the file — so `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_URL` and `MOBSF_API_KEY` never enter the API process's environment even though they sit in the same file. The service-role key stays worker-only: the dashboard sync worker is a separate process that loads its own credentials (see [Durable dashboard sync](#durable-dashboard-sync)). Nothing read here is logged or returned by any endpoint.
+**The API reads only allowlisted keys from `.env`:** `CORS_ALLOWED_ORIGINS`,
+`ARTIFACTS_DIR`, `ARTIFACT_STORE_DIR`, `INTAKE_DIR`, `IOS_PLAYBOOK_DIR`,
+`ANDROID_PLAYBOOK_DIR`, `REPORTS_DIR` and `WORK_DIR`.
+`mobile_playbook/api/settings.py` reads one requested key at a time; it does not
+load `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_URL` or `MOBSF_API_KEY` from that
+file. Database workers load their own credentials (see
+[Durable dashboard sync](#durable-dashboard-sync)). The API reads
+`PLAYBOOK_SOURCE_DOWNLOAD_ENABLED` directly from its process environment.
+Export it when launching the server; setting it only in `.env` has no effect.
 
 Resolution happens when `cors_allowed_origins()` is called rather than at module import of a launcher, so it behaves the same however the app is started — `python -m mobile_playbook.api`, the same command with `--reload` (whose worker subprocess re-imports the app), or `uvicorn mobile_playbook.api.app:app` directly.
 
@@ -1140,8 +1148,8 @@ Resolution happens when `cors_allowed_origins()` is called rather than at module
    checked mechanically.
 6. **No API versioning.** Paths are unversioned, so a breaking change would
    break clients silently.
-7. **No retention or pruning** of `artifacts/reports/` and `artifacts/work/`. Both grow without
-   bound and hold sensitive data.
+7. **No automatic retention.** Reports remain until an operator removes them.
+   Eligible per-run work folders can be pruned manually with `python -m mobile_playbook prune-work`; see [operations.md](operations.md#pruning-old-run-work-folders).
 8. **One run per platform, one host.** No queue, no horizontal scaling; the
    attached device is the hard constraint.
 9. **SARIF results carry no source locations**, because these are runtime

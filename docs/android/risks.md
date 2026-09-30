@@ -35,7 +35,7 @@ Requires: `adb`, `apktool`, `apksigner`, `keytool`, `appium`.
 
 Stages (each must succeed before the next runs; the first failure stops the pipeline):
 
-1. **Backup APKs** — `adb shell pm path <package>` to enumerate installed APK paths (handles split APKs), then `adb pull` each into `work/android/repackaging/<package>/original/`.
+1. **Backup APKs** — `adb shell pm path <package>` to enumerate installed APK paths (handles split APKs), then `adb pull` each into `artifacts/work/android/repackaging/<package>/original/`.
 2. **Ensure keystore** — generate a local signing keystore with `keytool -genkeypair` if one does not already exist at `keystore_path`.
 3. **apktool decode** — `apktool d` the base APK into `repackaged/base/`.
 4. **Patch manifest** — add `android:debuggable="true"` to the `<application>` element if not already present.
@@ -56,7 +56,7 @@ If all stages succeed, an Appium-driven validation launches the repackaged app a
 
 When `restore_original_after_test` is true (the default), the original, backed-up APK(s) are reinstalled after validation regardless of outcome.
 
-Generated work files (backed-up, decoded, and rebuilt APKs) are left under `work/android/repackaging/` for inspection.
+Generated work files (backed-up, decoded, and rebuilt APKs) are left under `artifacts/work/android/repackaging/` for inspection.
 
 ## Risk Metadata
 

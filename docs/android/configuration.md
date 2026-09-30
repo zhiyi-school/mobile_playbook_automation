@@ -48,7 +48,7 @@ This is checked once when a run connects to the device, and again before every s
 
 ```yaml
 runner:
-  work_dir: "work/android"
+  work_dir: "artifacts/work/android"
   auto_grant_permissions: false
 ```
 
@@ -107,7 +107,7 @@ Android risk IDs are prefixed `android-feature...`. To configure a risk for an a
 
    ```yaml
    repackaging:
-     work_dir: "work/android/repackaging"
+     work_dir: "artifacts/work/android/repackaging"
      # If unset, a keystore is generated at <work_dir>/<app>/../release.keystore on first use.
      keystore_path: null
      keystore_alias: "mobileplaybook"
@@ -125,7 +125,7 @@ Global defaults live under a top-level `repackaging` block and can be overridden
 
 ```yaml
 repackaging:
-  work_dir: "work/android/repackaging"
+  work_dir: "artifacts/work/android/repackaging"
   keystore_path: null
   keystore_alias: "mobileplaybook"
   keystore_pass: "REPLACE_WITH_KEYSTORE_PASSWORD"
@@ -169,7 +169,7 @@ device:
   # ...
 
 runner:
-  work_dir: "work/android"
+  work_dir: "artifacts/work/android"
   # ...
 
 include:
