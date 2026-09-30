@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from mobile_playbook.platforms.ios import screen_capture_ocr as ocr
+from mobile_playbook.platforms.ios.screen_capture import ocr
 
 
 def _frame(tmp_path: Path, name: str) -> Path:

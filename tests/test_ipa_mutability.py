@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from mobile_playbook.platforms.ios.mutations.mutability import detect_macho_encryption
+from mobile_playbook.platforms.ios.ipa.encryption import detect_macho_encryption
 
 
 def test_inspect_main_executable_detects_non_encrypted_executable_when_mocked(monkeypatch, tmp_path):

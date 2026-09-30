@@ -4,12 +4,12 @@ import os
 
 import pytest
 
-from mobile_playbook.platforms.ios.artifacts.intake_ipa import (
+from mobile_playbook.platforms.ios.acquisition.intake_ipa import (
     IntakeIpaProvider,
     find_intake_ipa,
     resolve_intake_ipa,
 )
-from mobile_playbook.platforms.ios.artifacts.registry import get_provider, known_sources
+from mobile_playbook.platforms.ios.acquisition.registry import get_provider, known_sources
 from tests.conftest import make_ipa
 
 

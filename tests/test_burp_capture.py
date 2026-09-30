@@ -5,7 +5,7 @@ import os
 
 import pytest
 
-from mobile_playbook.platforms.ios.burp_capture import poll_capture, snapshot_capture
+from mobile_playbook.platforms.ios.traffic_interception.burp_capture import poll_capture, snapshot_capture
 
 
 def _line(entry: dict) -> bytes:

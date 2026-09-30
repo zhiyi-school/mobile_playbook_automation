@@ -11,8 +11,8 @@ from mobile_playbook.api.schemas import Platform
 from mobile_playbook.artifact_store.icon_extraction import describe_artifact
 from mobile_playbook.artifact_store.resolver import app_icon_file
 from mobile_playbook.platforms.android.apk_tools import inspect_apk_metadata
-from mobile_playbook.platforms.ios.artifacts.intake_ipa import list_intake_ipas
-from mobile_playbook.platforms.ios.ipa.plist_utils import inspect_ipa_metadata
+from mobile_playbook.platforms.ios.acquisition.intake_ipa import list_intake_ipas
+from mobile_playbook.platforms.ios.ipa.plist import inspect_ipa_metadata
 
 logger = logging.getLogger(__name__)
 

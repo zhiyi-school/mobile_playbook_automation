@@ -17,7 +17,7 @@ from typing import Any
 
 from mobile_playbook.common.logging_setup import safe_url
 from mobile_playbook.orchestration.appium_server import tcp_reachable as _tcp_reachable
-from mobile_playbook.platforms.ios.burp_health import (
+from mobile_playbook.platforms.ios.traffic_interception.burp_health import (
     HEALTH_SCHEMA_VERSION,
     canonical_capture_path,
     device_udid_hash,
@@ -27,8 +27,8 @@ from mobile_playbook.platforms.ios.burp_health import (
 )
 from mobile_playbook.platforms.ios.config import effective_risk_config
 from mobile_playbook.platforms.ios.models import AppConfig
-from mobile_playbook.platforms.ios.mutations.repackage import resolve_insert_dylib
-from mobile_playbook.platforms.ios.screen_capture_ocr import ocr_available
+from mobile_playbook.platforms.ios.repackaging.repackage import resolve_insert_dylib
+from mobile_playbook.platforms.ios.screen_capture.ocr import ocr_available
 from mobile_playbook.common.storage_paths import ios_capture_path, resolve_under_repository
 
 logger = logging.getLogger(__name__)

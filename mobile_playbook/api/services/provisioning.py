@@ -18,7 +18,7 @@ from mobile_playbook.api.run_registry import registry
 from mobile_playbook.common.storage_paths import config_path, ios_intake_dir
 from mobile_playbook.orchestration.platform_runner import requires_device
 from mobile_playbook.platforms.android.risks import get_risk as get_android_risk
-from mobile_playbook.platforms.ios.artifacts.intake_ipa import resolve_intake_ipa
+from mobile_playbook.platforms.ios.acquisition.intake_ipa import resolve_intake_ipa
 from mobile_playbook.platforms.ios.config import load_config as load_ios_config
 from mobile_playbook.platforms.ios.preflight import connected_device_udids
 from mobile_playbook.platforms.ios.risks import get_risk as get_ios_risk

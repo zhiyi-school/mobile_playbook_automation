@@ -9,8 +9,8 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from mobile_playbook.platforms.ios.artifacts.local_ipa import LocalIpaProvider
-from mobile_playbook.platforms.ios.ipa.plist_utils import inspect_ipa_metadata
+from mobile_playbook.platforms.ios.acquisition.local_ipa import LocalIpaProvider
+from mobile_playbook.platforms.ios.ipa.plist import inspect_ipa_metadata
 from mobile_playbook.platforms.ios.models import ArtifactAcquisitionResult
 
 logger = logging.getLogger(__name__)

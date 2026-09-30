@@ -5,9 +5,9 @@ import plistlib
 
 from mobile_playbook.platforms.ios.models import BinaryInspectionResult
 from mobile_playbook.reporting.report_writer import ReportWriter
-from mobile_playbook.platforms.ios.risks.critical_markdown import critical_markdown
-from mobile_playbook.platforms.ios.risks.feature_01_risk_01 import Feature01Risk01
-from mobile_playbook.platforms.ios.risks.mobsf_client import mobsf_scan
+from mobile_playbook.platforms.ios.static_analysis.critical_findings import critical_markdown
+from mobile_playbook.platforms.ios.risks.feature_01_risk_01_ipa_exposure import Feature01Risk01
+from mobile_playbook.platforms.ios.static_analysis.mobsf_client import mobsf_scan
 from mobile_playbook.platforms.ios.risks.registry import get_risk, list_risks
 from tests.conftest import make_ipa
 
@@ -19,7 +19,7 @@ def test_feature_01_risk_01_registry():
 
 def test_feature_01_risk_01_static_ipa_analysis(monkeypatch, global_config, tmp_path):
     monkeypatch.setattr(
-        "mobile_playbook.platforms.ios.risks.feature_01_risk_01.inspect_main_executable",
+        "mobile_playbook.platforms.ios.risks.feature_01_risk_01_ipa_exposure.inspect_main_executable",
         lambda app_dir: BinaryInspectionResult("MUTABLE_AS_PROVIDED", executable_path=app_dir / "AppExec"),
     )
     app = global_config.apps[0]
@@ -46,7 +46,7 @@ def test_feature_01_risk_01_static_ipa_analysis(monkeypatch, global_config, tmp_
 
 def test_feature_01_risk_01_flags_masked_sensitive_information(monkeypatch, global_config, tmp_path):
     monkeypatch.setattr(
-        "mobile_playbook.platforms.ios.risks.feature_01_risk_01.inspect_main_executable",
+        "mobile_playbook.platforms.ios.risks.feature_01_risk_01_ipa_exposure.inspect_main_executable",
         lambda app_dir: BinaryInspectionResult("MUTABLE_AS_PROVIDED", executable_path=app_dir / "AppExec"),
     )
     ipa = make_ipa(
@@ -74,7 +74,7 @@ def test_feature_01_risk_01_flags_masked_sensitive_information(monkeypatch, glob
 
 def test_feature_01_risk_01_treats_api_keys_and_credentials_as_high(monkeypatch, global_config, tmp_path):
     monkeypatch.setattr(
-        "mobile_playbook.platforms.ios.risks.feature_01_risk_01.inspect_main_executable",
+        "mobile_playbook.platforms.ios.risks.feature_01_risk_01_ipa_exposure.inspect_main_executable",
         lambda app_dir: BinaryInspectionResult("MUTABLE_AS_PROVIDED", executable_path=app_dir / "AppExec"),
     )
     ipa = make_ipa(
@@ -103,7 +103,7 @@ def test_feature_01_risk_01_treats_api_keys_and_credentials_as_high(monkeypatch,
 
 def test_feature_01_risk_01_can_test_google_api_key_external_reuse(monkeypatch, global_config, tmp_path):
     monkeypatch.setattr(
-        "mobile_playbook.platforms.ios.risks.feature_01_risk_01.inspect_main_executable",
+        "mobile_playbook.platforms.ios.risks.feature_01_risk_01_ipa_exposure.inspect_main_executable",
         lambda app_dir: BinaryInspectionResult("MUTABLE_AS_PROVIDED", executable_path=app_dir / "AppExec"),
     )
 
@@ -119,7 +119,7 @@ def test_feature_01_risk_01_can_test_google_api_key_external_reuse(monkeypatch, 
         def read(self, size=-1):
             return b'{"status":"OK","results":[{"formatted_address":"Singapore"}]}'
 
-    monkeypatch.setattr("mobile_playbook.platforms.ios.risks.sensitive_findings.urllib.request.urlopen", lambda request, timeout: FakeResponse())
+    monkeypatch.setattr("mobile_playbook.platforms.ios.static_analysis.sensitive_findings.urllib.request.urlopen", lambda request, timeout: FakeResponse())
     ipa = make_ipa(
         tmp_path / "sensitive.ipa",
         extra_files={"GoogleService-Info.plist": plistlib.dumps({"API_KEY": "AIzaSyABCDEFGHIJKLMNOPQRSTUVWXY123456789"})},
@@ -149,7 +149,7 @@ def test_feature_01_risk_01_can_test_google_api_key_external_reuse(monkeypatch, 
 
 def test_feature_01_risk_01_can_reveal_sensitive_information_when_configured(monkeypatch, global_config, tmp_path):
     monkeypatch.setattr(
-        "mobile_playbook.platforms.ios.risks.feature_01_risk_01.inspect_main_executable",
+        "mobile_playbook.platforms.ios.risks.feature_01_risk_01_ipa_exposure.inspect_main_executable",
         lambda app_dir: BinaryInspectionResult("MUTABLE_AS_PROVIDED", executable_path=app_dir / "AppExec"),
     )
     ipa = make_ipa(
@@ -173,7 +173,7 @@ def test_feature_01_risk_01_can_reveal_sensitive_information_when_configured(mon
 
 def test_feature_01_risk_01_uses_mobsf_when_configured(monkeypatch, global_config, tmp_path):
     monkeypatch.setattr(
-        "mobile_playbook.platforms.ios.risks.feature_01_risk_01.inspect_main_executable",
+        "mobile_playbook.platforms.ios.risks.feature_01_risk_01_ipa_exposure.inspect_main_executable",
         lambda app_dir: BinaryInspectionResult("PROTECTED_OR_ENCRYPTED_BINARY", cryptid=1, executable_path=app_dir / "AppExec"),
     )
 
@@ -198,7 +198,7 @@ def test_feature_01_risk_01_uses_mobsf_when_configured(monkeypatch, global_confi
             },
         }
 
-    monkeypatch.setattr("mobile_playbook.platforms.ios.risks.mobsf_client.mobsf_scan", fake_mobsf_scan)
+    monkeypatch.setattr("mobile_playbook.platforms.ios.static_analysis.mobsf_client.mobsf_scan", fake_mobsf_scan)
     app = global_config.apps[0]
     app.risks = {"ios-feature-01-risk-01": {"enabled": True, "analyzer": {"provider": "mobsf", "api_key": "test-key"}}}
     app.artifact["workspace_dir"] = str(tmp_path / "acquired")
@@ -220,14 +220,14 @@ def test_feature_01_risk_01_uses_mobsf_when_configured(monkeypatch, global_confi
 
 def test_feature_01_risk_01_falls_back_to_builtin_when_mobsf_fails(monkeypatch, global_config, tmp_path):
     monkeypatch.setattr(
-        "mobile_playbook.platforms.ios.risks.feature_01_risk_01.inspect_main_executable",
+        "mobile_playbook.platforms.ios.risks.feature_01_risk_01_ipa_exposure.inspect_main_executable",
         lambda app_dir: BinaryInspectionResult("MUTABLE_AS_PROVIDED", executable_path=app_dir / "AppExec"),
     )
 
     def fake_mobsf_scan(ipa_path, analyzer_config):
         raise RuntimeError("MobSF is not reachable")
 
-    monkeypatch.setattr("mobile_playbook.platforms.ios.risks.mobsf_client.mobsf_scan", fake_mobsf_scan)
+    monkeypatch.setattr("mobile_playbook.platforms.ios.static_analysis.mobsf_client.mobsf_scan", fake_mobsf_scan)
     app = global_config.apps[0]
     app.risks = {"ios-feature-01-risk-01": {"enabled": True, "analyzer": {"provider": "mobsf", "api_key": "test-key", "fallback_to_builtin": True}}}
     app.artifact["workspace_dir"] = str(tmp_path / "acquired")
@@ -282,9 +282,9 @@ def test_feature_01_risk_01_can_auto_start_mobsf_with_generated_api_key(monkeypa
         return {"ok": True}
 
     monkeypatch.delenv("MOBSF_API_KEY", raising=False)
-    monkeypatch.setattr("mobile_playbook.platforms.ios.risks.mobsf_client.mobsf_is_reachable", lambda base_url, timeout: next(reachability))
-    monkeypatch.setattr("mobile_playbook.platforms.ios.risks.mobsf_client.subprocess.Popen", fake_popen)
-    monkeypatch.setattr("mobile_playbook.platforms.ios.risks.mobsf_client.mobsf_post", fake_post)
+    monkeypatch.setattr("mobile_playbook.platforms.ios.static_analysis.mobsf_client.mobsf_is_reachable", lambda base_url, timeout: next(reachability))
+    monkeypatch.setattr("mobile_playbook.platforms.ios.static_analysis.mobsf_client.subprocess.Popen", fake_popen)
+    monkeypatch.setattr("mobile_playbook.platforms.ios.static_analysis.mobsf_client.mobsf_post", fake_post)
 
     result = mobsf_scan(
         ipa,

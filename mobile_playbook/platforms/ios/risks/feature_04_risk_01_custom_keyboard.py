@@ -12,10 +12,10 @@ from pathlib import Path
 
 from mobile_playbook.common.config_loader import merge_dicts
 from mobile_playbook.common.logging_setup import redacted
-from mobile_playbook.platforms.ios import keyboard_setup
-from mobile_playbook.platforms.ios.control_server import CommandControlServer
+from mobile_playbook.platforms.ios.keyboard import setup as keyboard_setup
+from mobile_playbook.platforms.ios.keyboard.control_server import CommandControlServer
 from mobile_playbook.platforms.ios.models import BehaviorResult, RiskRunResult
-from mobile_playbook.platforms.ios.risks.feature_04_keyboard_base import Feature04KeyboardRiskBase
+from mobile_playbook.platforms.ios.risks.keyboard_base import Feature04KeyboardRiskBase
 
 logger = logging.getLogger(__name__)
 

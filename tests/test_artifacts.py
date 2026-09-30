@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from mobile_playbook.platforms.ios.artifacts.installed_app_reference import InstalledAppReferenceProvider
-from mobile_playbook.platforms.ios.artifacts.local_ipa import LocalIpaProvider
+from mobile_playbook.platforms.ios.acquisition.installed_app import InstalledAppReferenceProvider
+from mobile_playbook.platforms.ios.acquisition.local_ipa import LocalIpaProvider
 from tests.conftest import MockDevice
 
 

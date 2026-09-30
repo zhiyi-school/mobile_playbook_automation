@@ -12,7 +12,7 @@ from pathlib import Path
 
 from mobile_playbook.common.storage_paths import ios_work_dir
 
-from mobile_playbook.platforms.ios.artifacts.registry import get_provider
+from mobile_playbook.platforms.ios.acquisition.registry import get_provider
 from mobile_playbook.orchestration.appium_server import ensure_appium_running, tcp_reachable
 from mobile_playbook.orchestration.selection import app_matches_selector
 from mobile_playbook.orchestration.platform_runner import (

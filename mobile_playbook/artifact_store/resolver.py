@@ -71,7 +71,7 @@ def _existing(path_value: Any) -> Path | None:
 
 # Returns the on-disk IPA for an iOS app from intake or a local source, or None.
 def _resolve_ios(app: dict[str, Any]) -> Path | None:
-    from mobile_playbook.platforms.ios.artifacts.intake_ipa import intake_dir_for, resolve_intake_ipa
+    from mobile_playbook.platforms.ios.acquisition.intake_ipa import intake_dir_for, resolve_intake_ipa
 
     artifact = app.get("artifact") or {}
     source = artifact.get("source") or ""
@@ -100,7 +100,7 @@ def _resolve_ios(app: dict[str, Any]) -> Path | None:
 
 # Returns the app's configured, acquired or name-matched intake APK, or None.
 def _resolve_android(app: dict[str, Any]) -> Path | None:
-    from mobile_playbook.platforms.ios.artifacts.intake_ipa import normalize_app_name
+    from mobile_playbook.platforms.ios.acquisition.intake_ipa import normalize_app_name
 
     artifact = app.get("artifact") or {}
     configured = _existing(artifact.get("apk") or artifact.get("path"))

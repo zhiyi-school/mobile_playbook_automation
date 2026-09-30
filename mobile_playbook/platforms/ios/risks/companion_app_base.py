@@ -12,8 +12,8 @@ from typing import Any
 
 from mobile_playbook.common.logging_setup import redacted
 from mobile_playbook.common.storage_paths import ios_work_dir
-from mobile_playbook.platforms.ios import keyboard_resign
-from mobile_playbook.platforms.ios.artifacts.registry import get_provider
+from mobile_playbook.platforms.ios.keyboard import resign as keyboard_resign
+from mobile_playbook.platforms.ios.acquisition.registry import get_provider
 from mobile_playbook.platforms.ios.models import ArtifactAcquisitionResult, CleanupResult
 from mobile_playbook.platforms.ios.risks.base import Risk
 

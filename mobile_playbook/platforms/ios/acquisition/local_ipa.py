@@ -8,9 +8,9 @@ import logging
 import shutil
 from pathlib import Path
 
-from mobile_playbook.platforms.ios.artifacts.base import ArtifactProvider
-from mobile_playbook.platforms.ios.mutations.hashing import sha256_file
-from mobile_playbook.platforms.ios.ipa.plist_utils import inspect_ipa_metadata
+from mobile_playbook.platforms.ios.acquisition.base import ArtifactProvider
+from mobile_playbook.platforms.ios.ipa.hashing import sha256_file
+from mobile_playbook.platforms.ios.ipa.plist import inspect_ipa_metadata
 from mobile_playbook.platforms.ios.models import ArtifactAcquisitionResult
 
 logger = logging.getLogger(__name__)

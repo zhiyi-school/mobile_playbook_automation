@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from mobile_playbook.platforms.ios import keyboard_resign
+from mobile_playbook.platforms.ios.keyboard import resign as keyboard_resign
 
 VERIFICATION_ERROR = (
     "Cannot install the com.example.LocalKeyboard.4228qcqtj9 application because it could not be "

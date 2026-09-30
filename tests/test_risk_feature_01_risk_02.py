@@ -9,7 +9,7 @@ from types import SimpleNamespace
 import pytest
 
 from mobile_playbook.platforms.ios.models import InstallResult
-from mobile_playbook.platforms.ios.risks.feature_01_risk_02 import Feature01Risk02
+from mobile_playbook.platforms.ios.risks.feature_01_risk_02_repackaging import Feature01Risk02
 from mobile_playbook.reporting.report_writer import ReportWriter
 from tests.conftest import MockDevice
 
@@ -120,7 +120,7 @@ def _fake_subprocess(*, injection_ok=True, codesign_ok=True):
 
 def _pass_gadget(monkeypatch):
     monkeypatch.setattr(
-        "mobile_playbook.platforms.ios.risks.feature_01_risk_02.confirm_gadget",
+        "mobile_playbook.platforms.ios.risks.feature_01_risk_02_repackaging.confirm_gadget",
         lambda cfg, bundle_id, evidence_dir: {"ok": True, "messages": []},
     )
 
@@ -147,7 +147,7 @@ def test_survives_when_repackaged_matches_baseline(global_config, tmp_path, frid
 def test_survived_diff_but_failed_gadget_attach_is_inconclusive(global_config, tmp_path, frida_files, monkeypatch):
     monkeypatch.setattr("subprocess.run", _fake_subprocess())
     monkeypatch.setattr(
-        "mobile_playbook.platforms.ios.risks.feature_01_risk_02.confirm_gadget",
+        "mobile_playbook.platforms.ios.risks.feature_01_risk_02_repackaging.confirm_gadget",
         lambda cfg, bundle_id, evidence_dir: {"ok": False, "errors": ["frida is not installed: no module"]},
     )
     app = global_config.apps[0]
@@ -287,7 +287,7 @@ def test_evidence_files_are_written_into_the_report_dir(global_config, tmp_path,
 
 
 def test_discover_provisioning_profile_picks_a_matching_local_profile(tmp_path, monkeypatch):
-    from mobile_playbook.platforms.ios import repackage_resign
+    from mobile_playbook.platforms.ios.repackaging import resign as repackage_resign
 
     monkeypatch.setattr("subprocess.run", _fake_subprocess())
     profiles = tmp_path / "profiles"
@@ -302,7 +302,7 @@ def test_discover_provisioning_profile_picks_a_matching_local_profile(tmp_path, 
 
 
 def test_discover_provisioning_profile_returns_none_when_nothing_matches(tmp_path, monkeypatch):
-    from mobile_playbook.platforms.ios import repackage_resign
+    from mobile_playbook.platforms.ios.repackaging import resign as repackage_resign
 
     monkeypatch.setattr(
         "subprocess.run",
@@ -321,7 +321,7 @@ def test_discover_provisioning_profile_returns_none_when_nothing_matches(tmp_pat
 
 
 def test_set_bundle_identifier_rewrites_info_plist(tmp_path):
-    from mobile_playbook.platforms.ios.mutations.repackage import set_bundle_identifier
+    from mobile_playbook.platforms.ios.repackaging.repackage import set_bundle_identifier
 
     app_dir = tmp_path / "Example.app"
     app_dir.mkdir()
@@ -347,7 +347,7 @@ def test_rewrite_bundle_id_is_used_for_resign_and_install(global_config, tmp_pat
     _pass_gadget(monkeypatch)
     calls = []
     monkeypatch.setattr(
-        "mobile_playbook.platforms.ios.risks.feature_01_risk_02.set_bundle_identifier",
+        "mobile_playbook.platforms.ios.risks.feature_01_risk_02_repackaging.set_bundle_identifier",
         lambda app_dir, new_id: calls.append(new_id) or "com.example.app",
     )
     app = global_config.apps[0]
@@ -363,7 +363,7 @@ def test_rewrite_bundle_id_is_used_for_resign_and_install(global_config, tmp_pat
 
 
 def test_ensure_provisioning_profile_generates_when_missing(monkeypatch, tmp_path):
-    from mobile_playbook.platforms.ios import repackage_resign
+    from mobile_playbook.platforms.ios.repackaging import resign as repackage_resign
 
     seq = [None, tmp_path / "new.mobileprovision"]
     monkeypatch.setattr(repackage_resign, "discover_provisioning_profile", lambda *a, **k: seq.pop(0))
@@ -379,7 +379,7 @@ def test_ensure_provisioning_profile_generates_when_missing(monkeypatch, tmp_pat
 def test_discover_rejects_profile_expiring_within_margin(monkeypatch, tmp_path):
     from datetime import datetime, timedelta
 
-    from mobile_playbook.platforms.ios import repackage_resign
+    from mobile_playbook.platforms.ios.repackaging import resign as repackage_resign
 
     soon = plistlib.dumps({
         "Entitlements": {"application-identifier": "TEAM.com.example.app"},

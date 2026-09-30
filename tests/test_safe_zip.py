@@ -5,7 +5,7 @@ import zipfile
 
 import pytest
 
-from mobile_playbook.platforms.ios.ipa.plist_utils import read_info_plist, write_info_plist
+from mobile_playbook.platforms.ios.ipa.plist import read_info_plist, write_info_plist
 from mobile_playbook.platforms.ios.ipa.unpacker import safe_extract_zip, unpack_ipa
 
 

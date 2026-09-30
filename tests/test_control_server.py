@@ -1,4 +1,4 @@
-from mobile_playbook.platforms.ios.control_server import CommandControlServer
+from mobile_playbook.platforms.ios.keyboard.control_server import CommandControlServer
 
 
 def test_control_server_pair_enqueue_next_preserves_return_as_separate_item():

@@ -12,11 +12,11 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from mobile_playbook.orchestration.appium_server import tcp_reachable
-from mobile_playbook.platforms.ios.burp_capture import CaptureObservation, poll_capture, snapshot_capture
+from mobile_playbook.platforms.ios.traffic_interception.burp_capture import CaptureObservation, poll_capture, snapshot_capture
 from mobile_playbook.platforms.ios.config import load_config
 from mobile_playbook.platforms.ios.device_client import AppiumDeviceClient
-from mobile_playbook.platforms.ios.burp_health import write_health_record
-from mobile_playbook.platforms.ios.traffic_interception_setup import (
+from mobile_playbook.platforms.ios.traffic_interception.burp_health import write_health_record
+from mobile_playbook.platforms.ios.traffic_interception.device_proxy import (
     TrafficInterceptionSetupError,
     prepare_traffic_interception,
     restore_traffic_interception,

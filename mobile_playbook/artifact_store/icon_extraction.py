@@ -460,7 +460,7 @@ def _record_icon(platform: str, artifact_id: str, icon: IconExtraction) -> None:
 
 # Returns an IPA's bundle id, display name and version.
 def _ios_artifact_facts(artifact_path: Path) -> dict[str, Any]:
-    from mobile_playbook.platforms.ios.ipa.plist_utils import inspect_ipa_metadata
+    from mobile_playbook.platforms.ios.ipa.plist import inspect_ipa_metadata
 
     metadata = inspect_ipa_metadata(artifact_path)
     info = metadata.get("info_plist") or {}

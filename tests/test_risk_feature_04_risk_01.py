@@ -7,9 +7,10 @@ import pytest
 
 from mobile_playbook.common import network
 from mobile_playbook.reporting.report_writer import ReportWriter
-from mobile_playbook.platforms.ios import keyboard_resign, keyboard_setup
+from mobile_playbook.platforms.ios.keyboard import resign as keyboard_resign
+from mobile_playbook.platforms.ios.keyboard import setup as keyboard_setup
 from mobile_playbook.platforms.ios.models import InstallResult
-from mobile_playbook.platforms.ios.risks.feature_04_risk_01 import Feature04Risk01
+from mobile_playbook.platforms.ios.risks.feature_04_risk_01_custom_keyboard import Feature04Risk01
 from tests.conftest import MockDevice
 
 

@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from mobile_playbook.platforms.ios import keyboard_setup
+from mobile_playbook.platforms.ios.keyboard import setup as keyboard_setup
 
 DISPLAY_NAME = "LocalKeyboard"
 

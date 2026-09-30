@@ -8,7 +8,7 @@ import logging
 from urllib.parse import urlparse
 
 from mobile_playbook.common.network import resolve_lan_host
-from mobile_playbook.platforms.ios.control_server import CommandControlServer
+from mobile_playbook.platforms.ios.keyboard.control_server import CommandControlServer
 from mobile_playbook.platforms.ios.risks.companion_app_base import CompanionAppRiskBase
 
 logger = logging.getLogger(__name__)

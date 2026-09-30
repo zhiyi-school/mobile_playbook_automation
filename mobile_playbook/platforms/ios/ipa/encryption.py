@@ -10,7 +10,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from mobile_playbook.platforms.ios.ipa.plist_utils import get_bundle_executable
+from mobile_playbook.platforms.ios.ipa.plist import get_bundle_executable
 from mobile_playbook.platforms.ios.models import BinaryInspectionResult
 
 logger = logging.getLogger(__name__)

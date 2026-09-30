@@ -12,7 +12,7 @@ import sys
 import time
 from typing import Any
 
-from mobile_playbook.platforms.ios.control_server import CommandControlServer
+from mobile_playbook.platforms.ios.keyboard.control_server import CommandControlServer
 
 
 # Start the control server, print its URLs and token, queue initial items and run the prompt until quit.

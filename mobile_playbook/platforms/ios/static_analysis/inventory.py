@@ -9,10 +9,10 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-from mobile_playbook.platforms.ios.ipa.plist_utils import read_info_plist
+from mobile_playbook.platforms.ios.ipa.plist import read_info_plist
 from mobile_playbook.platforms.ios.models import ArtifactAcquisitionResult
-from mobile_playbook.platforms.ios.risks.critical_markdown import critical_findings
-from mobile_playbook.platforms.ios.risks.sensitive_findings import (
+from mobile_playbook.platforms.ios.static_analysis.critical_findings import critical_findings
+from mobile_playbook.platforms.ios.static_analysis.sensitive_findings import (
     public_sensitive_findings,
     scan_sensitive_information,
     test_google_api_key_reuse,

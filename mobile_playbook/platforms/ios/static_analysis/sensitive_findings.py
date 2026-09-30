@@ -15,7 +15,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-from mobile_playbook.platforms.ios.ipa.plist_utils import read_plist
+from mobile_playbook.platforms.ios.ipa.plist import read_plist
 
 logger = logging.getLogger(__name__)
 

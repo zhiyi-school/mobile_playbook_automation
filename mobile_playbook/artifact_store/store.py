@@ -12,7 +12,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from mobile_playbook.platforms.ios.mutations.hashing import sha256_file
+from mobile_playbook.platforms.ios.ipa.hashing import sha256_file
 from mobile_playbook.common.storage_paths import LOCATION_ENV
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]

@@ -28,8 +28,8 @@ from mobile_playbook.platforms.android.risks import known_risks as known_android
 from mobile_playbook.platforms.android.risks import list_risks as list_android_risks
 from mobile_playbook.platforms.android.runner import AndroidPlatformRunner
 from mobile_playbook.platforms.ios.config import ConfigError, load_config
-from mobile_playbook.platforms.ios.mutations.mutability import inspect_main_executable
-from mobile_playbook.platforms.ios.ipa.plist_utils import inspect_ipa_metadata
+from mobile_playbook.platforms.ios.ipa.encryption import inspect_main_executable
+from mobile_playbook.platforms.ios.ipa.plist import inspect_ipa_metadata
 from mobile_playbook.platforms.ios.ipa.unpacker import unpack_ipa
 from mobile_playbook.common.env_file import load_env_file
 from mobile_playbook.playbook import catalogue as playbook_catalogue

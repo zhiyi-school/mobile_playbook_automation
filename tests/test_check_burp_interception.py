@@ -5,8 +5,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from mobile_playbook.platforms.ios.burp_capture import CaptureObservation
-from mobile_playbook.platforms.ios.burp_health import health_record_path, write_health_record
+from mobile_playbook.platforms.ios.traffic_interception.burp_capture import CaptureObservation
+from mobile_playbook.platforms.ios.traffic_interception.burp_health import health_record_path, write_health_record
 from scripts import check_burp_interception
 
 
@@ -81,7 +81,7 @@ def test_health_record_write_replaces_atomically(tmp_path, monkeypatch):
         replacements.append((source, target))
         real_replace(source, target)
 
-    monkeypatch.setattr("mobile_playbook.platforms.ios.burp_health.os.replace", observe_replace)
+    monkeypatch.setattr("mobile_playbook.platforms.ios.traffic_interception.burp_health.os.replace", observe_replace)
 
     write_health_record(
         capture_path=capture_path,

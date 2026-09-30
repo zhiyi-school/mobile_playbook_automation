@@ -9,12 +9,12 @@ import logging
 from datetime import datetime, timezone
 from pathlib import Path
 
-from mobile_playbook.platforms.ios.artifacts.registry import get_provider
+from mobile_playbook.platforms.ios.acquisition.registry import get_provider
 from mobile_playbook.platforms.ios.config import effective_risk_config
 from mobile_playbook.platforms.ios.ipa.unpacker import unpack_ipa
 from mobile_playbook.platforms.ios.models import CleanupResult, RiskRunResult
-from mobile_playbook.platforms.ios.mutations.hashing import sha256_file
-from mobile_playbook.platforms.ios.mutations.repackage import (
+from mobile_playbook.platforms.ios.ipa.hashing import sha256_file
+from mobile_playbook.platforms.ios.repackaging.repackage import (
     add_frida_gadget,
     frida_config_path,
     frida_dylib_path,
@@ -22,14 +22,14 @@ from mobile_playbook.platforms.ios.mutations.repackage import (
     repack_ipa,
     set_bundle_identifier,
 )
-from mobile_playbook.platforms.ios.repackage_resign import (
+from mobile_playbook.platforms.ios.repackaging.resign import (
     discover_provisioning_profile,
     ensure_provisioning_profile,
     resign_app,
     signing_identity_for_team,
 )
 from mobile_playbook.platforms.ios.risks.base import Risk
-from mobile_playbook.platforms.ios.risks.repackaging_evidence import compare, confirm_gadget, exercise_and_observe
+from mobile_playbook.platforms.ios.repackaging.evidence import compare, confirm_gadget, exercise_and_observe
 from mobile_playbook.common.logging_setup import redacted
 from mobile_playbook.common.storage_paths import ios_work_dir
 

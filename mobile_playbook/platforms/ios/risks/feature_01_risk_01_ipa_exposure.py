@@ -13,15 +13,15 @@ from mobile_playbook.common.storage_paths import ios_work_dir
 from typing import Any
 
 from mobile_playbook.common.config_loader import merge_dicts
-from mobile_playbook.platforms.ios.artifacts.registry import get_provider
-from mobile_playbook.platforms.ios.mutations.hashing import sha256_file
-from mobile_playbook.platforms.ios.mutations.mutability import inspect_main_executable
+from mobile_playbook.platforms.ios.acquisition.registry import get_provider
+from mobile_playbook.platforms.ios.ipa.hashing import sha256_file
+from mobile_playbook.platforms.ios.ipa.encryption import inspect_main_executable
 from mobile_playbook.platforms.ios.ipa.unpacker import unpack_ipa
 from mobile_playbook.platforms.ios.models import ArtifactAcquisitionResult, RiskRunResult
 from mobile_playbook.platforms.ios.risks.base import Risk
-from mobile_playbook.platforms.ios.risks.critical_markdown import critical_markdown, highest_severity, sort_flags_by_severity
-from mobile_playbook.platforms.ios.risks.ipa_inventory import analyze_package
-from mobile_playbook.platforms.ios.risks.mobsf_client import analyze_with_mobsf
+from mobile_playbook.platforms.ios.static_analysis.critical_findings import critical_markdown, highest_severity, sort_flags_by_severity
+from mobile_playbook.platforms.ios.static_analysis.inventory import analyze_package
+from mobile_playbook.platforms.ios.static_analysis.mobsf_client import analyze_with_mobsf
 
 logger = logging.getLogger(__name__)
 

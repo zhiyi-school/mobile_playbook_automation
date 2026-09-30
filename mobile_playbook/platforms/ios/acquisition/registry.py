@@ -8,7 +8,7 @@ import logging
 import os
 
 from mobile_playbook.common.plugin_discovery import discover_plugins
-from mobile_playbook.platforms.ios.artifacts.base import ArtifactProvider
+from mobile_playbook.platforms.ios.acquisition.base import ArtifactProvider
 
 _PACKAGE_NAME = __name__.rsplit(".", 1)[0]
 _PACKAGE_PATH = [os.path.dirname(__file__)]

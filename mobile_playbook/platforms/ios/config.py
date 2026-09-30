@@ -12,8 +12,8 @@ import re
 from typing import Any
 
 from mobile_playbook.common.config_loader import load_yaml_config, merge_dicts
-from mobile_playbook.platforms.ios.artifacts.registry import known_sources
-from mobile_playbook.platforms.ios.ipa.plist_utils import inspect_ipa_metadata
+from mobile_playbook.platforms.ios.acquisition.registry import known_sources
+from mobile_playbook.platforms.ios.ipa.plist import inspect_ipa_metadata
 from mobile_playbook.platforms.ios.models import (
     AppConfig,
     CisoConfig,
@@ -279,7 +279,7 @@ def _auto_fill_bundle_ids(config: GlobalConfig, errors: list[str]) -> None:
         label = f"apps[{app.id or '?'}]"
         source = app.artifact.get("source")
         if source == "intake_ipa":
-            from mobile_playbook.platforms.ios.artifacts.intake_ipa import resolve_for_app
+            from mobile_playbook.platforms.ios.acquisition.intake_ipa import resolve_for_app
 
             resolution = resolve_for_app(app)
             logger.debug(

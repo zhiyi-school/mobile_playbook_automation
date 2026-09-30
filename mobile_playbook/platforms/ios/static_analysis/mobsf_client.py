@@ -21,9 +21,9 @@ from typing import Any
 
 from mobile_playbook.common.logging_setup import redacted
 from mobile_playbook.platforms.ios.models import ArtifactAcquisitionResult
-from mobile_playbook.platforms.ios.risks.critical_markdown import mobsf_critical_findings, sort_flags_by_severity
-from mobile_playbook.platforms.ios.risks.ipa_inventory import is_interesting_resource
-from mobile_playbook.platforms.ios.risks.sensitive_findings import (
+from mobile_playbook.platforms.ios.static_analysis.critical_findings import mobsf_critical_findings, sort_flags_by_severity
+from mobile_playbook.platforms.ios.static_analysis.inventory import is_interesting_resource
+from mobile_playbook.platforms.ios.static_analysis.sensitive_findings import (
     extract_mobsf_sensitive_findings,
     public_sensitive_findings,
     test_google_api_key_reuse,

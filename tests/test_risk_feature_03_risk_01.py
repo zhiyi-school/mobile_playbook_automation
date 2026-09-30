@@ -6,10 +6,10 @@ from pathlib import Path
 
 import pytest
 
-from mobile_playbook.platforms.ios import screen_capture_ocr
+from mobile_playbook.platforms.ios.screen_capture import ocr as screen_capture_ocr
 from mobile_playbook.platforms.ios.models import InstallResult
 from mobile_playbook.platforms.ios.results import normalize_ios_result
-from mobile_playbook.platforms.ios.risks.feature_03_risk_01 import Feature03Risk01
+from mobile_playbook.platforms.ios.risks.feature_03_risk_01_screen_capture import Feature03Risk01
 from mobile_playbook.reporting.report_writer import ReportWriter
 from tests.conftest import MockDevice
 

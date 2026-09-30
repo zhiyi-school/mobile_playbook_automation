@@ -11,11 +11,11 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from mobile_playbook.platforms.ios import screen_capture_ocr as ocr
+from mobile_playbook.platforms.ios.screen_capture import ocr
 from mobile_playbook.platforms.ios.config import effective_risk_config
 from mobile_playbook.platforms.ios.models import RiskRunResult
 from mobile_playbook.platforms.ios.risks.companion_app_base import CompanionAppRiskBase
-from mobile_playbook.platforms.ios.screen_capture_setup import (
+from mobile_playbook.platforms.ios.screen_capture.recorder import (
     ScreenCaptureSetupError, export_and_pull, start_broadcast, stop_broadcast,
 )
 
