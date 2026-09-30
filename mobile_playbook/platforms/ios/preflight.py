@@ -171,7 +171,7 @@ def check_repackaging_preflight(
         warnings.append(
             IosPreflightWarning(
                 "INSERT_DYLIB_UNAVAILABLE",
-                f"insert_dylib could not be found ('{insert_dylib}'); vendor it under tools/insert_dylib/ "
+                f"insert_dylib could not be found ('{insert_dylib}'); vendor it under tools/vendor/insert_dylib/ "
                 "or set repackaging.insert_dylib_path. Repackaging reports DYLIB_INJECTION_FAILED without it.",
                 REPACKAGING_RISK_ID,
                 ids,

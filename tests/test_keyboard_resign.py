@@ -121,7 +121,7 @@ def test_an_unrelated_install_failure_is_not_a_verification_failure(errors):
 
 
 def test_a_missing_resign_script_is_reported_rather_than_run(tmp_path, monkeypatch):
-    monkeypatch.setattr(keyboard_resign, "RESIGN_SCRIPT", "tools/absent/resign.py")
+    monkeypatch.setattr(keyboard_resign, "RESIGN_SCRIPT", "tools/companion_apps/absent/resign.py")
     monkeypatch.setattr(
         keyboard_resign.subprocess, "run", lambda *args, **kwargs: pytest.fail("should not run a missing script")
     )
@@ -149,7 +149,7 @@ def test_a_successful_run_reports_resigned_and_passes_the_ipa_explicitly(tmp_pat
     assert result == keyboard_resign.ResignResult(status="RESIGNED", errors=[])
     assert seen["command"][2:] == ["--ipa", str(ipa), "--udid", "device-udid", "--team-id", "TEAMID"]
     assert seen["timeout"] == 120
-    assert (Path(seen["cwd"]) / "tools" / "localkeyboard_resign" / "resign.py").exists()
+    assert (Path(seen["cwd"]) / "tools" / "companion_apps" / "localkeyboard_resign" / "resign.py").exists()
 
 
 def test_a_failing_run_reports_its_stderr(tmp_path, monkeypatch):

@@ -102,7 +102,7 @@ Preflight warning codes and actions:
 - `BURP_CAPTURE_UNREADABLE`: grant the automation process read access to the capture file.
 - `BURP_CAPTURE_PARENT_MISSING`: create the configured capture file's parent directory or correct the path.
 - `BURP_CAPTURE_PARENT_UNWRITABLE`: grant write access to the capture parent directory.
-- `BURP_HEALTH_MISSING`: run `tools/check_burp_interception.py` successfully to create the canary health record.
+- `BURP_HEALTH_MISSING`: run `scripts/check_burp_interception.py` successfully to create the canary health record.
 - `BURP_HEALTH_STALE`: rerun the canary check; adjust `health_max_age_seconds` only when a longer verification window is intentional.
 - `BURP_HEALTH_MISMATCH`: rerun the canary check with the configured proxy, capture path, and device.
 - `BURP_CAPTURE_STALE`: verify the Burp extension is loaded and writing to the configured capture file.
@@ -161,11 +161,11 @@ Check provisioning, entitlements, device compatibility, and whether the IPA is i
 
 `ios-feature-03-risk-01`'s ReplayConsentRecorder IPA (`artifacts/companion/ios/ipas/ReplayConsentRecorder.ipa`) is a development export with the same limited profile lifetime.
 
-Fix either with `tools/localkeyboard_resign/resign.py`, which re-signs any companion IPA without its source: it reads the app's and each extension's bundle IDs and App Groups from the IPA, generates a placeholder Xcode project with those identifiers in a temporary directory (via `xcodegen`), and builds it with the device connected and Automatic Signing on — Apple ties profile issuance to (team + bundle ID + device + capabilities), not to specific source code, so this mints fresh profiles without the real project. It then applies those profiles and a matching signing identity to the existing IPA via `codesign`, extensions first:
+Fix either with `tools/companion_apps/localkeyboard_resign/resign.py`, which re-signs any companion IPA without its source: it reads the app's and each extension's bundle IDs and App Groups from the IPA, generates a placeholder Xcode project with those identifiers in a temporary directory (via `xcodegen`), and builds it with the device connected and Automatic Signing on — Apple ties profile issuance to (team + bundle ID + device + capabilities), not to specific source code, so this mints fresh profiles without the real project. It then applies those profiles and a matching signing identity to the existing IPA via `codesign`, extensions first:
 
 ```bash
-python tools/localkeyboard_resign/resign.py --udid <device.udid> --team-id <device.team_id>
-python tools/localkeyboard_resign/resign.py --ipa artifacts/companion/ios/ipas/ReplayConsentRecorder.ipa --udid <device.udid> --team-id <device.team_id>
+python tools/companion_apps/localkeyboard_resign/resign.py --udid <device.udid> --team-id <device.team_id>
+python tools/companion_apps/localkeyboard_resign/resign.py --ipa artifacts/companion/ios/ipas/ReplayConsentRecorder.ipa --udid <device.udid> --team-id <device.team_id>
 ```
 
 Both values come from `configs/ios.yaml`'s `device` section. This overwrites `--ipa` (defaults to `artifacts/companion/ios/ipas/LocalKeyboard.ipa`) with the resigned version; pass `--out` to write elsewhere instead. With `resign.enabled`, both risks run it automatically when the companion's profile has expired or the install is rejected for its signature. Requires `xcodegen` (`brew install xcodegen`) and a signing identity in the keychain whose certificate's team (its X.509 `OU` field — not necessarily what its display name suggests) matches `--team-id`.

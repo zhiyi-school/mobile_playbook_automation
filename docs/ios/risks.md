@@ -32,13 +32,13 @@ Reports include:
 
 ## ios-feature-01-risk-02
 
-`ios-feature-01-risk-02` demonstrates whether a supplied IPA can be repackaged — code injected, re-signed, and installed — and still run as if untouched, which would mean no effective tamper, integrity, or anti-repackaging control is in force. It is a device-based test: it needs a physical device, the supplied IPA from the app's `artifact` config (`installed_app_reference` is rejected, since a black-box install cannot be repackaged), `codesign` on the workstation, `insert_dylib` (vendored in-repo under `tools/insert_dylib/`), `frida` (for the gadget-attach confirmation), and a valid provisioning profile for the target bundle ID (configured, or auto-discovered from the workstation's installed profiles). Resigning an arbitrary app for a real device without that profile fails, and that is reported as `RESIGN_FAILED` (Inconclusive), never as a defense.
+`ios-feature-01-risk-02` demonstrates whether a supplied IPA can be repackaged — code injected, re-signed, and installed — and still run as if untouched, which would mean no effective tamper, integrity, or anti-repackaging control is in force. It is a device-based test: it needs a physical device, the supplied IPA from the app's `artifact` config (`installed_app_reference` is rejected, since a black-box install cannot be repackaged), `codesign` on the workstation, `insert_dylib` (vendored in-repo under `tools/vendor/insert_dylib/`), `frida` (for the gadget-attach confirmation), and a valid provisioning profile for the target bundle ID (configured, or auto-discovered from the workstation's installed profiles). Resigning an arbitrary app for a real device without that profile fails, and that is reported as `RESIGN_FAILED` (Inconclusive), never as a defense.
 
 Workflow:
 
 1. Acquire the supplied IPA and install it unchanged as a clean baseline.
 2. Exercise and observe the baseline across a sampling window. If the baseline never reaches a drivable foreground state there is nothing to compare against, so the run is `BASELINE_FAILED`.
-3. Unpack the IPA, copy the Frida Gadget from `tools/Frida/` into the bundle's `Frameworks/`, and inject a load command into the main executable with `insert_dylib` (vendored in-repo under `tools/insert_dylib/`).
+3. Unpack the IPA, copy the Frida Gadget from `tools/vendor/frida/` into the bundle's `Frameworks/`, and inject a load command into the main executable with `insert_dylib` (vendored in-repo under `tools/vendor/insert_dylib/`).
 4. Embed the provisioning profile (configured `resign.provisioning_profile`, or one auto-discovered from `~/Library/MobileDevice/Provisioning Profiles` that matches this app, device, and identity), re-sign the modified bundle (nested code first, then the app, then `codesign --verify --deep --strict`), repackage it into an IPA, and install it.
 5. Exercise and observe the repackaged build the same way, then diff it against the baseline.
 6. When the diff shows equivalence, attach to the injected Frida Gadget and load the configured `frida.script` to confirm the injected code runs before returning `At Risk`; a failed attach is `GADGET_ATTACH_FAILED` (Inconclusive).
@@ -93,21 +93,21 @@ This risk doesn't talk to Burp's own APIs — Burp has no simple built-in "give 
 
 This mirrors how this framework already exposes evidence to itself elsewhere (`events.jsonl`, `appium.log`) — a plain append-only file that both sides agree on, rather than a live API integration.
 
-[tools/burp_traffic_capture_extension.py](../../tools/burp_traffic_capture_extension.py) is a ready-to-load Jython Burp extension that writes this format. One-time setup:
+[tools/burp/traffic_capture_extension.py](../../tools/burp/traffic_capture_extension.py) is a ready-to-load Jython Burp extension that writes this format. One-time setup:
 
-1. Download a standalone Jython JAR from `https://www.jython.org/download`.
+1. Use the standalone Jython JAR vendored at `tools/vendor/jython/jython-standalone-2.7.4.jar`, or download one from `https://www.jython.org/download`.
 2. In Burp Suite, open Extender > Options > Python Environment and point it at that JAR.
-3. Open Extender > Extensions > Add, choose extension type `Python`, and select `tools/burp_traffic_capture_extension.py`.
-4. Compare the capture file the extension prints when it loads with the one [tools/check_burp_interception.py](#checking-the-whole-chain-before-a-batch-of-runs) prints when it runs — both halves must name the same path. The extension resolves it on its own, as `artifacts/work/ios/traffic_interception/capture.jsonl` under the repository it was loaded from, so nothing in the file needs editing. It is dependency-free and does not read the backend's storage settings, so set `MPA_BURP_CAPTURE_PATH` to an absolute path when Burp runs somewhere that path does not exist, or when `WORK_DIR` puts the capture file elsewhere. If it cannot locate the repository it records nothing and says so in the Extender output.
+3. Open Extender > Extensions > Add, choose extension type `Python`, and select `tools/burp/traffic_capture_extension.py`.
+4. Compare the capture file the extension prints when it loads with the one [scripts/check_burp_interception.py](#checking-the-whole-chain-before-a-batch-of-runs) prints when it runs — both halves must name the same path. The extension resolves it on its own, as `artifacts/work/ios/traffic_interception/capture.jsonl` under the repository it was loaded from, so nothing in the file needs editing. It is dependency-free and does not read the backend's storage settings, so set `MPA_BURP_CAPTURE_PATH` to an absolute path when Burp runs somewhere that path does not exist, or when `WORK_DIR` puts the capture file elsewhere. If it cannot locate the repository it records nothing and says so in the Extender output.
 
 It hasn't been exercised against a real Burp Suite instance; treat it as a starting point to verify, not a guaranteed-working drop-in.
 
 ### Checking the whole chain before a batch of runs
 
-Device proxy configuration, CA trust, and the capture extension are all set up once, outside this framework, and nothing re-verifies them before every run. If any one of them is wrong, every app just comes back `Inconclusive` — which looks identical to "the app actually has good pinning." Before trusting a batch of `Inconclusive` results across many apps, run [tools/check_burp_interception.py](../../tools/check_burp_interception.py) once:
+Device proxy configuration, CA trust, and the capture extension are all set up once, outside this framework, and nothing re-verifies them before every run. If any one of them is wrong, every app just comes back `Inconclusive` — which looks identical to "the app actually has good pinning." Before trusting a batch of `Inconclusive` results across many apps, run [scripts/check_burp_interception.py](../../scripts/check_burp_interception.py) once:
 
 ```bash
-python tools/check_burp_interception.py --config configs/ios.yaml
+python scripts/check_burp_interception.py --config configs/ios.yaml
 ```
 
 It checks Burp's proxy is reachable, opens a known HTTPS test URL (`https://example.com` by default) on the device via `mobile: deepLink` (no need to interact with Safari's address bar UI), and confirms that a matching HTTPS exchange shows up in the capture file — i.e. the full proxy → CA trust → extension chain is genuinely decrypting traffic, not just configured-looking. On `PASS`, it atomically writes the capture file's sibling `.health.json` record with the verification time, normalized proxy, canonical capture path, canary host, valid-entry count, hashed device UDID, and tool version. A selected traffic-interception run compares that record's proxy, path, device, and age during preflight and reports any mismatch or stale state as a non-blocking warning. A fresh record proves only that the canary worked at that recorded time; it does not make a later `Inconclusive` application result proof of pinning, because the capture source, app activity, or handshake outcome may differ during the later run. `FAILED` does not create or update the record and points at which part of the chain to check.

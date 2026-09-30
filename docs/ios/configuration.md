@@ -146,8 +146,8 @@ iOS risk IDs are prefixed `ios-feature...`. To configure a risk for an app:
 ```yaml
 repackaging:
   frida:
-    dylib_path: "tools/Frida/FridaGadget.dylib"
-    config_path: "tools/Frida/FridaGadget.config"
+    dylib_path: "tools/vendor/frida/FridaGadget.dylib"
+    config_path: "tools/vendor/frida/FridaGadget.config"
     script: null
     attach_timeout_seconds: 15
   insert_dylib_path: null
@@ -166,7 +166,7 @@ repackaging:
   restore_original_after_test: true
 ```
 
-`frida.dylib_path`/`frida.config_path` are the gadget injected into the bundle, resolved relative to the repository root (override to point elsewhere). `frida.script` is an optional Frida JS file loaded once the repackaged build is running: attaching to the gadget and running it is the dynamic proof that the injected code loaded, and is required before an `At Risk` verdict — a failed attach leaves the run `GADGET_ATTACH_FAILED` (Inconclusive), so `frida` must be installed for a real device run. `insert_dylib_path` is optional: leave it `null` and the tool is used from its vendored location `tools/insert_dylib/`, resolved by repository-relative path with no PATH entry required (set an absolute path only to override).
+`frida.dylib_path`/`frida.config_path` are the gadget injected into the bundle, resolved relative to the repository root (override to point elsewhere). `frida.script` is an optional Frida JS file loaded once the repackaged build is running: attaching to the gadget and running it is the dynamic proof that the injected code loaded, and is required before an `At Risk` verdict — a failed attach leaves the run `GADGET_ATTACH_FAILED` (Inconclusive), so `frida` must be installed for a real device run. `insert_dylib_path` is optional: leave it `null` and the tool is used from its vendored location `tools/vendor/insert_dylib/`, resolved by repository-relative path with no PATH entry required (set an absolute path only to override).
 
 `resign.identity` is the `codesign` identity; leave it `null` and it is resolved from `device.team_id` by keychain lookup (the SHA-1 of the team's Apple Development certificate). `resign.provisioning_profile` is the `.mobileprovision` used to embed entitlements and re-sign for the device; leave it `null` and a matching profile is auto-discovered from `~/Library/MobileDevice/Provisioning Profiles` (the first whose team, `application-identifier`, provisioned devices, expiry, and signing certificate match this app, device, and identity). A valid profile for the target bundle ID is an operational prerequisite; when none is configured or discovered the run is `RESIGN_FAILED` (Inconclusive). `tamper_markers` are merged with the app's `expected_behavior.source_not_contains` for the UI scan. `exercise` controls the sampling window and the sensitive path driven on both passes, and `restore_original_after_test` reinstalls the clean build afterward. See [Risks](risks.md#ios-feature-01-risk-02) for the evidence channels and the three-way verdict.
 
@@ -204,7 +204,7 @@ traffic_interception:
 
 The iPhone must use the English UI unless localized selectors are added, must have no passcode, and must already trust WebDriverAgent. Burp must be running with its listener bound to all interfaces. Certificate installation is attempted only when the configured CA is not already fully trusted. Settings accessibility labels can change between iOS releases, so selector updates may be required after an iOS upgrade. Navigation failures save a screenshot and page source in the risk report directory.
 
-`burp.capture_path` is optional: unset, it follows `WORK_DIR` to `artifacts/work/ios/traffic_interception/capture.jsonl`, and a value set here resolves against the repository root rather than the working directory the run started from. `burp.health_max_age_seconds` defaults to 300 when omitted and rejects negative values. A successful `tools/check_burp_interception.py` canary writes a sibling health record by replacing the capture suffix with `.health.json` (for example, `capture.jsonl` becomes `capture.health.json`). Before a selected traffic-interception risk runs, preflight compares that record's proxy, path, device, and age. These warnings do not abort the run.
+`burp.capture_path` is optional: unset, it follows `WORK_DIR` to `artifacts/work/ios/traffic_interception/capture.jsonl`, and a value set here resolves against the repository root rather than the working directory the run started from. `burp.health_max_age_seconds` defaults to 300 when omitted and rejects negative values. A successful `scripts/check_burp_interception.py` canary writes a sibling health record by replacing the capture suffix with `.health.json` (for example, `capture.jsonl` becomes `capture.health.json`). Before a selected traffic-interception risk runs, preflight compares that record's proxy, path, device, and age. These warnings do not abort the run.
 
 `expected_hosts` filters `capture_path`'s entries down to this app's own traffic. Each value is normalized from a hostname or URL, then matches only that exact hostname or its subdomains; `api.example.com.evil.test` and `notapi.example.com` do not match `api.example.com`. An empty list accepts any newly captured valid HTTPS exchange and can therefore attribute unrelated device traffic to the app, so configure the application's exact hosts for a meaningful result. Only entries explicitly marked `https` can produce `RISK_EXISTS`; plain HTTP and entries from an outdated extension that omit `scheme` cannot. The capture extension stores exchange metadata and body lengths, not raw headers, cookies, authorization values, request bodies, or response bodies.
 
@@ -274,7 +274,7 @@ screen_capture:
 - `install`: install the IPA at the start of the risk. With `false`, the recorder must already be installed under `bundle_id`.
 - `uninstall_after_test`: remove the recorder afterwards, even when an earlier crashed run left it behind.
 - `require_clean_state`: remove a recorder that is already installed before the run. Uninstalling also wipes its App Group, so old recordings cannot match this run's canary. When removal fails, the result is `DIRTY_STARTING_STATE`.
-- `resign.enabled` / `resign.timeout_seconds`: re-sign the IPA with `tools/localkeyboard_resign/resign.py` when its profile has expired or the install is rejected for its signature (see [Reports And Troubleshooting](reports-and-troubleshooting.md#troubleshooting)).
+- `resign.enabled` / `resign.timeout_seconds`: re-sign the IPA with `tools/companion_apps/localkeyboard_resign/resign.py` when its profile has expired or the install is rejected for its signature (see [Reports And Troubleshooting](reports-and-troubleshooting.md#troubleshooting)).
 - `sign_in`: accessibility IDs and dummy values for the recorder's own sign-in fields. They only enable the recorder's start button and are not credentials for anything else.
 - `start_button_accessibility_id`: the recorder button that opens the iOS broadcast sheet, both to start and to stop.
 - `export_button_accessibility_id`: the recorder button that copies the evidence into its Documents folder.

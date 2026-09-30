@@ -7,7 +7,7 @@ import pytest
 
 from mobile_playbook.platforms.ios.burp_capture import CaptureObservation
 from mobile_playbook.platforms.ios.burp_health import health_record_path, write_health_record
-from tools import check_burp_interception
+from scripts import check_burp_interception
 
 
 class FakeClient:

@@ -17,9 +17,9 @@ from pathlib import Path
 from mobile_playbook.platforms.ios.ipa.plist_utils import get_bundle_executable
 from mobile_playbook.storage import resolve_under_repository
 
-FRIDA_DYLIB = "tools/Frida/FridaGadget.dylib"
-FRIDA_CONFIG = "tools/Frida/FridaGadget.config"
-INSERT_DYLIB_DIR = "tools/insert_dylib"
+FRIDA_DYLIB = "tools/vendor/frida/FridaGadget.dylib"
+FRIDA_CONFIG = "tools/vendor/frida/FridaGadget.config"
+INSERT_DYLIB_DIR = "tools/vendor/insert_dylib"
 
 logger = logging.getLogger(__name__)
 

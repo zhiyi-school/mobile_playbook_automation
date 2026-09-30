@@ -113,7 +113,7 @@ def main(argv: list[str] | None = None) -> int:
     print(
         f"FAILED: {test_host} never appeared in {capture_path}. Check: is the device's Wi-Fi proxy pointed at "
         "Burp, is Burp's CA fully trusted (Settings > General > About > Certificate Trust Settings), and is "
-        f"tools/burp_traffic_capture_extension.py loaded in Burp?{detail}",
+        f"tools/burp/traffic_capture_extension.py loaded in Burp?{detail}",
         file=sys.stderr,
     )
     return 1

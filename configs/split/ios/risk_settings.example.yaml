@@ -24,9 +24,9 @@ ipa_static_analysis:
 
 repackaging:
   frida:
-    dylib_path: "tools/Frida/FridaGadget.dylib"
-    config_path: "tools/Frida/FridaGadget.config"
-  # Defaults to the vendored tools/insert_dylib; see docs/ios/configuration.md#repackaging.
+    dylib_path: "tools/vendor/frida/FridaGadget.dylib"
+    config_path: "tools/vendor/frida/FridaGadget.config"
+  # Defaults to tools/vendor/insert_dylib; see docs/ios/configuration.md#repackaging.
   insert_dylib_path: null
   resign:
     # Unset auto-discovers a matching installed profile; see docs/ios/configuration.md#repackaging.

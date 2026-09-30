@@ -5,7 +5,7 @@ Use this helper when manually testing the server side of `ios-feature-04-risk-01
 Start the server:
 
 ```bash
-python tools/manual_local_keyboard_server.py --host 0.0.0.0 --port 8765
+python scripts/manual_local_keyboard_server.py --host 0.0.0.0 --port 8765
 ```
 
 The script prints:
@@ -45,7 +45,7 @@ Do not queue `hello123\n` as one item if you want iOS to treat return as Go/Sear
 You can queue initial values on startup:
 
 ```bash
-python tools/manual_local_keyboard_server.py \
+python scripts/manual_local_keyboard_server.py \
   --host 0.0.0.0 \
   --port 8765 \
   --enqueue hello123 \

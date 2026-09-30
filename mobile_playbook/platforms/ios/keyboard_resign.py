@@ -15,9 +15,9 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
-from mobile_playbook.storage import resolve_under_repository
+from mobile_playbook.storage.paths import REPOSITORY_ROOT, resolve_under_repository
 
-RESIGN_SCRIPT = "tools/localkeyboard_resign/resign.py"
+RESIGN_SCRIPT = "tools/companion_apps/localkeyboard_resign/resign.py"
 VERIFICATION_MARKERS = ("ApplicationVerificationFailed", "Failed to verify code signature")
 
 logger = logging.getLogger(__name__)
@@ -91,11 +91,11 @@ def resign(ipa_path: Path, udid: str, team_id: str, timeout_seconds: int = 900) 
         "--udid", udid,
         "--team-id", team_id,
     ]
-    logger.debug("ios keyboard resign: running %s (cwd=%s, timeout=%ss)", command, script.parents[2], timeout_seconds)
+    logger.debug("ios keyboard resign: running %s (cwd=%s, timeout=%ss)", command, REPOSITORY_ROOT, timeout_seconds)
     started = time.monotonic()
     try:
         completed = subprocess.run(
-            command, cwd=script.parents[2], capture_output=True, text=True, timeout=timeout_seconds
+            command, cwd=REPOSITORY_ROOT, capture_output=True, text=True, timeout=timeout_seconds
         )
     except subprocess.TimeoutExpired as exc:
         logger.debug("ios keyboard resign: resign.py timed out after %.2fs: %s", time.monotonic() - started, exc, exc_info=True)

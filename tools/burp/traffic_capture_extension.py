@@ -29,8 +29,9 @@ def repository_root(callbacks):
     if not extension_file:
         return None
 
+    # The extension lives at tools/burp/, two levels below the repository root.
     return os.path.dirname(
-        os.path.dirname(os.path.abspath(extension_file))
+        os.path.dirname(os.path.dirname(os.path.abspath(extension_file)))
     )
 
 

@@ -496,7 +496,7 @@ default.
 A launchd calendar job is retained as a recovery sweep for a trigger that could
 not start or a host interruption. It invokes the same worker in one-shot mode
 every five minutes. The template is at
-`tools/dashboard_sync/com.mobile-playbook.dashboard-sync.plist`; copy it into
+`tools/deploy/launchd/com.mobile-playbook.dashboard-sync.plist`; copy it into
 `~/Library/LaunchAgents`, substitute the absolute repository path, and load it
 with `launchctl bootstrap gui/$(id -u)`. Credentials come from `.env` and must
 not be placed in the plist, which is normally world-readable.

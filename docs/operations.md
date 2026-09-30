@@ -158,7 +158,7 @@ schedule so a trigger that never fired cannot strand a report. Install from the
 tracked template:
 
 ```bash
-cp tools/dashboard_sync/com.mobile-playbook.dashboard-sync.plist \
+cp tools/deploy/launchd/com.mobile-playbook.dashboard-sync.plist \
    ~/Library/LaunchAgents/
 launchctl bootstrap gui/$(id -u) \
    ~/Library/LaunchAgents/com.mobile-playbook.dashboard-sync.plist
