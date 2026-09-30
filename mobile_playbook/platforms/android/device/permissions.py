@@ -7,7 +7,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 
-from mobile_playbook.platforms.android.adb import AdbClient
+from mobile_playbook.platforms.android.device.adb import AdbClient
 
 logger = logging.getLogger(__name__)
 

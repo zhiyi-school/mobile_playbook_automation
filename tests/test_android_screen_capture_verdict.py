@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from mobile_playbook.platforms.android.risks.screen_capture import (
+from mobile_playbook.platforms.android.risks.feature_06_risk_01_screen_capture import (
     _security_verdict_from_verdict,
     _status_from_verdict,
 )

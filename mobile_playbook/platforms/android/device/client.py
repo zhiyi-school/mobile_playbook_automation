@@ -6,8 +6,8 @@ from __future__ import annotations
 
 import logging
 
-from mobile_playbook.platforms.android.adb import AdbClient
-from mobile_playbook.platforms.android.appium_driver import create_appium_driver
+from mobile_playbook.platforms.android.device.adb import AdbClient
+from mobile_playbook.platforms.android.device.appium_driver import create_appium_driver
 
 logger = logging.getLogger(__name__)
 

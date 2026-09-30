@@ -9,8 +9,8 @@ import shutil
 from dataclasses import dataclass, field
 
 from mobile_playbook.orchestration.appium_server import tcp_reachable as _tcp_reachable
-from mobile_playbook.platforms.android.adb import AdbClient
-from mobile_playbook.platforms.android.appium_driver import appium_available
+from mobile_playbook.platforms.android.device.adb import AdbClient
+from mobile_playbook.platforms.android.device.appium_driver import appium_available
 
 logger = logging.getLogger(__name__)
 

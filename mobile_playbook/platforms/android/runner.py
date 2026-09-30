@@ -21,10 +21,10 @@ from mobile_playbook.orchestration.platform_runner import (
     iter_enabled_tests,
     requires_device,
 )
-from mobile_playbook.platforms.android.adb import AdbClient
-from mobile_playbook.platforms.android.device_client import AndroidDeviceClient
+from mobile_playbook.platforms.android.device.adb import AdbClient
+from mobile_playbook.platforms.android.device.client import AndroidDeviceClient
 from mobile_playbook.platforms.android.models import AndroidRiskRunResult
-from mobile_playbook.platforms.android.permissions import grant_all
+from mobile_playbook.platforms.android.device.permissions import grant_all
 from mobile_playbook.platforms.android.preflight import check_android_preflight
 from mobile_playbook.platforms.android.risks import get_risk
 

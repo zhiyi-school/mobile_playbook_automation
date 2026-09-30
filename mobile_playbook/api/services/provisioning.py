@@ -10,10 +10,10 @@ from typing import Any
 
 from mobile_playbook.api import config_editing
 from mobile_playbook.api.config_editing.shared import ENTRY_FILES
-from mobile_playbook.platforms.android.adb import AdbClient
+from mobile_playbook.platforms.android.device.adb import AdbClient
 from mobile_playbook.platforms.android.config import ConfigError as AndroidConfigError
 from mobile_playbook.platforms.android.config import load_config as load_android_config
-from mobile_playbook.platforms.android.permissions import is_installed as android_is_installed
+from mobile_playbook.platforms.android.device.permissions import is_installed as android_is_installed
 from mobile_playbook.api.run_registry import registry
 from mobile_playbook.common.storage_paths import config_path, ios_intake_dir
 from mobile_playbook.orchestration.platform_runner import requires_device
