@@ -109,7 +109,7 @@ def validate(root: Path) -> list[str]:
     parsed = {path.resolve(): visible_lines(path.read_text(encoding="utf-8")) for path in markdown_files}
     anchors = {path: heading_anchors(lines) for path, lines in parsed.items()}
     errors: list[str] = []
-    allowlist_path = root / "docs" / "doc-validation-allowlist.txt"
+    allowlist_path = root / "scripts" / "doc-validation-allowlist.txt"
     allowed = {
         tuple(line.split("|", 1))
         for line in (allowlist_path.read_text(encoding="utf-8").splitlines() if allowlist_path.is_file() else [])

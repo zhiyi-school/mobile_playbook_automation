@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from mobile_playbook.platforms.ios import preflight as ios_preflight
-from mobile_playbook.platforms.ios.traffic_interception.burp_health import health_record_path, write_health_record
+from mobile_playbook.platforms.ios.traffic_interception.burp_health import write_health_record
 from mobile_playbook.platforms.ios.config import ConfigError, validate_config
 from mobile_playbook.platforms.ios.preflight import (
     _parse_connected_udids,

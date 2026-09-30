@@ -5,7 +5,6 @@ import pytest
 from mobile_playbook.api import config_editing as ce
 from mobile_playbook.api.services import provisioning
 from tests.conftest import make_ipa
-from tests.test_api_config_editor import config_root  # noqa: F401 — reused fixture
 
 #: Anything a dashboard renders must not name paths, files or config internals.
 LEAKY_FRAGMENTS = ("intake/", "configs/", ".ipa", ".apk", ".yaml", "bundle_id", "artifact", "apps[")

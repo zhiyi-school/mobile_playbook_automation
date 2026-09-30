@@ -1,4 +1,4 @@
-# Package metadata, direct dependencies and pytest settings; requirements.txt mirrors the dependencies.
+# Package metadata, runtime and dev dependencies, and pytest and ruff settings; requirements.txt mirrors the runtime dependencies.
 
 [build-system]
 requires = ["setuptools>=68", "wheel"]
@@ -13,7 +13,6 @@ dependencies = [
   "Appium-Python-Client>=4.0.0",
   "selenium>=4.0.0",
   "PyYAML>=6.0.0",
-  "pytest>=8.0.0",
   "fastapi>=0.110.0",
   "uvicorn[standard]>=0.29.0",
   "python-multipart>=0.0.9",
@@ -24,6 +23,9 @@ dependencies = [
   "pyobjc-framework-CoreMedia>=10; sys_platform == 'darwin'",
   "pyobjc-framework-Cocoa>=10; sys_platform == 'darwin'",
 ]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0.0", "ruff>=0.16"]
 
 [project.scripts]
 mobile-playbook = "mobile_playbook.cli:main"
@@ -38,3 +40,10 @@ include = ["mobile_playbook*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+
+[tool.ruff]
+target-version = "py311"
+
+# Correctness checks only: syntax errors, undefined or unused names and imports. Listed explicitly so a ruff upgrade does not change the rule set.
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]

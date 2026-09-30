@@ -44,6 +44,100 @@ def isolated_config_root(tmp_path, monkeypatch):
     monkeypatch.setattr(storage_paths, "CONFIG_ROOT", tmp_path / "configs")
 
 
+# Builds a synthetic iOS and Android config tree for the config editor tests.
+@pytest.fixture
+def config_root(tmp_path, monkeypatch):
+    ipa = tmp_path / "intake/ios/ipas/App.ipa"
+    make_ipa(ipa, bundle_id="com.example.app")
+
+    (tmp_path / "configs/split/ios").mkdir(parents=True)
+    (tmp_path / "configs/split/android").mkdir(parents=True)
+
+    (tmp_path / "configs/split/ios/templates.yaml").write_text(
+        "x-local-ipa-artifact: &local_ipa_artifact\n"
+        "  source: \"local_ipa\"\n"
+        "  expected_bundle_id: \"\"\n"
+        "\n"
+        "x-default-launch-check: &default_launch_check\n"
+        "  app_state_must_be_foreground: true\n"
+        "  source_contains: []\n"
+        "  source_not_contains:\n"
+        "    - \"Tamper detected\"\n"
+        "    - \"Integrity check failed\"\n"
+        "  app_specific_check: null\n"
+    )
+    (tmp_path / "configs/split/ios/apps.yaml").write_text(
+        "# The iOS app roster.\n"
+        "apps:\n"
+        "  - name: \"App One\"\n"
+        "    bundle_id: \"com.example.app\"\n"
+        "    test_bundle_id: \"com.example.app\"\n"
+        "    artifact:\n"
+        "      <<: *local_ipa_artifact\n"
+        f"      ipa: \"{ipa.as_posix()}\"\n"
+        "    risks:\n"
+        "      ios-feature-01-risk-01:\n"
+        "        enabled: true\n"
+    )
+    (tmp_path / "configs/split/ios/ipa_static_analysis.yaml").write_text(
+        "# Global settings for ios-feature-01-risk-01.\n"
+        "ipa_static_analysis:\n"
+        "  analyzer:\n"
+        "    provider: \"mobsf\"\n"
+        "    # comment on a nested field\n"
+        "    mobsf_url: \"http://127.0.0.1:8000\"\n"
+        "  sensitive_scan:\n"
+        "    reveal_values: true\n"
+    )
+    (tmp_path / "configs/split/ios/keystroke_collection.yaml").write_text("keystroke_collection: {}\n")
+    (tmp_path / "configs/ios.yaml").write_text(
+        "# Working local iOS config.\n"
+        "device:\n"
+        "  udid: \"UDID123\"\n"
+        "  # which team signs WDA\n"
+        "  team_id: \"TEAM\"\n"
+        "  appium_server_url: \"http://127.0.0.1:4723\"\n"
+        "  updated_wda_bundle_id: \"UDID_WDA\"\n"
+        "\n"
+        "runner:\n"
+        "  work_dir: \"work/ios\"\n"
+        "\n"
+        "include:\n"
+        "  ipa_static_analysis: split/ios/ipa_static_analysis.yaml\n"
+        "  keystroke_collection: split/ios/keystroke_collection.yaml\n"
+        "  apps:\n"
+        "    - split/ios/templates.yaml\n"
+        "    - split/ios/apps.yaml\n"
+    )
+
+    (tmp_path / "configs/split/android/apps.yaml").write_text(
+        "apps:\n"
+        "  - id: \"one\"\n"
+        "    name: \"One\"\n"
+        "    package_name: \"com.example.one\"\n"
+        "    risks:\n"
+        "      android-feature-06-risk-01:\n"
+        "        enabled: true\n"
+    )
+    (tmp_path / "configs/split/android/repackaging.yaml").write_text("repackaging: {}\n")
+    (tmp_path / "configs/split/android/screen_capture.yaml").write_text("screen_capture: {}\n")
+    (tmp_path / "configs/android.yaml").write_text(
+        "device:\n"
+        "  appium_server_url: \"http://127.0.0.1:4723\"\n"
+        "\n"
+        "runner:\n"
+        "  work_dir: \"work/android\"\n"
+        "\n"
+        "include:\n"
+        "  repackaging: split/android/repackaging.yaml\n"
+        "  screen_capture: split/android/screen_capture.yaml\n"
+        "  apps: split/android/apps.yaml\n"
+    )
+
+    monkeypatch.setenv("INTAKE_DIR", str(tmp_path / "intake"))
+    return tmp_path
+
+
 @pytest.fixture
 def fake_ipa(tmp_path):
     return make_ipa(tmp_path / "app.ipa")

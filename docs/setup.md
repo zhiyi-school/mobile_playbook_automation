@@ -26,7 +26,8 @@ python -m pip install -e .
 ```
 
 This installs the runtime dependencies (Appium client, Selenium, PyYAML,
-FastAPI, uvicorn, python-multipart, ruamel.yaml) and `pytest`. It also
+FastAPI, uvicorn, python-multipart, ruamel.yaml). To run the tests, install the
+`dev` extra instead: `python -m pip install -e ".[dev]"`. Either form also
 installs the `mobile-playbook`, `mobile-playbook-api`,
 `mobile-playbook-dashboard-sync`, `mobile-playbook-assessment-worker` and
 `mobile-playbook-icon-backfill` commands into the environment's `bin/`; each is
@@ -203,6 +204,7 @@ CLI `--out` remains custom and working-directory-relative. See the
 ```bash
 python scripts/check_requirements.py
 python scripts/check_docs.py
+python -m ruff check .
 python -m compileall -q mobile_playbook/
 python -m pytest -q
 ```

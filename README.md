@@ -147,11 +147,12 @@ reports/               timestamped run reports
 ## Contributor verification
 
 After creating and activating a Python 3.11+ environment and installing with
-`python -m pip install -e .`, run:
+`python -m pip install -e ".[dev]"`, run:
 
 ```bash
 python scripts/check_requirements.py
 python scripts/check_docs.py
+python -m ruff check .
 python -m compileall -q mobile_playbook/
 python -m pytest -q
 ```

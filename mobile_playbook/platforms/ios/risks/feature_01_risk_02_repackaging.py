@@ -23,7 +23,6 @@ from mobile_playbook.platforms.ios.repackaging.repackage import (
     set_bundle_identifier,
 )
 from mobile_playbook.platforms.ios.repackaging.resign import (
-    discover_provisioning_profile,
     ensure_provisioning_profile,
     resign_app,
     signing_identity_for_team,

@@ -22,7 +22,7 @@ from mobile_playbook.platforms.ios.models import (
     GlobalConfig,
     RunnerConfig,
 )
-from mobile_playbook.platforms.ios.risks.registry import get_risk, known_risks
+from mobile_playbook.platforms.ios.risks.registry import known_risks
 
 logger = logging.getLogger(__name__)
 
@@ -225,7 +225,6 @@ def collect_config_errors(config: GlobalConfig, dry_run: bool = False) -> list[s
                 logger.debug("ios config: %s risk %s disabled, skipping risk validation", label, risk_id)
                 continue
             logger.debug("ios config: validating %s risk %s", label, risk_id)
-            risk = get_risk(risk_id)
             effective = effective_risk_config(config, risk_id, risk_config)
             if risk_id == "ios-feature-04-risk-01":
                 keyboard_app = effective.get("keyboard_app") or {}

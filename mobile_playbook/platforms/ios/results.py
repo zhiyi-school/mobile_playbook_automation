@@ -7,7 +7,6 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Any
 
 from mobile_playbook.reporting.messages import clean_message
 from mobile_playbook.reporting.result_models import Evidence, TestResult

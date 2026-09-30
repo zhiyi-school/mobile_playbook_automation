@@ -40,7 +40,7 @@
 
 ## Verification
 
-Use the repository's Python 3.11+ environment. Installation, when needed: `python -m pip install -e .`.
+Use the repository's Python 3.11+ environment. Installation, when needed: `python -m pip install -e ".[dev]"`; the `dev` extra adds the test and lint tools.
 
 Run commands from the repository root:
 
@@ -48,6 +48,7 @@ Run commands from the repository root:
 python -m pytest -q
 python scripts/check_requirements.py
 python scripts/check_docs.py
+python -m ruff check .
 git diff --check
 ```
 

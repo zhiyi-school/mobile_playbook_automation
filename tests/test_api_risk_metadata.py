@@ -6,7 +6,6 @@ from fastapi import HTTPException
 from mobile_playbook.api import config_editing as ce
 from mobile_playbook.api.routes.catalog import platform_risks
 from mobile_playbook.playbook import catalogue
-from tests.test_api_config_editor import config_root  # noqa: F401 — reused fixture
 
 RISK_ID = "ios-feature-01-risk-01"
 

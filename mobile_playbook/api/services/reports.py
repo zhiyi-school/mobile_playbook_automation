@@ -13,7 +13,6 @@ from fastapi import HTTPException
 from mobile_playbook.api.downloads import (
     DownloadFileMissing,
     DownloadPathError,
-    media_type_for,
     resolve_regular_file,
     safe_filename,
 )

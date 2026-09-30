@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 from fastapi import HTTPException
 
+from mobile_playbook.api.downloads import media_type_for
 from mobile_playbook.api.routes import reports as api_reports
 from mobile_playbook.api.services import reports as reports_service
 from mobile_playbook.reporting.evidence import (
@@ -347,15 +348,15 @@ class TestServedHeaders:
         assert reports_service.safe_download_name("") == "evidence"
 
     def test_types_the_artifacts_a_browser_guesses_badly(self):
-        assert reports_service.media_type_for("original.ipa") == "application/octet-stream"
-        assert reports_service.media_type_for("app.apk") == "application/vnd.android.package-archive"
-        assert reports_service.media_type_for("critical_findings.md") == "text/markdown; charset=utf-8"
-        assert reports_service.media_type_for("report.json") == "application/json"
-        assert reports_service.media_type_for("screen.mp4") == "video/mp4"
-        assert reports_service.media_type_for("shot.png") == "image/png"
+        assert media_type_for("original.ipa") == "application/octet-stream"
+        assert media_type_for("app.apk") == "application/vnd.android.package-archive"
+        assert media_type_for("critical_findings.md") == "text/markdown; charset=utf-8"
+        assert media_type_for("report.json") == "application/json"
+        assert media_type_for("screen.mp4") == "video/mp4"
+        assert media_type_for("shot.png") == "image/png"
 
     def test_falls_back_for_an_unknown_suffix(self):
-        assert reports_service.media_type_for("thing.unknownext") == "application/octet-stream"
+        assert media_type_for("thing.unknownext") == "application/octet-stream"
 
 
 class TestReferencesReplacePaths:

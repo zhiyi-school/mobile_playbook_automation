@@ -33,6 +33,7 @@ Maintenance checks are independent so a failure retains its own diagnostics:
 ```bash
 python scripts/check_requirements.py
 python scripts/check_docs.py
+python -m ruff check .
 python -m pytest -q tests/test_api_reports.py tests/test_report_evidence.py \
   tests/test_api_playbook.py tests/test_playbook_validator.py
 ```
@@ -41,8 +42,10 @@ The first command enforces dependency-declaration synchronization. The second
 checks local Markdown links and anchors, referenced repository paths, required
 documentation entry points, external URL syntax, and accidental user-specific
 paths without executing code blocks or using the network. Exact intentional
-cross-repository references live in `docs/doc-validation-allowlist.txt`; stale
-exceptions fail validation.
+cross-repository references live in `scripts/doc-validation-allowlist.txt`; stale
+exceptions fail validation. The third runs the correctness rules selected in
+`pyproject.toml` (syntax errors and undefined or unused names and imports),
+and CI runs it on every push.
 
 The focused pytest command covers the report/evidence HTTP contract and the
 sanitized playbook parser-to-renderer boundary. A combined playbook artifact

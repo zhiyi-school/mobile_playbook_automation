@@ -11,7 +11,7 @@ from fastapi import APIRouter, Query
 from fastapi.responses import FileResponse, JSONResponse
 
 from mobile_playbook.api.services import reports as reports_service
-from mobile_playbook.api.downloads import safe_filename
+from mobile_playbook.api.downloads import media_type_for, safe_filename
 from mobile_playbook.api.schemas import ReportResultResponse
 
 router = APIRouter()
@@ -67,11 +67,11 @@ def evidence_file(run_timestamp: str, ref: str) -> FileResponse:
     logger.debug("api: GET /reports/%s/evidence-file ref=%r.", run_timestamp, ref)
     resolved = reports_service.safe_evidence_path(run_timestamp, ref)
     logger.debug(
-        "api: serving evidence %s as %s (%s).", resolved, resolved.name, reports_service.media_type_for(resolved.name)
+        "api: serving evidence %s as %s (%s).", resolved, resolved.name, media_type_for(resolved.name)
     )
     return FileResponse(
         str(resolved),
-        media_type=reports_service.media_type_for(resolved.name),
+        media_type=media_type_for(resolved.name),
         filename=reports_service.safe_download_name(resolved.name),
         content_disposition_type="attachment",
         stat_result=resolved.stat(),
