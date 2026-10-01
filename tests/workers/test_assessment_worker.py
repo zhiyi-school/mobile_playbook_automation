@@ -369,3 +369,20 @@ def test_the_selected_risks_are_passed_through_when_the_caller_names_them():
     run(store, api, risk_ids=lambda _platform: ["example-feature-01-risk-01"])
 
     assert api.started[0]["risks"] == "example-feature-01-risk-01"
+
+
+def test_the_worker_loads_the_repository_env_file_whatever_the_working_directory(tmp_path, monkeypatch):
+    from mobile_playbook.common.storage_paths import REPOSITORY_ROOT
+    from mobile_playbook.workers import assessment_worker
+
+    seen = []
+
+    def no_credentials():
+        raise SupabaseRestError("SUPABASE_URL is not set")
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(assessment_worker, "load_env_file", lambda path: seen.append(path))
+    monkeypatch.setattr(assessment_worker.SupabaseRestStore, "from_env", staticmethod(no_credentials))
+
+    assert assessment_worker.main([]) == 2
+    assert seen == [REPOSITORY_ROOT / ".env"]

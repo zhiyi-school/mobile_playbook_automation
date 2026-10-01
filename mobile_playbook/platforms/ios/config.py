@@ -7,7 +7,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from mobile_playbook.common.storage_paths import ios_work_dir
+from mobile_playbook.common.storage_paths import ios_work_dir, resolve_under_repository
 import re
 from typing import Any
 
@@ -161,7 +161,7 @@ def parse_config(raw: dict[str, Any], config_path: Path | None = None) -> Global
             stop_on_first_failure=bool(runner_raw.get("stop_on_first_failure", False)),
             app_install_timeout_ms=int(runner_raw.get("app_install_timeout_ms", 480000)),
             launch_wait_seconds=int(runner_raw.get("launch_wait_seconds", 5)),
-            work_dir=Path(runner_raw.get("work_dir") or ios_work_dir()),
+            work_dir=resolve_under_repository(runner_raw["work_dir"]) if runner_raw.get("work_dir") else ios_work_dir(),
             permission_alerts=runner_raw.get("permission_alerts") or {},
         ),
         apps=apps,

@@ -12,9 +12,8 @@ import socket
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 
-from mobile_playbook.common.storage_paths import reports_root
+from mobile_playbook.common.storage_paths import REPOSITORY_ROOT, reports_root
 from typing import Any, Callable, Mapping, Protocol, Sequence
 from urllib import error, parse, request
 
@@ -376,7 +375,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.lease_seconds < 30:
         parser.error("--lease-seconds must be at least 30")
 
-    load_env_file(Path(".env"))
+    load_env_file(REPOSITORY_ROOT / ".env")
     logging.basicConfig(level=log_level(), format="%(levelname)s %(name)s: %(message)s")
     try:
         store = SupabaseRestStore.from_env()

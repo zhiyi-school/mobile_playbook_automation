@@ -66,7 +66,6 @@ runner:
   uninstall_after_each_test: true
   app_install_timeout_ms: 480000
   launch_wait_seconds: 5
-  work_dir: "artifacts/work/ios"
   permission_alerts:
     enabled: true
     action: "dismiss"
@@ -87,7 +86,6 @@ apps:
     artifact:
       source: "local_ipa"
       ipa: "artifacts/intake/ios/ipas/example_app.ipa"
-      workspace_dir: "artifacts/work/ios/acquired"
       expected_bundle_id: ""
     expected_behavior:
       app_state_must_be_foreground: true
@@ -99,6 +97,8 @@ apps:
       ios-feature-04-risk-01:
         enabled: false
 ```
+
+`runner.work_dir` and an app's `artifact.workspace_dir` are optional. Unset, they follow `WORK_DIR` to `<work>/ios` and `<work>/ios/acquired`; a relative value resolves against the repository root, never the working directory the run started from. Leave them unset unless you need a separate location, because `prune-work` only manages folders under the work location.
 
 For `local_ipa`, `bundle_id`, `test_bundle_id`, and `artifact.expected_bundle_id` can be left blank. The framework reads `Payload/*.app/Info.plist` from the IPA and fills them in at runtime when possible.
 

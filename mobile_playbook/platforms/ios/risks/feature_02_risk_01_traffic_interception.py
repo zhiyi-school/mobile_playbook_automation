@@ -10,7 +10,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from mobile_playbook.common.storage_paths import ios_capture_path, ios_work_dir, resolve_under_repository
+from mobile_playbook.common.storage_paths import ios_acquired_dir, ios_capture_path, resolve_under_repository
 
 from mobile_playbook.common.config_loader import merge_dicts
 from mobile_playbook.common.logging_setup import redacted, safe_url
@@ -242,7 +242,7 @@ class Feature02Risk01(Risk):
             global_config,
             device_client,
             run_timestamp,
-            Path(app_config.artifact.get("workspace_dir") or ios_work_dir() / "acquired"),
+            ios_acquired_dir(app_config.artifact.get("workspace_dir")),
         )
 
     # Tap each configured accessibility ID in turn, recording each step's result or error.

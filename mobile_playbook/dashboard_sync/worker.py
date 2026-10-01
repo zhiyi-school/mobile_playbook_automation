@@ -10,7 +10,7 @@ import time
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
-from mobile_playbook.common.storage_paths import reports_root
+from mobile_playbook.common.storage_paths import REPOSITORY_ROOT, reports_root
 
 from mobile_playbook.dashboard_sync import run_status
 from mobile_playbook.dashboard_sync.contracts import SupabaseRestError
@@ -62,7 +62,7 @@ def main(
         parser.error("--interval-seconds must be greater than 0")
     if args.lock_wait_seconds < 0:
         parser.error("--lock-wait-seconds must be greater than or equal to 0")
-    load_env_file(Path(".env"))
+    load_env_file(REPOSITORY_ROOT / ".env")
     logging.basicConfig(level=log_level(), format="%(levelname)s %(name)s: %(message)s")
     logger.debug(
         "dashboard sync: worker starting (reports_dir=%s, runs=%s, interval=%s, lock_wait=%s, legacy=%s, force=%s).",

@@ -110,6 +110,11 @@ def ios_work_dir() -> Path:
     return work_root() / "ios"
 
 
+# Returns the iOS acquisition folder: a configured workspace_dir resolved against the repository root, else <work>/ios/acquired.
+def ios_acquired_dir(configured: str | Path | None = None) -> Path:
+    return resolve_under_repository(configured) if configured else ios_work_dir() / "acquired"
+
+
 # Returns the path of the iOS traffic interception capture file.
 def ios_capture_path() -> Path:
     return ios_work_dir() / "traffic_interception" / "capture.jsonl"

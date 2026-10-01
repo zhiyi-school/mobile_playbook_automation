@@ -63,9 +63,6 @@ device:
   team_id: "<APPLE_TEAM_ID>"
   appium_server_url: "http://127.0.0.1:4723"
 
-runner:
-  work_dir: "work/<PLATFORM>"
-
 include:
   apps: split/<PLATFORM>/apps.yaml
 ```

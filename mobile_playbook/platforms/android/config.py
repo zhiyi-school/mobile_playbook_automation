@@ -7,7 +7,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from mobile_playbook.common.storage_paths import android_work_dir
+from mobile_playbook.common.storage_paths import android_work_dir, resolve_under_repository
 from typing import Any
 
 from mobile_playbook.common.logging_setup import REDACTED, redacted
@@ -48,6 +48,11 @@ def load_config(path: Path, dry_run: bool = False) -> AndroidGlobalConfig:
     return config
 
 
+# Returns a configured work directory resolved against the repository root, or the default Android work directory.
+def _configured_work_dir(configured: str | None) -> Path:
+    return resolve_under_repository(configured) if configured else android_work_dir()
+
+
 # Build an AndroidGlobalConfig from raw YAML, applying defaults and legacy key fallbacks.
 def parse_config(raw: dict[str, Any], config_path: Path | None = None) -> AndroidGlobalConfig:
     device_raw = raw.get("device") or {}
@@ -72,7 +77,7 @@ def parse_config(raw: dict[str, Any], config_path: Path | None = None) -> Androi
             appium_auto_start=device_raw.get("appium_auto_start") or {},
         ),
         runner=AndroidRunnerConfig(
-            work_dir=Path(runner_raw.get("work_dir") or paths_raw.get("work_dir") or android_work_dir()),
+            work_dir=_configured_work_dir(runner_raw.get("work_dir") or paths_raw.get("work_dir")),
             auto_grant_permissions=bool(
                 runner_raw.get("auto_grant_permissions", permissions_raw.get("auto_grant", False))
             ),

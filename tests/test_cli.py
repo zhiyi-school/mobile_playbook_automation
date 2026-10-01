@@ -216,3 +216,14 @@ def test_load_env_file_sets_missing_values_without_overriding_existing(monkeypat
     assert os.environ["MOBSF_API_KEY"] == "from-file"
     assert os.environ["QUOTED_VALUE"] == "hello world"
     assert os.environ["EXISTING_VALUE"] == "from-shell"
+
+
+def test_the_cli_loads_the_repository_env_file_whatever_the_working_directory(tmp_path, monkeypatch, capsys):
+    from mobile_playbook.common.storage_paths import REPOSITORY_ROOT
+
+    seen = []
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(cli_module, "load_env_file", lambda path: seen.append(path))
+
+    assert cli_module.main(["list-risks", "--platform", "android"]) == 0
+    assert seen == [REPOSITORY_ROOT / ".env"]

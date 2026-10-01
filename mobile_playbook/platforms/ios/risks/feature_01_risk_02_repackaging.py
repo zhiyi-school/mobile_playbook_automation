@@ -30,7 +30,7 @@ from mobile_playbook.platforms.ios.repackaging.resign import (
 from mobile_playbook.platforms.ios.risks.base import Risk
 from mobile_playbook.platforms.ios.repackaging.evidence import compare, confirm_gadget, exercise_and_observe
 from mobile_playbook.common.logging_setup import redacted
-from mobile_playbook.common.storage_paths import ios_work_dir
+from mobile_playbook.common.storage_paths import ios_acquired_dir
 
 logger = logging.getLogger(__name__)
 
@@ -84,7 +84,7 @@ class Feature01Risk02(Risk):
                 global_config,
                 device_client,
                 report_writer.run_timestamp,
-                Path(app_config.artifact.get("workspace_dir") or ios_work_dir() / "acquired"),
+                ios_acquired_dir(app_config.artifact.get("workspace_dir")),
             )
             result.artifact_result = acquisition
             logger.debug(

@@ -208,13 +208,13 @@ Keep these lifecycles distinct:
   and similar files use `#` comments. Place the header after any required
   shebang, encoding declaration, or tool directive. Test files, generated
   files, and vendored third-party files are exempt.
-- **Function descriptions:** Describe public functions and non-obvious
-  operations with a concise docstring or adjacent comment. Do not duplicate
-  the same description in both places or merely restate the function name.
+- **Function descriptions.** Every named function, method, and handler has a
+  one- to two-sentence `#` comment directly above it, above any decorators,
+  not a docstring. Inline anonymous callbacks are exempt. Describe what the
+  function does rather than restating its name.
 - **Inside functions:** Explain only non-obvious constraints or rationale,
   including ordering, concurrency, idempotency, authorization, compatibility,
   and external-system behavior.
-- Test and generated files are exempt from mandatory purpose descriptions.
 - Preserve licenses, tool directives, generated-file notices, and
   parser-consumed comments. Check whether docstrings supply CLI help or tooling.
 - Remove obvious narration, obsolete history, and commented-out code when

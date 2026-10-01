@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 from mobile_playbook.platforms.android.config import parse_config
 from mobile_playbook.platforms.android.results import normalize_android_result
-from mobile_playbook.common.storage_paths import android_work_dir
+from mobile_playbook.common.storage_paths import REPOSITORY_ROOT, android_work_dir
 from mobile_playbook.platforms.android.risks import get_risk, known_risks
 from mobile_playbook.platforms.android.runner import AndroidPlatformRunner
 from mobile_playbook.reporting.report_writer import ReportWriter
@@ -92,3 +92,17 @@ def test_run_test_records_failure_without_raising(monkeypatch, tmp_path):
     result = json.loads((report_dir / "report.json").read_text())
     assert result["final_status"] == "FAILED"
     assert "adb exploded" in result["errors"][0]
+
+
+def test_android_relative_runner_work_dir_resolves_against_the_repository(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    config = parse_config({"runner": {"work_dir": "custom/android-work"}})
+
+    assert config.runner.work_dir == REPOSITORY_ROOT / "custom" / "android-work"
+
+
+def test_android_unset_runner_work_dir_follows_the_work_root(tmp_path, monkeypatch):
+    monkeypatch.setenv("WORK_DIR", str(tmp_path / "work"))
+
+    assert parse_config({}).runner.work_dir == android_work_dir() == tmp_path / "work" / "android"

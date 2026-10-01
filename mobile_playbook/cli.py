@@ -13,7 +13,7 @@ import uuid
 from datetime import timedelta
 from pathlib import Path
 
-from mobile_playbook.common.storage_paths import ios_work_dir, reports_root, work_root
+from mobile_playbook.common.storage_paths import REPOSITORY_ROOT, ios_work_dir, reports_root, work_root
 
 from mobile_playbook.orchestration.scan_runner import RunOptions, run_platform
 from mobile_playbook.orchestration.work_retention import DEFAULT_RETENTION_DAYS, apply_prune, plan_prune
@@ -181,7 +181,7 @@ def _validate_playbook(platform: str) -> int:
 # Loads .env files, configures logging and dispatches the selected CLI command, returning its exit code.
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    load_env_file(Path(".env"))
+    load_env_file(REPOSITORY_ROOT / ".env")
     if hasattr(args, "config"):
         load_env_file(Path(args.config).parent / ".env")
     if hasattr(args, "ios_config"):

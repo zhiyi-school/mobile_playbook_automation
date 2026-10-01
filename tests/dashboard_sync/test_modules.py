@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from mobile_playbook.dashboard_sync.contracts import SyncSummary
 from mobile_playbook.dashboard_sync.identity import finding_status, is_older_run, rows_by_app, sync_key
+from mobile_playbook.common.storage_paths import REPOSITORY_ROOT
 from mobile_playbook.dashboard_sync import worker
 
 
@@ -29,4 +30,4 @@ def test_worker_entrypoint_accepts_an_injected_store_without_credentials(monkeyp
     )
 
     assert result == 0
-    assert seen
+    assert seen == [REPOSITORY_ROOT / ".env"]

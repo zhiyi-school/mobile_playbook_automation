@@ -1,7 +1,6 @@
 # Example Android repackaging settings. Copy to repackaging.yaml; see docs/android/configuration.md.
 
 repackaging:
-  work_dir: "artifacts/work/android/repackaging"
   keystore_path: null
   keystore_alias: "mobileplaybook"
   keystore_pass: "password"

@@ -13,7 +13,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from mobile_playbook.common.storage_paths import android_work_dir
+from mobile_playbook.common.storage_paths import android_work_dir, resolve_under_repository
 
 from mobile_playbook.common.logging_setup import REDACTED, redacted
 from mobile_playbook.platforms.android.models import AndroidRiskRunResult
@@ -53,9 +53,10 @@ class AndroidRepackagingRisk(AndroidRisk):
             test_case_type=self.test_case_type,
         )
         try:
-            app_dir = Path(cfg.get("work_dir") or android_work_dir() / "repackaging") / app_config.package_name.replace(".", "_")
+            work_dir = resolve_under_repository(cfg["work_dir"]) if cfg.get("work_dir") else android_work_dir() / "repackaging"
+            app_dir = work_dir / app_config.package_name.replace(".", "_")
             app_dir.mkdir(parents=True, exist_ok=True)
-            keystore = Path(cfg.get("keystore_path") or app_dir.parent / "release.keystore")
+            keystore = resolve_under_repository(cfg["keystore_path"]) if cfg.get("keystore_path") else app_dir.parent / "release.keystore"
             keystore_alias = cfg.get("keystore_alias", "mobileplaybook")
             keystore_pass = cfg.get("keystore_pass", "password")
             logger.debug("%s[%s]: setup package=%s app_dir=%s report_dir=%s keystore=%s alias=%s", self.risk_id, app_config.id, app_config.package_name, app_dir, report_dir, keystore, keystore_alias)

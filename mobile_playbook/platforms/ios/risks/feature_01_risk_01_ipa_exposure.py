@@ -9,7 +9,7 @@ import logging
 from datetime import datetime, timezone
 from pathlib import Path
 
-from mobile_playbook.common.storage_paths import ios_work_dir
+from mobile_playbook.common.storage_paths import ios_acquired_dir
 from typing import Any
 
 from mobile_playbook.common.config_loader import merge_dicts
@@ -62,7 +62,7 @@ class Feature01Risk01(Risk):
                 global_config,
                 device_client,
                 report_writer.run_timestamp,
-                Path(app_config.artifact.get("workspace_dir") or ios_work_dir() / "acquired"),
+                ios_acquired_dir(app_config.artifact.get("workspace_dir")),
             )
             result.artifact_result = acquisition
             logger.debug(

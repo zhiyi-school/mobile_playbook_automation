@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from mobile_playbook.common.logging_setup import redacted
-from mobile_playbook.common.storage_paths import ios_work_dir
+from mobile_playbook.common.storage_paths import ios_acquired_dir
 from mobile_playbook.platforms.ios.keyboard import resign as keyboard_resign
 from mobile_playbook.platforms.ios.acquisition.registry import get_provider
 from mobile_playbook.platforms.ios.models import ArtifactAcquisitionResult, CleanupResult
@@ -322,7 +322,7 @@ class CompanionAppRiskBase(Risk):
             global_config,
             device_client,
             run_timestamp,
-            Path(app_config.artifact.get("workspace_dir") or ios_work_dir() / "acquired"),
+            ios_acquired_dir(app_config.artifact.get("workspace_dir")),
         )
 
     # Handle permission alerts with the runner config plus overrides, capturing failures as results.

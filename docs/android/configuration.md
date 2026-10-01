@@ -48,9 +48,10 @@ This is checked once when a run connects to the device, and again before every s
 
 ```yaml
 runner:
-  work_dir: "artifacts/work/android"
   auto_grant_permissions: false
 ```
+
+`runner.work_dir` is optional. Unset, it follows `WORK_DIR` to `<work>/android`; a relative value resolves against the repository root, never the working directory the run started from.
 
 ## Tools
 
@@ -107,8 +108,6 @@ Android risk IDs are prefixed `android-feature...`. To configure a risk for an a
 
    ```yaml
    repackaging:
-     work_dir: "artifacts/work/android/repackaging"
-     # If unset, a keystore is generated at <work_dir>/<app>/../release.keystore on first use.
      keystore_path: null
      keystore_alias: "mobileplaybook"
      keystore_pass: "REPLACE_WITH_KEYSTORE_PASSWORD"
@@ -125,7 +124,6 @@ Global defaults live under a top-level `repackaging` block and can be overridden
 
 ```yaml
 repackaging:
-  work_dir: "artifacts/work/android/repackaging"
   keystore_path: null
   keystore_alias: "mobileplaybook"
   keystore_pass: "REPLACE_WITH_KEYSTORE_PASSWORD"
@@ -136,8 +134,8 @@ repackaging:
   record_tail: 3
 ```
 
-- `work_dir`: root directory for backed-up, decoded, and rebuilt APKs (per app, under `<work_dir>/<package_name_with_underscores>/`).
-- `keystore_path`: path to a debug/release keystore used to re-sign the repackaged APK. If unset, a keystore is generated at `<work_dir>/<app>/../release.keystore` via `keytool` on first use.
+- `work_dir` (optional): root directory for backed-up, decoded, and rebuilt APKs (per app, under `<work_dir>/<package_name_with_underscores>/`). Unset, it is `<work>/android/repackaging`; a relative value resolves against the repository root.
+- `keystore_path`: path to a debug/release keystore used to re-sign the repackaged APK; a relative value resolves against the repository root. If unset, a keystore is generated at `<work_dir>/<app>/../release.keystore` via `keytool` on first use.
 - `keystore_alias` / `keystore_pass`: alias and password used when generating the keystore and signing with `apksigner`.
 - `restore_original_after_test`: whether to reinstall the original, backed-up APK(s) after the repackaged build has been validated.
 - `launch_wait` / `post_click_wait` / `record_lead_in` / `record_tail`: pacing for the post-repackaging Appium launch validation and its screen recording.
@@ -169,7 +167,6 @@ device:
   # ...
 
 runner:
-  work_dir: "artifacts/work/android"
   # ...
 
 include:
