@@ -161,7 +161,7 @@ def test_ios_dry_run_describes_the_screen_capture_plan(global_config):
 
     global_config.screen_capture = {
         "recorder_app": {"bundle_id": "com.example.recorder"},
-        "capture": {"capture_window_seconds": 12, "ocr_provider": "vision"},
+        "capture": {"capture_window_seconds": 12, "ocr_provider": "tesseract"},
     }
     global_config.apps[0].risks = {"ios-feature-03-risk-01": {"enabled": True, "capture": {"ocr_provider": "none"}}}
 

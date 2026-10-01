@@ -7,13 +7,14 @@ from __future__ import annotations
 import argparse
 import logging
 from copy import deepcopy
+from logging.config import dictConfig
 from pathlib import Path
 from typing import Any
 
 import uvicorn
 from uvicorn.config import LOGGING_CONFIG
 
-from mobile_playbook.common.logging_setup import log_level
+from mobile_playbook.api.settings import env_setting
 from mobile_playbook.orchestration.appium_server import ensure_appium_running, stop_appium
 from mobile_playbook.platforms.ios.config import load_config
 from mobile_playbook.common.storage_paths import config_path, ios_work_dir, resolve_under_repository
@@ -36,7 +37,9 @@ def api_log_config(log_file: Path | None = None) -> dict[str, Any]:
         "formatter": "mobile_playbook",
         "stream": "ext://sys.stdout",
     }
-    level = logging.getLevelName(log_level())
+    level = (env_setting("LOG_LEVEL") or "INFO").strip().upper()
+    if not isinstance(logging.getLevelName(level), int):
+        level = "INFO"
     config["root"] = {"level": "INFO", "handlers": ["mobile_playbook"]}
     config.setdefault("loggers", {})["mobile_playbook"] = {
         "level": level,
@@ -55,6 +58,9 @@ def api_log_config(log_file: Path | None = None) -> dict[str, Any]:
         config["root"]["handlers"] = [*config["root"]["handlers"], "file"]
         for name in ("mobile_playbook", "uvicorn", "uvicorn.access"):
             config["loggers"][name]["handlers"] = [*config["loggers"][name].get("handlers", []), "file"]
+    # Python names the launcher __main__ when it is executed with -m.
+    if __name__ == "__main__":
+        config["loggers"]["__main__"] = deepcopy(config["loggers"]["mobile_playbook"])
     return config
 
 
@@ -70,6 +76,8 @@ def main() -> None:
     log_file = resolve_under_repository(args.log_file) if args.log_file else None
     if log_file is not None:
         log_file.parent.mkdir(parents=True, exist_ok=True)
+    logging_config = api_log_config(log_file)
+    dictConfig(logging_config)
     logger.debug(
         "api: starting on %s:%s (reload=%s, ios_config=%s).", args.host, args.port, args.reload, args.ios_config
     )
@@ -90,7 +98,7 @@ def main() -> None:
             host=args.host,
             port=args.port,
             reload=args.reload,
-            log_config=api_log_config(log_file),
+            log_config=logging_config,
         )
     finally:
         if result.status == "STARTED" and result.process is not None:

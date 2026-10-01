@@ -350,9 +350,16 @@ def test_screen_capture_recorder_ipa_must_exist_unless_dry_run(tmp_path, fake_ip
 
 
 @pytest.mark.parametrize("capture, expected", [
-    ({"capture_window_seconds": 0}, "capture.capture_window_seconds must be greater than 0"),
-    ({"capture_window_seconds": "soon"}, "capture.capture_window_seconds must be greater than 0"),
-    ({"ocr_provider": "tesseract"}, "capture.ocr_provider must be vision or none"),
+    ({"capture_window_seconds": 0}, "capture.capture_window_seconds must be a finite number greater than 0"),
+    ({"capture_window_seconds": float("inf")}, "capture.capture_window_seconds must be a finite number greater than 0"),
+    ({"capture_window_seconds": float("nan")}, "capture.capture_window_seconds must be a finite number greater than 0"),
+    ({"capture_window_seconds": True}, "capture.capture_window_seconds must be a finite number greater than 0"),
+    ({"capture_window_seconds": "soon"}, "capture.capture_window_seconds must be a finite number greater than 0"),
+    ({"ocr_provider": "vision"}, "capture.ocr_provider must be tesseract or none"),
+    ({"controls": "invalid"}, "capture.controls must be a mapping"),
+    ({"controls": {"enabled": "false"}}, "capture.controls.enabled must be a boolean"),
+    ({"controls": {"recorder_hold_seconds": 0}}, "capture.controls.recorder_hold_seconds must be a finite number greater than 0"),
+    ({"controls": {"recorder_hold_seconds": float("inf")}}, "capture.controls.recorder_hold_seconds must be a finite number greater than 0"),
 ])
 def test_screen_capture_validates_the_capture_block(tmp_path, fake_ipa, capture, expected):
     cfg = _screen_capture_config(tmp_path, fake_ipa, {"recorder_app": {"bundle_id": "com.example.recorder"}, "capture": capture})
@@ -367,14 +374,14 @@ def test_screen_capture_app_override_merges_onto_global_defaults(tmp_path, fake_
     cfg = _screen_capture_config(
         tmp_path,
         fake_ipa,
-        {"recorder_app": {"bundle_id": "com.example.recorder"}, "capture": {"capture_window_seconds": 12, "ocr_provider": "vision"}},
+        {"recorder_app": {"bundle_id": "com.example.recorder"}, "capture": {"capture_window_seconds": 12, "ocr_provider": "tesseract"}},
         {"capture": {"capture_window_seconds": 20}},
     )
 
     loaded = _load(tmp_path, cfg)
 
     effective = effective_risk_config(loaded, "ios-feature-03-risk-01", loaded.apps[0].risks["ios-feature-03-risk-01"])
-    assert effective["capture"] == {"capture_window_seconds": 20, "ocr_provider": "vision"}
+    assert effective["capture"] == {"capture_window_seconds": 20, "ocr_provider": "tesseract"}
     assert effective["recorder_app"]["bundle_id"] == "com.example.recorder"
 
 
@@ -392,3 +399,41 @@ def test_screen_capture_fills_a_per_app_recorder_bundle_id_from_its_ipa(tmp_path
     loaded = _load(tmp_path, _screen_capture_config(tmp_path, fake_ipa, {}, {"recorder_app": {"ipa": str(recorder_ipa)}}))
 
     assert loaded.apps[0].risks["ios-feature-03-risk-01"]["recorder_app"]["bundle_id"] == "com.example.recorder.app"
+
+
+@pytest.mark.parametrize("settings, expected", [
+    ("invalid", "must be a mapping"),
+    ({"executable": ""}, "executable must be a non-empty string"),
+    ({"language": ""}, "language must be a non-empty string"),
+    ({"language": "eng+"}, "language must name languages separated by +"),
+    ({"timeout_seconds": 0}, "timeout_seconds must be a finite number greater than 0"),
+    ({"timeout_seconds": "nan"}, "timeout_seconds must be a finite number greater than 0"),
+    ({"timeout_seconds": "inf"}, "timeout_seconds must be a finite number greater than 0"),
+    ({"timeout_seconds": True}, "timeout_seconds must be a finite number greater than 0"),
+    ({"page_segmentation_mode": 0}, "page_segmentation_mode must be an integer from 3 to 13"),
+    ({"page_segmentation_mode": 14}, "page_segmentation_mode must be an integer from 3 to 13"),
+    ({"page_segmentation_mode": True}, "page_segmentation_mode must be an integer from 3 to 13"),
+    ({"tessdata_dir": ""}, "tessdata_dir must be a non-empty string or null"),
+])
+def test_tesseract_settings_are_validated(tmp_path, fake_ipa, settings, expected):
+    cfg = _screen_capture_config(tmp_path, fake_ipa, {
+        "recorder_app": {"bundle_id": "com.example.recorder"}, "capture": {"tesseract": settings},
+    })
+
+    with pytest.raises(ConfigError) as error:
+        _load(tmp_path, cfg)
+    assert any(expected in message for message in error.value.errors)
+
+
+@pytest.mark.parametrize("provider", ["tesseract", "none"])
+def test_supported_ocr_provider_settings_load(tmp_path, fake_ipa, provider):
+    cfg = _screen_capture_config(tmp_path, fake_ipa, {
+        "recorder_app": {"bundle_id": "com.example.recorder"},
+        "capture": {"ocr_provider": provider, "tesseract": {
+            "language": "eng+deu", "page_segmentation_mode": 6, "timeout_seconds": 12,
+            "executable": "/tools with spaces/tesseract", "tessdata_dir": "/language data",
+        }},
+    })
+
+    loaded = _load(tmp_path, cfg)
+    assert loaded.screen_capture["capture"]["ocr_provider"] == provider

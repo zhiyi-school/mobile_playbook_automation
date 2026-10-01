@@ -11,10 +11,12 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from mobile_playbook.platforms.ios.screen_capture import ocr
+from mobile_playbook.platforms.ios.screen_capture import controls, coverage, ocr
+from mobile_playbook.platforms.ios.screen_capture.providers import get_ocr_provider
 from mobile_playbook.platforms.ios.config import effective_risk_config
+from mobile_playbook.platforms.ios.device_client import TextFieldUnavailableError
 from mobile_playbook.platforms.ios.models import RiskRunResult
-from mobile_playbook.platforms.ios.risks.companion_app_base import CompanionAppRiskBase
+from mobile_playbook.platforms.ios.risks.companion_app_base import CompanionAppRiskBase, TargetNotForegroundError
 from mobile_playbook.platforms.ios.screen_capture.recorder import (
     ScreenCaptureSetupError, export_and_pull, start_broadcast, stop_broadcast,
 )
@@ -32,7 +34,7 @@ class Feature03Risk01(CompanionAppRiskBase):
     companion_config_key = "recorder_app"
     companion_label = "recorder"
 
-    # Store an optional OCR recogniser that replaces the Vision framework.
+    # Store an optional recogniser for synthetic tests of the capture workflow.
     def __init__(self, recogniser=None):
         self.recogniser = recogniser
 
@@ -100,7 +102,12 @@ class Feature03Risk01(CompanionAppRiskBase):
                     return result
 
             logger.debug("ios-feature-03-risk-01[%s]: starting broadcast via recorder", app_config.id)
-            broadcast = start_broadcast(device_client, recorder, report_dir)
+            controlled_recorder, control_state = controls.prepare(recorder, capture, report_dir)
+            result.launch_result["capture_controls"] = control_state
+            broadcast = start_broadcast(device_client, controlled_recorder, report_dir)
+            if control_state["enabled"]:
+                controls.record_recorder(device_client, recorder, control_state, "before", report_dir,
+                                         float((capture.get("controls") or {}).get("recorder_hold_seconds", 6)))
             result.launch_result["broadcast"] = broadcast
             logger.debug("ios-feature-03-risk-01[%s]: broadcast started %.200s", app_config.id, broadcast)
 
@@ -111,17 +118,29 @@ class Feature03Risk01(CompanionAppRiskBase):
                 app_config.id, window_start, sorted(canaries), app_config.bundle_id,
             )
             device_client.launch_app(app_config.bundle_id)
-            result.launch_result["app_permission_alerts"] = self._handle_permission_alerts(device_client, global_config)
-            result.launch_result["probe"] = self._reveal(device_client, report_dir, capture, global_config, canaries)
+            result.launch_result["app_permission_alerts"] = self._handle_permission_alerts(
+                device_client, global_config, {"foreground_bundle_id": app_config.bundle_id}
+            )
+            result.launch_result["probe"] = self._reveal(
+                device_client, report_dir, capture, global_config, canaries, app_config.bundle_id
+            )
+            self._require_foreground(device_client, app_config.bundle_id)
             logger.debug("ios-feature-03-risk-01[%s]: waiting %ss capture window", app_config.id, capture.get("capture_window_seconds", 12))
-            time.sleep(float(capture.get("capture_window_seconds", 12)))
-            device_client.screenshot(report_dir / "reference_screen.png")
+            if control_state["enabled"]:
+                controls.record_target(device_client, app_config.bundle_id, control_state, report_dir,
+                                       float(capture.get("capture_window_seconds", 12)))
+            else:
+                time.sleep(float(capture.get("capture_window_seconds", 12)))
+                device_client.screenshot(report_dir / "reference_screen.png")
             window_end = int(time.time() * 1000)
             logger.debug(
                 "ios-feature-03-risk-01[%s]: capture window end=%d; reference screenshot %s",
                 app_config.id, window_end, report_dir / "reference_screen.png",
             )
 
+            if control_state["enabled"]:
+                controls.record_recorder(device_client, recorder, control_state, "after", report_dir,
+                                         float((capture.get("controls") or {}).get("recorder_hold_seconds", 6)))
             result.launch_result["broadcast_stop"] = stop_broadcast(device_client, recorder)
             broadcast = None
             logger.debug("ios-feature-03-risk-01[%s]: broadcast stopped %.200s", app_config.id, result.launch_result["broadcast_stop"])
@@ -147,6 +166,20 @@ class Feature03Risk01(CompanionAppRiskBase):
                 pulled, recording, window_start, window_end, canaries, capture, report_dir, result
             )
             logger.debug("ios-feature-03-risk-01[%s]: verdict final_status=%s verdict=%s", app_config.id, result.final_status, result.verdict)
+            return result
+        except TargetNotForegroundError as exc:
+            logger.debug("ios-feature-03-risk-01[%s]: target left the foreground: %s", app_config.id, exc, exc_info=True)
+            result.final_status, result.verdict = "TARGET_NOT_FOREGROUND", "Inconclusive"
+            result.launch_result["probe"] = {"status": "TARGET_NOT_FOREGROUND", "error": str(exc)}
+            result.errors.append(str(exc))
+            self._capture_target_debug(device_client, report_dir)
+            return result
+        except TextFieldUnavailableError as exc:
+            logger.debug("ios-feature-03-risk-01[%s]: target text field unreachable: %s", app_config.id, exc, exc_info=True)
+            result.final_status, result.verdict = "TEXT_FIELD_UNREACHABLE", "Inconclusive"
+            result.launch_result["probe"] = {"status": "TEXT_FIELD_UNREACHABLE", "error": str(exc)}
+            result.errors.append(str(exc))
+            self._capture_target_debug(device_client, report_dir)
             return result
         except ScreenCaptureSetupError as exc:
             logger.debug("ios-feature-03-risk-01[%s]: screen capture setup failed status=%s: %s", app_config.id, exc.status, exc, exc_info=True)
@@ -175,6 +208,9 @@ class Feature03Risk01(CompanionAppRiskBase):
                 app_config.id, result.final_status, result.verdict, len(result.errors),
                 getattr(result.cleanup_result, "status", None), report_dir,
             )
+            control_state = result.launch_result.get("capture_controls") or {}
+            if control_state.get("enabled"):
+                (report_dir / "capture_controls.json").write_text(json.dumps(control_state, indent=2))
             report_writer.write_result(result, report_dir)
 
     # OCR the in-window screenshots or video frames for canaries and return the final status and verdict.
@@ -182,23 +218,58 @@ class Feature03Risk01(CompanionAppRiskBase):
         if not recording and not pulled["frames"]:
             logger.debug("ios-feature-03-risk-01: no recording and no frames pulled; broadcast not started")
             return "BROADCAST_NOT_STARTED", "Inconclusive"
-        if capture.get("ocr_provider", "vision") == "none" or (self.recogniser is None and not ocr.ocr_available()):
-            logger.debug("ios-feature-03-risk-01: OCR unavailable (provider=%s)", capture.get("ocr_provider", "vision"))
-            result.errors.append("OCR unavailable; the screen recording is attached for manual review")
+        if capture.get("ocr_provider", "tesseract") == "none":
+            result.launch_result["ocr"] = {"provider": "none"}
+            result.errors.append("OCR disabled; the screen recording is attached for manual review")
             return "OCR_UNAVAILABLE", "Inconclusive"
+        provider = get_ocr_provider(capture)
+        provider_metadata = provider.metadata()
+        result.launch_result["ocr"] = provider_metadata
+        if self.recogniser is None:
+            unavailable = ocr.ocr_unavailable_reason(capture, provider=provider)
+            if unavailable:
+                logger.debug("ios-feature-03-risk-01: OCR unavailable: %s", unavailable)
+                result.errors.append(f"OCR unavailable: {unavailable}; the screen recording is attached for manual review")
+                control_state = result.launch_result.get("capture_controls") or {}
+                if control_state.get("enabled"):
+                    control_state.update({"status": "UNAVAILABLE", "unavailable_reason": unavailable})
+                return "OCR_UNAVAILABLE", "Inconclusive"
+        control_state = result.launch_result.get("capture_controls") or {}
+        recogniser = self.recogniser or provider.recognise_text
+        if control_state.get("enabled"):
+            controls.analyse(control_state, pulled, recording, canaries["plain"], capture, recogniser, report_dir)
         frames, source = ocr.frames_in_window(pulled["frames"], start_ms, end_ms), "screenshots"
         logger.debug(
             "ios-feature-03-risk-01: frames in window [%s, %s]: %d of %d pulled",
             start_ms, end_ms, len(frames), len(pulled["frames"]),
         )
+        video_errors = []
         if not frames and recording and capture.get("video_frame_fallback", True):
+            result.launch_result["ocr"]["frames_source"] = "video"
+            unavailable = ocr.video_unavailable_reason()
+            if unavailable:
+                result.launch_result["ocr"]["unavailable_reason"] = unavailable
+                result.errors.append(f"Video extraction unavailable: {unavailable}; the screen recording is attached for manual review")
+                return "OCR_UNAVAILABLE", "Inconclusive"
             started_ms = int(pulled["manifest"].get("recordingStartedAt") or 0) * 1000
             logger.debug("ios-feature-03-risk-01: extracting video frames from %s started_ms=%s", recording, started_ms)
-            frames = ocr.extract_frames(recording, started_ms, start_ms, end_ms,
-                                        float(capture.get("video_frame_interval_seconds", 1)), report_dir / "video_frames")
+            try:
+                extracted = ocr.extract_frames(recording, started_ms, start_ms, end_ms,
+                                               float(capture.get("video_frame_interval_seconds", 1)), report_dir / "video_frames")
+                frames, video_errors = extracted["frames"], extracted["failures"]
+            except ocr.OCRProcessingError as exc:
+                video_errors = [{"recording": str(recording), "stage": "video_setup", "error": str(exc)}]
+            if not frames and not video_errors:
+                video_errors = [{"recording": str(recording), "stage": "video_decode",
+                                 "error": "No video frames were decoded in the capture window"}]
             source = "video"
             logger.debug("ios-feature-03-risk-01: extracted %d video frame(s)", len(frames))
-        scan = ocr.scan_frames(frames, canaries, self.recogniser or ocr.recognise_text)
+        scan = ocr.scan_frames(frames, canaries, recogniser)
+        scan.update(provider_metadata)
+        if video_errors:
+            scan["video_errors"] = video_errors
+        if self.recogniser is not None:
+            scan["recogniser_injected"] = True
         scan.update({"frames_source": source,
                      "secure_field_exposed": any(m["canary_kind"] == "secure" for m in scan["matches"])})
         (report_dir / "ocr_matches.json").write_text(json.dumps(scan, indent=2))
@@ -210,12 +281,38 @@ class Feature03Risk01(CompanionAppRiskBase):
         )
         result.launch_result["ocr"] = {k: v for k, v in scan.items() if k != "matches"} | {"match_count": len(scan["matches"])}
         self._keep_matched_frames(scan, report_dir)
+        result.errors.extend(
+            f"OCR processing failed for {Path(failure['frame']).name}: {failure['error']}"
+            for failure in scan["failed_frames"]
+        )
+        result.errors.extend(f"Video processing failed during {failure['stage']}: {failure['error']}" for failure in video_errors)
         if scan["matches"]:
             logger.debug("ios-feature-03-risk-01: canary recognised in captured frames")
             return "RISK_EXISTS", "At Risk"
+        if scan["failed_frames"] or video_errors or control_state.get("processing_failed"):
+            if control_state.get("enabled"):
+                result.errors.append(control_state["diagnostic"])
+            logger.debug("ios-feature-03-risk-01: %d frame(s) failed OCR processing; %d video errors", len(scan["failed_frames"]), len(video_errors))
+            return "OCR_FAILED", "Inconclusive"
+        if control_state.get("enabled"):
+            checked = coverage.analyse(control_state, pulled, recording,
+                                       bool((result.launch_result.get("recording") or {}).get("valid")), recogniser, report_dir)
+            control_state["coverage"] = checked
+            if checked["status"] == "PASSED":
+                control_state["diagnostic"] = control_state["diagnostic"].replace(
+                    "capture protection unverified", f"target capture obscured across the verified {checked['duration_seconds']:g}-second window")
+                return "SCREEN_CAPTURE_OBSCURED_VERIFIED", "Reduced Risk"
+            result.errors.append(f"Capture coverage unverified: {checked['reason']}")
+            result.errors.append(control_state["diagnostic"])
+            if checked.get("processing_failed"):
+                return "OCR_FAILED", "Inconclusive"
         if frames and len(scan["obscured_frames"]) == len(frames):
-            logger.debug("ios-feature-03-risk-01: all %d frame(s) obscured", len(frames))
-            return "SCREEN_CAPTURE_OBSCURED", "Reduced Risk"
+            logger.debug("ios-feature-03-risk-01: all %d frame(s) obscured; capture protection unverified", len(frames))
+            result.errors.append(
+                "All captured frames were blank or uniform; "
+                "app protection could not be distinguished from capture failure"
+            )
+            return "CANARY_NOT_OBSERVED", "Inconclusive"
         if not frames:
             logger.debug("ios-feature-03-risk-01: no frames available to scan")
             return "BROADCAST_NOT_STARTED", "Inconclusive"
@@ -232,19 +329,27 @@ class Feature03Risk01(CompanionAppRiskBase):
         return canaries
 
     # Type the plain canary into a normal field and, where there is one, the secure canary into a SecureField.
-    def _reveal(self, device_client, report_dir, capture, global_config, canaries) -> dict:
-        focus = self._focus_text_field_with_navigation(device_client, report_dir, capture, global_config)
+    def _reveal(self, device_client, report_dir, capture, global_config, canaries, bundle_id: str | None = None) -> dict:
+        focus = self._focus_text_field_with_navigation(device_client, report_dir, capture, global_config, bundle_id)
         logger.debug("ios-feature-03-risk-01: text field focus %.200s; typing plain canary", focus)
-        typed = {"plain": device_client.type_text(canaries["plain"], capture.get("input") or {})}
+        typed = {
+            "plain": device_client.type_text(canaries["plain"], capture.get("input") or {}),
+            "secure": {"status": "DISABLED"},
+        }
         if "secure" in canaries:
             logger.debug("ios-feature-03-risk-01: focusing secure field %s", SECURE_FIELD_SELECTOR)
+            self._require_foreground(device_client, bundle_id)
             try:
                 secure_focus = device_client.tap_text_field(SECURE_FIELD_SELECTOR)
             except Exception as exc:
-                logger.debug("ios-feature-03-risk-01: no secure field: %s", exc, exc_info=True)
-                typed["secure"] = {"status": "NO_SECURE_FIELD", "error": str(exc)}
+                logger.debug("ios-feature-03-risk-01: secure field could not be focused: %s", exc, exc_info=True)
+                typed["secure"] = {"status": "FOCUS_FAILED", "error": str(exc)}
             else:
-                typed["secure"] = {"focus": secure_focus, "input": device_client.type_text(canaries["secure"], capture.get("input") or {})}
+                typed["secure"] = {
+                    "focus": secure_focus,
+                    "input": device_client.type_text(canaries["secure"], capture.get("input") or {}),
+                    "status": "TYPED",
+                }
                 logger.debug("ios-feature-03-risk-01: secure canary typed")
         return {"focus": focus, "typed": typed}
 

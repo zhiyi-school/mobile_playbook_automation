@@ -28,7 +28,7 @@ from mobile_playbook.platforms.ios.traffic_interception.burp_health import (
 from mobile_playbook.platforms.ios.config import effective_risk_config
 from mobile_playbook.platforms.ios.models import AppConfig
 from mobile_playbook.platforms.ios.repackaging.repackage import resolve_insert_dylib
-from mobile_playbook.platforms.ios.screen_capture.ocr import ocr_available
+from mobile_playbook.platforms.ios.screen_capture.ocr import ocr_unavailable_reason
 from mobile_playbook.common.storage_paths import ios_capture_path, resolve_under_repository
 
 logger = logging.getLogger(__name__)
@@ -192,13 +192,13 @@ def check_repackaging_preflight(
     return warnings
 
 
-# Warn when the recorder IPA is missing or Vision OCR is unavailable for planned capture tests.
+# Warn when a recorder IPA or the configured OCR dependencies are unavailable for planned capture tests.
 def check_screen_capture_preflight(
     config,
     planned_tests: list[tuple[AppConfig, str]],
 ) -> list[IosPreflightWarning]:
     missing_ipas: dict[str, set[str]] = {}
-    ocr_app_ids: set[str] = set()
+    ocr_failures: dict[str, set[str]] = {}
     for app, risk_id in planned_tests:
         if risk_id != SCREEN_CAPTURE_RISK_ID:
             continue
@@ -213,8 +213,11 @@ def check_screen_capture_preflight(
             missing_ipas.setdefault(str(recorder_ipa), set()).add(str(app.id))
         else:
             logger.debug("ios preflight: recorder IPA for %s is %s", app.id, recorder_ipa or "not configured")
-        if (effective.get("capture") or {}).get("ocr_provider", "vision") != "none":
-            ocr_app_ids.add(str(app.id))
+        capture = effective.get("capture") or {}
+        if capture.get("ocr_provider", "tesseract") != "none":
+            unavailable = ocr_unavailable_reason(capture)
+            if unavailable:
+                ocr_failures.setdefault(unavailable, set()).add(str(app.id))
 
     warnings = [
         IosPreflightWarning(
@@ -226,16 +229,15 @@ def check_screen_capture_preflight(
         )
         for ipa, app_ids in sorted(missing_ipas.items())
     ]
-    logger.debug("ios preflight: screen capture apps needing OCR %s", sorted(ocr_app_ids))
-    if ocr_app_ids and not ocr_available():
-        logger.debug("ios preflight: Vision OCR bindings unavailable")
+    for unavailable, app_ids in sorted(ocr_failures.items()):
         warnings.append(
             IosPreflightWarning(
                 "OCR_UNAVAILABLE",
-                "The Vision OCR bindings (pyobjc-framework-Vision) are not installed; the screen recording is still "
-                "collected, but the result is OCR_UNAVAILABLE and needs manual review.",
+                f"{unavailable}. Install Tesseract and the configured language data; the recording is still "
+                "collected, but the result is OCR_UNAVAILABLE and needs manual review. "
+                "Screen-frame image processing also requires the macOS PyObjC dependencies.",
                 SCREEN_CAPTURE_RISK_ID,
-                tuple(sorted(ocr_app_ids)),
+                tuple(sorted(app_ids)),
             )
         )
     logger.debug("ios preflight: screen capture warnings %s", [warning.code for warning in warnings])

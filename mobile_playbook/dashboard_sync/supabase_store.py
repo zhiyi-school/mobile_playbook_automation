@@ -345,5 +345,9 @@ class SupabaseRestStore:
         if isinstance(data, dict):
             logger.debug("dashboard sync: Supabase %s %s returned one object.", method, table)
             return [data]
+        # PostgREST returns a scalar-returning RPC's value as bare JSON.
+        if isinstance(data, int) and not isinstance(data, bool):
+            logger.debug("dashboard sync: Supabase %s %s returned scalar %s.", method, table, data)
+            return [data]
         logger.debug("dashboard sync: Supabase %s %s returned %s JSON.", method, table, type(data).__name__)
         raise SupabaseRestError(f"Supabase {method} {table} returned unexpected JSON")

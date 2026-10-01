@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 ALLOWED_ENV_KEYS = frozenset(
     {
         "CORS_ALLOWED_ORIGINS",
+        "LOG_LEVEL",
         "ARTIFACTS_DIR",
         "ARTIFACT_STORE_DIR",
         "INTAKE_DIR",

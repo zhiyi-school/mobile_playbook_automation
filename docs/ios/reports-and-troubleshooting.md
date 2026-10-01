@@ -35,7 +35,12 @@ for each platform. See [docs/android/reports-and-troubleshooting.md](../android/
 - `report.json`
 - `logs.txt`
 - `recording.mp4`: the recorder's screen recording, attached as `screen_recording` evidence whenever it was retrieved
-- `ocr_matches.json`: frames scanned, frames judged blank, canary matches, where the frames came from (`screenshots` or `video`) and `secure_field_exposed`
+- `capture_controls.json`: target visibility, foreground/timing observations, recorder controls and decoded video coverage results
+- `control_target_start_reference.png`: the target reference before the canary hold
+- `control_before_reference.png` / `control_after_reference.png`: Appium references for the recorder controls
+- `control_frames/`: ReplayKit marker frames and `video-before.png` / `video-after.png` from coverage validation
+- `ocr_matches.json`: attempted frame count (`frames_scanned`), distinct matching frame count (`matched_frame_count`), frames judged blank, canary matches, per-frame processing failures (`failed_frames`), OCR provider and settings (`provider`, `provider_settings`), where the frames came from (`screenshots` or `video`) and `secure_field_exposed`
+- `report.json` also records password probe status (`TYPED`, `DISABLED`, or `FOCUS_FAILED`) under `launch_result.probe.typed.secure`. The summary does not infer masking from an absent password canary; older reports lacking probe metadata show an unknown outcome. See [screen-capture result interpretation](risks.md#ios-feature-03-risk-01).
 - `reference_screen.png`: Appium's own screenshot of the target app during the capture window
 - `frames/*.png`: the recorded frames in which a canary was readable
 - `pulled/`: what was pulled from the recorder's Documents folder, including `done.json` and the broadcast screenshots
@@ -82,9 +87,13 @@ Each test's `report.json` (and `logs.txt`) carries one of these precise statuses
 - `CAPTURE_SOURCE_CHANGED` (**info**): (`ios-feature-02-risk-01`) the capture file was replaced or truncated during the test.
 - `CAPTURE_SOURCE_UNAVAILABLE` (**info**): (`ios-feature-02-risk-01`) the capture file could not be read.
 - `TRAFFIC_INTERCEPTION_NOT_OBSERVED` (**low**): (`ios-feature-02-risk-01`) no valid HTTPS capture matched the configured hosts; plain HTTP, outdated entries without `scheme`, unrelated hosts, and failed handshakes do not establish the risk.
-- `SCREEN_CAPTURE_OBSCURED` (**low**): (`ios-feature-03-risk-01`) every recorded frame from the capture window was blank or covered.
-- `CANARY_NOT_OBSERVED` (**info**): (`ios-feature-03-risk-01`) recorded frames were readable but no canary was recognised; review the attached recording.
-- `OCR_UNAVAILABLE` (**info**): (`ios-feature-03-risk-01`) the Vision OCR bindings are not installed or `ocr_provider` is `none`; the recording is attached for manual review.
+- `SCREEN_CAPTURE_OBSCURED` (**low**): historical (`ios-feature-03-risk-01`) reports classified blank or covered frames as Reduced Risk. Current runs require independent visibility and decoded video coverage for `SCREEN_CAPTURE_OBSCURED_VERIFIED`; blank samples alone remain `CANARY_NOT_OBSERVED`. Newly generated historical summaries explicitly state that protection was unverified; stored report files are not rewritten.
+- `SCREEN_CAPTURE_OBSCURED_VERIFIED` (**low**): (`ios-feature-03-risk-01`) the target canary was independently visible, foreground and timing checks passed, every decoded frame spanning the verified interval was uniform, and recorder markers were readable before and after it in the same video. Reduced Risk applies to that exercised window. See [coverage requirements](risks.md#ios-feature-03-risk-01).
+- `TEXT_FIELD_UNREACHABLE` (**info**): (`ios-feature-03-risk-01`) the configured probe could not reach an editable field, including after configured auto-navigation. The verdict is Inconclusive and capture protection was not assessed. Inspect `launch_result.probe.error` and the target UI diagnostics; use a different probe when no field is reachable.
+- `TARGET_NOT_FOREGROUND` (**info**): (`ios-feature-03-risk-01`) the target app left the foreground before the probe finished, so taps stopped and capture protection was not assessed. Inspect `launch_result.app_permission_alerts`, `launch_result.probe.error` and the saved target screen.
+- `CANARY_NOT_OBSERVED` (**info**): (`ios-feature-03-risk-01`) recorded frames were blank or uniform, or readable without a recognised canary. The result is Inconclusive; review the attached recording and `capture_controls.json` to distinguish unverified target visibility from failed recorder controls.
+- `OCR_UNAVAILABLE` (**info**): (`ios-feature-03-risk-01`) required OCR or video-processing dependencies are missing, or `ocr_provider` is `none`; the recording is attached for manual review.
+- `OCR_FAILED` (**info**): (`ios-feature-03-risk-01`) video extraction, image processing or Tesseract recognition failed, and no successfully processed frame contained a recognised canary. The result is Inconclusive; the recording and per-frame errors are retained for manual review.
 - `BROADCAST_NOT_STARTED` (**info**): (`ios-feature-03-risk-01`) the broadcast could not be started, or no recording or frames came back.
 - `RECORDING_RETRIEVAL_FAILED` (**info**): (`ios-feature-03-risk-01`) the export, the pull, or the `max_pull_bytes` limit failed.
 - `DIRTY_STARTING_STATE` (**info**): (`ios-feature-03-risk-01`, `ios-feature-04-risk-01`) a companion app left by an earlier run could not be removed.
@@ -112,7 +121,9 @@ Preflight warning codes and actions:
 Screen capture (`ios-feature-03-risk-01`) preflight warnings are advisory too:
 
 - `RECORDER_IPA_MISSING`: build ReplayConsentRecorder and place the IPA at `screen_capture.recorder_app.ipa` (by default `artifacts/companion/ios/ipas/ReplayConsentRecorder.ipa`). Outside a dry run the same condition is also a configuration error.
-- `OCR_UNAVAILABLE`: install the backend's dependencies on macOS (`python -m pip install -e .` brings in `pyobjc-framework-Vision` and `pyobjc-framework-AVFoundation`). Without them the recording is still collected but the result is `OCR_UNAVAILABLE`.
+- `OCR_UNAVAILABLE`: install Tesseract 5 (`brew install tesseract` on macOS) and verify that `tesseract --list-langs` includes every configured language. Set `capture.tesseract.executable` or `tessdata_dir` when discovery differs in the backend process. The Python dependencies also supply the macOS Quartz/AVFoundation image/video bindings. Missing dependencies retain the recording for manual review.
+
+`OCR_FAILED`: decoded coverage failures are recorded under `launch_result.capture_controls.coverage` and `capture_controls.json`, including missing/edited video segments, decode errors and failed same-video controls. Control OCR errors are recorded under `launch_result.capture_controls` and `capture_controls.json`. For target processing errors, inspect `launch_result.ocr.failed_frames`, `launch_result.ocr.video_errors` or `ocr_matches.json` for the affected frame or video sample and error. Video errors distinguish decoder setup, sample decoding and PNG writing; a recording with no decodable frames is a processing failure, even if its file header resembles MP4. An unreadable image, a nonzero Tesseract exit or a recognition timeout is a processing failure, including when the process supplies no error detail. Check the exported images, executable permissions, configured language data and timeout, then review the attached recording. A canary recognised in another frame still establishes At Risk, with the processing errors retained.
 
 `BROADCAST_NOT_STARTED`: the iOS broadcast sheet's button labels depend on the iOS version and language. Check `broadcast-start_broadcast.png`/`.xml` in the report directory and add the visible label to `recorder_app.start_broadcast_labels` (or `stop_broadcast_labels` for stopping). Raise `sheet_timeout_seconds` when the sheet is slow to appear.
 
@@ -177,7 +188,7 @@ App Store IPAs may be encrypted as acquired. The framework reports this and does
 
 iOS permission prompt blocks testing:
 
-Use `runner.permission_alerts.action: "dismiss"` for automated dismissal, or `alert_only` when the tester should decide manually.
+Use `runner.permission_alerts.action: "dismiss"` for automated dismissal, or `alert_only` when the tester should decide manually. A result with status `ALERT_UNHANDLED` lists the prompt's button labels; none of them was safe to tap for the configured action, so the prompt was left on screen. Prompts that only offer an action such as **Update Now** need a current build of the app or manual handling. See [Configuration](configuration.md#runner) for how prompts are recognised and matched.
 
 iOS text field not found:
 
@@ -186,3 +197,6 @@ Inspect `target_text_field_candidates*.json` and `target_page_source*.xml`. If t
 Custom keyboard unavailable:
 
 Secure text fields and some numeric/password fields block third-party keyboards by iOS design.
+
+
+For `CANARY_NOT_OBSERVED` with successful recorder controls, inspect `capture_controls.json`'s `coverage.reason`. A short canary hold, foreground-state gaps, unavailable device clock, changed clock, missing first screenshot, absent video, frame gaps or visible target pixels prevents verified Reduced Risk. The video coverage decoder has a 120-second processing deadline. The three-second edge exclusions and recorded clock/origin bounds prevent transition frames or timestamp uncertainty from qualifying as target protection. Coverage validation uses the existing companion app and macOS dependencies; no IPA rebuild or live configuration edit is required.

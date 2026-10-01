@@ -10,6 +10,7 @@ import logging
 import shutil
 import tempfile
 import time
+from datetime import datetime
 from pathlib import Path
 
 from mobile_playbook.common.logging_setup import redacted
@@ -28,6 +29,39 @@ UNTRUSTED_DEVELOPER_CERT_MARKERS = (
 def is_untrusted_developer_cert_error(message: str) -> bool:
     lowered = message.lower()
     return any(marker in lowered for marker in UNTRUSTED_DEVELOPER_CERT_MARKERS)
+
+
+class TextFieldUnavailableError(RuntimeError):
+    """The current UI has no text field available to the configured probe."""
+
+
+APP_STATE_RUNNING_FOREGROUND = 4
+ALERT_NEGATIVE_LABELS = (
+    "don't allow", "dont allow", "ask app not to track", "ask not to track",
+    "not now", "cancel", "deny", "deny permission", "no",
+)
+ALERT_POSITIVE_LABELS = ("allow while using app", "allow once", "allow", "ok", "continue")
+ALERT_ACKNOWLEDGE_LABELS = ("ok", "close", "dismiss", "done")
+PERMISSION_PROMPT_PHRASES = ("would like to", "wants to", "do you want to allow", 'allow "', "allow “")
+MAX_UNSCOPED_ALERT_BUTTONS = 24
+ALERT_SCAN_GRACE_SECONDS = 10.0
+
+
+class AlertButtonsNotFound(RuntimeError):
+    """No button at all was visible for the alert."""
+
+
+class NoSafeAlertButton(RuntimeError):
+    """Buttons were visible, but none carried a label that is safe to tap for the requested action."""
+
+
+class AlertScanAborted(RuntimeError):
+    """The alert button scan stopped because the screen changed, ran out of time, or was not an alert."""
+
+
+# Normalize a button label for exact comparison with the known alert labels.
+def _normalized_label(value) -> str:
+    return " ".join(str(value or "").replace("’", "'").lower().split()).strip(" .")
 
 
 class AppiumDeviceClient:
@@ -432,17 +466,28 @@ class AppiumDeviceClient:
         action = str(config.get("action", "dismiss")).lower()
         action = action if action in {"dismiss", "accept", "alert_only"} else "dismiss"
         accept_if = [str(v).strip().lower() for v in (config.get("accept_if_text_contains") or []) if str(v).strip()]
+        foreground_bundle_id = config.get("foreground_bundle_id")
         results: list[dict] = []
         logger.debug(
-            "ios appium: handling permission alerts action=%s max_alerts=%s wait_seconds=%s accept_if=%s",
+            "ios appium: handling permission alerts action=%s max_alerts=%s wait_seconds=%s accept_if=%s foreground=%s",
             action,
             max_alerts,
             wait_seconds,
             accept_if,
+            foreground_bundle_id,
         )
-        deadline = time.monotonic() + wait_seconds
+        started = time.monotonic()
+        deadline = started + wait_seconds
+        scan_deadline = deadline + ALERT_SCAN_GRACE_SECONDS
         while len(results) < max_alerts and time.monotonic() <= deadline:
-            result = self._handle_one_permission_alert(action, accept_if)
+            # Only the target's own alerts are handled; another app in front must not be tapped through.
+            if foreground_bundle_id:
+                app_state = self.query_app_state(foreground_bundle_id)
+                if app_state != APP_STATE_RUNNING_FOREGROUND:
+                    logger.debug("ios appium: %s not in foreground (state=%s); alerts left alone", foreground_bundle_id, app_state)
+                    results.append({"status": "TARGET_NOT_FOREGROUND", "bundle_id": foreground_bundle_id, "app_state": app_state})
+                    break
+            result = self._handle_one_permission_alert(action, accept_if, scan_deadline)
             logger.debug(
                 "ios appium: permission alert attempt status=%s action=%s button=%s",
                 result.get("status"),
@@ -455,53 +500,82 @@ class AppiumDeviceClient:
                 time.sleep(0.2)
                 continue
             results.append(result)
-            if action == "alert_only":
+            if action == "alert_only" or result["status"] == "ALERT_UNHANDLED":
                 break
             time.sleep(0.2)
         logger.debug("ios appium: permission alert handling finished with %s handled alert(s)", len(results))
         return results or [{"status": "NO_ALERT"}]
 
-    # Handle one alert via switch_to, falling back to finding alert buttons directly.
-    def _handle_one_permission_alert(self, action: str, accept_if: list[str] | None = None) -> dict:
+    # Handle one alert via switch_to, falling back to an alert element or a recognisable permission prompt.
+    def _handle_one_permission_alert(self, action: str, accept_if: list[str] | None = None, deadline: float | None = None) -> dict:
         try:
             alert = self.driver.switch_to.alert
             text = getattr(alert, "text", "") or ""
-            effective = self._effective_alert_action(action, text, accept_if)
-            logger.debug("ios appium: alert via switch_to text=%.200r effective_action=%s", text, effective)
-            if effective == "alert_only":
-                return {"status": "ALERT_PRESENT", "action": effective, "text": text}
-            if effective == "accept":
-                try:
-                    button = self._tap_permission_alert_button(prefer_negative=False)
-                    button.update({"status": "HANDLED", "action": effective, "text": text})
-                    return button
-                except Exception:
-                    logger.debug("ios appium: accept button tap failed, using alert.accept()", exc_info=True)
-                    alert.accept()
-                    return {"status": "HANDLED", "action": effective, "text": text, "button": "accept"}
-            try:
-                button = self._tap_permission_alert_button(prefer_negative=True)
-                button.update({"status": "HANDLED", "action": effective, "text": text})
-                return button
-            except Exception:
-                logger.debug("ios appium: negative button tap failed, using alert.dismiss()", exc_info=True)
-                alert.dismiss()
-                return {"status": "HANDLED", "action": effective, "text": text, "button": "dismiss"}
         except Exception:
             logger.debug("ios appium: switch_to.alert handling failed, trying element-based alert", exc_info=True)
+            return self._handle_element_alert(action, accept_if, deadline)
+        effective = self._effective_alert_action(action, text, accept_if)
+        logger.debug("ios appium: alert via switch_to text=%.200r effective_action=%s", text, effective)
+        if effective == "alert_only":
+            return {"status": "ALERT_PRESENT", "action": effective, "text": text}
+        prefer_negative = effective != "accept"
+        try:
+            button = self._tap_permission_alert_button(prefer_negative, deadline)
+        except NoSafeAlertButton as exc:
+            logger.debug("ios appium: alert left alone; no safe button among %s", exc.labels)
+            return {"status": "ALERT_UNHANDLED", "action": effective, "text": text, "buttons": exc.labels}
+        except Exception:
+            logger.debug("ios appium: alert button tap failed, using the native alert action", exc_info=True)
             try:
-                text = self._alert_text()
-                effective = self._effective_alert_action(action, text, accept_if)
-                logger.debug("ios appium: element-based alert text=%.200r effective_action=%s", text, effective)
-                if effective == "alert_only":
-                    button = self._find_permission_alert_button(prefer_negative=True)
-                    return {"status": "ALERT_PRESENT", "action": effective, "button": button}
-                button = self._tap_permission_alert_button(prefer_negative=(effective != "accept"))
-                button.update({"status": "HANDLED", "action": effective, "text": text})
-                return button
+                alert.dismiss() if prefer_negative else alert.accept()
             except Exception:
-                logger.debug("ios appium: no permission alert handled", exc_info=True)
+                logger.debug("ios appium: native alert action failed, trying element-based alert", exc_info=True)
+                return self._handle_element_alert(action, accept_if, deadline)
+            return {"status": "HANDLED", "action": effective, "text": text, "button": "dismiss" if prefer_negative else "accept"}
+        button.update({"status": "HANDLED", "action": effective, "text": text})
+        return button
+
+    # Handle an alert found as an alert element, or as page text that reads like a system permission prompt.
+    def _handle_element_alert(self, action: str, accept_if: list[str] | None, deadline: float | None) -> dict:
+        try:
+            text = self._alert_text()
+            if self._alert_element() is None and not self._looks_like_permission_prompt(text):
+                logger.debug("ios appium: no alert element and page text is not a permission prompt")
                 return {"status": "NO_ALERT"}
+            effective = self._effective_alert_action(action, text, accept_if)
+            logger.debug("ios appium: element-based alert text=%.200r effective_action=%s", text, effective)
+            if effective == "alert_only":
+                try:
+                    button = self._find_permission_alert_button(prefer_negative=True, deadline=deadline)
+                except NoSafeAlertButton as exc:
+                    return {"status": "ALERT_PRESENT", "action": effective, "text": text, "buttons": exc.labels}
+                button.pop("element", None)
+                return {"status": "ALERT_PRESENT", "action": effective, "button": button}
+            try:
+                button = self._tap_permission_alert_button(effective != "accept", deadline)
+            except NoSafeAlertButton as exc:
+                logger.debug("ios appium: alert left alone; no safe button among %s", exc.labels)
+                return {"status": "ALERT_UNHANDLED", "action": effective, "text": text, "buttons": exc.labels}
+            button.update({"status": "HANDLED", "action": effective, "text": text})
+            return button
+        except Exception:
+            logger.debug("ios appium: no permission alert handled", exc_info=True)
+            return {"status": "NO_ALERT"}
+
+    # Return whether page text reads like an iOS permission prompt rather than ordinary screen content.
+    @staticmethod
+    def _looks_like_permission_prompt(text: str) -> bool:
+        lowered = (text or "").replace("’", "'").lower()
+        return any(phrase in lowered for phrase in PERMISSION_PROMPT_PHRASES)
+
+    # Return the on-screen alert element, or None when the screen has none.
+    def _alert_element(self):
+        from selenium.webdriver.common.by import By
+
+        try:
+            return self.driver.find_element(By.CLASS_NAME, "XCUIElementTypeAlert")
+        except Exception:
+            return None
 
     # Return accept when the alert text matches accept_if, else the configured action.
     @staticmethod
@@ -531,61 +605,58 @@ class AppiumDeviceClient:
         return ""
 
     # Tap the preferred alert button and return its summary.
-    def _tap_permission_alert_button(self, prefer_negative: bool) -> dict:
-        button = self._find_permission_alert_button(prefer_negative)
+    def _tap_permission_alert_button(self, prefer_negative: bool, deadline: float | None = None) -> dict:
+        button = self._find_permission_alert_button(prefer_negative, deadline)
         logger.debug("ios appium: tapping permission alert button %r", button.get("button"))
         button["element"].click()
         button.pop("element", None)
         return button
 
-    # Find the alert button matching the preferred allow or deny labels, else the other set.
-    def _find_permission_alert_button(self, prefer_negative: bool) -> dict:
+    # Find the alert button whose label exactly matches the requested action, reading only button labels.
+    def _find_permission_alert_button(self, prefer_negative: bool, deadline: float | None = None) -> dict:
         from selenium.webdriver.common.by import By
 
-        negative_labels = (
-            "don't allow",
-            "don’t allow",
-            "dont allow",
-            "ask app not to track",
-            "ask not to track",
-            "not now",
-            "cancel",
-            "deny",
-            "deny permission",
-            "no",
-        )
-        positive_labels = (
-            "allow while using app",
-            "allow once",
-            "allow",
-            "ok",
-            "continue",
-        )
-        preferred = negative_labels if prefer_negative else positive_labels
-        fallback = positive_labels if prefer_negative else negative_labels
-        buttons = self.driver.find_elements(By.CLASS_NAME, "XCUIElementTypeButton")
-        summaries = [(button, self._element_summary(button, index)) for index, button in enumerate(buttons)]
+        buttons = []
+        alert_element = self._alert_element()
+        if alert_element is not None:
+            try:
+                buttons = list(alert_element.find_elements(By.CLASS_NAME, "XCUIElementTypeButton"))
+            except Exception:
+                logger.debug("ios appium: could not list buttons inside the alert element", exc_info=True)
+        scoped = bool(buttons)
+        if not scoped:
+            buttons = list(self.driver.find_elements(By.CLASS_NAME, "XCUIElementTypeButton"))
         logger.debug(
-            "ios appium: searching %s button(s) by class_name for permission alert (prefer_negative=%s)",
-            len(summaries),
+            "ios appium: searching %s button(s) %s for permission alert (prefer_negative=%s)",
+            len(buttons),
+            "inside the alert" if scoped else "on the page",
             prefer_negative,
         )
+        if not buttons:
+            raise AlertButtonsNotFound("No alert button was visible")
+        if not scoped and len(buttons) > MAX_UNSCOPED_ALERT_BUTTONS:
+            raise AlertScanAborted(f"{len(buttons)} buttons on the page is more than an alert has")
+        labelled = []
+        for index, button in enumerate(buttons):
+            if deadline is not None and time.monotonic() > deadline:
+                raise AlertScanAborted("The alert button scan ran out of time")
+            try:
+                parts = [button.get_attribute(key) for key in ("label", "name", "value")]
+            except Exception as exc:
+                raise AlertScanAborted(f"The screen changed while reading alert buttons: {exc}") from exc
+            labelled.append((index, button, parts))
+        preferred = ALERT_NEGATIVE_LABELS if prefer_negative else ALERT_POSITIVE_LABELS
+        fallback = ALERT_ACKNOWLEDGE_LABELS if prefer_negative else ALERT_NEGATIVE_LABELS
         for labels in (preferred, fallback):
-            for button, summary in summaries:
-                label = " ".join(str(summary.get(key) or "") for key in ("label", "name", "value")).strip()
-                normalized = label.lower()
-                if not label:
-                    continue
-                if labels is positive_labels and any(candidate in normalized for candidate in negative_labels):
-                    continue
-                if any(candidate in normalized for candidate in labels):
-                    summary["button"] = label
-                    summary["matched_by"] = "permission_alert_button"
-                    summary["element"] = button
+            for index, button, parts in labelled:
+                if {_normalized_label(part) for part in parts if part} & set(labels):
+                    label = " ".join(str(part) for part in parts if part).strip()
                     logger.debug("ios appium: matched permission alert button %r", label)
-                    return summary
-        logger.debug("ios appium: no permission alert button matched among %s button(s)", len(summaries))
-        raise RuntimeError("No permission alert button was found")
+                    return {"button": label, "matched_by": "permission_alert_button", "index": index, "element": button}
+        error = NoSafeAlertButton("No alert button is safe to tap for this action")
+        error.labels = [" ".join(str(part) for part in parts if part).strip() for _, _, parts in labelled]
+        logger.debug("ios appium: no safe permission alert button among %s", error.labels)
+        raise error
 
     # Tap the element with an accessibility ID, optionally clear it and type text.
     def set_text_by_accessibility_id(self, accessibility_id: str, text: str, clear_first: bool = True) -> dict:
@@ -939,6 +1010,7 @@ class AppiumDeviceClient:
         selector = self._normalize_selector(selector)
         if selector:
             from appium.webdriver.common.appiumby import AppiumBy
+            from selenium.common.exceptions import NoSuchElementException
             from selenium.webdriver.common.by import By
 
             strategies = [
@@ -952,7 +1024,10 @@ class AppiumDeviceClient:
                 value = selector.get(key)
                 if value:
                     logger.debug("ios appium: finding text field by %s %s", key, value)
-                    element = self.driver.find_element(strategy, value)
+                    try:
+                        element = self.driver.find_element(strategy, value)
+                    except NoSuchElementException as exc:
+                        raise TextFieldUnavailableError(f"The configured text field was not found: {selector}") from exc
                     element_type = self._element_type(element)
                     break
         else:
@@ -968,7 +1043,7 @@ class AppiumDeviceClient:
                     break
         if element is None:
             logger.debug("ios appium: no text field found for selector %s", selector or {"auto": True})
-            raise RuntimeError(f"No visible enabled text field was found. Candidates: {self.describe_text_field_candidates()}")
+            raise TextFieldUnavailableError(f"No visible enabled text field was found. Candidates: {self.describe_text_field_candidates()}")
         tap_method = self._tap_element_with_fallback(element)
         logger.debug("ios appium: tapped text field type %s via %s", element_type, tap_method)
         return {
@@ -1067,6 +1142,19 @@ class AppiumDeviceClient:
     # Return the app's Appium state code.
     def query_app_state(self, bundle_id: str) -> int:
         return int(self._execute("queryAppState", {"bundleId": bundle_id}))
+
+    # Read the device clock at whole-second precision for conservative capture alignment.
+    def device_time_ms(self) -> int:
+        if self.driver is None:
+            raise RuntimeError("Appium session is not connected")
+        raw = self.driver.get_device_time()
+        try:
+            value = datetime.fromisoformat(raw)
+            if value.tzinfo is None:
+                raise ValueError("Device time has no timezone")
+            return int(value.timestamp()) * 1000
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise RuntimeError("Appium returned an invalid device time") from exc
 
     # Save a device screenshot to a path.
     def screenshot(self, path: Path) -> None:

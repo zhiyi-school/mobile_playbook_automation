@@ -427,7 +427,7 @@ def test_a_row_whose_name_is_the_bundle_id_matches_despite_its_em_dash_label(tmp
     assert result["keyboard_action"] == "already_added"
     assert result["keyboard_display_name"] == EXTENSION_BUNDLE_ID
     assert keyboard_setup.ADD_NEW_KEYBOARD_LABELS not in device.row_taps
-    assert [EXTENSION_BUNDLE_ID] in device.row_taps
+    assert device.row_taps[-1][0] == EXTENSION_BUNDLE_ID
 
 
 def test_a_composite_label_alone_is_missed_without_the_bundle_id(tmp_path):
@@ -437,6 +437,41 @@ def test_a_composite_label_alone_is_missed_without_the_bundle_id(tmp_path):
         keyboard_setup.prepare_custom_keyboard(
             device, _config(keyboard_display_names=[DISPLAY_NAME]), tmp_path
         )
+
+
+class AddThenListDevice(RowDevice):
+    """Offers the keyboard by app name in the Add sheet, then lists it under its bundle ID and composite label."""
+
+    def __init__(self):
+        super().__init__([])
+        self.sheet = {DISPLAY_NAME}
+
+    def tap_row_label(self, labels, timeout) -> None:
+        if labels not in (keyboard_setup.ADD_NEW_KEYBOARD_LABELS, ["General"], ["Keyboard", "Keyboards"], ["Keyboards"]):
+            if not self.has_label(labels, timeout):
+                raise RuntimeError(f"no row for {labels}")
+        super().tap_row_label(labels, timeout)
+        if labels == [DISPLAY_NAME]:
+            self.present -= self.sheet
+            self.rows = [{"label": COMPOSITE_LABEL, "name": EXTENSION_BUNDLE_ID}]
+
+
+def test_a_keyboard_added_under_its_sheet_name_is_found_under_its_list_name(tmp_path):
+    device = AddThenListDevice()
+    device.switch = FakeSwitch(["0", "1"])
+
+    result = keyboard_setup.prepare_custom_keyboard(
+        device,
+        _config(
+            keyboard_extension_bundle_id=EXTENSION_BUNDLE_ID,
+            keyboard_display_names=[COMPOSITE_LABEL, DISPLAY_NAME],
+        ),
+        tmp_path,
+    )
+
+    assert result["status"] == "READY"
+    assert result["keyboard_action"] == "added"
+    assert result["full_access"] is True
 
 
 def test_the_stage_reached_is_recorded_on_success(tmp_path):

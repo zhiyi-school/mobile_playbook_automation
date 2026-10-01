@@ -73,6 +73,8 @@ runner:
     max_alerts: 3
 ```
 
+`permission_alerts` handles a prompt only when it is an alert element, or page text that reads like an iOS permission prompt (for example "would like to"). Ordinary screens, such as an in-app update notice or the App Store, are left alone. Buttons are matched by their exact label: `dismiss` taps Don't Allow, Not Now, Cancel, Deny or No, and otherwise only an acknowledgement button (OK, Close, Dismiss or Done); it never grants a permission. `accept` taps Allow, Allow Once, Allow While Using App, OK or Continue. A prompt with no safe button is reported as `ALERT_UNHANDLED` and not tapped. The scan reads only button labels, stops when a button goes stale, when the page has more than 24 buttons without an alert element, or `wait_seconds` plus ten seconds after the pass started. Risks that know their target pass its bundle ID, and prompts are then left alone whenever that app is not in the foreground (`TARGET_NOT_FOREGROUND`).
+
 ## Apps
 
 Each iOS app entry contains identity, artifact source, launch expectations, and enabled risks:
@@ -250,9 +252,18 @@ screen_capture:
     export_timeout_seconds: 30
   capture:
     capture_window_seconds: 12
+    controls:
+      enabled: true
+      recorder_hold_seconds: 6
     canary_prefix: "SCR"
     type_secure_canary: true
-    ocr_provider: "vision"
+    ocr_provider: "tesseract"
+    tesseract:
+      executable: "tesseract"
+      language: "eng"
+      page_segmentation_mode: 11
+      timeout_seconds: 30
+      tessdata_dir: null
     video_frame_fallback: true
     video_frame_interval_seconds: 1
     max_pull_bytes: 209715200
@@ -287,11 +298,18 @@ screen_capture:
 
 `capture`:
 
-- `capture_window_seconds`: how long the canary stays on screen. Must be greater than 0.
+- `capture_window_seconds`: how long the canary stays on screen. Must be finite and greater than 0; booleans are rejected. Reduced Risk requires at least five verified seconds after excluding three seconds at each edge; the default 12-second hold supplies six interior seconds. With controls enabled, foreground state is polled during the hold and references are saved at both ends.
+- `controls.enabled`: defaults to `true`. OCR checks the plain canary in the target's Appium references at both ends of the hold and known recorder text in Appium/ReplayKit samples before and after the target window. The supplied ReplayConsentRecorder's dummy sign-in username is replaced in memory by a run-specific control marker; the stored configuration and password are unchanged. A recorder without that dummy sign-in interface reports `NOT_CONFIGURED`. `ocr_provider: none` disables the controls.
+- `controls.recorder_hold_seconds`: finite positive duration for each recorder control window (default 6 seconds, exceeding the companion's five-second screenshot interval). The two windows add 12 seconds by default. Missing recorder screenshots use the existing video fallback settings. Control and video coverage results are retained in `capture_controls.json` and `launch_result.capture_controls`. Verified Reduced Risk also requires both recorder markers in the same decoded video, regardless of `video_frame_fallback`; disabling that fallback only affects initial frame selection.
 - `canary_prefix`: the start of the plain canary. The run timestamp supplies the unique suffix.
 - `type_secure_canary`: also type a `PWD…` canary into a password field when the screen has one.
-- `ocr_provider`: `vision` (macOS Vision through pyobjc) or `none`. `none` skips OCR, reports `OCR_UNAVAILABLE`, and relies on the attached video.
-- `video_frame_fallback` / `video_frame_interval_seconds`: when no recorder screenshot falls inside the window, pull still frames from the `.mp4` at this interval.
+- `ocr_provider`: `tesseract` (the default) or `none`. `none` skips OCR, reports `OCR_UNAVAILABLE`, and relies on the attached video. Existing `vision` settings must be changed to `tesseract`; Vision is no longer a supported provider.
+- `tesseract.executable`: executable name on PATH (default `tesseract`) or an absolute executable path. Paths containing spaces are supported; commands run without a shell.
+- `tesseract.language`: installed language codes joined with `+` (default `eng`). Preflight checks every requested language.
+- `tesseract.page_segmentation_mode`: integer from 3 to 13 (default 11, sparse text). Modes requiring orientation detection or producing no recognised text are excluded. The adapter uses the LSTM engine (`--oem 1`) and disables system/frequency dictionaries for random canaries.
+- `tesseract.timeout_seconds`: finite positive timeout for each subprocess (default 30). A recognition timeout is a processing failure, not an empty OCR result.
+- `tesseract.tessdata_dir`: optional directory containing `.traineddata` files; null uses Tesseract's own discovery. Install Tesseract 5 and the configured language data separately from the Python dependencies (see [Setup](../setup.md#2-install-dependencies)). Image sampling and video extraction still use macOS Quartz/AVFoundation; changing OCR does not make the whole capture pipeline portable.
+- `video_frame_fallback` / `video_frame_interval_seconds`: when no recorder screenshot falls inside the window, pull still frames from the `.mp4` at this interval. Missing AVFoundation/CoreMedia bindings produce `OCR_UNAVAILABLE`; decoding or PNG-writing errors are retained in `video_errors` and produce `OCR_FAILED` unless a successfully processed frame contains a canary.
 - `max_pull_bytes`: the largest evidence folder accepted from the device. Anything larger is `RECORDING_RETRIEVAL_FAILED`.
 - `input`, `text_field` and `auto_navigation`: how the canary is typed and how a text field is found. They mean the same as the equivalent `collection` settings under `keystroke_collection`.
 

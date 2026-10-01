@@ -33,6 +33,26 @@ installs the `mobile-playbook`, `mobile-playbook-api`,
 `mobile-playbook-icon-backfill` commands into the environment's `bin/`; each is
 equivalent to the matching `python -m` form used throughout these docs.
 
+The API alone does not run dashboard assessments. Adding an app from the
+dashboard queues a run request, and the assessment worker turns it into a run,
+so keep it running alongside the API; see
+[running the assessment execution worker](operations.md#running-the-assessment-execution-worker).
+
+The iOS screen-capture risk also requires Tesseract 5 and English language data.
+On macOS, install and verify the separate runtime:
+
+```bash
+brew install tesseract
+tesseract --version
+tesseract --list-langs
+```
+
+The language list must contain `eng` for the default settings. Additional
+languages require their own `.traineddata` files. Python installation supplies
+the macOS PyObjC image/video dependencies, but does not install Tesseract. See
+[iOS screen-capture settings](ios/configuration.md#screen-capture) for executable,
+language-data and recognition options.
+
 ## 3. Configure `.env`
 
 ```bash

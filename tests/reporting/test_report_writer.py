@@ -177,3 +177,66 @@ def test_report_summary_lists_each_preflight_warning_once(tmp_path):
     summary = (writer.run_dir / "summary.md").read_text()
     assert "## Preflight warnings" in summary
     assert summary.count("BURP_HEALTH_MISSING") == 1
+
+
+
+@pytest.mark.parametrize(
+    ("probe", "secure_exposed", "password_summary"),
+    [
+        (None, False, "password probe outcome unknown"),
+        ({"typed": {"plain": {"text": "SCR123456"}}}, False, "password probe not tested (disabled)"),
+        (
+            {"typed": {"secure": {"status": "NO_SECURE_FIELD", "error": "element not found"}}},
+            False, "password probe not tested (secure field could not be focused)",
+        ),
+        (
+            {"typed": {"secure": {"focus": {"tapped": True}, "input": {"text": "PWD123456"}}}},
+            False, "password canary typed but not observed; masking unverified",
+        ),
+        (None, True, "password canary readable in captured frames"),
+    ],
+)
+def test_historical_screen_capture_summaries_do_not_infer_frames_or_masking(tmp_path, probe, secure_exposed, password_summary):
+    launch = {"ocr": {"match_count": 2, "frames_scanned": 1, "secure_field_exposed": secure_exposed}}
+    if probe is not None:
+        launch["probe"] = probe
+    result = RiskRunResult(
+        "run1", "start", "end", "app", "App", "bid", "bid.test",
+        "ios-feature-03-risk-01", "feature-03", "screen_capture", "replaykit_broadcast", "local_ipa",
+        final_status="RISK_EXISTS", verdict="At Risk", launch_result=launch,
+    )
+    writer = ReportWriter(tmp_path, "run1", result_adapter=normalize_ios_result)
+    report_dir = writer.test_report_dir("app", result.risk_id, "screen_capture")
+    writer.write_result(result, report_dir)
+    original = (report_dir / "report.json").read_bytes()
+
+    writer.write_summary()
+
+    dashboard = json.loads((writer.run_dir / "dashboard_results.json").read_text())
+    assert dashboard[0]["summary"] == (
+        "Canary text readable: 2 canary match(es) across 1 recorded frame(s); " + password_summary
+    )
+    assert dashboard[0]["verdict"] == "At Risk" and dashboard[0]["severity"] == "high"
+    assert (report_dir / "report.json").read_bytes() == original
+    assert result.to_dict() == json.loads(original)
+
+
+# Qualify historical capture claims while preserving the original stored report.
+def test_historical_obscured_summary_qualifies_protection_without_rewriting_the_report(tmp_path):
+    result = RiskRunResult(
+        "run1", "start", "end", "app", "App", "bid", "bid.test",
+        "ios-feature-03-risk-01", "feature-03", "screen_capture", "replaykit_broadcast", "local_ipa",
+        final_status="SCREEN_CAPTURE_OBSCURED", verdict="Reduced Risk",
+    )
+    writer = ReportWriter(tmp_path, "run1", result_adapter=normalize_ios_result)
+    report_dir = writer.test_report_dir("app", result.risk_id, "screen_capture")
+    writer.write_result(result, report_dir)
+    original = (report_dir / "report.json").read_bytes()
+
+    writer.write_summary()
+
+    dashboard = json.loads((writer.run_dir / "dashboard_results.json").read_text())
+    assert dashboard[0]["summary"] == "Historical result: blank or uniform frames were observed; capture protection was not verified"
+    assert dashboard[0]["verdict"] == "Reduced Risk" and dashboard[0]["status"] == "SCREEN_CAPTURE_OBSCURED"
+    assert (report_dir / "report.json").read_bytes() == original
+    assert result.to_dict() == json.loads(original)

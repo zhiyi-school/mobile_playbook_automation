@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- launchd agent for the assessment execution worker; see docs/operations.md#running-the-assessment-execution-worker. Keep credentials out: LaunchAgents plists are world-readable. -->
+<!-- Replace REPLACE_WITH_REPO_PATH with the repository path, and set the api-url port to the one the API listens on. -->
+<!-- The calendar entries start the long-running poller; launchd skips a tick while it is still running, so they only restart it after it exits. -->
+
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.mobile-playbook.assessment-worker</string>
+
+    <key>Program</key>
+    <string>REPLACE_WITH_REPO_PATH/.venv/bin/python</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>REPLACE_WITH_REPO_PATH/.venv/bin/python</string>
+        <string>-m</string>
+        <string>mobile_playbook.workers.assessment_worker</string>
+        <string>--api-url</string>
+        <string>http://127.0.0.1:8080</string>
+        <string>--reports-dir</string>
+        <string>REPLACE_WITH_REPO_PATH/artifacts/reports</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>REPLACE_WITH_REPO_PATH</string>
+
+    <key>StartCalendarInterval</key>
+    <array>
+        <dict><key>Minute</key><integer>0</integer></dict>
+        <dict><key>Minute</key><integer>5</integer></dict>
+        <dict><key>Minute</key><integer>10</integer></dict>
+        <dict><key>Minute</key><integer>15</integer></dict>
+        <dict><key>Minute</key><integer>20</integer></dict>
+        <dict><key>Minute</key><integer>25</integer></dict>
+        <dict><key>Minute</key><integer>30</integer></dict>
+        <dict><key>Minute</key><integer>35</integer></dict>
+        <dict><key>Minute</key><integer>40</integer></dict>
+        <dict><key>Minute</key><integer>45</integer></dict>
+        <dict><key>Minute</key><integer>50</integer></dict>
+        <dict><key>Minute</key><integer>55</integer></dict>
+    </array>
+
+    <key>StandardOutPath</key>
+    <string>REPLACE_WITH_REPO_PATH/artifacts/work/assessment-worker.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>REPLACE_WITH_REPO_PATH/artifacts/work/assessment-worker.log</string>
+</dict>
+</plist>

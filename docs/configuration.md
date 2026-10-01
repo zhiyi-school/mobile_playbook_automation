@@ -132,7 +132,7 @@ processes in deliberately different ways.
   does not use that key.
 - **The API** must not. `mobile_playbook/api/settings.py` reads one allowlisted
   key at a time. `ALLOWED_ENV_KEYS` currently contains `CORS_ALLOWED_ORIGINS`,
-  `ARTIFACTS_DIR`, `ARTIFACT_STORE_DIR`, `INTAKE_DIR`, `IOS_PLAYBOOK_DIR`,
+  `LOG_LEVEL`, `ARTIFACTS_DIR`, `ARTIFACT_STORE_DIR`, `INTAKE_DIR`, `IOS_PLAYBOOK_DIR`,
   `ANDROID_PLAYBOOK_DIR`, `REPORTS_DIR` and `WORK_DIR`, all
   non-secret; any other key raises `DisallowedSettingError`. The API package
   does not import `load_env_file`, so it has no path to whole-file loading.
@@ -226,9 +226,13 @@ LOG_LEVEL=DEBUG
 Defaults to `INFO`. `DEBUG` turns on the `logger.debug` statements across the
 package for the API, the assessment and dashboard sync workers and the icon
 backfill; the CLI's `--verbose` flag does the same for one command. The workers
-read it from `.env` as well as the environment. The API reads only the process
-environment, so export it before `python -m mobile_playbook.api`; it applies to
-`mobile_playbook.*` loggers and leaves uvicorn at `INFO`.
+read it from `.env` as well as the environment. The API launcher
+(`python -m mobile_playbook.api` or `mobile-playbook-api`) reads the exported
+process variable first, then `LOG_LEVEL` from the repository `.env`. Missing or
+invalid values fall back to `INFO`. It configures logging before loading the
+platform config and checking Appium, so startup debug messages also reach the
+console and the optional `--log-file`. The level applies to `mobile_playbook.*`
+loggers and leaves uvicorn at `INFO`. Restart the API after changing this setting.
 
 Debug output includes app ids, device identifiers, file paths, run ids and
 Supabase row ids, so treat captured debug logs as internal. Credentials are

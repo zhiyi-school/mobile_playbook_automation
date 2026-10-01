@@ -122,30 +122,62 @@ Workflow:
 2. Install the recorder IPA, re-signing it first when its profile has expired or the install is rejected for its signature (`recorder_app.resign`).
 3. Acquire and install the target app IPA.
 4. Open the recorder, fill its dummy sign-in (its start button stays disabled until both fields are filled), tap **Start Phone Screen Recording**, then **Start Broadcast** on the iOS sheet, and wait for the countdown.
-5. Record the capture-window start time, bring the target app to the front, focus a text field (with auto-navigation when configured), and type a unique canary. When the screen has a password field, type a second canary into it. Hold for `capture_window_seconds`, take one Appium reference screenshot, and record the window end time.
-6. Return to the recorder and tap the start button again, which brings up **Stop Broadcast**. Then tap **Export Evidence**, which copies the newest recording and the screenshots taken since it started into the recorder's Documents folder, writing `done.json` last.
+5. When controls are enabled (the default), hold the recorder onscreen for six seconds and save a reference before the target window. Its dummy username displays a unique control marker. Then record the capture-window start time, bring the target app to the front, focus a text field (with auto-navigation when configured), and type a unique canary. When the screen has a password field, type a second canary into it. Save an Appium reference of the target canary, hold for `capture_window_seconds` while polling its foreground state once per second, then save a second reference and record the window end time. Device clock readings bound the timing uncertainty.
+6. Return to the recorder, hold it for a second six-second control window and save its reference, then tap the start button again, which brings up **Stop Broadcast**. Then tap **Export Evidence**, which copies the newest recording and the screenshots taken since it started into the recorder's Documents folder, writing `done.json` last.
 7. Pull `@<recorder>:documents/Evidence` through Appium, retrying until `done.json` arrives or `export_timeout_seconds` passes.
 8. Keep the video as `recording.mp4` in the report directory.
-9. OCR the broadcast screenshots whose timestamps fall inside the capture window with the macOS Vision framework. When none do, still frames are pulled from the `.mp4` instead.
-10. In `finally`: stop the broadcast if it is still running, uninstall both apps, and write the result.
+9. OCR the target Appium reference first to verify the plain canary was observable. Check the recorder marker in references and broadcast frames from each separate control window. OCR the broadcast screenshots whose timestamps fall inside the target capture window with Tesseract. When none do, still frames are pulled from the `.mp4` instead.
+10. When no target canary was matched and controls passed, decode the complete video to verify target coverage and recorder markers in this same recording.
+11. In `finally`: stop the broadcast if it is still running, uninstall both apps, and write the result.
 
 | Outcome | `final_status` | Verdict | Severity |
 | --- | --- | --- | --- |
+| The configured probe cannot reach an editable text field | `TEXT_FIELD_UNREACHABLE` | Inconclusive | info |
+| The target app is not in the foreground after launch, prompt handling or a navigation tap | `TARGET_NOT_FOREGROUND` | Inconclusive | info |
 | A canary is readable in a frame | `RISK_EXISTS` | At Risk | high |
-| Every frame from the window is blank or hidden | `SCREEN_CAPTURE_OBSCURED` | Reduced Risk | low |
+| All decoded frames in a verified canary window are uniform, with visibility, foreground, timing, coverage and same-video controls passing | `SCREEN_CAPTURE_OBSCURED_VERIFIED` | Reduced Risk | low |
+| Sampled frames are blank or uniform, but required coverage checks did not pass | `CANARY_NOT_OBSERVED` | Inconclusive | info |
 | Frames are readable but no canary was recognised | `CANARY_NOT_OBSERVED` | Inconclusive | info |
-| The Vision OCR bindings are not installed, or `ocr_provider: none` | `OCR_UNAVAILABLE` | Inconclusive | info |
-| The broadcast never started, or no frames came back | `BROADCAST_NOT_STARTED` | Inconclusive | info |
+| Required OCR or video-processing dependencies are missing, or `ocr_provider: none` | `OCR_UNAVAILABLE` | Inconclusive | info |
+| Video extraction, image processing or OCR fails, and no canary is recognised in another frame | `OCR_FAILED` | Inconclusive | info |
+| The broadcast never started, or no usable capture evidence was available without a processing error | `BROADCAST_NOT_STARTED` | Inconclusive | info |
 | The export, pull or `max_pull_bytes` limit failed | `RECORDING_RETRIEVAL_FAILED` | Inconclusive | info |
 | A leftover recorder could not be removed | `DIRTY_STARTING_STATE` | Inconclusive | info |
 
-A frame counts as blank when its pixels are nearly uniform, which is what an app that blanks or covers itself during capture produces. `CANARY_NOT_OBSERVED` stays Inconclusive because readable frames without the canary do not show that the app hid anything; review the attached video.
+`TEXT_FIELD_UNREACHABLE` means the initial search and any configured navigation did not reach an editable field. It does not establish that the app has no fields or that capture is protected. The canary was not typed, so OCR and coverage analysis were not reached. Review the saved `target_page_source*.xml`, `target_text_field_candidates*.json` and `target_screen*.png`; apps without a reachable field need a different capture probe. Unexpected device or implementation errors remain `FAILED`.
+
+`TARGET_NOT_FOREGROUND` means the target app was not in front when the probe checked: after launch and prompt handling, before each navigation tap or text-field focus, or before the capture window. A forced-update prompt that hands off to the App Store is a typical cause. No further taps are made in the other app and no canary is typed after the check fails. Test a current build of the app, or one whose launch screen stays in the app.
+
+A sampled frame counts as blank when its thumbnail pixels are nearly uniform. This alone does not establish protection. `SCREEN_CAPTURE_OBSCURED_VERIFIED` additionally requires a video whose complete decoded frame sequence passes the coverage checks below. The result describes the exercised canary window; it does not establish the app's protection mechanism, other screens, or password masking. Older reports may contain `SCREEN_CAPTURE_OBSCURED`, Reduced Risk, from the previous blank-frame classification; that status retains its qualified historical wording.
+
+`capture_controls.json` and `launch_result.capture_controls` contain `target_start_reference`, `target_reference`, `target_window`, `before`, `after` and `coverage` results, capture timestamps, foreground checks, matched control frames and processing errors. Fresh references must confirm the expected app was foreground both before and after saving the screenshot. Recorder controls require both the Appium reference and the matching ReplayKit sample. Strict control-window boundaries prevent a boundary sample from satisfying two phases. Control matches are separate from target canary counts.
+
+A failed visibility control reports that the target canary was not independently verified. Failed recorder controls identify which phase was missing, unreadable or unavailable. Successful controls with an absent target canary remain `CANARY_NOT_OBSERVED`, Inconclusive, unless every coverage check passes. A control processing failure without a target match produces `OCR_FAILED`; a recognised target canary still establishes At Risk when a control fails. Reduced Risk requires all of these coverage checks:
+
+- The plain canary is readable in fresh Appium references at both ends, with foreground confirmation. Foreground observations during the hold must all report the target app, with no observation gap exceeding two seconds.
+- Whole-second device clock readings before and after the hold must have consistent offset bounds; excessively slow readings or a changed clock prevent verification.
+- A retrieved recording passes its MP4 header check. `recording.valid` is a prerequisite, not a completeness check. The companion's first saved broadcast screenshot must be within the recording's first wall-clock second, bounding the recording origin uncertainty.
+- The verified interval excludes three seconds at each end of the canary hold and must last at least five seconds. The default twelve-second hold verifies an interior six-second interval. Shorter holds can still find At Risk but may be unable to establish Reduced Risk.
+- The complete video decodes successfully, contains exactly one unedited video track, and has valid increasing presentation timestamps. Empty or edited track segments are rejected because AVFoundation can rebase sample times across missing initial media. Samples must bracket the uncertainty-expanded target interval, with no decoded-frame gap greater than one second.
+- Every decoded frame spanning that interval is uniform at full RGB resolution (channel range at most four levels); even a small visible region blocks this verdict. Both unique recorder markers must also be recognised in this same video, in separate uncertainty-bounded control windows.
+
+`launch_result.capture_controls.coverage` and `capture_controls.json` retain the selected interval, offset/origin bounds, decoded frame count, maximum gap, same-video controls and any reason verification failed. Missing evidence or visible target pixels remains Inconclusive. Expected video/control processing failures produce `OCR_FAILED`; unexpected implementation errors remain `FAILED`. A confirmed target match remains At Risk independently of recording validity or these coverage checks.
 
 The canary is unique per run: `canary_prefix` (default `SCR`) followed by the last six letters or digits of the run timestamp, and `PWD` plus the same suffix for the password field. A reused string could match an old recording and give a false positive. OCR ignores spaces and case when matching.
 
-When the password-field canary is readable, `launch_result.ocr.secure_field_exposed` is `true` and the summary says the password field was not masked. That links the finding to control-01 (use a `SecureField`).
+When the password-field canary is readable, `launch_result.ocr.secure_field_exposed` is `true` and the summary reports that the password canary was readable in captured frames. That links the finding to control-01 (use a `SecureField`). A missing OCR match does not verify password masking: the summary distinguishes a canary typed but not observed, a disabled password probe, a secure field that could not be focused, and an unknown probe outcome. `launch_result.probe.typed.secure.status` records `TYPED`, `DISABLED`, or `FOCUS_FAILED`; `TYPED` means the typing command completed, without independently verifying the field's value. A focus failure does not prove the app has no secure field.
 
-Whenever the recording is retrieved it is attached as `screen_recording` evidence, whatever the verdict, so a person can review it; this is the only evidence for `OCR_UNAVAILABLE` and `CANARY_NOT_OBSERVED`. `ocr_matches.json` lists every scanned frame's matches, and frames with a readable canary are copied to `frames/` and attached as screenshots.
+`launch_result.ocr.matched_frame_count` counts distinct frames with a match, while `match_count` counts canary hits. Plain and password canaries in one frame therefore produce one matching frame and two hits. The summary uses the distinct frame count and flags any partial OCR failures. Historical reports without a distinct frame count are summarized as canary matches, and absent probe metadata is reported as unknown; normalizing a report does not rewrite its stored contents.
+
+OCR runs through the provider interface in `screen_capture/providers.py`; capture selection, canary matching, verdicts and reporting stay independent of the recognition adapter. The default is Tesseract with English, sparse-text segmentation and dictionary correction disabled. `ocr_matches.json` and `launch_result.ocr` record the selected provider and effective recognition settings. There is no automatic fallback to another OCR engine. Quartz image sampling and AVFoundation video extraction remain macOS-specific.
+
+Whenever the recording is retrieved it is attached as `screen_recording` evidence, whatever the verdict, so a person can review it.
+
+`launch_result.recording.valid` is a header/size sanity check; successful frame decoding determines whether video fallback has usable samples. `ocr_matches.json` lists the attempted frame count, blank frames, canary matches, and `failed_frames` with each failed frame's path and processing error. Processing failures are also retained in `launch_result.ocr` and the result's errors.
+
+Video fallback checks AVFoundation and CoreMedia when extraction is needed. Missing bindings produce `OCR_UNAVAILABLE`; decoding and PNG-writing failures produce `video_errors` containing the recording path, processing stage and sample time where available. Successfully extracted frames are still scanned.
+
+A successfully recognised canary establishes At Risk even when another frame or video sample fails; without a match, any processing failure produces `OCR_FAILED`, Inconclusive. A successful OCR request returning no text is not a processing failure. Frames with a readable canary are copied to `frames/` and attached as screenshots.
 
 ## ios-feature-04-risk-01
 

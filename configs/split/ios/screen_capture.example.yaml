@@ -25,9 +25,18 @@ screen_capture:
     export_timeout_seconds: 30
   capture:
     capture_window_seconds: 12
+    controls:
+      enabled: true
+      recorder_hold_seconds: 6       # exceed the recorder's five-second screenshot interval
     canary_prefix: "SCR"
     type_secure_canary: true
-    ocr_provider: "vision"            # "none" skips OCR and relies on the attached video
+    ocr_provider: "tesseract"         # "none" skips OCR and relies on the attached video
+    tesseract:
+      executable: "tesseract"         # executable name on PATH or an absolute path
+      language: "eng"                 # installed language codes joined with +
+      page_segmentation_mode: 11      # sparse screen text; accepted modes are 3 through 13
+      timeout_seconds: 30
+      tessdata_dir: null              # optional directory containing .traineddata files
     video_frame_fallback: true
     video_frame_interval_seconds: 1
     max_pull_bytes: 209715200

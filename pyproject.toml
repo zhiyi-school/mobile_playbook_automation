@@ -17,7 +17,6 @@ dependencies = [
   "uvicorn[standard]>=0.29.0",
   "python-multipart>=0.0.9",
   "ruamel.yaml>=0.18.0",
-  "pyobjc-framework-Vision>=10; sys_platform == 'darwin'",
   "pyobjc-framework-AVFoundation>=10; sys_platform == 'darwin'",
   "pyobjc-framework-Quartz>=10; sys_platform == 'darwin'",
   "pyobjc-framework-CoreMedia>=10; sys_platform == 'darwin'",
@@ -40,6 +39,7 @@ include = ["mobile_playbook*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+markers = ["native_capture: exercises actual Tesseract or macOS image/video frameworks"]
 
 [tool.ruff]
 target-version = "py311"

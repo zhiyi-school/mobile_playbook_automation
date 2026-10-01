@@ -10,6 +10,11 @@ import mobile_playbook.api.__main__ as api_main
 from mobile_playbook.orchestration.appium_server import AppiumStartResult
 
 
+@pytest.fixture(autouse=True)
+def isolated_launcher_logging(monkeypatch):
+    monkeypatch.setattr(api_main, "dictConfig", lambda config: None)
+
+
 def _configure_launcher(monkeypatch, tmp_path, result, events, uvicorn_run):
     config = SimpleNamespace(
         device=SimpleNamespace(

@@ -111,12 +111,16 @@ def test_screen_capture_risk_settings_are_editable(config_root):
         "    ocr_provider: \"vision\"\n"
     )
 
-    ce.put_risk_settings("ios", "ios-feature-03-risk-01", {"capture": {"capture_window_seconds": 20}})
+    ce.put_risk_settings("ios", "ios-feature-03-risk-01", {
+        "capture": {"capture_window_seconds": 20, "ocr_provider": "tesseract", "tesseract": {"timeout_seconds": 9}},
+    })
 
     text = path.read_text()
     assert "# seconds the canary stays on screen" in text
     settings = ce.get_risk_settings("ios", "ios-feature-03-risk-01")
-    assert settings["capture"] == {"capture_window_seconds": 20, "ocr_provider": "vision"}
+    assert settings["capture"] == {
+        "capture_window_seconds": 20, "ocr_provider": "tesseract", "tesseract": {"timeout_seconds": 9},
+    }
     assert settings["recorder_app"]["bundle_id"] == "com.example.recorder"
 
 

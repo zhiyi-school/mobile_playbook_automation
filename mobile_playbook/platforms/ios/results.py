@@ -50,10 +50,14 @@ SEVERITY_BY_STATUS = {
     "CAPTURE_SOURCE_CHANGED": "info",
     "CAPTURE_SOURCE_UNAVAILABLE": "info",
     "SCREEN_CAPTURE_OBSCURED": "low",
+    "SCREEN_CAPTURE_OBSCURED_VERIFIED": "low",
     "CANARY_NOT_OBSERVED": "info",
+    "TEXT_FIELD_UNREACHABLE": "info",
+    "TARGET_NOT_FOREGROUND": "info",
     "BROADCAST_NOT_STARTED": "info",
     "RECORDING_RETRIEVAL_FAILED": "info",
     "OCR_UNAVAILABLE": "info",
+    "OCR_FAILED": "info",
 }
 
 CAPTURE_STATUS_SUMMARIES = {
@@ -141,11 +145,60 @@ def _traffic_interception_summary(result: RiskRunResult) -> str:
 # Summarize a screen-capture result from its OCR outcome.
 def _screen_capture_summary(result: RiskRunResult) -> str:
     ocr = (result.launch_result or {}).get("ocr") or {}
+    controls = (result.launch_result or {}).get("capture_controls") or {}
     if result.final_status == "RISK_EXISTS":
-        masked = "password field NOT masked" if ocr.get("secure_field_exposed") else "password field masked"
-        return f"Canary text readable in {ocr.get('match_count', 0)} of {ocr.get('frames_scanned', 0)} recorded frame(s); {masked}"
+        if "matched_frame_count" in ocr:
+            summary = f"Canary text readable in {ocr['matched_frame_count']} of {ocr.get('frames_scanned', 0)} recorded frame(s)"
+        else:
+            # Historical match counts represent canary hits, not distinct frames.
+            summary = f"Canary text readable: {ocr.get('match_count', 0)} canary match(es) across {ocr.get('frames_scanned', 0)} recorded frame(s)"
+        probe = (result.launch_result or {}).get("probe") or {}
+        typed = probe.get("typed") or {}
+        secure = typed.get("secure") or {}
+        secure_status = secure.get("status")
+        # Older successful probes have input metadata without an explicit status.
+        if secure_status is None and "input" in secure:
+            secure_status = "TYPED"
+        elif "typed" in probe and "secure" not in typed:
+            secure_status = "DISABLED"
+        if ocr.get("secure_field_exposed"):
+            password_summary = "password canary readable in captured frames"
+        elif secure_status == "TYPED":
+            password_summary = "password canary typed but not observed; masking unverified"
+        elif secure_status == "DISABLED":
+            password_summary = "password probe not tested (disabled)"
+        elif secure_status in {"FOCUS_FAILED", "NO_SECURE_FIELD"}:
+            password_summary = "password probe not tested (secure field could not be focused)"
+        else:
+            password_summary = "password probe outcome unknown"
+        summary = f"{summary}; {password_summary}"
+        if ocr.get("failed_frames"):
+            summary += f"; OCR processing failed for {len(ocr['failed_frames'])} other frame(s)"
+        if controls.get("enabled") and controls.get("status") != "PASSED":
+            summary += "; capture controls incomplete; review control diagnostics"
+        if ocr.get("video_errors"):
+            summary += "; video processing was incomplete; review the processing errors"
+        return summary
+    if result.final_status == "TEXT_FIELD_UNREACHABLE":
+        return "The configured probe could not reach an editable text field; screen capture protection was not assessed"
+    if result.final_status == "TARGET_NOT_FOREGROUND":
+        return "The target app left the foreground before the probe finished; screen capture protection was not assessed"
+    if result.final_status == "SCREEN_CAPTURE_OBSCURED_VERIFIED":
+        checked = controls.get("coverage") or {}
+        return (f"Target capture blank or uniform across {checked.get('decoded_frame_count', 0)} decoded frame(s) "
+                f"in a verified {checked.get('duration_seconds', 0):g}-second window; target visibility and recorder controls verified")
+    if result.final_status == "CANARY_NOT_OBSERVED" and controls.get("diagnostic"):
+        return "Canary not observed in target capture; " + controls["diagnostic"]
+    if result.final_status == "OCR_FAILED":
+        if (controls.get("coverage") or {}).get("processing_failed"):
+            return "Capture coverage processing failed; review the available capture evidence"
+        if controls.get("processing_failed"):
+            return "Capture control OCR processing failed; review the available capture evidence"
+        if ocr.get("video_errors"):
+            return "Video frame extraction failed or was incomplete; review the available capture evidence"
+        return f"OCR processing failed for {len(ocr.get('failed_frames') or [])} captured frame(s); review the available capture evidence"
     if result.final_status == "SCREEN_CAPTURE_OBSCURED":
-        return "The recording captured the app, but no sensitive text was readable"
+        return "Historical result: blank or uniform frames were observed; capture protection was not verified"
     return result.final_status
 
 
@@ -173,6 +226,20 @@ def _evidence(result: RiskRunResult) -> list[Evidence]:
             if (report_dir / "ocr_matches.json").exists():
                 paths.append(("report", report_dir / "ocr_matches.json", "Screen capture OCR matches"))
             paths.extend(("screenshot", frame, "Frame with readable canary") for frame in sorted((report_dir / "frames").glob("*.png")))
+        controls = (result.launch_result or {}).get("capture_controls") or {}
+        if controls.get("enabled"):
+            paths.append(("report", Path(controls["evidence_path"]), "Screen capture controls"))
+            for phase in ("target", "before", "after"):
+                reference = controls.get("target_reference") if phase == "target" else (controls.get(phase) or {}).get("reference")
+                if reference and reference.get("path") and Path(reference["path"]).is_file():
+                    paths.append(("screenshot", Path(reference["path"]), f"{phase.title()} control (Appium reference)"))
+                for frame in ((controls.get(phase) or {}).get("broadcast") or {}).get("evidence_frames") or []:
+                    paths.append(("screenshot", Path(frame), f"Recorder control ({phase})"))
+                for frame in (((controls.get("coverage") or {}).get("video_controls") or {}).get(phase) or {}).get("evidence_frames") or []:
+                    paths.append(("screenshot", Path(frame), f"Recorder control from validated video ({phase})"))
+            start_reference = controls.get("target_start_reference") or {}
+            if start_reference.get("path") and Path(start_reference["path"]).is_file():
+                paths.append(("screenshot", Path(start_reference["path"]), "Target control before hold (Appium reference)"))
     evidence = []
     seen = set()
     for kind, path, label in paths:

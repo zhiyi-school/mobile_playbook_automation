@@ -17,6 +17,8 @@ from mobile_playbook.platforms.ios.models import (
     RunnerConfig,
 )
 
+pytest_plugins = ("tests.pytest_support",)
+
 
 def make_ipa(path: Path, bundle_id: str = "com.example.app", executable: bytes = b"HELLO TEST_PATTERN_000 WORLD", extra_files: dict[str, bytes] | None = None, display_name: str = "Example") -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -38,10 +40,27 @@ def touch_future(path: Path) -> None:
     os.utime(path, (future, future))
 
 
-# Points config resolution at the test's temp directory so no test reads or writes the real configs/.
+# Give each test isolated runtime settings while allowing deliberate test overrides.
 @pytest.fixture(autouse=True)
-def isolated_config_root(tmp_path, monkeypatch):
+def isolated_test_environment(tmp_path, monkeypatch):
+    import sys
+    from mobile_playbook.api import settings
+    from tests.pytest_support import isolate_environment
+
+    isolate_environment(tmp_path, monkeypatch)
     monkeypatch.setattr(storage_paths, "CONFIG_ROOT", tmp_path / "configs")
+    monkeypatch.setattr(settings, "ENV_FILE", tmp_path / ".env")
+    monkeypatch.setattr(settings, "REPORTS_ROOT", storage_paths.reports_root())
+    monkeypatch.setattr(settings, "WORK_ROOT", storage_paths.work_root())
+    # Refresh known module snapshots; imports during collection already use session temp paths.
+    reports = sys.modules.get("mobile_playbook.api.services.reports")
+    if reports is not None:
+        monkeypatch.setattr(reports, "REPORTS_ROOT", settings.REPORTS_ROOT)
+        monkeypatch.setattr(reports, "WORK_ROOT", settings.WORK_ROOT)
+    resolver = sys.modules.get("mobile_playbook.artifact_store.resolver")
+    if resolver is not None:
+        monkeypatch.setattr(resolver, "ANDROID_INTAKE_DIR", storage_paths.android_intake_dir())
+        monkeypatch.setattr(resolver, "ANDROID_WORKFLOW_APK_DIR", storage_paths.android_work_dir() / "repackaging")
 
 
 # Builds a synthetic iOS and Android config tree for the config editor tests.

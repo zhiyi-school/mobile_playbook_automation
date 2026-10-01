@@ -85,7 +85,7 @@ logs a Supabase error and nothing runs.
 | Variable / flag | Default | Effect |
 | --- | --- | --- |
 | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | — | required; the queue lives in the dashboard database |
-| `AUTOMATION_API_URL` / `--api-url` | `http://127.0.0.1:8000` | where readiness is asked and runs are started |
+| `AUTOMATION_API_URL` / `--api-url` | `http://127.0.0.1:8080`, the API default | where readiness is asked and runs are started |
 | `REPORTS_DIR` / `--reports-dir` | `artifacts/reports` | report root passed as the API `out_dir` compatibility assertion; it must resolve to the API's configured `REPORTS_DIR` |
 | `ASSESSMENT_WORKER_ID` / `--worker-id` | host name plus a random suffix | identifies the lease holder |
 | `ASSESSMENT_WORKER_POLL_SECONDS` / `--poll-seconds` | `15` | how often an empty queue is checked |
@@ -94,6 +94,33 @@ logs a Supabase error and nothing runs.
 
 Retry policy is fixed in code: `30s` doubling to a `900s` ceiling, giving up
 after 20 attempts. A non-retryable blocker is not retried at all.
+
+### Keeping it running with launchd
+
+Dashboard assessments only run while this worker is running; the API never
+starts it. Install the tracked agent so it starts on its own:
+
+```bash
+sed "s#REPLACE_WITH_REPO_PATH#$(pwd)#g" \
+   tools/deploy/launchd/com.mobile-playbook.assessment-worker.plist \
+   > ~/Library/LaunchAgents/com.mobile-playbook.assessment-worker.plist
+launchctl bootstrap gui/$(id -u) \
+   ~/Library/LaunchAgents/com.mobile-playbook.assessment-worker.plist
+launchctl kickstart gui/$(id -u)/com.mobile-playbook.assessment-worker
+launchctl print gui/$(id -u)/com.mobile-playbook.assessment-worker
+```
+
+Run it from the repository root, and change `--api-url` in the copy if the API
+listens on a port other than `8080`. The agent uses `StartCalendarInterval`
+every five minutes for the same reason as the
+[dashboard sync agent](#how-a-pass-is-triggered): on this host `RunAtLoad` and
+`KeepAlive` never fire. launchd skips a tick while the worker is still running,
+so the schedule only restarts it after it exits; `kickstart` starts it
+immediately instead of at the next tick. Output goes to
+`artifacts/work/assessment-worker.log`. Like the sync agent, the plist carries
+no credentials; the worker reads `.env` itself.
+
+To stop it, `launchctl bootout gui/$(id -u)/com.mobile-playbook.assessment-worker`.
 
 ### Is the worker healthy?
 

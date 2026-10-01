@@ -24,7 +24,7 @@ from mobile_playbook.common.logging_setup import log_level
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_API_URL = "http://127.0.0.1:8000"
+DEFAULT_API_URL = "http://127.0.0.1:8080"
 DEFAULT_LEASE_SECONDS = 900
 DEFAULT_POLL_SECONDS = 15.0
 BACKOFF_BASE_SECONDS = 30

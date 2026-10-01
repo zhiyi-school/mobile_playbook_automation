@@ -317,7 +317,7 @@ def test_negative_health_max_age_is_rejected(global_config):
         validate_config(global_config, dry_run=True)
 
 
-def _screen_capture_config(recorder_ipa, ocr_provider="vision"):
+def _screen_capture_config(recorder_ipa, ocr_provider="tesseract"):
     return SimpleNamespace(
         device=SimpleNamespace(udid="device-1", team_id="TEAM", appium_server_url="http://127.0.0.1:4723"),
         screen_capture={
@@ -332,7 +332,7 @@ def _screen_capture_app(app_id="app-one", enabled=True):
 
 
 def test_screen_capture_preflight_warns_when_the_recorder_ipa_is_missing(tmp_path, monkeypatch):
-    monkeypatch.setattr(ios_preflight, "ocr_available", lambda: True)
+    monkeypatch.setattr(ios_preflight, "ocr_unavailable_reason", lambda capture: None)
     config = _screen_capture_config(tmp_path / "missing.ipa")
     planned = [(_screen_capture_app("b"), "ios-feature-03-risk-01"), (_screen_capture_app("a"), "ios-feature-03-risk-01")]
 
@@ -351,10 +351,10 @@ def test_a_missing_recorder_ipa_is_a_config_error_outside_dry_runs(global_config
     assert any("recorder_app.ipa does not exist" in message for message in error.value.errors)
 
 
-def test_screen_capture_preflight_only_warns_when_vision_is_missing(tmp_path, monkeypatch):
+def test_screen_capture_preflight_only_warns_when_tesseract_is_unavailable(tmp_path, monkeypatch):
     recorder_ipa = tmp_path / "Recorder.ipa"
     recorder_ipa.write_bytes(b"ipa")
-    monkeypatch.setattr(ios_preflight, "ocr_available", lambda: False)
+    monkeypatch.setattr(ios_preflight, "ocr_unavailable_reason", lambda capture: "Tesseract language data unavailable: eng")
 
     warnings = check_screen_capture_preflight(_screen_capture_config(recorder_ipa), [(_screen_capture_app(), "ios-feature-03-risk-01")])
 
@@ -365,7 +365,7 @@ def test_screen_capture_preflight_only_warns_when_vision_is_missing(tmp_path, mo
 
 
 def test_screen_capture_preflight_ignores_disabled_and_other_risks(tmp_path, monkeypatch):
-    monkeypatch.setattr(ios_preflight, "ocr_available", lambda: False)
+    monkeypatch.setattr(ios_preflight, "ocr_unavailable_reason", lambda capture: "Tesseract language data unavailable: eng")
     config = _screen_capture_config(tmp_path / "missing.ipa")
 
     assert check_screen_capture_preflight(config, [(_screen_capture_app(enabled=False), "ios-feature-03-risk-01")]) == []
@@ -373,9 +373,33 @@ def test_screen_capture_preflight_ignores_disabled_and_other_risks(tmp_path, mon
 
 
 def test_ios_runner_includes_screen_capture_preflight_warnings(tmp_path, monkeypatch):
-    monkeypatch.setattr(ios_preflight, "ocr_available", lambda: True)
+    monkeypatch.setattr(ios_preflight, "ocr_unavailable_reason", lambda capture: None)
     config = _screen_capture_config(tmp_path / "missing.ipa")
 
     warnings = IosPlatformRunner().preflight_warnings(config, [(_screen_capture_app(), "ios-feature-03-risk-01")])
 
     assert "RECORDER_IPA_MISSING" in _warning_codes(warnings)
+
+
+def test_screen_capture_preflight_checks_each_apps_effective_ocr_settings(tmp_path, monkeypatch):
+    recorder = tmp_path / "Recorder.ipa"
+    recorder.write_bytes(b"ipa")
+    config = _screen_capture_config(recorder)
+    config.screen_capture["capture"]["tesseract"] = {"language": "eng"}
+    first, second, third = (_screen_capture_app(name) for name in ("a", "b", "c"))
+    second.risks["ios-feature-03-risk-01"]["capture"] = {"tesseract": {"language": "deu"}}
+    third.risks["ios-feature-03-risk-01"]["capture"] = {"ocr_provider": "none"}
+    seen = []
+
+    def unavailable(capture):
+        language = capture["tesseract"]["language"]
+        seen.append(language)
+        return "Tesseract language data unavailable: deu" if language == "deu" else None
+
+    monkeypatch.setattr(ios_preflight, "ocr_unavailable_reason", unavailable)
+
+    warnings = check_screen_capture_preflight(config, [(app, "ios-feature-03-risk-01") for app in (first, second, third)])
+
+    assert seen == ["eng", "deu"]
+    assert [(warning.code, warning.app_ids) for warning in warnings] == [("OCR_UNAVAILABLE", ("b",))]
+    assert "deu" in warnings[0].message

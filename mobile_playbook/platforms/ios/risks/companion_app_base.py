@@ -19,6 +19,12 @@ from mobile_playbook.platforms.ios.risks.base import Risk
 
 logger = logging.getLogger(__name__)
 
+APP_STATE_RUNNING_FOREGROUND = 4
+
+
+class TargetNotForegroundError(RuntimeError):
+    """The target app left the foreground, so further taps would land in another app."""
+
 
 class CompanionAppRiskBase(Risk):
     """Target-app and companion-app helpers shared by risks that install a second, tester-owned app."""
@@ -111,13 +117,17 @@ class CompanionAppRiskBase(Risk):
         return {"trigger": trigger, "status": result.status, "errors": result.errors}
 
     # Focus the configured text field, tapping through navigation elements when auto_navigation allows.
-    def _focus_text_field_with_navigation(self, device_client, report_dir: Path, control: dict, global_config) -> dict:
+    def _focus_text_field_with_navigation(
+        self, device_client, report_dir: Path, control: dict, global_config, foreground_bundle_id: str | None = None
+    ) -> dict:
         navigation = []
         selector = control.get("text_field")
+        alert_overrides = {"foreground_bundle_id": foreground_bundle_id} if foreground_bundle_id else None
         logger.debug("%s: focusing text field selector=%s", getattr(self, "risk_id", type(self).__name__), selector)
-        initial_alerts = self._handle_permission_alerts(device_client, global_config)
+        initial_alerts = self._handle_permission_alerts(device_client, global_config, alert_overrides)
         if self._has_handled_alert(initial_alerts):
             navigation.append({"step": 0, "type": "permission_alerts", "alerts": initial_alerts})
+        self._require_foreground(device_client, foreground_bundle_id)
         try:
             return {"focus": device_client.tap_text_field(selector), "navigation": navigation}
         except Exception as first_error:
@@ -175,9 +185,10 @@ class CompanionAppRiskBase(Risk):
             )
             for step in range(max_steps):
                 logger.debug("%s: auto_navigation step %s/%s", getattr(self, "risk_id", type(self).__name__), step + 1, max_steps)
-                before_alerts = self._handle_permission_alerts(device_client, global_config)
+                before_alerts = self._handle_permission_alerts(device_client, global_config, alert_overrides)
                 if self._has_handled_alert(before_alerts):
                     navigation.append({"step": step + 1, "type": "permission_alerts_before_tap", "alerts": before_alerts})
+                self._require_foreground(device_client, foreground_bundle_id)
                 try:
                     tapped = self._tap_navigation_element(
                         device_client,
@@ -197,9 +208,10 @@ class CompanionAppRiskBase(Risk):
                 logger.debug("%s: auto_navigation step %s tapped matched_by=%s label=%s", getattr(self, "risk_id", type(self).__name__), step + 1, tapped.get("matched_by"), tapped.get("label"))
                 navigation.append(tapped)
                 time.sleep(settle_seconds)
-                after_alerts = self._handle_permission_alerts(device_client, global_config)
+                after_alerts = self._handle_permission_alerts(device_client, global_config, alert_overrides)
                 if self._has_handled_alert(after_alerts):
                     navigation.append({"step": step + 1, "type": "permission_alerts_after_tap", "alerts": after_alerts})
+                self._require_foreground(device_client, foreground_bundle_id)
                 try:
                     focus = device_client.tap_text_field(selector)
                     logger.debug("%s: text field focused after auto_navigation step %s", getattr(self, "risk_id", type(self).__name__), step + 1)
@@ -211,6 +223,15 @@ class CompanionAppRiskBase(Risk):
                     self._capture_target_debug(device_client, report_dir, suffix=f"-navigation-step-{step + 1}")
             logger.debug("%s: text field not focused after %s auto_navigation step(s)", getattr(self, "risk_id", type(self).__name__), max_steps)
             raise last_error
+
+    # Raise TargetNotForegroundError when a bundle ID is given and that app is no longer in front.
+    def _require_foreground(self, device_client, bundle_id: str | None) -> None:
+        if not bundle_id:
+            return
+        app_state = device_client.query_app_state(bundle_id)
+        if app_state != APP_STATE_RUNNING_FOREGROUND:
+            logger.debug("%s: %s left the foreground (state=%s)", getattr(self, "risk_id", type(self).__name__), bundle_id, app_state)
+            raise TargetNotForegroundError(f"{bundle_id} is no longer in the foreground (app state {app_state})")
 
     # Tap the first configured accessibility ID, else the first element whose label matches.
     def _tap_navigation_element(

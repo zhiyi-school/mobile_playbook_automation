@@ -5,6 +5,7 @@ Loads, parses and validates the iOS run configuration, inferring bundle IDs from
 from __future__ import annotations
 
 import logging
+import math
 from pathlib import Path
 
 from mobile_playbook.common.storage_paths import ios_work_dir, resolve_under_repository
@@ -251,10 +252,45 @@ def collect_config_errors(config: GlobalConfig, dry_run: bool = False) -> list[s
                 except (TypeError, ValueError) as exc:
                     logger.debug("ios config: %s capture_window_seconds not numeric: %s", label, exc, exc_info=True)
                     window = 0
-                if window <= 0:
-                    errors.append(f"{label}.risks.{risk_id}.capture.capture_window_seconds must be greater than 0")
-                if capture.get("ocr_provider", "vision") not in {"vision", "none"}:
-                    errors.append(f"{label}.risks.{risk_id}.capture.ocr_provider must be vision or none")
+                if not math.isfinite(window) or window <= 0 or isinstance(capture.get("capture_window_seconds"), bool):
+                    errors.append(f"{label}.risks.{risk_id}.capture.capture_window_seconds must be a finite number greater than 0")
+                controls = capture.get("controls", {})
+                if not isinstance(controls, dict):
+                    errors.append(f"{label}.risks.{risk_id}.capture.controls must be a mapping")
+                    controls = {}
+                if not isinstance(controls.get("enabled", True), bool):
+                    errors.append(f"{label}.risks.{risk_id}.capture.controls.enabled must be a boolean")
+                try:
+                    hold = float(controls.get("recorder_hold_seconds", 6))
+                except (TypeError, ValueError):
+                    hold = 0
+                if not math.isfinite(hold) or hold <= 0 or isinstance(controls.get("recorder_hold_seconds"), bool):
+                    errors.append(f"{label}.risks.{risk_id}.capture.controls.recorder_hold_seconds must be a finite number greater than 0")
+                if capture.get("ocr_provider", "tesseract") not in {"tesseract", "none"}:
+                    errors.append(f"{label}.risks.{risk_id}.capture.ocr_provider must be tesseract or none")
+                tesseract = capture.get("tesseract") or {}
+                if not isinstance(tesseract, dict):
+                    errors.append(f"{label}.risks.{risk_id}.capture.tesseract must be a mapping")
+                    tesseract = {}
+                for key in ("executable", "language"):
+                    value = tesseract.get(key, "tesseract" if key == "executable" else "eng")
+                    if not isinstance(value, str) or not value.strip():
+                        errors.append(f"{label}.risks.{risk_id}.capture.tesseract.{key} must be a non-empty string")
+                language = tesseract.get("language", "eng")
+                if isinstance(language, str) and not re.fullmatch(r"[A-Za-z0-9_/-]+(?:\+[A-Za-z0-9_/-]+)*", language):
+                    errors.append(f"{label}.risks.{risk_id}.capture.tesseract.language must name languages separated by +")
+                psm = tesseract.get("page_segmentation_mode", 11)
+                if isinstance(psm, bool) or not isinstance(psm, int) or not 3 <= psm <= 13:
+                    errors.append(f"{label}.risks.{risk_id}.capture.tesseract.page_segmentation_mode must be an integer from 3 to 13")
+                try:
+                    timeout = float(tesseract.get("timeout_seconds", 30))
+                except (TypeError, ValueError):
+                    timeout = 0
+                if not math.isfinite(timeout) or timeout <= 0 or isinstance(tesseract.get("timeout_seconds"), bool):
+                    errors.append(f"{label}.risks.{risk_id}.capture.tesseract.timeout_seconds must be a finite number greater than 0")
+                data_dir = tesseract.get("tessdata_dir")
+                if data_dir is not None and (not isinstance(data_dir, str) or not data_dir.strip()):
+                    errors.append(f"{label}.risks.{risk_id}.capture.tesseract.tessdata_dir must be a non-empty string or null")
             if risk_id == "ios-feature-02-risk-01":
                 burp = effective.get("burp") or {}
                 if not str(burp.get("proxy_url") or "").strip():

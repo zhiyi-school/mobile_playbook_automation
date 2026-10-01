@@ -158,6 +158,7 @@ def test_only_non_secret_keys_are_allowlisted():
     assert settings.ALLOWED_ENV_KEYS == frozenset(
         {
             "CORS_ALLOWED_ORIGINS",
+            "LOG_LEVEL",
             "ARTIFACTS_DIR",
             "ARTIFACT_STORE_DIR",
             "INTAKE_DIR",
@@ -182,8 +183,14 @@ def test_the_api_package_never_loads_the_whole_env_file():
 
 
 def test_the_env_file_is_resolved_from_the_repository_root_not_the_working_directory():
-    assert settings.ENV_FILE == settings.REPOSITORY_ROOT / ".env"
-    assert (settings.REPOSITORY_ROOT / "mobile_playbook" / "api" / "settings.py").is_file()
+    import importlib.util
+
+    # Inspect unpatched defaults in a fresh module; storage environment remains isolated.
+    spec = importlib.util.spec_from_file_location("api_settings_defaults", settings.__file__)
+    defaults = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(defaults)
+    assert defaults.ENV_FILE == defaults.REPOSITORY_ROOT / ".env"
+    assert (defaults.REPOSITORY_ROOT / "mobile_playbook" / "api" / "settings.py").is_file()
 
 
 def test_relative_report_root_is_anchored_to_the_repository(tmp_path, monkeypatch):

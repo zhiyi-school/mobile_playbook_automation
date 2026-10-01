@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from mobile_playbook.platforms.ios.device_client import AppiumDeviceClient, is_untrusted_developer_cert_error
+from mobile_playbook.platforms.ios.device_client import AppiumDeviceClient, TextFieldUnavailableError, is_untrusted_developer_cert_error
 
 
 class FakeElement:
@@ -296,15 +296,28 @@ def test_tap_text_field_skips_static_text_views():
     )
     driver = FakeDriver({"XCUIElementTypeTextView": [static_text_view]})
 
-    try:
+    with pytest.raises(TextFieldUnavailableError, match="No visible enabled text field"):
         _client(driver).tap_text_field()
-    except RuntimeError as exc:
-        message = str(exc)
-    else:
-        raise AssertionError("expected no input candidate")
-
-    assert "No visible enabled text field" in message
     assert not static_text_view.clicked
+
+
+@pytest.mark.parametrize("missing", [True, False])
+def test_configured_text_field_absence_is_distinct_from_an_invalid_selector(monkeypatch, missing):
+    from selenium.common.exceptions import InvalidSelectorException, NoSuchElementException
+
+    driver = FakeDriver()
+    error = NoSuchElementException("field absent") if missing else InvalidSelectorException("bad selector")
+
+    def fail_find(by, value):
+        raise error
+
+    monkeypatch.setattr(driver, "find_element", fail_find)
+    with pytest.raises(TextFieldUnavailableError if missing else InvalidSelectorException) as caught:
+        _client(driver).tap_text_field({"xpath": "//input"})
+    if missing:
+        assert caught.value.__cause__ is error
+    else:
+        assert caught.value is error
 
 
 def test_tap_first_button_matching_skips_disabled_buttons_and_reports_visible_buttons():
@@ -733,6 +746,184 @@ def test_an_alert_element_holding_no_text_falls_through_to_the_page():
     assert _client(driver)._alert_text() == "Only on the page."
 
 
+
+# Build an enabled, visible button whose label and name are both the given text.
+def _button(label: str) -> FakeElement:
+    return FakeElement({"type": "XCUIElementTypeButton", "label": label, "name": label, "enabled": "true", "visible": "true"})
+
+
+# Expose a real alert element holding the given buttons, as XCUITest does for an in-app alert.
+class AlertElementDriver(FakeDriver):
+    def __init__(self, buttons: list[FakeElement], text: str = "An alert."):
+        super().__init__({"XCUIElementTypeButton": buttons})
+        self.alert_element = SimpleNamespace(
+            find_elements=lambda by, name: list(buttons) if name == "XCUIElementTypeButton" else [StaticText(text)]
+        )
+
+    def find_element(self, by, value):
+        if value == "XCUIElementTypeAlert":
+            return self.alert_element
+        return super().find_element(by, value)
+
+
+def test_an_update_prompt_on_the_page_is_not_mistaken_for_a_permission_alert():
+    update_now = _button("Update Now")
+    driver = FakeDriver(
+        {
+            "XCUIElementTypeButton": [update_now],
+            "XCUIElementTypeStaticText": [
+                StaticText("Update Available"),
+                StaticText("The MyICA Mobile is not the latest version. Please update the app to the latest version."),
+            ],
+        }
+    )
+
+    result = _client(driver)._handle_one_permission_alert("dismiss", ["local network"])
+
+    assert result == {"status": "NO_ALERT"}
+    assert not update_now.clicked
+
+
+def test_a_real_alert_whose_only_button_navigates_away_is_left_alone():
+    update_now = _button("Update Now")
+    driver = AlertElementDriver([update_now], "Update Available")
+    alert = FakeAlert("Update Available")
+    driver.switch_to = FakeSwitchTo(alert)
+
+    result = _client(driver)._handle_one_permission_alert("dismiss")
+
+    assert result["status"] == "ALERT_UNHANDLED"
+    assert result["buttons"] == ["Update Now Update Now"]
+    assert not update_now.clicked
+    assert not alert.dismissed and not alert.accepted
+
+
+def test_a_short_negative_label_does_not_match_inside_a_longer_word():
+    later_now = _button("Update Now")
+    not_now = _button("Not Now")
+    driver = AlertElementDriver([later_now, not_now])
+
+    assert _client(driver)._find_permission_alert_button(prefer_negative=True)["button"] == "Not Now Not Now"
+
+
+def test_dismiss_never_falls_back_to_granting_a_permission():
+    allow = _button("Allow")
+    driver = AlertElementDriver([allow], '"Example" Would Like to Access Your Photos')
+    driver.switch_to = FakeSwitchTo(FakeAlert('"Example" Would Like to Access Your Photos'))
+
+    result = _client(driver)._handle_one_permission_alert("dismiss")
+
+    assert result["status"] == "ALERT_UNHANDLED"
+    assert not allow.clicked
+
+
+def test_dismiss_can_still_acknowledge_a_single_button_alert():
+    ok = _button("OK")
+    driver = AlertElementDriver([ok], "Your session has expired.")
+    driver.switch_to = FakeSwitchTo(FakeAlert("Your session has expired."))
+
+    result = _client(driver)._handle_one_permission_alert("dismiss")
+
+    assert result["status"] == "HANDLED"
+    assert ok.clicked
+
+
+def test_an_app_store_page_is_not_read_as_an_alert():
+    chart_badge = _button("CHART, 7, No., Productivity")
+    get_button = _button("Get")
+    driver = FakeDriver(
+        {
+            "XCUIElementTypeButton": [chart_badge, get_button],
+            "XCUIElementTypeStaticText": [StaticText("What's New"), StaticText("Version History Version 2.0.0")],
+        }
+    )
+
+    assert _client(driver)._handle_one_permission_alert("dismiss")["status"] == "NO_ALERT"
+    assert not chart_badge.clicked and not get_button.clicked
+
+
+# Count every attribute read so a test can show which buttons were never inspected.
+class CountingElement(FakeElement):
+    reads = 0
+
+    def get_attribute(self, name):
+        CountingElement.reads += 1
+        return super().get_attribute(name)
+
+
+def test_a_page_with_more_buttons_than_an_alert_is_not_scanned():
+    CountingElement.reads = 0
+    buttons = [CountingElement({"label": f"App {index}", "name": f"App {index}"}) for index in range(40)]
+    driver = FakeDriver(
+        {
+            "XCUIElementTypeButton": buttons,
+            "XCUIElementTypeStaticText": [StaticText('"Example" Would Like to Send You Notifications')],
+        }
+    )
+
+    result = _client(driver)._handle_one_permission_alert("dismiss")
+
+    assert result == {"status": "NO_ALERT"}
+    assert CountingElement.reads == 0
+    assert not any(button.clicked for button in buttons)
+
+
+def test_a_button_that_goes_stale_stops_the_scan():
+    class StaleElement(FakeElement):
+        def get_attribute(self, name):
+            raise RuntimeError("The previously found element is not present in the current view anymore")
+
+    deny = _button("Don't Allow")
+    driver = FakeDriver(
+        {
+            "XCUIElementTypeButton": [StaleElement({}), deny],
+            "XCUIElementTypeStaticText": [StaticText('"Example" Would Like to Use Your Location')],
+        }
+    )
+
+    assert _client(driver)._handle_one_permission_alert("dismiss")["status"] == "NO_ALERT"
+    assert not deny.clicked
+
+
+def test_the_button_scan_stops_when_its_time_limit_has_passed():
+    import time
+
+    from mobile_playbook.platforms.ios.device_client import AlertScanAborted
+
+    driver = AlertElementDriver([_button("Don't Allow")])
+
+    with pytest.raises(AlertScanAborted):
+        _client(driver)._find_permission_alert_button(prefer_negative=True, deadline=time.monotonic() - 1)
+
+
+def test_alerts_are_left_alone_when_the_target_app_is_not_in_front():
+    class BackgroundDriver(AlertElementDriver):
+        def execute_script(self, command, args):
+            self.executed.append((command, args))
+            return 3 if command == "mobile: queryAppState" else True
+
+    deny = _button("Don't Allow")
+    driver = BackgroundDriver([deny], '"Example" Would Like to Use Your Location')
+    driver.switch_to = FakeSwitchTo(FakeAlert('"Example" Would Like to Use Your Location'))
+
+    results = _client(driver).handle_permission_alerts(
+        {"action": "dismiss", "wait_seconds": 0.1, "foreground_bundle_id": "com.example.target"}
+    )
+
+    assert results == [{"status": "TARGET_NOT_FOREGROUND", "bundle_id": "com.example.target", "app_state": 3}]
+    assert not deny.clicked
+
+
+def test_an_unhandled_alert_is_reported_once_rather_than_retried():
+    update_now = _button("Update Now")
+    driver = AlertElementDriver([update_now], "Update Available")
+    driver.switch_to = FakeSwitchTo(FakeAlert("Update Available"))
+
+    results = _client(driver).handle_permission_alerts({"action": "dismiss", "wait_seconds": 1, "max_alerts": 3})
+
+    assert [result["status"] for result in results] == ["ALERT_UNHANDLED"]
+    assert not update_now.clicked
+
 def _zipped(entries: dict[str, bytes]) -> str:
     import base64
     import io
@@ -765,3 +956,15 @@ def test_pull_app_documents_refuses_a_folder_above_the_size_limit(tmp_path):
         _client(driver).pull_app_documents("com.example.recorder", "Evidence", tmp_path / "pulled", max_bytes=100)
 
     assert not (tmp_path / "pulled").exists()
+
+
+# Keep device time timezone-aware and reject responses that cannot establish an epoch.
+@pytest.mark.parametrize("raw, expected", [("2026-10-01T08:00:00+08:00", 1790812800000), ("2026-10-01T00:00:00Z", 1790812800000), ("2026-10-01T00:00:00.999Z", 1790812800000), ("2026-10-01T00:00:00", None), ("unavailable", None), (None, None)])
+def test_device_time_is_a_conservative_whole_second_epoch(raw, expected):
+    client = AppiumDeviceClient(None)
+    client.driver = SimpleNamespace(get_device_time=lambda: raw)
+    if expected is None:
+        with pytest.raises(RuntimeError, match="invalid device time"):
+            client.device_time_ms()
+    else:
+        assert client.device_time_ms() == expected

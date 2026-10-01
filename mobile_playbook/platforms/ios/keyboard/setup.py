@@ -101,10 +101,11 @@ def _add_keyboard(device_client, names: list[str], timeout: float, probe: float)
     return None
 
 
-# Turn on the keyboard's Full Access switch, confirming the prompt, with up to three attempts.
-def _enable_full_access(device_client, display_name: str, timeout: float) -> None:
-    logger.debug("ios keyboard setup: opening %s to enable Full Access", display_name)
-    device_client.tap_row_label([display_name], timeout)
+# Open the keyboard's row by any of its names and turn on Full Access, confirming the prompt, with up to three attempts.
+def _enable_full_access(device_client, names: list[str], display_name: str, timeout: float) -> None:
+    logger.debug("ios keyboard setup: opening %s (any of %s) to enable Full Access", display_name, names)
+    # The Add New Keyboard sheet and the Keyboards list label the same keyboard differently.
+    device_client.tap_row_label(names, timeout)
     if _on(device_client.find_switch_by_label(FULL_ACCESS_LABELS, timeout).get_attribute("value")):
         logger.debug("ios keyboard setup: Full Access already on for %s", display_name)
         return
@@ -174,7 +175,7 @@ def prepare_custom_keyboard(device_client, config: dict[str, Any], report_dir: P
         if bool(config.get("require_full_access", True)):
             state["stage"] = "enable_full_access"
             logger.debug("ios keyboard setup: stage %s", state["stage"])
-            _enable_full_access(device_client, matched, timeout)
+            _enable_full_access(device_client, names, matched, timeout)
             state["full_access"] = True
         state["stage"] = "complete"
         state["status"] = "READY"

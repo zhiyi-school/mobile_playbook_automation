@@ -9,7 +9,7 @@ disagree, inspect the current code and intended contract; either can be stale.
 python -m pytest -q
 ```
 
-The whole suite runs in roughly ten seconds and needs **no device, no Appium,
+The suite uses synthetic fixtures and needs **no device, no Appium,
 no MobSF, no network and no Supabase project**. Anything that would touch those
 is faked or injected, which is why it is safe to run on any checkout.
 
@@ -101,10 +101,21 @@ the matching path. Paths below are relative to `tests/`.
 **Tests must not read your machine.** Anything that resolves a real path —
 `.env`, `artifacts/reports/`, a config file — takes an injectable path so the test can
 point it at `tmp_path`. A test that reads the repository's real `.env` will
-pass on your checkout and fail on someone else's. An autouse fixture in
-`tests/conftest.py` points `storage_paths.CONFIG_ROOT` at each test's
-`tmp_path / "configs"`, so anything resolved through `config_path()` never
-touches the real `configs/`.
+pass on your checkout and fail on someone else's. The pytest plugin in `tests/pytest_support.py` isolates runtime storage before
+test modules are imported, including paths resolved at import time. An autouse
+fixture in `tests/conftest.py` then gives every test its own temporary config,
+work, reports, intake, derived-artifact and playbook locations, plus an isolated
+default API `.env` path. Known API report and artifact-resolver path snapshots
+are refreshed for each test. Caller-exported storage variables are overridden;
+tests can deliberately replace or remove them to exercise precedence. Manual
+`WORK_DIR` overrides are not needed for routine pytest runs.
+
+Native capture tests carry the `native_capture` marker. They may skip when a
+local host lacks Tesseract or macOS frameworks. The macOS CI job uses
+`--require-native-capture`, which fails on a marked test skipped during setup,
+execution or teardown, and fails if no native tests are selected. The job has a
+15-minute timeout; the synthetic video writer also limits readiness waits for
+each frame to 10 seconds.
 
 **Fakes enforce the real constraints.** `FakeStore` in `tests/dashboard_sync/test_sync.py`
 emulates the database's unique indexes, `sync_key` deduplication and column

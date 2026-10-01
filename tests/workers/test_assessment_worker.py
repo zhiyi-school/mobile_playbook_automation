@@ -386,3 +386,17 @@ def test_the_worker_loads_the_repository_env_file_whatever_the_working_directory
 
     assert assessment_worker.main([]) == 2
     assert seen == [REPOSITORY_ROOT / ".env"]
+
+
+def test_the_worker_targets_the_api_default_port_when_no_url_is_given(monkeypatch):
+    from mobile_playbook.workers import assessment_worker
+
+    urls = []
+    monkeypatch.delenv("AUTOMATION_API_URL", raising=False)
+    monkeypatch.setattr(assessment_worker, "load_env_file", lambda path: None)
+    monkeypatch.setattr(assessment_worker.SupabaseRestStore, "from_env", staticmethod(lambda: object()))
+    monkeypatch.setattr(assessment_worker, "AutomationApi", lambda base_url: urls.append(base_url))
+    monkeypatch.setattr(assessment_worker, "process_once", lambda *args, **kwargs: "idle")
+
+    assert assessment_worker.main(["--once"]) == 0
+    assert urls == ["http://127.0.0.1:8080"]

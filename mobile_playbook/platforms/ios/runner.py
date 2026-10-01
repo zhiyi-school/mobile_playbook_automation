@@ -303,7 +303,7 @@ class IosPlatformRunner:
                     lines.append("  planned: ios-feature-03-risk-01 / screen_capture / replaykit_broadcast")
                     lines.append(f"    recorder bundle_id: {recorder.get('bundle_id')}")
                     lines.append(f"    capture_window_seconds: {capture.get('capture_window_seconds', 12)}")
-                    lines.append(f"    ocr_provider: {capture.get('ocr_provider', 'vision')}")
+                    lines.append(f"    ocr_provider: {capture.get('ocr_provider', 'tesseract')}")
                 elif risk_id == "ios-feature-01-risk-01":
                     lines.append("  planned: ios-feature-01-risk-01 / ipa_static_analysis / package_inventory")
                 else:

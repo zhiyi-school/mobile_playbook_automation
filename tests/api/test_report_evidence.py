@@ -449,13 +449,18 @@ class TestDownloadedBytesMatchTheSource:
 
 class TestScreenCaptureEvidence:
     def test_names_the_screen_capture_artifacts(self, tmp_path):
-        directory = _report_dir(tmp_path, "logs.txt", "reference_screen.png", "ocr_matches.json", "recording.mp4")
+        directory = _report_dir(tmp_path, "logs.txt", "reference_screen.png", "ocr_matches.json", "recording.mp4",
+                                "capture_controls.json", "control_target_start_reference.png", "control_before_reference.png", "control_after_reference.png")
 
         items = report_dir_evidence(directory)
 
         assert [(item["kind"], item["label"]) for item in items] == [
             ("screen_recording", "Screen recording (recorder app capture)"),
             ("report", "Screen capture OCR matches"),
+            ("report", "Screen capture controls"),
+            ("screenshot", "Target control before hold (Appium reference)"),
+            ("screenshot", "Recorder control before target (Appium reference)"),
+            ("screenshot", "Recorder control after target (Appium reference)"),
             ("screenshot", "Target screen (Appium reference)"),
             ("log", "Run log"),
         ]

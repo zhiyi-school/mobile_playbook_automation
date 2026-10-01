@@ -312,3 +312,49 @@ def test_the_health_endpoint_names_the_code_it_is_running():
     assert payload["status"] == "ok"
     assert payload["code_revision"] == run_manifest.git_revision()
     assert payload["started_at"] == api_app._STARTED_AT
+
+
+# Serve control diagnostics and nested control frames through the existing run-scoped HTTP route.
+@pytest.mark.parametrize("name, media_type", [
+    ("capture_controls.json", "application/json"),
+    ("control_before_reference.png", "image/png"),
+    ("control_target_start_reference.png", "image/png"),
+    ("control_frames/video-before.png", "image/png"),
+    ("control_frames/before-broadcast-screenshot-1000.png", "image/png"),
+])
+def test_capture_control_evidence_downloads_over_http(tmp_path, monkeypatch, name, media_type):
+    reports = tmp_path / "reports"
+    relative = f"run1/ios/app/ios-feature-03-risk-01/screen_capture/{name}"
+    artifact = reports / relative
+    artifact.parent.mkdir(parents=True)
+    content = b'{"status":"PASSED"}' if name.endswith(".json") else b"synthetic PNG evidence"
+    artifact.write_bytes(content)
+    monkeypatch.setattr(reports_service, "REPORTS_ROOT", reports)
+    monkeypatch.setattr(reports_service, "WORK_ROOT", tmp_path / "work")
+    app = FastAPI()
+    app.include_router(api_reports.router)
+
+    status, headers, body = asyncio.run(_get(app, "/reports/run1/evidence-file", {"ref": encode_ref("reports", relative)}))
+
+    assert status == 200 and body == content
+    assert headers["content-type"] == media_type
+    assert headers["content-disposition"].startswith("attachment;")
+    assert headers["content-length"] == str(len(content))
+
+
+# Preserve capture classifications through the real HTTP response model.
+@pytest.mark.parametrize("capture_status, verdict, severity", [
+    ("SCREEN_CAPTURE_OBSCURED_VERIFIED", "Reduced Risk", "low"),
+    ("TEXT_FIELD_UNREACHABLE", "Inconclusive", "info"),
+])
+def test_summary_preserves_capture_verdict(monkeypatch, tmp_path, capture_status, verdict, severity):
+    root = tmp_path / "reports"
+    monkeypatch.setattr(reports_service, "REPORTS_ROOT", root)
+    _write_dashboard(root, "run1", [{"run_timestamp": "run1", "app_id": "app", "test_id": "ios-feature-03-risk-01",
+                                    "status": capture_status, "verdict": verdict, "severity": severity}])
+    app = FastAPI()
+    app.include_router(api_reports.router)
+    status, _, body = asyncio.run(_get(app, "/reports/run1/summary"))
+    row = json.loads(body)[0]
+    assert status == 200 and row["status"] == capture_status
+    assert row["verdict"] == verdict and row["severity"] == severity
