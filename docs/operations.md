@@ -79,8 +79,14 @@ module moved from `mobile_playbook.assessment_worker`; a launch agent or service
 that still runs the old module path fails with `No module named` and must be
 updated.
 
-It requires migration `0023_assessment_run_requests.sql`. Without it every pass
-logs a Supabase error and nothing runs.
+It requires the dashboard schema through fix
+`0036_assessment_run_request_run_id.sql`. Without the `assessment_run_requests`
+table every pass logs a Supabase error and nothing runs. When a run starts, the
+worker marks the request `completed` and records the run's `run_id` on it in the
+same write, so the dashboard can follow that run and its dashboard sync. Apply
+`0036` before deploying this worker: against an older schema that write is
+refused after the run has started, the request keeps its lease until it expires,
+and the request is then claimed and started again.
 
 | Variable / flag | Default | Effect |
 | --- | --- | --- |

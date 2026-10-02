@@ -160,6 +160,7 @@ def test_a_ready_assessment_is_started_and_the_request_is_finished():
 
     assert store.assessment["status"] == "running"
     assert store.request["status"] == "completed"
+    assert store.request["run_id"] == "2026-01-01_00-00-00"
     assert store.request["blocker_code"] is None
     assert store.request["started_at"]
     assert api.started == [

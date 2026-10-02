@@ -342,7 +342,7 @@ def process_once(
         return _wait(store, req, assessment, "automation_unavailable", str(exc))
 
     # The dashboard sync worker, not this request, moves the assessment to completed or failed.
-    _finish(store, req["id"], "completed", blocker_code=None, last_error=None)
+    _finish(store, req["id"], "completed", blocker_code=None, last_error=None, run_id=started.get("run_id"))
     logger.info(
         "assessment worker: started run %s for assessment %s.",
         started.get("run_id"),
