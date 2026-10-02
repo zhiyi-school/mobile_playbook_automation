@@ -188,12 +188,13 @@ Workflow:
 1. Install or verify the keyboard host app.
 2. Start the local collection server.
 3. Launch the keyboard host app and configure the server URL if accessibility IDs are configured.
-4. Wait for the keyboard app to call `POST /pair` and receive a token.
-5. Install and launch the target app IPA.
-6. Focus a text field, optionally using auto-navigation.
-7. Attempt to switch to the custom keyboard.
-8. Type a configured probe string, for example `hello123`.
-9. Launch the keyboard host app and verify its local log UI contains the probe string, or verify collection events posted to the local server.
+4. With `collection.keyboard_setup.mode: "appium_ui"`, add the keyboard under Settings > General > Keyboard > Keyboards and turn on **Allow Full Access**. Opening a just-installed keyboard's page can close Settings or leave it on the list, so when the page does not open, the setup waits three seconds, reopens the Keyboards list and tries once more; `launch_result.keyboard_setup.full_access_retry` records the first failure.
+5. Wait for the keyboard app to call `POST /pair` and receive a token.
+6. Install and launch the target app IPA.
+7. Focus a text field, optionally using auto-navigation.
+8. Attempt to switch to the custom keyboard.
+9. Type a configured probe string, for example `hello123`.
+10. Launch the keyboard host app and verify its local log UI contains the probe string, or verify collection events posted to the local server.
 
 `RISK_EXISTS` means the tested app/field allowed the configured custom keyboard to observe and store the probe text. This is the collection-side risk: with user-enabled Full Access, a third-party keyboard can collect keystrokes from non-secure fields where the app allows custom keyboards.
 

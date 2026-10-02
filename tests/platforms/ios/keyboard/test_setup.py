@@ -73,6 +73,32 @@ class FakeDevice:
         return {"screenshot": f"{prefix}.png", "page_source": f"{prefix}.xml"}
 
 
+@pytest.fixture(autouse=True)
+def no_full_access_retry_pause(monkeypatch):
+    monkeypatch.setattr(keyboard_setup, "FULL_ACCESS_RETRY_DELAY_SECONDS", 0)
+
+
+class ClosingSettingsDevice(FakeDevice):
+    """Settings closes the first `failures` times the keyboard's page is opened, as it can for a just-installed keyboard."""
+
+    def __init__(self, failures: int, **kwargs):
+        super().__init__(**kwargs)
+        self.failures = failures
+        self.switch_lookups = 0
+
+    def find_switch_by_label(self, labels, timeout) -> FakeSwitch:
+        self.switch_lookups += 1
+        if self.switch_lookups <= self.failures:
+            self.app_state = 1
+            raise RuntimeError("An element could not be located on the page")
+        return self.switch
+
+    def activate_app(self, bundle_id: str) -> None:
+        super().activate_app(bundle_id)
+        if bundle_id == keyboard_setup.SETTINGS_BUNDLE_ID:
+            self.app_state = 4
+
+
 def _config(**overrides) -> dict:
     config = {"mode": "appium_ui", "keyboard_display_name": DISPLAY_NAME, "navigation_timeout_seconds": 1}
     config.update(overrides)
@@ -163,6 +189,7 @@ def test_a_switch_that_stays_off_fails_after_three_attempts(tmp_path):
 
     assert exc.value.status == "KEYBOARD_SETUP_FAILED"
     assert len(device.switch_taps) == 3
+    assert "full_access_retry" not in exc.value.state
     assert exc.value.state["status"] == "KEYBOARD_SETUP_FAILED"
     assert DISPLAY_NAME in exc.value.state["error"]
     assert exc.value.state["diagnostics"] == {
@@ -542,3 +569,41 @@ def test_a_settings_app_that_never_comes_forward_fails_with_the_reason(tmp_path)
     assert "not in the foreground" in exc.value.state["error"]
     assert exc.value.state["settings_foreground"] is False
     assert exc.value.state["stage"] == "open_keyboards_list"
+
+
+def test_settings_closing_on_the_keyboard_page_is_reopened_once(tmp_path):
+    device = ClosingSettingsDevice(1, present={"Settings", "General", DISPLAY_NAME})
+
+    result = keyboard_setup.prepare_custom_keyboard(device, _config(), tmp_path)
+
+    assert result["status"] == "READY"
+    assert result["full_access"] is True
+    assert result["full_access_retry"] == {
+        "error": "An element could not be located on the page",
+        "settings_foreground": False,
+    }
+    assert device.row_taps.count([DISPLAY_NAME]) == 2
+    assert device.row_taps.count(["General"]) == 2
+
+
+def test_a_keyboard_page_that_never_opens_fails_after_one_reopen(tmp_path):
+    device = ClosingSettingsDevice(2, present={"Settings", "General", DISPLAY_NAME})
+
+    with pytest.raises(keyboard_setup.KeyboardSetupError) as exc:
+        keyboard_setup.prepare_custom_keyboard(device, _config(), tmp_path)
+
+    assert exc.value.state["stage"] == "enable_full_access"
+    assert exc.value.state["full_access_retry"]["settings_foreground"] is False
+    assert device.switch_lookups == 2
+    assert device.row_taps.count([DISPLAY_NAME]) == 2
+
+
+def test_the_reopen_waits_before_navigating_again(tmp_path, monkeypatch):
+    monkeypatch.setattr(keyboard_setup, "FULL_ACCESS_RETRY_DELAY_SECONDS", 3.0)
+    pauses: list[float] = []
+    monkeypatch.setattr(keyboard_setup.time, "sleep", pauses.append)
+    device = ClosingSettingsDevice(1, present={"Settings", "General", DISPLAY_NAME})
+
+    keyboard_setup.prepare_custom_keyboard(device, _config(), tmp_path)
+
+    assert pauses == [3.0]

@@ -5,6 +5,7 @@ Adds a custom keyboard and enables Full Access through the Settings app UI via A
 from __future__ import annotations
 
 import logging
+import time
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +16,7 @@ SPRINGBOARD_BUNDLE_ID = "com.apple.springboard"
 ADD_NEW_KEYBOARD_LABELS = ["Add New Keyboard…", "Add New Keyboard..."]
 FULL_ACCESS_LABELS = ["Allow Full Access"]
 CANCEL_LABELS = ["Cancel"]
+FULL_ACCESS_RETRY_DELAY_SECONDS = 3.0
 
 
 class KeyboardSetupError(RuntimeError):
@@ -101,12 +103,36 @@ def _add_keyboard(device_client, names: list[str], timeout: float, probe: float)
     return None
 
 
-# Open the keyboard's row by any of its names and turn on Full Access, confirming the prompt, with up to three attempts.
-def _enable_full_access(device_client, names: list[str], display_name: str, timeout: float) -> None:
-    logger.debug("ios keyboard setup: opening %s (any of %s) to enable Full Access", display_name, names)
+# Open the keyboard's row by any of its names and return its Full Access switch.
+def _open_full_access_switch(device_client, names: list[str], timeout: float):
     # The Add New Keyboard sheet and the Keyboards list label the same keyboard differently.
     device_client.tap_row_label(names, timeout)
-    if _on(device_client.find_switch_by_label(FULL_ACCESS_LABELS, timeout).get_attribute("value")):
+    return device_client.find_switch_by_label(FULL_ACCESS_LABELS, timeout)
+
+
+# Open the keyboard's settings page, reopening the Keyboards list once after a pause when the page does not appear.
+def _reach_full_access_switch(device_client, names: list[str], display_name: str, timeout: float, state: dict[str, Any]):
+    logger.debug("ios keyboard setup: opening %s (any of %s) to enable Full Access", display_name, names)
+    try:
+        return _open_full_access_switch(device_client, names, timeout)
+    except Exception as exc:
+        # Opening a just-installed keyboard's page can close Settings or leave it on the list.
+        settings_foreground = device_client.query_app_state(SETTINGS_BUNDLE_ID) == 4
+        logger.debug(
+            "ios keyboard setup: Full Access switch not reached (Settings foreground=%s): %s; reopening the Keyboards list",
+            settings_foreground,
+            exc,
+            exc_info=True,
+        )
+        state["full_access_retry"] = {"error": str(exc), "settings_foreground": settings_foreground}
+        time.sleep(FULL_ACCESS_RETRY_DELAY_SECONDS)
+        _open_keyboards_list(device_client, timeout)
+        return _open_full_access_switch(device_client, names, timeout)
+
+
+# Turn on Full Access for the keyboard, confirming the prompt, with up to three attempts.
+def _enable_full_access(device_client, names: list[str], display_name: str, timeout: float, state: dict[str, Any]) -> None:
+    if _on(_reach_full_access_switch(device_client, names, display_name, timeout, state).get_attribute("value")):
         logger.debug("ios keyboard setup: Full Access already on for %s", display_name)
         return
     for _ in range(3):
@@ -175,7 +201,7 @@ def prepare_custom_keyboard(device_client, config: dict[str, Any], report_dir: P
         if bool(config.get("require_full_access", True)):
             state["stage"] = "enable_full_access"
             logger.debug("ios keyboard setup: stage %s", state["stage"])
-            _enable_full_access(device_client, names, matched, timeout)
+            _enable_full_access(device_client, names, matched, timeout, state)
             state["full_access"] = True
         state["stage"] = "complete"
         state["status"] = "READY"
