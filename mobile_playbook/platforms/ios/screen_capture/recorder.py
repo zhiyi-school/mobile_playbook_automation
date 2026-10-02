@@ -65,28 +65,25 @@ def stop_broadcast(device_client, recorder: dict) -> dict:
     return result
 
 
-# Trigger the recorder's export and poll-pull its evidence until done.json appears or time runs out.
-def export_and_pull(device_client, recorder: dict, dest: Path, max_bytes: int) -> dict:
-    try:
-        logger.debug("ios screen capture: exporting evidence via %s", recorder["export_button_accessibility_id"])
-        device_client.launch_app(recorder["bundle_id"])
-        device_client.tap_by_accessibility_id(recorder["export_button_accessibility_id"])
-    except Exception as exc:
-        logger.debug("ios screen capture: export tap failed: %s", exc, exc_info=True)
-        raise ScreenCaptureSetupError("RECORDING_RETRIEVAL_FAILED", f"Could not export the evidence: {exc}", {}) from exc
+EXPORT_SETTLE_SECONDS = 2.0
+EXPORT_RETRY_PULL_SECONDS = 10.0
+
+
+# Tap the recorder's export control after bringing the recorder to the foreground.
+def _tap_export(device_client, recorder: dict) -> None:
+    logger.debug("ios screen capture: exporting evidence via %s", recorder["export_button_accessibility_id"])
+    device_client.launch_app(recorder["bundle_id"])
+    device_client.tap_by_accessibility_id(recorder["export_button_accessibility_id"])
+
+
+# Pull the evidence folder until done.json arrives or the deadline passes, returning the files, last error and attempts.
+def _pull_until_manifest(device_client, recorder: dict, dest: Path, max_bytes: int, deadline: float) -> tuple[list[Path], str | None, int]:
     subpath = recorder.get("evidence_documents_path", "Evidence")
-    deadline = time.monotonic() + float(recorder.get("export_timeout_seconds", 30))
     manifest_path = dest / "done.json"
     files: list[Path] = []
     last_error: str | None = None
-    logger.debug(
-        "ios screen capture: pulling Documents/%s to %s (max_bytes=%s, timeout=%ss)",
-        subpath,
-        dest,
-        max_bytes,
-        recorder.get("export_timeout_seconds", 30),
-    )
     attempts = 0
+    logger.debug("ios screen capture: pulling Documents/%s to %s (max_bytes=%s)", subpath, dest, max_bytes)
     while True:
         attempts += 1
         # The Evidence folder may not exist until the export finishes, so a failed pull is retried.
@@ -98,10 +95,34 @@ def export_and_pull(device_client, recorder: dict, dest: Path, max_bytes: int) -
             logger.debug("ios screen capture: pull attempt %s failed: %s", attempts, exc, exc_info=True)
             last_error = str(exc)
         if manifest_path.exists() or time.monotonic() > deadline:
-            break
+            return files, last_error, attempts
         time.sleep(1)
+
+
+# Trigger the recorder's export and poll-pull its evidence until done.json appears, tapping export again once if it did not run.
+def export_and_pull(device_client, recorder: dict, dest: Path, max_bytes: int) -> dict:
+    # The recorder ignores a tap made while it settles back to the front after the broadcast sheet closes.
+    time.sleep(EXPORT_SETTLE_SECONDS)
+    try:
+        _tap_export(device_client, recorder)
+    except Exception as exc:
+        logger.debug("ios screen capture: export tap failed: %s", exc, exc_info=True)
+        raise ScreenCaptureSetupError("RECORDING_RETRIEVAL_FAILED", f"Could not export the evidence: {exc}", {}) from exc
+    manifest_path = dest / "done.json"
+    deadline = time.monotonic() + float(recorder.get("export_timeout_seconds", 30))
+    files, last_error, attempts = _pull_until_manifest(device_client, recorder, dest, max_bytes, deadline)
+    export_retried = False
     if not manifest_path.exists():
-        logger.debug("ios screen capture: done.json missing after %s attempts (last_error=%s)", attempts, last_error)
+        logger.debug("ios screen capture: done.json missing after %s attempts (last_error=%s); tapping export again", attempts, last_error)
+        export_retried = True
+        try:
+            _tap_export(device_client, recorder)
+            files, last_error, attempts = _pull_until_manifest(
+                device_client, recorder, dest, max_bytes, time.monotonic() + EXPORT_RETRY_PULL_SECONDS
+            )
+        except Exception as exc:
+            logger.debug("ios screen capture: repeated export tap failed: %s", exc, exc_info=True)
+    if not manifest_path.exists():
         message = f"Could not pull the evidence: {last_error}" if last_error else "The recorder never wrote done.json"
         raise ScreenCaptureSetupError("RECORDING_RETRIEVAL_FAILED", message, {"files": [str(f) for f in files], "error": last_error})
     manifest = json.loads(manifest_path.read_text())
@@ -114,4 +135,9 @@ def export_and_pull(device_client, recorder: dict, dest: Path, max_bytes: int) -
         len(frames),
         len(manifest.get("screenshots") or []),
     )
-    return {"manifest": manifest, "recording": recording if recording and recording.exists() else None, "frames": frames}
+    return {
+        "manifest": manifest,
+        "recording": recording if recording and recording.exists() else None,
+        "frames": frames,
+        "export_retried": export_retried,
+    }

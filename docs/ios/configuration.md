@@ -310,7 +310,7 @@ screen_capture:
 - `start_broadcast_labels` / `stop_broadcast_labels`: labels tried on the iOS broadcast sheet. `sheet_timeout_seconds` bounds the wait for them.
 - `countdown_seconds`: wait after **Start Broadcast** for the iOS countdown to finish.
 - `evidence_documents_path`: the folder under the recorder's Documents that is pulled through Appium.
-- `export_timeout_seconds`: how long to keep pulling until the recorder's `done.json` appears.
+- `export_timeout_seconds`: how long to keep pulling until the recorder's `done.json` appears before tapping export once more.
 
 `capture`:
 

@@ -157,6 +157,8 @@ class Feature03Risk01(CompanionAppRiskBase):
                 "valid": bool(recording and self._looks_like_mp4(recording)),
                 "manifest": pulled["manifest"],
             }
+            if pulled.get("export_retried"):
+                result.launch_result["export_retried"] = True
             logger.debug(
                 "ios-feature-03-risk-01[%s]: recording kept path=%s bytes=%s valid=%s",
                 app_config.id, result.launch_result["recording"]["path"], result.launch_result["recording"]["bytes"],

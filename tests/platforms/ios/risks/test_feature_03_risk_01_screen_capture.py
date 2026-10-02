@@ -119,6 +119,12 @@ def readable(monkeypatch):
     monkeypatch.setattr(screen_capture_ocr, "is_obscured", lambda image: False)
 
 
+@pytest.fixture(autouse=True)
+def instant_export(monkeypatch):
+    monkeypatch.setattr("mobile_playbook.platforms.ios.screen_capture.recorder.EXPORT_SETTLE_SECONDS", 0)
+    monkeypatch.setattr("mobile_playbook.platforms.ios.screen_capture.recorder.EXPORT_RETRY_PULL_SECONDS", 0)
+
+
 def _run(config, tmp_path, device, recogniser=None):
     writer = ReportWriter(tmp_path / "reports", RUN)
     result = Feature03Risk01(recogniser).run(config.apps[0], config, device, writer)
@@ -294,6 +300,60 @@ def test_an_export_without_done_json_is_a_retrieval_failure(screen_capture_confi
 
     assert (result.final_status, result.verdict) == ("RECORDING_RETRIEVAL_FAILED", "Inconclusive")
     assert "never wrote done.json" in result.errors[0]
+
+
+def test_a_failed_retrieval_taps_export_once_more_before_giving_up(screen_capture_config, tmp_path):
+    device = RecorderDevice(write_manifest=False)
+
+    result, _ = _run(screen_capture_config, tmp_path, device)
+
+    assert result.final_status == "RECORDING_RETRIEVAL_FAILED"
+    assert device.taps.count("export-evidence") == 2
+
+
+class LateExportDevice(RecorderDevice):
+    def tap_by_accessibility_id(self, accessibility_id: str) -> dict:
+        if accessibility_id == "export-evidence" and "export-evidence" in self.taps:
+            self.write_manifest = True
+        return super().tap_by_accessibility_id(accessibility_id)
+
+
+def test_an_export_that_only_works_the_second_time_completes_the_test(screen_capture_config, tmp_path):
+    device = LateExportDevice(write_manifest=False)
+
+    result, _ = _run(screen_capture_config, tmp_path, device)
+
+    assert result.final_status != "RECORDING_RETRIEVAL_FAILED"
+    assert device.taps.count("export-evidence") == 2
+    assert result.launch_result["export_retried"] is True
+    assert result.launch_result["recording"]["valid"] is True
+
+
+def test_an_export_that_works_first_time_is_not_retried(screen_capture_config, tmp_path):
+    device = RecorderDevice()
+
+    result, _ = _run(screen_capture_config, tmp_path, device)
+
+    assert device.taps.count("export-evidence") == 1
+    assert "export_retried" not in result.launch_result
+
+
+def test_the_recorder_settles_before_the_first_export_tap(screen_capture_config, tmp_path, monkeypatch):
+    from mobile_playbook.platforms.ios.screen_capture import recorder
+
+    monkeypatch.setattr(recorder, "EXPORT_SETTLE_SECONDS", 2.0)
+    device = RecorderDevice()
+    events: list[object] = []
+    monkeypatch.setattr(recorder.time, "sleep", lambda seconds: events.append(seconds))
+    original_tap = device.tap_by_accessibility_id
+    monkeypatch.setattr(
+        device, "tap_by_accessibility_id", lambda aid: events.append(aid) or original_tap(aid)
+    )
+
+    _run(screen_capture_config, tmp_path, device)
+
+    first_export = events.index("export-evidence")
+    assert events[first_export - 1] == 2.0
 
 
 def test_a_pull_above_the_size_limit_is_a_retrieval_failure(screen_capture_config, tmp_path):
