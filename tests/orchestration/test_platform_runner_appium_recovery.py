@@ -17,7 +17,7 @@ def _ios_config():
         appium_server_url="http://127.0.0.1:4723",
         appium_auto_start={"enabled": True, "command": ["appium"]},
     )
-    return SimpleNamespace(device=device, runner=SimpleNamespace(work_dir="work/ios"))
+    return SimpleNamespace(device=device, runner=SimpleNamespace(work_dir="work/ios", permission_alerts={}))
 
 
 def _android_config():
@@ -179,7 +179,7 @@ class FakeReportWriter:
 
 
 def _fake_app():
-    return SimpleNamespace(id="app", name="App", bundle_id="com.example.app", test_bundle_id="com.example.app.wda", artifact={})
+    return SimpleNamespace(id="app", name="App", bundle_id="com.example.app", test_bundle_id="com.example.app.wda", artifact={}, risks={})
 
 
 def _fake_android_app():
@@ -201,10 +201,10 @@ def _fake_risk(run_side_effects):
 def test_ios_run_test_retries_once_after_unlocking_a_locked_device(monkeypatch):
     risk = _fake_risk([RuntimeError("no such element"), None])
     monkeypatch.setattr("mobile_playbook.platforms.ios.runner.get_risk", lambda test_id: risk)
-    device_client = SimpleNamespace(unlock=lambda: {"was_locked": True})
+    device_client = SimpleNamespace(unlock=lambda: {"was_locked": True}, prompt_recovery_config={})
     report_writer = FakeReportWriter()
 
-    IosPlatformRunner().run_test(_fake_app(), "risk_id", object(), device_client, report_writer)
+    IosPlatformRunner().run_test(_fake_app(), "risk_id", _ios_config(), device_client, report_writer)
 
     assert len(risk.calls) == 2
     assert report_writer.written == []  # the retry succeeded, so nothing gets recorded as failed
@@ -213,10 +213,10 @@ def test_ios_run_test_retries_once_after_unlocking_a_locked_device(monkeypatch):
 def test_ios_run_test_does_not_retry_when_device_was_not_locked(monkeypatch):
     risk = _fake_risk([RuntimeError("boom"), None])
     monkeypatch.setattr("mobile_playbook.platforms.ios.runner.get_risk", lambda test_id: risk)
-    device_client = SimpleNamespace(unlock=lambda: {"was_locked": False})
+    device_client = SimpleNamespace(unlock=lambda: {"was_locked": False}, prompt_recovery_config={})
     report_writer = FakeReportWriter()
 
-    IosPlatformRunner().run_test(_fake_app(), "risk_id", object(), device_client, report_writer)
+    IosPlatformRunner().run_test(_fake_app(), "risk_id", _ios_config(), device_client, report_writer)
 
     assert len(risk.calls) == 1  # no retry attempted
     assert len(report_writer.written) == 1
@@ -226,10 +226,10 @@ def test_ios_run_test_does_not_retry_when_device_was_not_locked(monkeypatch):
 def test_ios_run_test_records_the_retrys_own_failure_if_it_also_fails(monkeypatch):
     risk = _fake_risk([RuntimeError("first failure"), RuntimeError("second failure")])
     monkeypatch.setattr("mobile_playbook.platforms.ios.runner.get_risk", lambda test_id: risk)
-    device_client = SimpleNamespace(unlock=lambda: {"was_locked": True})
+    device_client = SimpleNamespace(unlock=lambda: {"was_locked": True}, prompt_recovery_config={})
     report_writer = FakeReportWriter()
 
-    IosPlatformRunner().run_test(_fake_app(), "risk_id", object(), device_client, report_writer)
+    IosPlatformRunner().run_test(_fake_app(), "risk_id", _ios_config(), device_client, report_writer)
 
     assert len(risk.calls) == 2
     assert len(report_writer.written) == 1
@@ -243,10 +243,10 @@ def test_ios_run_test_does_not_retry_when_unlock_itself_raises(monkeypatch):
     def broken_unlock():
         raise RuntimeError("no session")
 
-    device_client = SimpleNamespace(unlock=broken_unlock)
+    device_client = SimpleNamespace(unlock=broken_unlock, prompt_recovery_config={})
     report_writer = FakeReportWriter()
 
-    IosPlatformRunner().run_test(_fake_app(), "risk_id", object(), device_client, report_writer)
+    IosPlatformRunner().run_test(_fake_app(), "risk_id", _ios_config(), device_client, report_writer)
 
     assert len(risk.calls) == 1
     assert len(report_writer.written) == 1

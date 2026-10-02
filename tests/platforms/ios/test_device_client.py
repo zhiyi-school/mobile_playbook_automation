@@ -968,3 +968,140 @@ def test_device_time_is_a_conservative_whole_second_epoch(raw, expected):
             client.device_time_ms()
     else:
         assert client.device_time_ms() == expected
+
+
+NOTIFICATION_PROMPT_TEXT = "“App” Would Like to Send You Notifications"
+
+
+class ClearableSwitchTo:
+    def __init__(self, alert: FakeAlert, cleared_by: FakeElement):
+        self._alert = alert
+        self._cleared_by = cleared_by
+
+    @property
+    def alert(self):
+        if self._cleared_by.clicked:
+            raise RuntimeError("no alert open")
+        return self._alert
+
+
+class PromptBlockedDriver(FakeDriver):
+    def __init__(self, alert_text: str, buttons: list[FakeElement], cleared_by: FakeElement):
+        super().__init__({"XCUIElementTypeButton": buttons})
+        self.cleared_by = cleared_by
+        self.target = FakeElement({"label": "Next", "name": "Next", "enabled": "true", "visible": "true"})
+        self.switch_to = ClearableSwitchTo(FakeAlert(alert_text), cleared_by)
+
+    def find_element(self, by, value):
+        self.find_requests.append((by, value))
+        if value == "XCUIElementTypeAlert" or not self.cleared_by.clicked:
+            raise RuntimeError("not found")
+        return self.target
+
+
+def _prompt_blocked_client(alert_text: str = NOTIFICATION_PROMPT_TEXT, **config) -> tuple[AppiumDeviceClient, PromptBlockedDriver]:
+    allow, deny = _allow_or_deny()
+    driver = PromptBlockedDriver(alert_text, [allow, deny], deny)
+    client = AppiumDeviceClient(SimpleNamespace(), {"action": "dismiss", **config})
+    client.driver = driver
+    return client, driver
+
+
+@pytest.fixture
+def short_prompt_wait(monkeypatch):
+    monkeypatch.setattr("mobile_playbook.platforms.ios.device_client.BLOCKING_PROMPT_WAIT_SECONDS", 0.1)
+
+
+def test_a_lookup_blocked_by_a_permission_prompt_answers_it_and_retries_once(short_prompt_wait):
+    client, driver = _prompt_blocked_client()
+
+    result = client.tap_label(["Next"], 0)
+
+    assert result["tapped"] is True
+    assert driver.target.clicked
+    assert driver.cleared_by.clicked
+    recovered = client.drain_recovered_prompts()
+    assert [(item["operation"], item["status"], item["text"]) for item in recovered] == [
+        ("tap_label", "HANDLED", NOTIFICATION_PROMPT_TEXT)
+    ]
+    assert client.drain_recovered_prompts() == []
+
+
+def test_the_local_network_prompt_is_still_allowed_when_it_blocks_a_lookup(short_prompt_wait):
+    allow, deny = _allow_or_deny()
+    driver = PromptBlockedDriver(LOCAL_NETWORK_ALERT, [allow, deny], allow)
+    client = AppiumDeviceClient(
+        SimpleNamespace(), {"action": "dismiss", "accept_if_text_contains": ["find and connect to devices on your local network"]}
+    )
+    client.driver = driver
+
+    client.tap_label(["Next"], 0)
+
+    assert allow.clicked
+    assert not deny.clicked
+
+
+def test_a_failed_lookup_with_no_prompt_raises_the_original_error(short_prompt_wait):
+    client, driver = _prompt_blocked_client()
+    driver.switch_to = SimpleNamespace()
+
+    with pytest.raises(RuntimeError, match="not found"):
+        client.tap_label(["Next"], 0)
+
+    assert client.drain_recovered_prompts() == []
+
+
+def test_an_alert_that_is_not_a_permission_prompt_is_left_for_the_test(short_prompt_wait):
+    ok = FakeElement({"type": "XCUIElementTypeButton", "label": "OK", "name": "OK", "enabled": "true", "visible": "true"})
+    driver = PromptBlockedDriver("Unable to Connect to Server", [ok], ok)
+    client = AppiumDeviceClient(SimpleNamespace(), {"action": "dismiss"})
+    client.driver = driver
+
+    with pytest.raises(RuntimeError, match="not found"):
+        client.tap_label(["Next"], 0)
+
+    assert not ok.clicked
+
+
+def test_recovery_can_be_paused_for_a_step_that_inspects_the_prompt(short_prompt_wait):
+    client, driver = _prompt_blocked_client()
+
+    with client.without_prompt_recovery():
+        with pytest.raises(RuntimeError, match="not found"):
+            client.tap_label(["Next"], 0)
+
+    assert not driver.cleared_by.clicked
+    assert client.tap_label(["Next"], 0)["tapped"] is True
+
+
+def test_reading_an_absent_value_does_not_wait_for_prompts(short_prompt_wait):
+    client, driver = _prompt_blocked_client()
+
+    assert client.element_value_by_label(["Next"]) is None
+    assert not driver.cleared_by.clicked
+
+
+def test_a_client_without_prompt_rules_does_not_recover(short_prompt_wait):
+    allow, deny = _allow_or_deny()
+    driver = PromptBlockedDriver(NOTIFICATION_PROMPT_TEXT, [allow, deny], deny)
+    client = _client(driver)
+
+    with pytest.raises(RuntimeError, match="not found"):
+        client.tap_label(["Next"], 0)
+
+    assert not deny.clicked
+
+
+def test_a_nested_lookup_recovers_only_once(short_prompt_wait, monkeypatch):
+    client, driver = _prompt_blocked_client()
+    driver.switch_to = SimpleNamespace()
+    checks = []
+    original = client.handle_permission_alerts
+    monkeypatch.setattr(client, "handle_permission_alerts", lambda config=None: checks.append(config) or original(config))
+
+    with pytest.raises(RuntimeError, match="not found"):
+        client.tap_label(["Next"], 0)
+
+    assert len(checks) == 1
+    assert checks[0]["permission_prompts_only"] is True
+    assert checks[0]["wait_seconds"] == 0.1

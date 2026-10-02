@@ -121,7 +121,9 @@ class Feature01Risk02(Risk):
                 return result
 
             logger.debug("ios-feature-01-risk-02[%s]: exercising clean baseline %s", app_config.id, bundle_id)
-            baseline = exercise_and_observe(device_client, bundle_id, cfg, report_dir, "baseline")
+            baseline = exercise_and_observe(
+                device_client, bundle_id, cfg, report_dir, "baseline", global_config.runner.permission_alerts
+            )
             result.launch_result["baseline"] = baseline.to_dict()
             logger.debug(
                 "ios-feature-01-risk-02[%s]: baseline drivable=%s foreground_samples=%s terminated_midwindow=%s markers=%s",
@@ -247,7 +249,9 @@ class Feature01Risk02(Risk):
                 return result
 
             logger.debug("ios-feature-01-risk-02[%s]: exercising repackaged build %s", app_config.id, repackaged_bundle_id)
-            repackaged = exercise_and_observe(device_client, repackaged_bundle_id, cfg, report_dir, "repackaged")
+            repackaged = exercise_and_observe(
+                device_client, repackaged_bundle_id, cfg, report_dir, "repackaged", global_config.runner.permission_alerts
+            )
             result.launch_result["repackaged"] = repackaged.to_dict()
             logger.debug(
                 "ios-feature-01-risk-02[%s]: repackaged drivable=%s foreground_samples=%s terminated_midwindow=%s markers=%s",

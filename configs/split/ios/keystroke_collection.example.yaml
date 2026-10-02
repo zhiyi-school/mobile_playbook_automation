@@ -1,6 +1,12 @@
 # Example iOS keystroke_collection settings. Copy to keystroke_collection.yaml; see docs/ios/configuration.md.
 
 keystroke_collection:
+  # Layered over runner.permission_alerts while this test runs, including the runner's
+  # between-test sweeps and blocked-step recovery. The keyboard app needs local network
+  # access to reach the collection server, so its prompt is allowed here and nowhere else.
+  permission_alerts:
+    accept_if_text_contains:
+      - "find and connect to devices on your local network"
   keyboard_app:
     bundle_id: "com.example.LocalKeyboard"
     keyboard_extension_bundle_id: "com.example.LocalKeyboard.KeyboardExtension"

@@ -73,7 +73,23 @@ runner:
     max_alerts: 3
 ```
 
-`permission_alerts` handles a prompt only when it is an alert element, or page text that reads like an iOS permission prompt (for example "would like to"). Ordinary screens, such as an in-app update notice or the App Store, are left alone. Buttons are matched by their exact label: `dismiss` taps Don't Allow, Not Now, Cancel, Deny or No, and otherwise only an acknowledgement button (OK, Close, Dismiss or Done); it never grants a permission. `accept` taps Allow, Allow Once, Allow While Using App, OK or Continue. A prompt with no safe button is reported as `ALERT_UNHANDLED` and not tapped. The scan reads only button labels, stops when a button goes stale, when the page has more than 24 buttons without an alert element, or `wait_seconds` plus ten seconds after the pass started. Risks that know their target pass its bundle ID, and prompts are then left alone whenever that app is not in the foreground (`TARGET_NOT_FOREGROUND`).
+`permission_alerts` handles a prompt only when it is an alert element, or page text that reads like an iOS permission prompt (for example "would like to"). Ordinary screens, such as an in-app update notice or the App Store, are left alone. Buttons are matched by their exact label: `dismiss` taps Don't Allow, Not Now, Cancel, Deny or No, and otherwise only an acknowledgement button (OK, Close, Dismiss or Done); it never grants a permission. `accept` taps Allow, Allow Once, Allow While Using App, OK or Continue. A prompt with no safe button is reported as `ALERT_UNHANDLED` and not tapped. The scan reads only button labels, stops when a button goes stale, when the page has more than 24 buttons without an alert element, or `wait_seconds` plus ten seconds after the pass started. Risks that know their target pass its bundle ID, and prompts are then left alone whenever that app is not in the foreground (`TARGET_NOT_FOREGROUND`). `accept_if_text_contains` lists prompt text that is accepted whatever the `action`.
+
+A risk's global settings block, or an app's `risks.<risk_id>` entry, can hold its own `permission_alerts`, layered key by key over `runner.permission_alerts` for the whole of that test. Only the custom-keyboard risk does this: its companion app needs local network access to reach the collection server, so `keystroke_collection` accepts that prompt and every other test dismisses it:
+
+```yaml
+keystroke_collection:
+  permission_alerts:
+    accept_if_text_contains:
+      - "find and connect to devices on your local network"
+```
+
+iOS prompts outlive the app that raised them, even its uninstall, so each test's rules are also applied outside the risks' own checks:
+
+- Before and after every device test, the runner answers any prompt left on screen, waiting one second rather than `wait_seconds`.
+- When a device-client lookup or tap fails, the client answers a blocking prompt and retries the operation once. Only text that reads like a permission prompt is answered here; any other alert is left for the test, and the original error is raised. Presence checks such as `has_label` and value reads return their result without this check.
+
+Each prompt answered this way is recorded as a `permission_prompts_answered` event in the run's `events.jsonl`, with the `risk_id` and a `stage` of `before_test`, `after_test` or `during_test`; `during_test` entries also name the device-client `operation` that was blocked, and each event carries a readable `message`. Setting `enabled: false` turns these off along with the risks' own handling.
 
 ## Apps
 

@@ -396,3 +396,47 @@ def test_discover_rejects_profile_expiring_within_margin(monkeypatch, tmp_path):
 
     assert repackage_resign.discover_provisioning_profile(*args, search_dir=str(profiles), margin_seconds=3600) is None
     assert repackage_resign.discover_provisioning_profile(*args, search_dir=str(profiles), margin_seconds=0) is not None
+
+
+NOTIFICATION_PROMPT = {"status": "HANDLED", "action": "dismiss", "text": "“App” Would Like to Send You Notifications", "button": "Don't Allow"}
+
+
+class PromptingRepackDevice(RepackDevice):
+    def __init__(self):
+        super().__init__()
+        self.permission_alert_results = [NOTIFICATION_PROMPT]
+        self.calls: list[str] = []
+
+    def launch_app(self, bundle_id: str) -> dict:
+        self.calls.append("launch")
+        return super().launch_app(bundle_id)
+
+    def handle_permission_alerts(self, config: dict | None = None) -> list[dict]:
+        self.calls.append("prompts")
+        return super().handle_permission_alerts(config)
+
+    def query_app_state(self, bundle_id: str) -> int:
+        self.calls.append("state")
+        return super().query_app_state(bundle_id)
+
+    def page_source(self) -> str:
+        self.calls.append("source")
+        return super().page_source()
+
+
+def test_permission_prompts_are_answered_the_same_way_for_both_builds(global_config, tmp_path, frida_files, monkeypatch):
+    monkeypatch.setattr("subprocess.run", _fake_subprocess())
+    _pass_gadget(monkeypatch)
+    app = global_config.apps[0]
+    _configure(app, tmp_path, frida_files)
+    global_config.runner.permission_alerts = {"action": "dismiss", "wait_seconds": 2}
+    device = PromptingRepackDevice()
+
+    result = _run(app, global_config, device, tmp_path)
+
+    observed = ["launch", "prompts", "state", "state", "prompts", "source"]
+    assert device.calls == observed + observed
+    assert device.permission_alert_calls == [{"action": "dismiss", "wait_seconds": 2}] * 4
+    assert result.launch_result["baseline"]["permission_alerts"] == [NOTIFICATION_PROMPT, NOTIFICATION_PROMPT]
+    assert result.launch_result["repackaged"]["permission_alerts"] == [NOTIFICATION_PROMPT, NOTIFICATION_PROMPT]
+    assert result.final_status == "REPACKAGING_SURVIVED"

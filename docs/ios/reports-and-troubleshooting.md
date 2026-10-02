@@ -188,7 +188,7 @@ App Store IPAs may be encrypted as acquired. The framework reports this and does
 
 iOS permission prompt blocks testing:
 
-Use `runner.permission_alerts.action: "dismiss"` for automated dismissal, or `alert_only` when the tester should decide manually. A result with status `ALERT_UNHANDLED` lists the prompt's button labels; none of them was safe to tap for the configured action, so the prompt was left on screen. Prompts that only offer an action such as **Update Now** need a current build of the app or manual handling. See [Configuration](configuration.md#runner) for how prompts are recognised and matched.
+Use `runner.permission_alerts.action: "dismiss"` for automated dismissal, or `alert_only` when the tester should decide manually. Prompts answered between tests or to recover a blocked tap appear as `permission_prompts_answered` events in `events.jsonl`; one recorded `after_test` names the test it followed. A result with status `ALERT_UNHANDLED` lists the prompt's button labels; none of them was safe to tap for the configured action, so the prompt was left on screen. Prompts that only offer an action such as **Update Now** need a current build of the app or manual handling. See [Configuration](configuration.md#runner) for how prompts are recognised and matched.
 
 iOS text field not found:
 

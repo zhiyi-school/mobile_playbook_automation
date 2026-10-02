@@ -36,6 +36,8 @@ from mobile_playbook.reporting.run_events import append_event
 
 logger = logging.getLogger(__name__)
 
+LEFTOVER_PROMPT_WAIT_SECONDS = 1.0
+
 
 class IosPlatformRunner:
     platform = "ios"
@@ -73,7 +75,7 @@ class IosPlatformRunner:
         logger.debug("ios runner: device preflight ok=%s errors=%s", preflight.ok, getattr(preflight, "errors", None))
         if not preflight.ok:
             raise RuntimeError("; ".join(preflight.errors))
-        client = AppiumDeviceClient(config.device).connect()
+        client = AppiumDeviceClient(config.device, config.runner.permission_alerts).connect()
         logger.debug("ios runner: Appium session connected in %.2fs", time.monotonic() - started)
         self._unlock_best_effort(client, run_dir)
         return client
@@ -132,12 +134,38 @@ class IosPlatformRunner:
         )
         return warnings
 
-    # Run a risk, retrying once after an unlock, and record a FAILED result if it raises.
+    # Run a risk under its prompt rules between prompt sweeps, retrying once after an unlock, and record a FAILED result if it raises.
     def run_test(self, app, test_id: str, config, device_client, report_writer) -> None:
         risk = get_risk(test_id)
         if risk is None:
             logger.debug("ios runner: skipping %s for app %s, no registered risk", test_id, getattr(app, "id", None))
             return
+        if device_client is None or not getattr(risk, "requires_device", True):
+            self._run_risk(app, test_id, risk, config, device_client, report_writer)
+            return
+        test_config = self._with_test_prompt_rules(config, app, test_id)
+        prompt_rules = test_config.runner.permission_alerts
+        previous_rules = device_client.prompt_recovery_config
+        device_client.prompt_recovery_config = dict(prompt_rules or {})
+        self._clear_leftover_prompts(device_client, prompt_rules, report_writer, test_id, "before_test")
+        try:
+            self._run_risk(app, test_id, risk, test_config, device_client, report_writer)
+        finally:
+            self._clear_leftover_prompts(device_client, prompt_rules, report_writer, test_id, "after_test")
+            self._record_recovered_prompts(device_client, report_writer, test_id)
+            device_client.prompt_recovery_config = previous_rules
+
+    # Return the config with the risk's own permission_alerts layered over the runner's for this test.
+    def _with_test_prompt_rules(self, config, app, test_id: str):
+        risk_rules = effective_risk_config(config, test_id, app.risks.get(test_id)).get("permission_alerts")
+        if not risk_rules:
+            return config
+        rules = {**(config.runner.permission_alerts or {}), **risk_rules}
+        logger.debug("ios runner: %s uses its own permission prompt rules %s", test_id, rules)
+        return replace(config, runner=replace(config.runner, permission_alerts=rules))
+
+    # Run the risk, retrying once after an unlock, and record a FAILED result if it raises.
+    def _run_risk(self, app, test_id: str, risk, config, device_client, report_writer) -> None:
         failure_result = self._failure_result_template(app, test_id, risk, report_writer)
         logger.debug("ios runner: starting risk %s for app %s (%s)", test_id, app.id, type(risk).__name__)
         started = time.monotonic()
@@ -165,6 +193,42 @@ class IosPlatformRunner:
                     logger.debug("ios runner: retry of risk %s for app %s raised: %s", test_id, app.id, retry_exc, exc_info=True)
                     exc = retry_exc
             self._record_failure(failure_result, report_writer, exc)
+
+    # Answer system prompts left on screen so they cannot block the next test, recording any that were answered.
+    def _clear_leftover_prompts(self, device_client, prompt_rules: dict | None, report_writer, test_id: str, stage: str) -> None:
+        try:
+            alert_config = {**(prompt_rules or {}), "wait_seconds": LEFTOVER_PROMPT_WAIT_SECONDS}
+            alert_config.pop("foreground_bundle_id", None)
+            results = device_client.handle_permission_alerts(alert_config)
+        except Exception as exc:
+            logger.debug("ios runner: clearing leftover prompts %s %s failed: %s", stage, test_id, exc, exc_info=True)
+            return
+        answered = [result for result in results if result.get("status") == "HANDLED"]
+        logger.debug("ios runner: leftover prompt sweep %s %s results %s", stage, test_id, results)
+        if answered:
+            message = f"ios: answered {len(answered)} system prompt(s) left on screen {stage.replace('_', ' ')} {test_id}."
+            logger.info(message)
+            append_event(
+                report_writer.run_dir, "permission_prompts_answered", risk_id=test_id, stage=stage, prompts=answered, message=message
+            )
+
+    # Record the prompts the device client answered to recover operations they blocked during the test.
+    def _record_recovered_prompts(self, device_client, report_writer, test_id: str) -> None:
+        try:
+            recovered = device_client.drain_recovered_prompts()
+        except Exception as exc:
+            logger.debug("ios runner: reading recovered prompts for %s failed: %s", test_id, exc, exc_info=True)
+            return
+        if recovered:
+            message = f"ios: answered {len(recovered)} system prompt(s) that blocked steps during {test_id}."
+            append_event(
+                report_writer.run_dir,
+                "permission_prompts_answered",
+                risk_id=test_id,
+                stage="during_test",
+                prompts=recovered,
+                message=message,
+            )
 
     # Unlock the device and return True only if it had been locked.
     def _unlock_and_retry(self, device_client, exc: Exception) -> bool:

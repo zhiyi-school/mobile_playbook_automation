@@ -30,6 +30,7 @@ class RunObservation:
     sensitive_path_reached: bool | None = None
     fingerprint: dict[str, Any] = field(default_factory=dict)
     exercise_steps: list[dict[str, Any]] = field(default_factory=list)
+    permission_alerts: list[dict[str, Any]] = field(default_factory=list)
     screenshots: list[str] = field(default_factory=list)
     recording_path: str | None = None
     device_log_path: str | None = None
@@ -47,6 +48,7 @@ class RunObservation:
             "sensitive_path_reached": self.sensitive_path_reached,
             "fingerprint": self.fingerprint,
             "exercise_steps": self.exercise_steps,
+            "permission_alerts": self.permission_alerts,
             "screenshots": self.screenshots,
             "recording_path": self.recording_path,
             "device_log_path": self.device_log_path,
@@ -140,8 +142,29 @@ def _safe_step(name: str, action) -> dict[str, Any]:
         return {"step": name, "ok": False, "error": str(exc)}
 
 
+# Answer the permission prompts the app raises and record them on the observation.
+def _answer_permission_prompts(device_client, alert_config: dict[str, Any] | None, obs: RunObservation) -> None:
+    if alert_config is None:
+        return
+    try:
+        results = device_client.handle_permission_alerts(dict(alert_config))
+    except Exception as exc:
+        logger.debug("ios repackaging[%s]: permission prompt handling failed: %s", obs.label, exc, exc_info=True)
+        obs.errors.append(f"permission prompt handling failed: {exc}")
+        return
+    logger.debug("ios repackaging[%s]: permission prompt results %s", obs.label, results)
+    obs.permission_alerts.extend(results)
+
+
 # Launch and exercise the app while recording evidence, returning its behavioral fingerprint.
-def exercise_and_observe(device_client, bundle_id: str, cfg: dict[str, Any], evidence_dir: Path, label: str) -> RunObservation:
+def exercise_and_observe(
+    device_client,
+    bundle_id: str,
+    cfg: dict[str, Any],
+    evidence_dir: Path,
+    label: str,
+    alert_config: dict[str, Any] | None = None,
+) -> RunObservation:
     obs = RunObservation(label=label)
     evidence_dir = Path(evidence_dir)
     evidence_dir.mkdir(parents=True, exist_ok=True)
@@ -156,8 +179,11 @@ def exercise_and_observe(device_client, bundle_id: str, cfg: dict[str, Any], evi
         logger.debug("ios repackaging[%s]: launch failed: %s", label, exc, exc_info=True)
         obs.errors.append(f"launch failed: {exc}")
 
+    # Prompts are answered before sampling and again before the page source so both builds are judged without them.
+    _answer_permission_prompts(device_client, alert_config, obs)
     _sample_states(device_client, bundle_id, exercise_cfg, obs)
     obs.drivable = obs.foreground_samples > 0
+    _answer_permission_prompts(device_client, alert_config, obs)
 
     try:
         source = device_client.page_source()

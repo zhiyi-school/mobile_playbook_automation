@@ -37,7 +37,7 @@ Reports include:
 Workflow:
 
 1. Acquire the supplied IPA and install it unchanged as a clean baseline.
-2. Exercise and observe the baseline across a sampling window. If the baseline never reaches a drivable foreground state there is nothing to compare against, so the run is `BASELINE_FAILED`.
+2. Exercise and observe the baseline across a sampling window. System permission prompts the app raises are answered with `runner.permission_alerts` right after launch and again after sampling, so neither pass is judged with a prompt covering it; each observation's `permission_alerts` lists them. If the baseline never reaches a drivable foreground state there is nothing to compare against, so the run is `BASELINE_FAILED`.
 3. Unpack the IPA, copy the Frida Gadget from `tools/vendor/frida/` into the bundle's `Frameworks/`, and inject a load command into the main executable with `insert_dylib` (vendored in-repo under `tools/vendor/insert_dylib/`).
 4. Embed the provisioning profile (configured `resign.provisioning_profile`, or one auto-discovered from `~/Library/MobileDevice/Provisioning Profiles` that matches this app, device, and identity), re-sign the modified bundle (nested code first, then the app, then `codesign --verify --deep --strict`), repackage it into an IPA, and install it.
 5. Exercise and observe the repackaged build the same way, then diff it against the baseline.

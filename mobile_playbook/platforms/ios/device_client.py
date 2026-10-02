@@ -5,11 +5,13 @@ Appium XCUITest device client that drives app installs, UI interaction and evide
 from __future__ import annotations
 
 import base64
+import functools
 import io
 import logging
 import shutil
 import tempfile
 import time
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
@@ -45,6 +47,7 @@ ALERT_ACKNOWLEDGE_LABELS = ("ok", "close", "dismiss", "done")
 PERMISSION_PROMPT_PHRASES = ("would like to", "wants to", "do you want to allow", 'allow "', "allow “")
 MAX_UNSCOPED_ALERT_BUTTONS = 24
 ALERT_SCAN_GRACE_SECONDS = 10.0
+BLOCKING_PROMPT_WAIT_SECONDS = 1.0
 
 
 class AlertButtonsNotFound(RuntimeError):
@@ -57,6 +60,27 @@ class NoSafeAlertButton(RuntimeError):
 
 class AlertScanAborted(RuntimeError):
     """The alert button scan stopped because the screen changed, ran out of time, or was not an alert."""
+
+
+# Retry a failed UI operation once when a system permission prompt was blocking it and could be answered.
+def _recovers_from_blocking_prompts(method):
+    # Run the operation, and on failure answer a blocking prompt and run it again; nested operations defer to the outermost.
+    @functools.wraps(method)
+    def wrapper(self, *args, **kwargs):
+        if self._prompt_recovery_paused or not self.prompt_recovery_config:
+            return method(self, *args, **kwargs)
+        self._prompt_recovery_paused = True
+        try:
+            try:
+                return method(self, *args, **kwargs)
+            except Exception as exc:
+                if not self._answer_blocking_prompt(method.__name__, exc):
+                    raise
+            return method(self, *args, **kwargs)
+        finally:
+            self._prompt_recovery_paused = False
+
+    return wrapper
 
 
 # Normalize a button label for exact comparison with the known alert labels.
@@ -72,10 +96,13 @@ class AppiumDeviceClient:
         "XCUIElementTypeSecureTextField",
     ]
 
-    # Store the device configuration; the session starts on connect().
-    def __init__(self, device_config):
+    # Store the device configuration and the permission-prompt rules used to recover blocked operations.
+    def __init__(self, device_config, prompt_recovery_config: dict | None = None):
         self.device_config = device_config
         self.driver = None
+        self.prompt_recovery_config = dict(prompt_recovery_config or {})
+        self.recovered_prompts: list[dict] = []
+        self._prompt_recovery_paused = False
 
     # Start an XCUITest Appium session, explaining an untrusted WebDriverAgent certificate on failure.
     def connect(self):
@@ -214,6 +241,7 @@ class AppiumDeviceClient:
         return {"result": self._execute("activateApp", {"bundleId": bundle_id})}
 
     # Wait for an element whose label, name or value matches one of the labels.
+    @_recovers_from_blocking_prompts
     def find_element_by_label(self, labels: list[str], timeout_seconds: float):
         if self.driver is None:
             raise RuntimeError("Appium session is not connected")
@@ -233,6 +261,7 @@ class AppiumDeviceClient:
         return element
 
     # Wait for a switch whose label, name or value matches one of the labels.
+    @_recovers_from_blocking_prompts
     def find_switch_by_label(self, labels: list[str], timeout_seconds: float):
         if self.driver is None:
             raise RuntimeError("Appium session is not connected")
@@ -255,12 +284,14 @@ class AppiumDeviceClient:
         return element
 
     # Tap the switch matching one of the labels.
+    @_recovers_from_blocking_prompts
     def tap_switch_by_label(self, labels: list[str], timeout_seconds: float):
         logger.debug("ios appium: tap switch by labels %s", labels)
         element = self.find_switch_by_label(labels, timeout_seconds)
         return self._tap_element_with_fallback(element)
 
     # Tap the element matching one of the labels.
+    @_recovers_from_blocking_prompts
     def tap_label(self, labels: list[str], timeout_seconds: float) -> dict:
         logger.debug("ios appium: tap element by labels %s", labels)
         element = self.find_element_by_label(labels, timeout_seconds)
@@ -274,6 +305,7 @@ class AppiumDeviceClient:
         }
 
     # Wait for and tap a cell or button matching one of the labels.
+    @_recovers_from_blocking_prompts
     def tap_row_label(self, labels: list[str], timeout_seconds: float) -> dict:
         if self.driver is None:
             raise RuntimeError("Appium session is not connected")
@@ -324,6 +356,7 @@ class AppiumDeviceClient:
         return True
 
     # Tap the first button in the navigation bar.
+    @_recovers_from_blocking_prompts
     def tap_navigation_back(self, timeout_seconds: float) -> dict:
         if self.driver is None:
             raise RuntimeError("Appium session is not connected")
@@ -350,6 +383,7 @@ class AppiumDeviceClient:
         }
 
     # Replace the value of the visible enabled text field matching a label.
+    @_recovers_from_blocking_prompts
     def set_visible_text_field(self, label: str, value: str) -> dict:
         if self.driver is None:
             raise RuntimeError("Appium session is not connected")
@@ -384,7 +418,8 @@ class AppiumDeviceClient:
     # Return the value of the element matching the labels, or None when absent.
     def element_value_by_label(self, labels: list[str]) -> str | None:
         try:
-            element = self.find_element_by_label(labels, 1)
+            with self.without_prompt_recovery():
+                element = self.find_element_by_label(labels, 1)
         except Exception as exc:
             logger.debug("ios appium: no element for labels %s when reading value: %s", labels, exc, exc_info=True)
             return None
@@ -450,6 +485,42 @@ class AppiumDeviceClient:
         # mobile: deepLink avoids driving Safari's own address-bar UI directly.
         return {"result": self._execute("deepLink", {"url": url, "bundleId": bundle_id})}
 
+    # Run the enclosed operations without answering prompts that block them, for steps that inspect a prompt themselves.
+    @contextmanager
+    def without_prompt_recovery(self):
+        paused = self._prompt_recovery_paused
+        self._prompt_recovery_paused = True
+        try:
+            yield self
+        finally:
+            self._prompt_recovery_paused = paused
+
+    # Return and clear the prompts answered to recover blocked operations since the last call.
+    def drain_recovered_prompts(self) -> list[dict]:
+        recovered, self.recovered_prompts = self.recovered_prompts, []
+        return recovered
+
+    # Answer a system permission prompt after an operation failed, returning whether one was answered.
+    def _answer_blocking_prompt(self, operation: str, exc: Exception) -> bool:
+        config = {
+            **self.prompt_recovery_config,
+            "wait_seconds": BLOCKING_PROMPT_WAIT_SECONDS,
+            "permission_prompts_only": True,
+        }
+        config.pop("foreground_bundle_id", None)
+        try:
+            results = self.handle_permission_alerts(config)
+        except Exception as alert_exc:
+            logger.debug("ios appium: checking for a prompt blocking %s failed: %s", operation, alert_exc, exc_info=True)
+            return False
+        answered = [result for result in results if result.get("status") == "HANDLED"]
+        if not answered:
+            logger.debug("ios appium: %s failed with no blocking prompt on screen: %s", operation, exc)
+            return False
+        self.recovered_prompts.extend({"operation": operation, **result} for result in answered)
+        logger.info("ios: a system prompt blocked %s; answered it and retrying once.", operation)
+        return True
+
     # Dismiss, accept or report up to max_alerts system alerts within the wait window.
     def handle_permission_alerts(self, config: dict | None = None) -> list[dict]:
         if self.driver is None:
@@ -467,6 +538,7 @@ class AppiumDeviceClient:
         action = action if action in {"dismiss", "accept", "alert_only"} else "dismiss"
         accept_if = [str(v).strip().lower() for v in (config.get("accept_if_text_contains") or []) if str(v).strip()]
         foreground_bundle_id = config.get("foreground_bundle_id")
+        prompts_only = bool(config.get("permission_prompts_only", False))
         results: list[dict] = []
         logger.debug(
             "ios appium: handling permission alerts action=%s max_alerts=%s wait_seconds=%s accept_if=%s foreground=%s",
@@ -487,7 +559,7 @@ class AppiumDeviceClient:
                     logger.debug("ios appium: %s not in foreground (state=%s); alerts left alone", foreground_bundle_id, app_state)
                     results.append({"status": "TARGET_NOT_FOREGROUND", "bundle_id": foreground_bundle_id, "app_state": app_state})
                     break
-            result = self._handle_one_permission_alert(action, accept_if, scan_deadline)
+            result = self._handle_one_permission_alert(action, accept_if, scan_deadline, prompts_only)
             logger.debug(
                 "ios appium: permission alert attempt status=%s action=%s button=%s",
                 result.get("status"),
@@ -500,20 +572,25 @@ class AppiumDeviceClient:
                 time.sleep(0.2)
                 continue
             results.append(result)
-            if action == "alert_only" or result["status"] == "ALERT_UNHANDLED":
+            if action == "alert_only" or result["status"] in {"ALERT_UNHANDLED", "ALERT_LEFT_ALONE"}:
                 break
             time.sleep(0.2)
         logger.debug("ios appium: permission alert handling finished with %s handled alert(s)", len(results))
         return results or [{"status": "NO_ALERT"}]
 
     # Handle one alert via switch_to, falling back to an alert element or a recognisable permission prompt.
-    def _handle_one_permission_alert(self, action: str, accept_if: list[str] | None = None, deadline: float | None = None) -> dict:
+    def _handle_one_permission_alert(
+        self, action: str, accept_if: list[str] | None = None, deadline: float | None = None, prompts_only: bool = False
+    ) -> dict:
         try:
             alert = self.driver.switch_to.alert
             text = getattr(alert, "text", "") or ""
         except Exception:
             logger.debug("ios appium: switch_to.alert handling failed, trying element-based alert", exc_info=True)
-            return self._handle_element_alert(action, accept_if, deadline)
+            return self._handle_element_alert(action, accept_if, deadline, prompts_only)
+        if prompts_only and not self._looks_like_permission_prompt(text):
+            logger.debug("ios appium: alert via switch_to is not a permission prompt; left alone: %.200r", text)
+            return {"status": "ALERT_LEFT_ALONE", "text": text}
         effective = self._effective_alert_action(action, text, accept_if)
         logger.debug("ios appium: alert via switch_to text=%.200r effective_action=%s", text, effective)
         if effective == "alert_only":
@@ -530,18 +607,24 @@ class AppiumDeviceClient:
                 alert.dismiss() if prefer_negative else alert.accept()
             except Exception:
                 logger.debug("ios appium: native alert action failed, trying element-based alert", exc_info=True)
-                return self._handle_element_alert(action, accept_if, deadline)
+                return self._handle_element_alert(action, accept_if, deadline, prompts_only)
             return {"status": "HANDLED", "action": effective, "text": text, "button": "dismiss" if prefer_negative else "accept"}
         button.update({"status": "HANDLED", "action": effective, "text": text})
         return button
 
     # Handle an alert found as an alert element, or as page text that reads like a system permission prompt.
-    def _handle_element_alert(self, action: str, accept_if: list[str] | None, deadline: float | None) -> dict:
+    def _handle_element_alert(
+        self, action: str, accept_if: list[str] | None, deadline: float | None, prompts_only: bool = False
+    ) -> dict:
         try:
             text = self._alert_text()
-            if self._alert_element() is None and not self._looks_like_permission_prompt(text):
+            looks_like_prompt = self._looks_like_permission_prompt(text)
+            if self._alert_element() is None and not looks_like_prompt:
                 logger.debug("ios appium: no alert element and page text is not a permission prompt")
                 return {"status": "NO_ALERT"}
+            if prompts_only and not looks_like_prompt:
+                logger.debug("ios appium: alert element is not a permission prompt; left alone: %.200r", text)
+                return {"status": "ALERT_LEFT_ALONE", "text": text}
             effective = self._effective_alert_action(action, text, accept_if)
             logger.debug("ios appium: element-based alert text=%.200r effective_action=%s", text, effective)
             if effective == "alert_only":
@@ -659,6 +742,7 @@ class AppiumDeviceClient:
         raise error
 
     # Tap the element with an accessibility ID, optionally clear it and type text.
+    @_recovers_from_blocking_prompts
     def set_text_by_accessibility_id(self, accessibility_id: str, text: str, clear_first: bool = True) -> dict:
         if self.driver is None:
             raise RuntimeError("Appium session is not connected")
@@ -685,6 +769,7 @@ class AppiumDeviceClient:
         return {"accessibility_id": accessibility_id, "text": text, "clear_first": clear_first}
 
     # Tap the element with an accessibility ID.
+    @_recovers_from_blocking_prompts
     def tap_by_accessibility_id(self, accessibility_id: str) -> dict:
         if self.driver is None:
             raise RuntimeError("Appium session is not connected")
@@ -888,6 +973,7 @@ class AppiumDeviceClient:
         )
 
     # Tap the first interactable element of the classes whose label matches, skipping excluded labels.
+    @_recovers_from_blocking_prompts
     def tap_first_element_matching(
         self,
         label_contains: list[str] | None = None,
@@ -1002,6 +1088,7 @@ class AppiumDeviceClient:
         return str(value).lower() == "true"
 
     # Tap the text field matching a selector, or the first interactable one when none is given.
+    @_recovers_from_blocking_prompts
     def tap_text_field(self, selector: dict | None = None) -> dict:
         if self.driver is None:
             raise RuntimeError("Appium session is not connected")
