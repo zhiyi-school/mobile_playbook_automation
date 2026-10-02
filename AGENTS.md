@@ -317,6 +317,23 @@ guidance and link to it elsewhere instead of adding competing descriptions.
 Keep examples portable and synthetic; do not hardcode contributor paths,
 credentials, or real application data.
 
+## Commit messages
+
+- Subject: `<type>: <summary>` in the imperative mood, lowercase, with no
+  trailing period, and at most about 72 characters. Types are `feat`,
+  `fix`, `refactor`, `docs`, `test`, and `chore`. Add a scope only when it
+  narrows the change usefully, such as `fix(sync):`.
+- Body: wrap at about 72 characters and separate it from the subject with a
+  blank line. Explain what changed and why in short prose paragraphs, one
+  per concern. Use a bullet list when a change spans several independent
+  parts.
+- State when behavior, identifiers, or file names are deliberately
+  unchanged, especially in refactors.
+- End with any action a deployment or existing configuration needs, such
+  as a changed module path or a configuration value that must be switched.
+- Keep one logical change per commit. Do not add `Co-Authored-By` or other
+  attribution trailers.
+
 ## Delivery
 
 Finish with what changed, why, checks performed and their results, and any
