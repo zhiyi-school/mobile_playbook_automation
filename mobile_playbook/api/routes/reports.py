@@ -7,12 +7,13 @@ from __future__ import annotations
 import logging
 from typing import Annotated
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse, JSONResponse
 
 from mobile_playbook.api.services import reports as reports_service
 from mobile_playbook.api.downloads import media_type_for, safe_filename
 from mobile_playbook.api.schemas import ReportResultResponse
+from mobile_playbook.dashboard_sync import run_status
 
 router = APIRouter()
 
@@ -25,11 +26,20 @@ def secure_filename(value: str) -> str:
     return safe_filename(value, "run", basename=False, strip_leading_dots=False)
 
 
-# List report timestamps, newest first, optionally filtered by manifest status.
+# List report timestamps, newest first, optionally filtered by manifest status and by comma-separated sync statuses.
 @router.get("/reports")
-def list_reports(status: str | None = None) -> list[str]:
-    logger.debug("api: GET /reports status=%r.", status)
-    timestamps = reports_service.list_report_timestamps(status)
+def list_reports(status: str | None = None, sync_status: str | None = None) -> list[str]:
+    logger.debug("api: GET /reports status=%r sync_status=%r.", status, sync_status)
+    sync_statuses = None
+    if sync_status is not None:
+        sync_statuses = {value.strip() for value in sync_status.split(",") if value.strip()}
+        unknown = sorted(sync_statuses - set(run_status.STATUSES))
+        if unknown or not sync_statuses:
+            raise HTTPException(
+                status_code=422,
+                detail=f"sync_status must be a comma-separated list of {', '.join(run_status.STATUSES)}",
+            )
+    timestamps = reports_service.list_report_timestamps(status, sync_statuses)
     logger.debug("api: GET /reports -> %d report(s).", len(timestamps))
     return timestamps
 

@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Collection
 from pathlib import Path
 
 from fastapi import HTTPException
@@ -17,6 +18,7 @@ from mobile_playbook.api.downloads import (
     safe_filename,
 )
 from mobile_playbook.api.settings import REPORTS_ROOT, REPOSITORY_ROOT, WORK_ROOT
+from mobile_playbook.dashboard_sync import run_status
 from mobile_playbook.reporting.evidence import decode_ref, normalize_evidence
 from mobile_playbook.reporting.run_manifest import read_manifest
 from mobile_playbook.reporting.sarif_writer import build_from_run_dir, sarif_path, write_sarif
@@ -111,22 +113,20 @@ def read_sarif(run_timestamp: str) -> dict:
     return document
 
 
-# List report directory names, newest first, optionally filtered by manifest status.
-def list_report_timestamps(status: str | None = None) -> list[str]:
+# List report directory names, newest first, optionally filtered by manifest status and by dashboard sync status.
+def list_report_timestamps(status: str | None = None, sync_statuses: Collection[str] | None = None) -> list[str]:
     if not REPORTS_ROOT.is_dir():
         logger.debug("api: report root %s does not exist; no reports.", REPORTS_ROOT)
         return []
     names = sorted((p.name for p in REPORTS_ROOT.iterdir() if p.is_dir()), reverse=True)
     logger.debug("api: found %d report directory(ies) in %s.", len(names), REPORTS_ROOT)
-    if status is None:
-        return names
-    matching = [
-        name
-        for name in names
-        if _manifest_status(REPORTS_ROOT / name) == status
-    ]
-    logger.debug("api: %d report(s) have manifest status %r.", len(matching), status)
-    return matching
+    if status is not None:
+        names = [name for name in names if _manifest_status(REPORTS_ROOT / name) == status]
+        logger.debug("api: %d report(s) have manifest status %r.", len(names), status)
+    if sync_statuses:
+        names = [name for name in names if run_status.describe(REPORTS_ROOT, name)["status"] in sync_statuses]
+        logger.debug("api: %d report(s) have sync status in %s.", len(names), sorted(sync_statuses))
+    return names
 
 
 # Return a run's manifest status, treating runs without a manifest as completed.

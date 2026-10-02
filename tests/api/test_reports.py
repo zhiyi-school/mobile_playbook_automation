@@ -358,3 +358,63 @@ def test_summary_preserves_capture_verdict(monkeypatch, tmp_path, capture_status
     row = json.loads(body)[0]
     assert status == 200 and row["status"] == capture_status
     assert row["verdict"] == verdict and row["severity"] == severity
+
+
+def _synced_runs(root):
+    from mobile_playbook.dashboard_sync import run_status
+
+    run_status.mark_completed(_run_with_status(root, "2026-01-01_00-00-00", "completed"), {"findings": 1})
+    run_status.mark_queued(_run_with_status(root, "2026-01-02_00-00-00", "completed"))
+    run_status.mark_running(_run_with_status(root, "2026-01-03_00-00-00", "completed"))
+    run_status.mark_failed(_run_with_status(root, "2026-01-04_00-00-00", "completed"), "upload refused")
+    _run_with_status(root, "2026-01-05_00-00-00", None)
+    _run_with_status(root, "2026-01-06_00-00-00", "completed")
+
+
+def test_listing_reports_by_sync_status_keeps_only_runs_in_those_states(monkeypatch, tmp_path):
+    root = tmp_path / "reports"
+    monkeypatch.setattr(reports_service, "REPORTS_ROOT", root)
+    _synced_runs(root)
+
+    assert reports_service.list_report_timestamps(sync_statuses={"queued", "running", "failed"}) == [
+        "2026-01-06_00-00-00",
+        "2026-01-04_00-00-00",
+        "2026-01-03_00-00-00",
+        "2026-01-02_00-00-00",
+    ]
+    assert reports_service.list_report_timestamps(sync_statuses={"completed"}) == ["2026-01-01_00-00-00"]
+    assert reports_service.list_report_timestamps(sync_statuses={"not_required"}) == ["2026-01-05_00-00-00"]
+
+
+def test_the_sync_status_filter_combines_with_the_manifest_status(monkeypatch, tmp_path):
+    root = tmp_path / "reports"
+    monkeypatch.setattr(reports_service, "REPORTS_ROOT", root)
+    _synced_runs(root)
+
+    assert reports_service.list_report_timestamps("completed", {"not_required"}) == ["2026-01-05_00-00-00"]
+    assert reports_service.list_report_timestamps("running", {"queued"}) == []
+
+
+def test_the_route_filters_by_comma_separated_sync_statuses(monkeypatch, tmp_path):
+    root = tmp_path / "reports"
+    monkeypatch.setattr(reports_service, "REPORTS_ROOT", root)
+    _synced_runs(root)
+    app = FastAPI()
+    app.include_router(api_reports.router)
+
+    status, _, body = asyncio.run(_get(app, "/reports", {"sync_status": "failed, queued"}))
+
+    assert status == 200
+    assert json.loads(body) == ["2026-01-06_00-00-00", "2026-01-04_00-00-00", "2026-01-02_00-00-00"]
+
+
+@pytest.mark.parametrize("value", ["pending", "failed,unknown", " , "])
+def test_the_route_refuses_an_unknown_sync_status(monkeypatch, tmp_path, value):
+    monkeypatch.setattr(reports_service, "REPORTS_ROOT", tmp_path / "reports")
+    app = FastAPI()
+    app.include_router(api_reports.router)
+
+    status, _, body = asyncio.run(_get(app, "/reports", {"sync_status": value}))
+
+    assert status == 422
+    assert "queued, running, completed, failed, not_required" in json.loads(body)["detail"]
