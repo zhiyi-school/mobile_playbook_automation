@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import Any, Mapping
 
-from mobile_playbook.dashboard_sync.contracts import SyncSummary
+from mobile_playbook.dashboard_sync.contracts import SyncSummary, placeholder_reserved
 from mobile_playbook.dashboard_sync.mapping import sync_dashboard_results, sync_report_dir
 from mobile_playbook.dashboard_sync.orchestrator import sync_reports
 from mobile_playbook.reporting.run_manifest import write_manifest
@@ -20,6 +20,7 @@ class FakeStore:
         self.retest_runs: list[dict[str, Any]] = []
         self.risk_conversation_entries: list[dict[str, Any]] = []
         self.tickets: list[dict[str, Any]] = []
+        self.run_requests: list[dict[str, Any]] = []
         self.upserted_assessments = 0
         self._ids: dict[str, int] = {}
 
@@ -75,11 +76,24 @@ class FakeStore:
     def find_assessment_by_external_id(self, external_id: str) -> dict[str, Any] | None:
         return _find(self.assessments, external_id=external_id)
 
+    def assessments_for_application(self, application_id: str) -> list[dict[str, Any]]:
+        return [row for row in self.assessments if row["application_id"] == application_id]
+
+    def find_requested_assessment(self, run_timestamp: str) -> dict[str, Any] | None:
+        request = _find(self.run_requests, run_id=run_timestamp)
+        return _find(self.assessments, id=request["assessment_id"]) if request else None
+
     def find_placeholder_assessment(self, application_id: str) -> dict[str, Any] | None:
         placeholders = [
             row
             for row in self.assessments
-            if row["application_id"] == application_id and str(row["external_id"]).startswith("manual::")
+            if row["application_id"] == application_id
+            and str(row["external_id"]).startswith("manual::")
+            and not any(
+                placeholder_reserved(request)
+                for request in self.run_requests
+                if request["assessment_id"] == row["id"]
+            )
         ]
         return sorted(placeholders, key=lambda row: row.get("created_at", ""))[0] if placeholders else None
 
@@ -224,12 +238,14 @@ def test_a_single_risk_rerun_keeps_the_application_s_whole_coverage():
     ]
     sync_dashboard_results(rerun, store, triggered_by="user_1", risk_counts={"ios": 12})
 
-    assert len(store.assessments) == 2
-    by_key = {row["external_id"]: row for row in store.assessments}
-    assert by_key["2026-01-01_00-00-00::example_app"]["completed_tests"] == 12
+    # The rerun updates the assessment it belongs to rather than adding another.
+    assert len(store.assessments) == 1
+    assessment = store.assessments[0]
+    assert assessment["external_id"] == "2026-01-01_00-00-00::example_app"
+    assert assessment["latest_run_id"] == "2026-01-02_00-00-00"
     # The re-run touched one risk, but the application's coverage is still complete.
-    assert by_key["2026-01-02_00-00-00::example_app"]["completed_tests"] == 12
-    assert by_key["2026-01-02_00-00-00::example_app"]["total_tests"] == 12
+    assert assessment["completed_tests"] == 12
+    assert assessment["total_tests"] == 12
 
 
 def test_a_first_run_counts_only_what_it_actually_tested():
@@ -513,3 +529,225 @@ def test_resyncing_a_resolved_retest_does_not_reopen_what_security_closed(tmp_pa
 
     assert store.tickets[0]["status"] == "closed"
     assert len(store.risk_conversation_entries) == 1
+
+
+def _app_with_placeholders(store: FakeStore, *placeholders: tuple[str, str]) -> None:
+    store.applications.append(
+        {"id": "app_1", "external_id": "example_app", "name": "Example Banking App", "platform": "ios"}
+    )
+    for assessment_id, created_at in placeholders:
+        store.assessments.append(
+            {
+                "id": assessment_id,
+                "external_id": f"manual::{assessment_id}",
+                "application_id": "app_1",
+                "status": "running",
+                "created_at": created_at,
+            }
+        )
+
+
+def test_a_requested_run_completes_the_assessment_its_request_named():
+    store = FakeStore()
+    _app_with_placeholders(store, ("first", "2026-01-01T00:00:00+00:00"), ("second", "2026-01-02T00:00:00+00:00"))
+    store.run_requests.append({"assessment_id": "second", "status": "completed", "run_id": "2026-01-03_00-00-00"})
+
+    sync_dashboard_results(
+        [_row("2026-01-03_00-00-00")], store, risk_counts={"ios": 3}, artifact_versions={"example_app": "3.9.9"}
+    )
+
+    second = _find(store.assessments, id="second")
+    assert second["external_id"] == "2026-01-03_00-00-00::example_app"
+    assert second["status"] == "completed"
+    assert second["app_version"] == "3.9.9"
+    assert _find(store.assessments, id="first")["external_id"] == "manual::first"
+
+
+def test_an_unrequested_run_leaves_a_queued_assessment_for_its_own_run():
+    store = FakeStore()
+    _app_with_placeholders(store, ("queued", "2026-01-01T00:00:00+00:00"))
+    store.run_requests.append({"assessment_id": "queued", "status": "queued", "run_id": None})
+
+    sync_dashboard_results([_row("2026-01-03_00-00-00")], store, risk_counts={"ios": 3})
+
+    assert _find(store.assessments, id="queued")["external_id"] == "manual::queued"
+    assert _find(store.assessments, external_id="2026-01-03_00-00-00::example_app") is not None
+    assert store.upserted_assessments == 1
+
+
+def test_a_placeholder_whose_request_started_another_run_is_not_taken():
+    store = FakeStore()
+    _app_with_placeholders(store, ("other", "2026-01-01T00:00:00+00:00"))
+    store.run_requests.append({"assessment_id": "other", "status": "completed", "run_id": "2026-01-02_00-00-00"})
+
+    sync_dashboard_results([_row("2026-01-03_00-00-00")], store, risk_counts={"ios": 3})
+
+    assert _find(store.assessments, id="other")["external_id"] == "manual::other"
+
+
+def test_a_placeholder_from_before_run_ids_is_still_claimed():
+    store = FakeStore()
+    _app_with_placeholders(store, ("legacy", "2026-01-01T00:00:00+00:00"))
+    store.run_requests.append({"assessment_id": "legacy", "status": "completed", "run_id": None})
+
+    sync_dashboard_results([_row("2026-01-03_00-00-00")], store, risk_counts={"ios": 3})
+
+    assert _find(store.assessments, id="legacy")["external_id"] == "2026-01-03_00-00-00::example_app"
+
+
+def test_a_run_without_a_recorded_version_leaves_the_version_alone():
+    store = FakeStore()
+    _app_with_placeholders(store, ("first", "2026-01-01T00:00:00+00:00"))
+
+    sync_dashboard_results([_row()], store, risk_counts={"ios": 3})
+
+    assert "app_version" not in _find(store.assessments, id="first")
+
+
+def test_the_manifest_carries_each_apps_tested_version_into_the_sync(tmp_path):
+    from mobile_playbook.reporting.run_manifest import artifact_versions, read_manifest
+
+    run_dir = tmp_path / "2026-01-01_00-00-00"
+    write_manifest(
+        run_dir,
+        run_timestamp="2026-01-01_00-00-00",
+        platform="ios",
+        attempted=[{"app_id": "example_app", "risk_id": "example_risk"}],
+        status="completed",
+        artifact_versions={"example_app": "4.3.4"},
+    )
+
+    assert artifact_versions(read_manifest(run_dir)) == {"example_app": "4.3.4"}
+    assert artifact_versions({}) == {}
+    assert artifact_versions({"artifact_versions": {"example_app": ""}}) == {}
+
+
+def test_a_report_sync_records_the_version_its_manifest_names(tmp_path):
+    store = FakeStore()
+    _app_with_placeholders(store, ("first", "2026-01-01T00:00:00+00:00"))
+    run_dir = _report(tmp_path, "2026-01-01_00-00-00", [_row()])
+    write_manifest(
+        run_dir,
+        run_timestamp="2026-01-01_00-00-00",
+        platform="ios",
+        attempted=[{"app_id": "example_app", "risk_id": "example_risk"}],
+        status="completed",
+        artifact_versions={"example_app": "4.3.4"},
+    )
+
+    sync_reports(tmp_path, store, risk_counts={"ios": 3})
+
+    assert _find(store.assessments, id="first")["app_version"] == "4.3.4"
+
+
+def _assessed_app(store: FakeStore, *runs: tuple[str, str]) -> None:
+    store.applications.append(
+        {"id": "app_1", "external_id": "example_app", "name": "Example Banking App", "platform": "ios"}
+    )
+    for assessment_id, run in runs:
+        store.assessments.append(
+            {
+                "id": assessment_id,
+                "external_id": f"{run}::example_app",
+                "application_id": "app_1",
+                "status": "completed",
+                "app_version": None,
+                "latest_run_id": run,
+                "created_at": run,
+            }
+        )
+
+
+def test_a_rerun_updates_the_assessment_that_was_current_when_it_ran():
+    store = FakeStore()
+    _assessed_app(store, ("v1", "2026-01-01_00-00-00"), ("v2", "2026-02-01_00-00-00"))
+
+    sync_dashboard_results([_row("2026-01-15_00-00-00")], store, risk_counts={"ios": 3})
+
+    assert len(store.assessments) == 2
+    assert _find(store.assessments, id="v1")["latest_run_id"] == "2026-01-15_00-00-00"
+    assert _find(store.assessments, id="v2")["latest_run_id"] == "2026-02-01_00-00-00"
+
+
+def test_an_older_report_replayed_later_changes_nothing_newer():
+    store = FakeStore()
+    _assessed_app(store, ("v1", "2026-01-01_00-00-00"))
+    sync_dashboard_results(
+        [_row("2026-01-20_00-00-00")], store, risk_counts={"ios": 3}, artifact_versions={"example_app": "4.3.4"}
+    )
+
+    sync_dashboard_results(
+        [_row("2026-01-10_00-00-00")], store, risk_counts={"ios": 3}, artifact_versions={"example_app": "4.0.0"}
+    )
+
+    assessment = _find(store.assessments, id="v1")
+    assert assessment["latest_run_id"] == "2026-01-20_00-00-00"
+    assert len(store.assessments) == 1
+
+
+def test_resyncing_the_same_rerun_gives_the_same_result():
+    store = FakeStore()
+    _assessed_app(store, ("v1", "2026-01-01_00-00-00"))
+    rerun = [_row("2026-01-15_00-00-00")]
+
+    sync_dashboard_results(rerun, store, risk_counts={"ios": 3})
+    first = dict(_find(store.assessments, id="v1"))
+    sync_dashboard_results(rerun, store, risk_counts={"ios": 3})
+    second = _find(store.assessments, id="v1")
+
+    assert len(store.assessments) == 1
+    assert {k: v for k, v in second.items() if k != "updated_at"} == {k: v for k, v in first.items() if k != "updated_at"}
+
+
+def test_a_requested_run_still_gets_its_own_assessment():
+    store = FakeStore()
+    _assessed_app(store, ("v1", "2026-01-01_00-00-00"))
+    store.assessments.append(
+        {"id": "v2", "external_id": "manual::v2", "application_id": "app_1", "status": "running", "created_at": "z"}
+    )
+    store.run_requests.append({"assessment_id": "v2", "status": "completed", "run_id": "2026-02-01_00-00-00"})
+
+    sync_dashboard_results([_row("2026-02-01_00-00-00")], store, risk_counts={"ios": 3})
+
+    assert _find(store.assessments, id="v2")["external_id"] == "2026-02-01_00-00-00::example_app"
+    assert _find(store.assessments, id="v1")["latest_run_id"] == "2026-01-01_00-00-00"
+
+
+def test_a_run_before_any_assessment_of_the_app_still_creates_one():
+    store = FakeStore()
+    _assessed_app(store, ("later", "2026-03-01_00-00-00"))
+
+    sync_dashboard_results([_row("2026-01-01_00-00-00")], store, risk_counts={"ios": 3})
+
+    assert _find(store.assessments, external_id="2026-01-01_00-00-00::example_app") is not None
+    assert _find(store.assessments, id="later")["latest_run_id"] == "2026-03-01_00-00-00"
+
+
+def test_the_assessments_own_run_cannot_undo_a_newer_rerun():
+    store = FakeStore()
+    _assessed_app(store, ("v1", "2026-01-01_00-00-00"))
+    sync_dashboard_results(
+        [_row("2026-01-20_00-00-00")], store, risk_counts={"ios": 3}, artifact_versions={"example_app": "4.3.4"}
+    )
+
+    sync_dashboard_results(
+        [_row("2026-01-01_00-00-00")], store, risk_counts={"ios": 3}, artifact_versions={"example_app": "4.0.0"}
+    )
+
+    assessment = _find(store.assessments, id="v1")
+    assert assessment["latest_run_id"] == "2026-01-20_00-00-00"
+    assert assessment["app_version"] is None
+
+
+def test_a_rerun_of_another_build_keeps_the_assessments_version():
+    store = FakeStore()
+    _assessed_app(store, ("v2", "2026-02-01_00-00-00"))
+    _find(store.assessments, id="v2")["app_version"] = "4.3.4"
+
+    sync_dashboard_results(
+        [_row("2026-02-10_00-00-00")], store, risk_counts={"ios": 3}, artifact_versions={"example_app": "3.9.9"}
+    )
+
+    assessment = _find(store.assessments, id="v2")
+    assert assessment["latest_run_id"] == "2026-02-10_00-00-00"
+    assert assessment["app_version"] == "4.3.4"

@@ -131,10 +131,14 @@ class AutomationApi:
                     len(content or b""),
                 )
         except error.HTTPError as exc:
-            detail = exc.read().decode("utf-8", errors="replace")[:500]
+            raw = exc.read().decode("utf-8", errors="replace")
+            detail = raw[:500]
             logger.debug("assessment worker: API %s %s -> HTTP %s.", method, path, exc.code)
             if exc.code == 409:
                 raise RunRejected("platform_busy", "Another run is already using the test device.") from exc
+            blocked = _blocker_detail(raw)
+            if 400 <= exc.code < 500 and blocked is not None:
+                raise RunRejected(*blocked) from exc
             if 400 <= exc.code < 500:
                 raise RunRejected("invalid_run_request", f"The automation host rejected the run: {detail}") from exc
             raise AutomationUnavailable(f"The automation host returned {exc.code}.") from exc
@@ -142,6 +146,17 @@ class AutomationApi:
             logger.debug("assessment worker: API %s %s unreachable: %s", method, path, exc)
             raise AutomationUnavailable(f"The automation host could not be reached: {exc}") from exc
         return json.loads(content) if content else {}
+
+
+# Returns the blocker code and message an API error names in its detail, or None for a plain refusal.
+def _blocker_detail(body: str) -> tuple[str, str] | None:
+    try:
+        detail = json.loads(body).get("detail")
+    except (ValueError, AttributeError):
+        return None
+    if isinstance(detail, dict) and isinstance(detail.get("blocker_code"), str):
+        return detail["blocker_code"], str(detail.get("message") or detail["blocker_code"])
+    return None
 
 
 # Returns the relative config path for a platform.
@@ -318,6 +333,8 @@ def process_once(
     selected = list(risk_ids(req["platform"])) if risk_ids else []
     if selected:
         payload["risks"] = ",".join(selected)
+    if req.get("build_version"):
+        payload["build_version"] = req["build_version"]
     logger.debug(
         "assessment worker: starting %s run for %s (risks=%s, out_dir=%s).",
         payload["platform"],

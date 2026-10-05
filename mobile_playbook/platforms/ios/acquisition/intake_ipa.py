@@ -15,6 +15,9 @@ from mobile_playbook.platforms.ios.models import ArtifactAcquisitionResult
 
 logger = logging.getLogger(__name__)
 
+# Artifact sources whose build a run can pin to an intake build by version.
+PINNABLE_IOS_SOURCES = frozenset({"intake_ipa", "local_ipa", "ci_artifact", "vendor_ipa", "xcode_archive_export"})
+
 
 # Return the storage-configured intake directory.
 def _default_intake_dir() -> Path:
@@ -35,6 +38,7 @@ class IntakeBuild:
     display_name: str | None
     version: str | None
     modified_at: float
+    build_number: str | None = None
 
     # Return the build as a JSON-compatible dict.
     def as_dict(self) -> dict:
@@ -44,6 +48,7 @@ class IntakeBuild:
             "bundle_id": self.bundle_id,
             "display_name": self.display_name,
             "version": self.version,
+            "build_number": self.build_number,
             "modified_at": self.modified_at,
         }
 
@@ -62,12 +67,42 @@ class IntakeResolution:
     ambiguous: bool
     candidates: list[IntakeBuild]
     matched_on: str | None
+    missing_version: str | None = None
 
 
 # Return the short version string, falling back to the build number, from IPA metadata.
 def _version_of(metadata: dict) -> str | None:
     info = metadata.get("info_plist") or {}
     return info.get("CFBundleShortVersionString") or info.get("CFBundleVersion") or None
+
+
+# Return the build number from IPA metadata.
+def _build_number_of(metadata: dict) -> str | None:
+    value = (metadata.get("info_plist") or {}).get("CFBundleVersion")
+    return str(value) if value else None
+
+
+# Return a sortable key for a version: its numeric parts without trailing zeros, then a suffixed value below the plain release.
+def version_sort_key(version: str | None) -> tuple:
+    text = str(version or "").strip()
+    match = re.match(r"^(\d+(?:\.\d+)*)(.*)$", text)
+    if match is None:
+        return ((), 0, text.lower())
+    numbers = [int(part) for part in match.group(1).split(".")]
+    while len(numbers) > 1 and numbers[-1] == 0:
+        numbers.pop()
+    suffix = match.group(2).strip().lower()
+    return (tuple(numbers), 0 if suffix else 1, suffix)
+
+
+# Return whether two version strings name the same version, so 4.3 and 4.3.0 match.
+def same_version(left: str | None, right: str | None) -> bool:
+    return version_sort_key(left) == version_sort_key(right)
+
+
+# Order builds highest version first, then highest build number, then newest file.
+def _build_order(build: IntakeBuild) -> tuple:
+    return (version_sort_key(build.version), version_sort_key(build.build_number), build.modified_at)
 
 
 # Return the artifact's configured intake directory, or the default one.
@@ -95,7 +130,7 @@ def _dir_signature(directory: Path) -> tuple:
     return tuple(entries)
 
 
-# Return every readable IPA in the intake directory, newest first, skipping unreadable files.
+# Return every readable IPA in the intake directory, highest version first, skipping unreadable files.
 def list_intake_ipas(intake_dir: Path | None = None) -> list[IntakeBuild]:
     directory = intake_dir or _default_intake_dir()
     if not directory.is_dir():
@@ -135,20 +170,22 @@ def list_intake_ipas(intake_dir: Path | None = None) -> list[IntakeBuild]:
                 display_name=metadata.get("display_name"),
                 version=_version_of(metadata),
                 modified_at=candidate.stat().st_mtime,
+                build_number=_build_number_of(metadata),
             )
         )
-    builds.sort(key=lambda build: build.modified_at, reverse=True)
+    builds.sort(key=_build_order, reverse=True)
     _scan_cache[str(directory)] = (signature, builds)
     logger.debug("ios intake: scan of %s produced %s builds", directory, len(builds))
     return builds
 
 
-# Find the newest build by bundle ID, else by name; different apps sharing a name are ambiguous.
+# Find the highest-version build by bundle ID, else by name, or the build with the requested version; different apps sharing a name are ambiguous.
 def resolve_intake_ipa(
     *,
     bundle_id: str | None = None,
     app_name: str | None = None,
     intake_dir: Path | None = None,
+    version: str | None = None,
 ) -> IntakeResolution:
     builds = list_intake_ipas(intake_dir)
 
@@ -178,11 +215,20 @@ def resolve_intake_ipa(
             "ios intake: ambiguous match for %s; bundle ids %s", app_name, sorted({build.bundle_id for build in candidates})
         )
         return IntakeResolution(None, True, candidates, matched_on)
-    logger.debug("ios intake: selected newest build %s (version %s)", candidates[0].path, candidates[0].version)
+    if version:
+        pinned = [build for build in candidates if same_version(build.version, version)]
+        if not pinned:
+            logger.debug(
+                "ios intake: no build with version %s among %s", version, [build.version for build in candidates]
+            )
+            return IntakeResolution(None, False, candidates, matched_on, missing_version=version)
+        logger.debug("ios intake: selected build %s for requested version %s", pinned[0].path, version)
+        return IntakeResolution(pinned[0], False, candidates, matched_on)
+    logger.debug("ios intake: selected highest build %s (version %s)", candidates[0].path, candidates[0].version)
     return IntakeResolution(candidates[0], False, candidates, matched_on)
 
 
-# Return the newest intake build for a bundle ID, or None.
+# Return the highest-version intake build for a bundle ID, or None.
 def find_intake_ipa(bundle_id: str, intake_dir: Path | None = None) -> IntakeMatch | None:
     resolution = resolve_intake_ipa(bundle_id=bundle_id, intake_dir=intake_dir)
     if resolution.match is None:
@@ -195,13 +241,14 @@ def find_intake_ipa(bundle_id: str, intake_dir: Path | None = None) -> IntakeMat
     )
 
 
-# Resolve an app config's intake build by its expected bundle ID or name.
+# Resolve an app config's intake build by its expected bundle ID or name, honouring a run's `artifact.build_version`.
 def resolve_for_app(app_config) -> IntakeResolution:
     artifact = getattr(app_config, "artifact", None) or {}
     return resolve_intake_ipa(
         bundle_id=artifact.get("expected_bundle_id") or getattr(app_config, "bundle_id", None) or None,
         app_name=getattr(app_config, "name", None),
         intake_dir=_intake_dir(artifact),
+        version=artifact.get("build_version") or None,
     )
 
 
@@ -232,6 +279,20 @@ class IntakeIpaProvider(LocalIpaProvider):
                     f"Several different apps in {directory} are named {app_config.name!r} "
                     f"({found}). Remove the ones that don't belong, or set "
                     "artifact.expected_bundle_id to say which is meant."
+                ],
+            )
+
+        if resolution.match is None and resolution.missing_version:
+            available = ", ".join(build.version or "unknown" for build in resolution.candidates)
+            logger.debug("ios artifacts[%s]: no intake build with version %s", app_config.id, resolution.missing_version)
+            return ArtifactAcquisitionResult(
+                app_config.id,
+                self.source,
+                "ARTIFACT_NOT_FOUND",
+                source_path=directory,
+                errors=[
+                    f"No build of {app_config.name!r} with version {resolution.missing_version} in {directory}. "
+                    f"Available versions: {available}."
                 ],
             )
 

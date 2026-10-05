@@ -17,6 +17,7 @@ from mobile_playbook.api.services.reports import REPORTS_ROOT, read_dashboard_re
 from mobile_playbook.api.settings import REPOSITORY_ROOT
 from mobile_playbook.dashboard_sync.trigger import trigger_dashboard_sync
 from mobile_playbook.orchestration.selection import (
+    app_matches_selector,
     selected_app_csv,
     selected_csv,
     validate_app_selection,
@@ -93,6 +94,39 @@ def execute_run(run_timestamp: str, platform: Platform, config, options: RunOpti
         trigger_dashboard_sync(options.out_dir, run_timestamp)
 
 
+# Pin the one selected iOS app to its intake build with this version, refusing the run when there is none.
+def pin_build_version(config, platform: str, selected_apps: set[str] | None, version: str) -> None:
+    from mobile_playbook.platforms.ios.acquisition.intake_ipa import PINNABLE_IOS_SOURCES, resolve_for_app
+
+    version = version.strip()
+    apps = [app for app in config.apps if app_matches_selector(app, selected_apps)]
+    if not version or platform != "ios" or len(apps) != 1:
+        logger.debug("api: build_version %r refused (platform=%s, %d app(s) selected).", version, platform, len(apps))
+        raise HTTPException(
+            status_code=422, detail="build_version needs an iOS run with exactly one app selected and a non-empty version"
+        )
+    app = apps[0]
+    if (app.artifact or {}).get("source") not in PINNABLE_IOS_SOURCES:
+        logger.debug("api: build_version refused for %s, whose builds are not IPA files.", app.id)
+        raise HTTPException(status_code=422, detail=f"build_version needs an app tested from an IPA; {app.id} is not one")
+    app.artifact = {**(app.artifact or {}), "build_version": version}
+    resolution = resolve_for_app(app)
+    if resolution.match is None:
+        available = sorted({build.version for build in resolution.candidates if build.version})
+        logger.debug("api: no intake build of %s with version %s (available %s).", app.id, version, available)
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "blocker_code": "app_build_missing",
+                "message": f"No build of {app.name} with version {version} is in intake. "
+                f"Available versions: {', '.join(available) or 'none'}.",
+            },
+        )
+    # A local_ipa app reads its fixed `ipa` path, so the chosen build replaces it for this run only.
+    app.artifact = {**app.artifact, "ipa": str(resolution.match.path)}
+    logger.debug("api: run pinned %s to version %s (%s).", app.id, version, resolution.match.path)
+
+
 # Validate a run request, claim the platform and start the run on a background thread.
 def create_run(body: RunRequest) -> dict:
     logger.debug(
@@ -108,6 +142,8 @@ def create_run(body: RunRequest) -> dict:
     except ValueError as exc:
         logger.debug("api: run selection rejected: %s", exc)
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if body.build_version is not None:
+        pin_build_version(config, body.platform, selected_apps, body.build_version)
 
     if not registry.try_claim_platform(body.platform):
         logger.debug("api: %s platform busy; responding 409.", body.platform)

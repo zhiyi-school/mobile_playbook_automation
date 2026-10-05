@@ -29,6 +29,18 @@ Frontend             reads backend automation state and Supabase dashboard
 The worker is the **only** writer of dashboard rows from automation results.
 Nothing in a browser writes them, and nothing reads SARIF back.
 
+The sync records the iOS build version each run tested on its assessment
+(`assessments.app_version`), from the run manifest's `artifact_versions`. A run
+that no run request started, such as a risk rerun from a test page or a CLI run,
+updates the assessment that was current when it started instead of adding one,
+and leaves that assessment's `app_version` as it is.
+Each assessment keeps the newest run applied to it in `latest_run_id`, and an
+older run, such as a replayed report, leaves it unchanged. These columns come
+from fixes `0041_assessment_build_versions.sql` and
+`0042_assessment_latest_run.sql`; apply both before deploying this sync worker,
+because against an older schema every assessment write is refused and the
+report stays unsynced.
+
 ## Two statuses, two questions
 
 | | Automation status | Dashboard sync status |
@@ -87,6 +99,12 @@ same write, so the dashboard can follow that run and its dashboard sync. Apply
 `0036` before deploying this worker: against an older schema that write is
 refused after the run has started, the request keeps its lease until it expires,
 and the request is then claimed and started again.
+
+A request that names a `build_version`, set by the dashboard's "Assess a new
+version", passes it to `POST /runs`, so the run tests that build. When the
+automation host has no build with that version, the request waits with the
+retryable blocker `app_build_missing` and is retried once the build is in
+intake. A request without one lets the host test the app's highest version.
 
 | Variable / flag | Default | Effect |
 | --- | --- | --- |

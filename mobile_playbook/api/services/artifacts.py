@@ -7,11 +7,18 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+from fastapi import HTTPException
+
 from mobile_playbook.api.schemas import Platform
 from mobile_playbook.artifact_store.icon_extraction import describe_artifact
 from mobile_playbook.artifact_store.resolver import app_icon_file
 from mobile_playbook.platforms.android.apk_tools import inspect_apk_metadata
-from mobile_playbook.platforms.ios.acquisition.intake_ipa import list_intake_ipas
+from mobile_playbook.platforms.ios.acquisition.intake_ipa import (
+    PINNABLE_IOS_SOURCES,
+    intake_dir_for,
+    list_intake_ipas,
+    resolve_intake_ipa,
+)
 from mobile_playbook.platforms.ios.ipa.plist import inspect_ipa_metadata
 
 logger = logging.getLogger(__name__)
@@ -60,7 +67,41 @@ def app_icon_file_path(platform: Platform, app_id: str) -> tuple[Path, str] | No
     return resolved
 
 
-# List the platform's intake builds, newest first for Android.
+# List an iOS app's intake builds, highest version first, marking the one a run uses by default.
+def list_app_builds(platform: Platform, app_id: str) -> dict:
+    from mobile_playbook.api.config_editing import effective_ios_app
+
+    if platform != "ios":
+        logger.debug("api: builds requested for %s app %s; only iOS lists builds.", platform, app_id)
+        raise HTTPException(status_code=422, detail="Only iOS apps have selectable builds; Android tests the installed app")
+    app = effective_ios_app(app_id)
+    if app is None:
+        logger.debug("api: no iOS app %s; responding 404.", app_id)
+        raise HTTPException(status_code=404, detail=f"Unknown app_id: {app_id}")
+    artifact = app.get("artifact") or {}
+    if artifact.get("source") not in PINNABLE_IOS_SOURCES:
+        logger.debug("api: iOS app %s uses source %r; it has no intake builds.", app_id, artifact.get("source"))
+        return {"builds": [], "default_version": None, "ambiguous": False}
+    resolution = resolve_intake_ipa(
+        bundle_id=artifact.get("expected_bundle_id") or app.get("bundle_id") or None,
+        app_name=app.get("name"),
+        intake_dir=intake_dir_for(artifact),
+    )
+    builds = [
+        {
+            "version": build.version,
+            "build_number": build.build_number,
+            "file": build.path.name,
+            "modified_at": build.modified_at,
+        }
+        for build in resolution.candidates
+    ]
+    default = resolution.match.version if resolution.match else None
+    logger.debug("api: iOS app %s has %d build(s); default version %s.", app_id, len(builds), default)
+    return {"builds": builds, "default_version": default, "ambiguous": resolution.ambiguous}
+
+
+# List the platform's intake builds, highest version first for iOS and newest first for Android.
 def list_artifacts(platform: Platform) -> list[dict]:
     directory = intake_dirs()[platform]
     logger.debug("api: listing %s artifacts in %s.", platform, directory)

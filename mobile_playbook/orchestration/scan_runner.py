@@ -89,6 +89,7 @@ def run_platform(
     client = None
     attempted: list[dict[str, str]] = []
     artifacts: dict[str, str] = {}
+    artifact_versions: dict[str, str] = {}
     failure: BaseException | None = None
     try:
         planned_tests = list(
@@ -129,7 +130,7 @@ def run_platform(
             app_id = str(getattr(app, "id", app))
             attempted.append({"app_id": app_id, "risk_id": str(test_id)})
             if app_id not in artifacts:
-                _record_artifact(artifacts, app_id, getattr(platform_runner, "platform", ""), app)
+                _record_artifact(artifacts, artifact_versions, app_id, getattr(platform_runner, "platform", ""), app)
             logger.debug("%s: risk %s/%s starting %s for app %s", platform_name, index, len(planned_tests), test_id, app_id)
             risk_started = time.monotonic()
             platform_runner.run_test(app, test_id, config, client, writer)
@@ -150,6 +151,7 @@ def run_platform(
                 platform=getattr(platform_runner, "platform", ""),
                 attempted=attempted,
                 artifacts=artifacts,
+                artifact_versions=artifact_versions,
                 status=FAILED if failure is not None else COMPLETED,
                 started_at=_isoformat(getattr(writer, "started_at", None)),
                 completed_at=_isoformat(getattr(writer, "completed_at", None)),
@@ -163,19 +165,24 @@ def run_platform(
     return RunOutcome(run_timestamp=run_timestamp, run_dir=writer.run_dir, completed_at=completed)
 
 
-# Pin the digest of the app build under test so a later upload cannot change what the dashboard shows.
-def _record_artifact(artifacts: dict[str, str], app_id: str, platform: str, app: Any) -> None:
+# Pin the digest and version of the app build under test so a later upload cannot change what the dashboard shows.
+def _record_artifact(
+    artifacts: dict[str, str], artifact_versions: dict[str, str], app_id: str, platform: str, app: Any
+) -> None:
     try:
-        from mobile_playbook.artifact_store.resolver import prepare_icon_for_app_config
+        from mobile_playbook.artifact_store.resolver import artifact_version_for_app_config, prepare_icon_for_app_config
 
         digest = prepare_icon_for_app_config(platform, app)
+        version = artifact_version_for_app_config(platform, app)
     except Exception as exc:
         logger.debug("%s: recording artifact for %s failed: %s", platform, app_id, exc, exc_info=True)
         logger.warning("Could not record the artifact for %s: %s", app_id, type(exc).__name__)
         return
-    logger.debug("%s: artifact digest for %s is %s", platform, app_id, digest)
+    logger.debug("%s: artifact digest for %s is %s (version %s)", platform, app_id, digest, version)
     if digest:
         artifacts[app_id] = digest
+    if version:
+        artifact_versions[app_id] = version
 
 
 # Return the value's ISO format, or None.

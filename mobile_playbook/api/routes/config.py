@@ -109,6 +109,13 @@ def get_app_provisioning(platform: Platform, app_id: str) -> dict:
     return provisioning.describe(platform, app_id)
 
 
+# List an iOS app's intake builds, highest version first, with the version a run uses by default.
+@router.get("/config/{platform}/apps/{app_id}/builds")
+def get_app_builds(platform: Platform, app_id: str) -> dict:
+    logger.debug("api: GET /config/%s/apps/%s/builds.", platform, app_id)
+    return artifact_service.list_app_builds(platform, app_id)
+
+
 # The app's icon as PNG. 404 covers unknown apps and apps with no readable icon alike.
 @router.get(
     "/config/{platform}/apps/{app_id}/icon",

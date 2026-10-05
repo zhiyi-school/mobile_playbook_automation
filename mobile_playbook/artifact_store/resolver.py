@@ -81,6 +81,7 @@ def _resolve_ios(app: dict[str, Any]) -> Path | None:
             bundle_id=artifact.get("expected_bundle_id") or app.get("bundle_id") or None,
             app_name=app.get("name"),
             intake_dir=intake_dir_for(artifact),
+            version=artifact.get("build_version") or None,
         )
         logger.debug(
             "artifact store: intake IPA for %r -> %s (ambiguous=%s).",
@@ -215,6 +216,25 @@ def artifact_digest_for_app_config(platform: str, app_config: Any) -> str | None
     except OSError:
         logger.debug("artifact store: digest of %s failed.", path, exc_info=True)
         return None
+
+
+# Returns the version of the iOS build a run is using, read from its Info.plist, or None.
+def artifact_version_for_app_config(platform: str, app_config: Any) -> str | None:
+    if platform != "ios":
+        return None
+    from mobile_playbook.platforms.ios.acquisition.intake_ipa import _version_of
+    from mobile_playbook.platforms.ios.ipa.plist import inspect_ipa_metadata
+
+    path = _resolve_ios(_app_config_view(app_config))
+    if path is None:
+        return None
+    try:
+        version = _version_of(inspect_ipa_metadata(path))
+    except Exception:
+        logger.debug("artifact store: reading the version of %s failed.", path, exc_info=True)
+        return None
+    logger.debug("artifact store: build %s has version %s.", path, version)
+    return str(version) if version else None
 
 
 # Digests the run's build and derives its icon now, so a later sync cannot pick a newer build.

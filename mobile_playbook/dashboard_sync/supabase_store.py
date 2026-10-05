@@ -11,7 +11,7 @@ from collections.abc import Mapping
 from typing import Any
 from urllib import error, parse, request
 
-from mobile_playbook.dashboard_sync.contracts import SupabaseRestError
+from mobile_playbook.dashboard_sync.contracts import SupabaseRestError, placeholder_reserved
 from mobile_playbook.dashboard_sync.identity import now
 from mobile_playbook.common.logging_setup import redacted
 
@@ -95,18 +95,40 @@ class SupabaseRestStore:
     def find_assessment_by_external_id(self, external_id: str) -> dict[str, Any] | None:
         return self._single("assessments", {"external_id": f"eq.{external_id}", "select": "*"})
 
-    # Returns the application's oldest manual placeholder assessment, or None.
+    # Returns the assessment whose run request started this run, or None.
+    def find_requested_assessment(self, run_timestamp: str) -> dict[str, Any] | None:
+        request = self._single(
+            "assessment_run_requests",
+            {"run_id": f"eq.{run_timestamp}", "select": "assessment_id", "order": "created_at.desc", "limit": "1"},
+        )
+        if request is None:
+            return None
+        return self._single("assessments", {"id": f"eq.{request['assessment_id']}", "select": "*"})
+
+    # Returns every assessment of the application.
+    def assessments_for_application(self, application_id: str) -> list[dict[str, Any]]:
+        return self._get(
+            "assessments",
+            {"application_id": f"eq.{application_id}", "select": "id,external_id,application_id,latest_run_id", "order": "created_at.asc"},
+        )
+
+    # Returns the application's oldest manual placeholder assessment that no run request has claimed, or None.
     def find_placeholder_assessment(self, application_id: str) -> dict[str, Any] | None:
-        return self._single(
+        rows = self._get(
             "assessments",
             {
                 "application_id": f"eq.{application_id}",
                 "external_id": "like.manual::*",
                 "order": "created_at.asc",
-                "select": "*",
-                "limit": "1",
+                "select": "*,assessment_run_requests(status,run_id)",
             },
         )
+        for row in rows:
+            requests = row.pop("assessment_run_requests", None) or []
+            if not any(placeholder_reserved(request) for request in requests):
+                return row
+        logger.debug("dashboard sync: every placeholder of %s belongs to a run request.", application_id)
+        return None
 
     # Updates the assessment only while it is still a manual placeholder; returns None if already claimed.
     def claim_placeholder_assessment(

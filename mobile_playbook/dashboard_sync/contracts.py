@@ -8,6 +8,13 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+OUTSTANDING_REQUEST_STATUSES = frozenset({"queued", "waiting", "claimed", "running"})
+
+
+# Returns whether a run request keeps its placeholder for its own run: it is still outstanding or already started one.
+def placeholder_reserved(request: Mapping[str, Any]) -> bool:
+    return bool(request.get("run_id")) or request.get("status") in OUTSTANDING_REQUEST_STATUSES
+
 
 class DashboardSyncStore(Protocol):
     """Dashboard database operations the report sync needs."""
@@ -32,7 +39,13 @@ class DashboardSyncStore(Protocol):
     # Returns the assessment with this external id, or None.
     def find_assessment_by_external_id(self, external_id: str) -> dict[str, Any] | None: ...
 
-    # Returns the application's oldest manual placeholder assessment, or None.
+    # Returns the assessment whose run request started this run, or None.
+    def find_requested_assessment(self, run_timestamp: str) -> dict[str, Any] | None: ...
+
+    # Returns every assessment of the application.
+    def assessments_for_application(self, application_id: str) -> list[dict[str, Any]]: ...
+
+    # Returns the application's oldest manual placeholder assessment that no run request has claimed, or None.
     def find_placeholder_assessment(self, application_id: str) -> dict[str, Any] | None: ...
 
     # Updates the assessment only while it is still a placeholder; returns None if already claimed.

@@ -15,7 +15,8 @@ profiles/
 *.cer
 
 # Generated runtime files
-artifacts/
+artifacts/*
+!artifacts/README.md
 data/*.sqlite
 data/*.sqlite-*
 

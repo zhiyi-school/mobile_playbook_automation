@@ -63,6 +63,7 @@ def write_manifest(
     attempted: list[dict[str, str]],
     status: str,
     artifacts: Mapping[str, str] | None = None,
+    artifact_versions: Mapping[str, str] | None = None,
     started_at: str | None = None,
     completed_at: str | None = None,
     error: str | None = None,
@@ -76,6 +77,7 @@ def write_manifest(
         "risks": sorted({item["risk_id"] for item in attempted}),
         "attempted": attempted,
         "artifacts": dict(artifacts or {}),
+        "artifact_versions": dict(artifact_versions or {}),
         "status": status,
         "started_at": started_at,
         "completed_at": completed_at,
@@ -134,3 +136,11 @@ def artifact_checksums(manifest: Mapping[str, Any] | None) -> dict[str, str]:
     if not isinstance(artifacts, dict):
         return {}
     return {str(k): str(v) for k, v in artifacts.items() if isinstance(v, str) and v}
+
+
+# Returns each app's tested build version recorded in a manifest, keyed by app id.
+def artifact_versions(manifest: Mapping[str, Any] | None) -> dict[str, str]:
+    versions = (manifest or {}).get("artifact_versions")
+    if not isinstance(versions, dict):
+        return {}
+    return {str(k): str(v) for k, v in versions.items() if isinstance(v, str) and v}

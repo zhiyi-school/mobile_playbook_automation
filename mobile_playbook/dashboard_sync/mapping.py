@@ -16,7 +16,7 @@ from mobile_playbook.dashboard_sync.contracts import (
     SupabaseRestError,
     SyncSummary,
 )
-from mobile_playbook.dashboard_sync.identity import finding_status, is_older_run, now, rows_by_app, sync_key
+from mobile_playbook.dashboard_sync.identity import finding_status, is_older_run, now, rows_by_app, run_sort_key, sync_key
 from mobile_playbook.platforms.android.risks import known_risks as known_android_risks
 from mobile_playbook.platforms.ios.risks import known_risks as known_ios_risks
 
@@ -30,6 +30,7 @@ def sync_dashboard_results(
     triggered_by: str | None = None,
     risk_counts: Mapping[str, int] | None = None,
     artifacts: Mapping[str, str] | None = None,
+    artifact_versions: Mapping[str, str] | None = None,
 ) -> SyncSummary:
     grouped = rows_by_app(rows)
     logger.debug("dashboard sync: mapping %d row(s) across %d app(s).", len(rows), len(grouped))
@@ -42,7 +43,9 @@ def sync_dashboard_results(
             bool((artifacts or {}).get(app_id)),
         )
         application = sync_application(app_rows[0], store, (artifacts or {}).get(app_id))
-        assessment = sync_assessment(app_id, app_rows, application["id"], store, risk_counts)
+        assessment = sync_assessment(
+            app_id, app_rows, application["id"], store, risk_counts, (artifact_versions or {}).get(app_id)
+        )
         for row in app_rows:
             if sync_finding(row, application["id"], assessment["id"], store, triggered_by):
                 recorded += 1
@@ -63,6 +66,7 @@ def sync_report_dir(
     triggered_by: str | None = None,
     risk_counts: Mapping[str, int] | None = None,
     artifacts: Mapping[str, str] | None = None,
+    artifact_versions: Mapping[str, str] | None = None,
 ) -> SyncSummary:
     results_path = Path(run_dir) / "dashboard_results.json"
     rows = json.loads(results_path.read_text())
@@ -76,7 +80,12 @@ def sync_report_dir(
         sync_retest(run_timestamp, store, "completed", "Retest completed with no recorded results.")
         return SyncSummary(reports=1)
     summary = sync_dashboard_results(
-        rows, store, triggered_by=triggered_by, risk_counts=risk_counts, artifacts=artifacts
+        rows,
+        store,
+        triggered_by=triggered_by,
+        risk_counts=risk_counts,
+        artifacts=artifacts,
+        artifact_versions=artifact_versions,
     )
     sync_retest(run_timestamp, store, "completed", "Retest completed — see finding for updated status.")
     return summary.plus(SyncSummary(reports=1))
@@ -136,13 +145,50 @@ def sync_application(
     return store.upsert_application(fields)
 
 
-# Updates or creates the run's assessment for an app, claiming a manual placeholder when one exists.
+# Updates the assessment with this run unless it already holds a newer one, which it then keeps.
+def _advance_assessment(
+    store: DashboardSyncStore, assessment: Mapping[str, Any], fields: Mapping[str, Any], run_timestamp: str
+) -> dict[str, Any]:
+    if is_older_run(run_timestamp, assessment.get("latest_run_id")):
+        logger.info(
+            "dashboard sync: keeping assessment %s at run %s; %s is older.",
+            assessment["id"],
+            assessment.get("latest_run_id"),
+            run_timestamp,
+        )
+        return dict(assessment)
+    return store.update_assessment(assessment["id"], fields)
+
+
+# Returns the run timestamp a synced assessment's external id starts with, or None for a placeholder or other id.
+def _assessment_run(assessment: Mapping[str, Any]) -> str | None:
+    external_id = str(assessment.get("external_id") or "")
+    if external_id.startswith("manual::") or "::" not in external_id:
+        return None
+    return external_id.split("::", 1)[0]
+
+
+# Returns the application's assessment that was current when this run started: the newest whose own run is not later.
+def _assessment_current_at(assessments: Sequence[Mapping[str, Any]], run_timestamp: str) -> Mapping[str, Any] | None:
+    current: Mapping[str, Any] | None = None
+    for assessment in assessments:
+        own_run = _assessment_run(assessment)
+        if own_run is None or run_sort_key(own_run) > run_sort_key(run_timestamp):
+            continue
+        if current is None or run_sort_key(own_run) > run_sort_key(_assessment_run(current) or ""):
+            current = assessment
+    return current
+
+
+# Records the run on its assessment: the one its run request names, else an unclaimed placeholder, else the assessment
+# current when an unrequested rerun started, else a new one; an assessment never moves back to an older run.
 def sync_assessment(
     app_id: str,
     rows: Sequence[Mapping[str, Any]],
     application_id: str,
     store: DashboardSyncStore,
     risk_counts: Mapping[str, int] | None,
+    app_version: str | None = None,
 ) -> dict[str, Any]:
     run_timestamp = str(rows[0]["run_timestamp"])
     run_key = f"{run_timestamp}::{app_id}"
@@ -153,15 +199,31 @@ def sync_assessment(
         "status": "completed",
         "total_tests": total_tests(rows, risk_counts),
         "completed_tests": len(tested),
+        "latest_run_id": run_timestamp,
         "updated_at": now(),
     }
+    if app_version:
+        fields["app_version"] = app_version
     logger.debug(
         "dashboard sync: assessment %s covers %d tested risk(s) of %d.", run_key, len(tested), fields["total_tests"]
     )
     existing = store.find_assessment_by_external_id(run_key)
     if existing is not None:
         logger.debug("dashboard sync: assessment %s exists as %s; updating.", run_key, existing["id"])
-        return store.update_assessment(existing["id"], fields)
+        return _advance_assessment(store, existing, fields, run_timestamp)
+    requested = store.find_requested_assessment(run_timestamp)
+    if (
+        requested is not None
+        and requested.get("application_id") == application_id
+        and str(requested.get("external_id", "")).startswith("manual::")
+    ):
+        logger.debug("dashboard sync: run %s was requested for assessment %s; claiming it.", run_timestamp, requested["id"])
+        claimed = store.claim_placeholder_assessment(requested["id"], {**fields, "external_id": run_key})
+        if claimed is not None:
+            return claimed
+        existing = store.find_assessment_by_external_id(run_key)
+        if existing is not None:
+            return _advance_assessment(store, existing, fields, run_timestamp)
     placeholder = store.find_placeholder_assessment(application_id)
     if placeholder is not None:
         logger.debug("dashboard sync: claiming placeholder assessment %s for %s.", placeholder["id"], run_key)
@@ -171,7 +233,18 @@ def sync_assessment(
         logger.debug("dashboard sync: placeholder %s was claimed elsewhere; re-reading %s.", placeholder["id"], run_key)
         existing = store.find_assessment_by_external_id(run_key)
         if existing is not None:
-            return store.update_assessment(existing["id"], fields)
+            return _advance_assessment(store, existing, fields, run_timestamp)
+    if requested is None:
+        current = _assessment_current_at(store.assessments_for_application(application_id), run_timestamp)
+        if current is not None:
+            logger.debug(
+                "dashboard sync: unrequested run %s updates assessment %s, current when it started.",
+                run_timestamp,
+                current["id"],
+            )
+            # The assessment keeps the version it was started for; a rerun of another build must not relabel it.
+            rerun_fields = {key: value for key, value in fields.items() if key != "app_version"}
+            return _advance_assessment(store, current, rerun_fields, run_timestamp)
     logger.debug("dashboard sync: upserting assessment %s.", run_key)
     return store.upsert_assessment({**fields, "external_id": run_key})
 

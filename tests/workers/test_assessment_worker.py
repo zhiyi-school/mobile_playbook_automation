@@ -401,3 +401,71 @@ def test_the_worker_targets_the_api_default_port_when_no_url_is_given(monkeypatc
 
     assert assessment_worker.main(["--once"]) == 0
     assert urls == ["http://127.0.0.1:8080"]
+
+
+def test_the_requested_build_version_is_sent_with_the_run():
+    store, api = FakeStore(), FakeApi()
+    store.request["build_version"] = "3.9.9"
+
+    assert run(store, api) == "started"
+
+    assert api.started[0]["build_version"] == "3.9.9"
+
+
+def test_a_request_without_a_version_lets_the_host_choose():
+    store, api = FakeStore(), FakeApi()
+
+    run(store, api)
+
+    assert "build_version" not in api.started[0]
+
+
+def test_a_missing_build_waits_for_it_rather_than_failing():
+    store = FakeStore()
+    api = FakeApi(start=RunRejected("app_build_missing", "No build of Example with version 9.9 is in intake."))
+
+    assert run(store, api) == "waiting"
+
+    assert store.request["status"] == "waiting"
+    assert store.request["blocker_code"] == "app_build_missing"
+    assert "version 9.9" in store.request["last_error"]
+
+
+def _http_error(code: int, body: str):
+    import io
+    from urllib import error
+
+    return error.HTTPError("http://automation/runs", code, "refused", {}, io.BytesIO(body.encode()))
+
+
+def test_the_hosts_blocker_is_read_from_a_refused_run(monkeypatch):
+    import json
+
+    from mobile_playbook.workers import assessment_worker
+
+    detail = {"detail": {"blocker_code": "app_build_missing", "message": "No build " + "x" * 600}}
+
+    def refuse(*args, **kwargs):
+        raise _http_error(422, json.dumps(detail))
+
+    monkeypatch.setattr(assessment_worker.request, "urlopen", refuse)
+
+    with pytest.raises(RunRejected) as exc:
+        assessment_worker.AutomationApi("http://automation").start_run({"platform": "ios"})
+
+    assert exc.value.blocker == "app_build_missing"
+    assert exc.value.detail.startswith("No build ")
+
+
+def test_a_refusal_without_a_blocker_is_still_an_invalid_request(monkeypatch):
+    from mobile_playbook.workers import assessment_worker
+
+    def refuse(*args, **kwargs):
+        raise _http_error(422, '{"detail": "apps did not match"}')
+
+    monkeypatch.setattr(assessment_worker.request, "urlopen", refuse)
+
+    with pytest.raises(RunRejected) as exc:
+        assessment_worker.AutomationApi("http://automation").start_run({"platform": "ios"})
+
+    assert exc.value.blocker == "invalid_run_request"

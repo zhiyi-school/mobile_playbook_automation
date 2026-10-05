@@ -74,6 +74,7 @@ class RunRequest(BaseModel):
     apps: str | None = None
     risks: str | None = None
     out_dir: str | None = None
+    build_version: str | None = None
 
 
 class CisoRequest(BaseModel):

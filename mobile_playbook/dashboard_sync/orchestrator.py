@@ -12,7 +12,7 @@ from typing import Any
 from mobile_playbook.dashboard_sync import run_status
 from mobile_playbook.dashboard_sync.contracts import AmbiguousApplicationError, DashboardSyncStore, SyncSummary
 from mobile_playbook.dashboard_sync.mapping import sync_report_dir, sync_retest
-from mobile_playbook.reporting.run_manifest import artifact_checksums, is_completed, read_manifest
+from mobile_playbook.reporting.run_manifest import artifact_checksums, artifact_versions, is_completed, read_manifest
 from mobile_playbook.dashboard_sync.ledger import is_processed, mark_processed, report_digest
 
 logger = logging.getLogger(__name__)
@@ -76,6 +76,7 @@ def sync_reports(
                 triggered_by=triggered_by,
                 risk_counts=risk_counts,
                 artifacts=artifact_checksums(manifest),
+                artifact_versions=artifact_versions(manifest),
             )
         except Exception as exc:
             logger.exception("dashboard sync: failed to sync report %s: %s", run_dir.name, exc)
