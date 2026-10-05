@@ -299,6 +299,23 @@ python -m pytest -q \
 - Once relevant checks pass, repeat them only when new changes or findings
   justify another run.
 
+## Architecture reviews
+
+- For architecture reviews and refactoring plans, inspect without editing.
+  Establish the organizing principle from actual responsibilities and
+  dependencies; compare it with documentation and these instructions, and
+  explain disagreements. Prefer strengthening the coherent existing structure.
+- Cover all repository areas and classify findings as consistent implementation,
+  justified exceptions, architectural drift, or uncertain ownership/usage.
+  Distinguish type-only imports, URL construction and configuration references
+  from runtime service calls.
+- Propose small, prioritized stages with evidence, affected paths, clarified
+  ownership, consumer/documentation updates, preserved contracts, risks and
+  verification. Separate structural changes from behavioral fixes.
+- Finish with the target structure, unresolved questions, unconfirmed consumers
+  and measurable acceptance criteria. Propose proportionate automated boundary
+  checks using existing tooling, with narrowly documented exceptions.
+
 ## Where to read first
 
 | Task | Read |
