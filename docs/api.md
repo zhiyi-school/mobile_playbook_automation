@@ -798,7 +798,7 @@ A risk's `demonstration` comes from the `### Demonstration` section of its Markd
 A demonstration step can cite screenshots from the platform's playbook. They're stored as `{path, caption}` entries under a step's `images`, where `path` is relative to `playbook_dir` at the top of `configs/split/{platform}/risks.yaml`:
 
 ```yaml
-playbook_dir: /path/to/ios-playbook-format/playbooks
+playbook_dir: /path/to/ios-playbook/playbooks
 
 ios-feature-01-risk-01:
   demonstration:

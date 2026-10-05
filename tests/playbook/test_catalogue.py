@@ -1380,3 +1380,56 @@ class TestAutomaticRefresh:
             bundle.writestr("README.txt", "replaced example source")
 
         assert catalogue.get("ios")["revision"] != before
+
+
+def write_named_playbook(root: Path, prefix: str) -> Path:
+    """Write the example playbook with every `example-` document name and heading using another prefix."""
+    root.mkdir(parents=True, exist_ok=True)
+    (root / f"{prefix}-feature-01-risk-01.md").write_text(RISK.replace("example-", f"{prefix}-"))
+    (root / f"{prefix}-feature-01-risk-01-control-01.md").write_text(CONTROL.replace("example-", f"{prefix}-"))
+    archives = root / "implemented_controls"
+    archives.mkdir(exist_ok=True)
+    with zipfile.ZipFile(archives / f"{prefix}-feature-01-risk-01-control-01.zip", "w") as bundle:
+        bundle.writestr("README.txt", "example source")
+    return root
+
+
+def build_named_catalogue(root: Path, monkeypatch, prefix: str, platform: str = "ios") -> dict:
+    written = write_named_playbook(root / prefix, prefix)
+    monkeypatch.setenv(f"{platform.upper()}_PLAYBOOK_DIR", str(written))
+    monkeypatch.setattr(settings, "ENV_FILE", root / "absent.env")
+    monkeypatch.setattr(source, "RISK_CONFIG_FILES", {})
+    monkeypatch.setattr(catalogue, "CONTROL_OVERRIDE_FILES", {})
+    catalogue.clear_cache()
+    return catalogue.get(platform)
+
+
+class TestPlatformNamedDocuments:
+    def test_a_platform_prefixed_playbook_is_catalogued_under_the_usual_ids(self, tmp_path, monkeypatch):
+        index = build_named_catalogue(tmp_path, monkeypatch, "ios-platform")
+
+        assert sorted(index["risks"]) == ["ios-feature-01-risk-01"]
+        assert index["risks"]["ios-feature-01-risk-01"]["controls"] == ["ios-feature-01-risk-01-control-01"]
+        assert warning_codes(index, "missing_control_file") == []
+
+    def test_renaming_to_the_platform_prefix_keeps_every_step_identity(self, tmp_path, monkeypatch):
+        generic = build_named_catalogue(tmp_path, monkeypatch, "platform")["controls"]["ios-feature-01-risk-01-control-01"]
+        renamed = build_named_catalogue(tmp_path, monkeypatch, "ios-platform")["controls"]["ios-feature-01-risk-01-control-01"]
+
+        assert renamed["title"] == generic["title"]
+        assert [step["step_key"] for step in renamed["steps"]] == [step["step_key"] for step in generic["steps"]]
+        assert [step["content_hash"] for step in renamed["steps"]] == [step["content_hash"] for step in generic["steps"]]
+
+    def test_the_android_playbook_uses_its_own_platform_prefix(self, tmp_path, monkeypatch):
+        index = build_named_catalogue(tmp_path, monkeypatch, "android-platform", platform="android")
+
+        assert index["risks"]["android-feature-01-risk-01"]["controls"] == ["android-feature-01-risk-01-control-01"]
+
+    def test_a_prefix_of_two_arbitrary_words_is_still_not_an_identity(self, tmp_path, monkeypatch):
+        index = build_named_catalogue(tmp_path, monkeypatch, "ios-draft")
+
+        assert index["risks"] == {}
+        assert index["controls"] == {}
+
+    def test_a_platform_prefixed_control_without_a_title_is_numbered(self):
+        assert controls._control_title({}, "", "", "ios-platform-feature-01-risk-01-control-03") == "Control 3"

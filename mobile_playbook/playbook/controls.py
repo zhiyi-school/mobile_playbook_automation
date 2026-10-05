@@ -37,8 +37,10 @@ SECTION_NAMES = {
 }
 DEPRIORITIZED_MARKER = re.compile(r"\(depriorit[iz]s?[ei]d?\)|\bdepriorit[iz]", re.I)
 DEPRECATED_MARKER = re.compile(r"\(deprecated\)|\bdeprecated\b", re.I)
-CONTROL_ID = re.compile(r"^(?P<platform>[a-z0-9]+)-feature-(?P<feature>\d+)-risk-(?P<risk>\d+)-control-(?P<control>\d+)", re.I)
-RISK_ID = re.compile(r"^(?P<platform>[a-z0-9]+)-feature-(?P<feature>\d+)-risk-(?P<risk>\d+)\s*$", re.I)
+# A document id starts with one word, such as `platform`, optionally followed by `-platform`, as in `ios-platform`.
+ID_PREFIX = r"[a-z0-9]+(?:-platform)?"
+CONTROL_ID = re.compile(rf"^(?P<platform>{ID_PREFIX})-feature-(?P<feature>\d+)-risk-(?P<risk>\d+)-control-(?P<control>\d+)", re.I)
+RISK_ID = re.compile(rf"^(?P<platform>{ID_PREFIX})-feature-(?P<feature>\d+)-risk-(?P<risk>\d+)\s*$", re.I)
 SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
 MITRE_MARKER = re.compile(r"MITRE\s+ATT&CK", re.I)
 MITRE_ANNOTATION = re.compile(

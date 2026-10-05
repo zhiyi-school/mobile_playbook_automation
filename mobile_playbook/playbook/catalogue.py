@@ -27,9 +27,9 @@ CONTROL_OVERRIDE_FILES = {
     "android": Path("split/android/controls.yaml"),
 }
 
-RISK_DOCUMENT = re.compile(r"^(?P<prefix>[a-z0-9]+)-feature-(?P<feature>\d+)-risk-(?P<risk>\d+)$", re.I)
+RISK_DOCUMENT = re.compile(rf"^(?P<prefix>{control_parser.ID_PREFIX})-feature-(?P<feature>\d+)-risk-(?P<risk>\d+)$", re.I)
 CONTROL_DOCUMENT = re.compile(
-    r"^(?P<prefix>[a-z0-9]+)-feature-(?P<feature>\d+)-risk-(?P<risk>\d+)-control-(?P<control>\d+)$", re.I
+    rf"^(?P<prefix>{control_parser.ID_PREFIX})-feature-(?P<feature>\d+)-risk-(?P<risk>\d+)-control-(?P<control>\d+)$", re.I
 )
 
 _PARSE_MESSAGES = {

@@ -333,11 +333,15 @@ way to retain completion.
 the mismatch is reported as a `heading_filename_mismatch` warning rather than
 causing the control to be dropped.
 
-Playbook documents are written with a generic prefix (`platform-…`). The
-catalogue rewrites that prefix to the real platform, so
-`platform-feature-01-risk-01-control-01` is served as
-`ios-feature-01-risk-01-control-01` and lines up with the risk ids in
-`risks.yaml`. A control belongs to the risk its own id names — the links in the
+Playbook documents are written with a generic prefix: one word such as
+`platform`, optionally followed by `-platform`, as in `ios-platform` or
+`android-platform`. The catalogue rewrites that prefix to the real platform, so
+`platform-feature-01-risk-01-control-01` and
+`ios-platform-feature-01-risk-01-control-01` are both served as
+`ios-feature-01-risk-01-control-01` and line up with the risk ids in
+`risks.yaml`. Switching between the two forms therefore keeps every control id
+and step key. Any other prefix, such as `ios-draft-feature-01-risk-01`, is not
+an identity, and the document is skipped. A control belongs to the risk its own id names — the links in the
 risk document are used to *validate* that relationship, never to define it, so
 a wrong link is reported instead of silently attaching a control to the wrong
 risk.
