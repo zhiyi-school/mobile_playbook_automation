@@ -203,7 +203,14 @@ curl http://127.0.0.1:8080/health
 ```
 
 Interactive endpoint browser: <http://127.0.0.1:8080/docs>. Flags are `--host`
-(default `127.0.0.1`), `--port` (default `8080`) and `--reload`.
+(default `127.0.0.1`), `--port` (default `8080`), `--reload`, `--log-file` and
+`--no-worker`.
+
+On macOS with the assessment worker's launch agent installed, the API starts the
+worker once it is listening and stops it when it exits, so the worker always runs
+the same code as the API. `--no-worker` leaves the worker alone, for example for a
+second API on another port. See
+[Running the assessment execution worker](operations.md#keeping-it-running-with-launchd).
 
 The API binds to loopback by default and has **no authentication of its own**.
 Read [api.md](api.md#security-model) before binding it to anything else.

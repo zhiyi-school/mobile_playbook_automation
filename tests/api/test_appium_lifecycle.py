@@ -15,6 +15,25 @@ def isolated_launcher_logging(monkeypatch):
     monkeypatch.setattr(api_main, "dictConfig", lambda config: None)
 
 
+@pytest.fixture(autouse=True)
+def worker_agent(monkeypatch):
+    """Record the launcher's worker agent calls instead of running launchctl on the test host."""
+    calls: list[tuple] = []
+
+    class Started:
+        def join(self, timeout=None):
+            calls.append(("join", timeout is not None))
+
+    def start(api_url, cancelled):
+        calls.append(("start", api_url))
+        calls.append(("cancel-handle", cancelled))
+        return Started()
+
+    monkeypatch.setattr(api_main, "start_worker_agent_when_listening", start)
+    monkeypatch.setattr(api_main, "stop_worker_agent", lambda: calls.append(("stop",)))
+    return calls
+
+
 def _configure_launcher(monkeypatch, tmp_path, result, events, uvicorn_run):
     config = SimpleNamespace(
         device=SimpleNamespace(
@@ -129,3 +148,57 @@ def test_api_accepts_ios_config_argument(monkeypatch, tmp_path):
     api_main.main()
 
     assert loaded == [(Path("custom-ios.yaml"), False)]
+
+
+def test_the_worker_starts_with_the_server_and_stops_after_it(monkeypatch, tmp_path, worker_agent):
+    events = []
+    result = AppiumStartResult(status="ALREADY_RUNNING")
+
+    def serve(*args, **kwargs):
+        events.append("uvicorn")
+        assert [call[0] for call in worker_agent] == ["start", "cancel-handle"]
+
+    _configure_launcher(monkeypatch, tmp_path, result, events, serve)
+    monkeypatch.setattr(sys, "argv", ["python -m mobile_playbook.api", "--port", "8181"])
+
+    api_main.main()
+
+    assert events == ["start", "uvicorn"]
+    assert worker_agent[0] == ("start", "http://127.0.0.1:8181")
+    cancelled = worker_agent[1][1]
+    assert cancelled.is_set()
+    assert [call[0] for call in worker_agent[2:]] == ["join", "stop"]
+
+
+def test_the_worker_is_stopped_when_the_server_fails(monkeypatch, tmp_path, worker_agent):
+    def crash(*args, **kwargs):
+        raise RuntimeError("bind failed")
+
+    _configure_launcher(monkeypatch, tmp_path, AppiumStartResult(status="ALREADY_RUNNING"), [], crash)
+
+    with pytest.raises(RuntimeError, match="bind failed"):
+        api_main.main()
+
+    assert [call[0] for call in worker_agent] == ["start", "cancel-handle", "join", "stop"]
+
+
+def test_a_server_listening_on_every_interface_is_probed_locally(monkeypatch, tmp_path, worker_agent):
+    _configure_launcher(monkeypatch, tmp_path, AppiumStartResult(status="ALREADY_RUNNING"), [], lambda *a, **k: None)
+    monkeypatch.setattr(sys, "argv", ["python -m mobile_playbook.api", "--host", "0.0.0.0"])
+
+    api_main.main()
+
+    assert worker_agent[0] == ("start", "http://127.0.0.1:8080")
+
+
+def test_no_worker_leaves_the_worker_alone(monkeypatch, tmp_path, worker_agent):
+    events = []
+    _configure_launcher(
+        monkeypatch, tmp_path, AppiumStartResult(status="ALREADY_RUNNING"), events, lambda *a, **k: events.append("uvicorn")
+    )
+    monkeypatch.setattr(sys, "argv", ["python -m mobile_playbook.api", "--no-worker"])
+
+    api_main.main()
+
+    assert events == ["start", "uvicorn"]
+    assert worker_agent == []

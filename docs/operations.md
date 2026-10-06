@@ -131,8 +131,8 @@ after 20 attempts. A non-retryable blocker is not retried at all.
 
 ### Keeping it running with launchd
 
-Dashboard assessments only run while this worker is running; the API never
-starts it. Install the tracked agent so it starts on its own:
+Dashboard assessments only run while this worker is running. Install the
+tracked agent once:
 
 ```bash
 sed "s#REPLACE_WITH_REPO_PATH#$(pwd)#g" \
@@ -154,7 +154,17 @@ immediately instead of at the next tick. Output goes to
 `artifacts/work/assessment-worker.log`. Like the sync agent, the plist carries
 no credentials; the worker reads `.env` itself.
 
-To stop it, `launchctl bootout gui/$(id -u)/com.mobile-playbook.assessment-worker`.
+Once the agent's plist is in `~/Library/LaunchAgents/`, `python -m mobile_playbook.api`
+manages it. When the API is listening it loads the agent if needed and runs
+`launchctl kickstart -k`, which replaces a worker left running from before, so
+the worker runs the same code as the API. When the API exits, including after
+`Ctrl+C` or a startup failure, it runs `launchctl bootout`. Unloading the agent
+rather than only stopping the process matters, because the five-minute schedule
+would otherwise start the worker again while the API is down. Start the API with
+`--no-worker` to leave the agent alone. If the API is killed outright, the worker
+keeps running and simply waits with `automation_unavailable` until an API is back.
+
+To stop it by hand, `launchctl bootout gui/$(id -u)/com.mobile-playbook.assessment-worker`.
 
 ### Is the worker healthy?
 
