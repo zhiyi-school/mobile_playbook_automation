@@ -18,6 +18,7 @@ from mobile_playbook.common.storage_paths import REPOSITORY_ROOT, ios_work_dir, 
 from mobile_playbook.orchestration.scan_runner import RunOptions, run_platform
 from mobile_playbook.orchestration.work_retention import DEFAULT_RETENTION_DAYS, apply_prune, plan_prune
 from mobile_playbook.orchestration.selection import (
+    narrow_to_app_selection,
     selected_app_csv,
     selected_csv,
     validate_app_selection,
@@ -221,6 +222,7 @@ def main(argv: list[str] | None = None) -> int:
             selected = selected_csv(args.risks)
             selected_apps = selected_app_csv(args.apps)
             validate_app_selection(config.apps, selected_apps)
+            narrow_to_app_selection(config, args.apps)
             validate_risk_selection(_KNOWN_RISKS_BY_PLATFORM[args.platform](), selected)
             logger.debug(
                 "cli: %s run selection risks=%s apps=%s dry_run=%s out=%s.",
@@ -251,6 +253,8 @@ def main(argv: list[str] | None = None) -> int:
             selected_apps = selected_app_csv(args.apps)
             validate_app_selection(ios_config.apps, selected_apps)
             validate_app_selection(android_config.apps, selected_apps)
+            narrow_to_app_selection(ios_config, args.apps)
+            narrow_to_app_selection(android_config, args.apps)
             validate_risk_selection(known_ios_risks() | known_android_risks(), selected)
             logger.debug(
                 "cli: run-all selection risks=%s apps=%s dry_run=%s out=%s.",
@@ -273,6 +277,7 @@ def main(argv: list[str] | None = None) -> int:
             config = load_config(Path(args.config), dry_run=False)
             selected_apps = selected_app_csv(args.apps)
             validate_app_selection(config.apps, selected_apps)
+            narrow_to_app_selection(config, args.apps)
             return _acquire(config, selected_apps, Path(args.out))
         if args.command == "inspect-ipa":
             return _inspect_ipa(Path(args.ipa))

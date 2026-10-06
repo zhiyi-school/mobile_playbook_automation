@@ -63,6 +63,32 @@ def test_in_flight_run_reports_the_apps_and_risks_it_covers(isolated_registry, m
         release.set()
 
 
+def test_a_run_naming_an_app_id_runs_only_that_app(isolated_registry, monkeypatch, tmp_path):
+    parking = SimpleNamespace(id="parking", name="Parking", package_name="sg.parking.streetsmart", bundle_id="")
+    registered = SimpleNamespace(
+        id="sg_parking_streetsmart", name="Parking", package_name="sg.parking.streetsmart", bundle_id=""
+    )
+    monkeypatch.setattr(
+        runs_service, "load_config_or_400", lambda platform, config_path: SimpleNamespace(apps=[parking, registered])
+    )
+    ran: list[list[str]] = []
+
+    def recording_run_platform(config, runner, options, factory, run_timestamp):
+        ran.append([app.id for app in config.apps])
+        return Outcome(tmp_path / run_timestamp)
+
+    monkeypatch.setattr(runs_service, "run_platform", recording_run_platform)
+
+    runs_service.create_run(
+        RunRequest(platform="android", config_path="configs/android.yaml", apps="sg_parking_streetsmart")
+    )
+    for thread in threading.enumerate():
+        if thread is not threading.current_thread() and thread.daemon:
+            thread.join(timeout=5)
+
+    assert ran == [["sg_parking_streetsmart"]]
+
+
 def test_run_without_a_selection_records_no_apps_or_risks(isolated_registry, monkeypatch, tmp_path):
     monkeypatch.setattr(
         runs_service, "run_platform", lambda *args, **kwargs: Outcome(tmp_path / "2026-01-01_00-00-00")

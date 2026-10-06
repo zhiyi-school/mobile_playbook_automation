@@ -79,10 +79,12 @@ apps:
 
 Android entries use `package_name` in place of `bundle_id`/`test_bundle_id`.
 
-`--apps` on the CLI and `apps` in `POST /runs` match against an app's `id`,
-`name`, `package_name` or `bundle_id`. Matching is case-insensitive and ignores
-non-alphanumeric characters, so `example-app`, `Example App` and `exampleapp`
-all select the same entry. Risk selection (`--risks`) is an exact,
+`--apps` on the CLI and `apps` in `POST /runs` select apps by `id`. A value
+that is exactly an app's `id` selects that app alone; this is how the assessment
+worker names the app it runs. Any other value matches against an app's `id`,
+`name`, `package_name` or `bundle_id`, ignoring case and non-alphanumeric
+characters, so `example-app`, `Example App` and `exampleapp` all select the same
+entry. Risk selection (`--risks`) is an exact,
 whitespace-trimmed match on the risk ID.
 
 Device, runner and per-platform risk settings are documented per platform:

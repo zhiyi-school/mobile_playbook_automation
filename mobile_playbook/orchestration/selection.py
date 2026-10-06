@@ -33,6 +33,29 @@ def app_matches_selector(app: Any, selected_apps: set[str] | None) -> bool:
     return matched
 
 
+# Return the configured apps an app option selects: a value equal to an app's id selects only that app, any other value
+# matches loosely; None when the option is unset.
+def resolve_app_selection(apps: list[Any], value: str | None) -> list[Any] | None:
+    if not value:
+        return None
+    selected: list[Any] = []
+    for selector in (item.strip() for item in value.split(",")):
+        if not selector:
+            continue
+        exact = [app for app in apps if str(getattr(app, "id", "")) == selector]
+        matches = exact or [app for app in apps if app_matches_selector(app, {_normalize_selector(selector)})]
+        logger.debug("selection: %r selects %s (exact id=%s)", selector, [getattr(app, "id", app) for app in matches], bool(exact))
+        selected.extend(app for app in matches if not any(app is chosen for chosen in selected))
+    return selected
+
+
+# Narrow a loaded config to the apps an app option selects, so an exact app id never also runs a lookalike app.
+def narrow_to_app_selection(config: Any, value: str | None) -> None:
+    selected = resolve_app_selection(config.apps, value)
+    if selected:
+        config.apps = selected
+
+
 # Raise ValueError when an app selection matches none of the configured apps.
 def validate_app_selection(apps: list[Any], selected_apps: set[str] | None) -> None:
     if selected_apps is None:

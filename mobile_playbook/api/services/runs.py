@@ -18,6 +18,7 @@ from mobile_playbook.api.settings import REPOSITORY_ROOT
 from mobile_playbook.dashboard_sync.trigger import trigger_dashboard_sync
 from mobile_playbook.orchestration.selection import (
     app_matches_selector,
+    narrow_to_app_selection,
     selected_app_csv,
     selected_csv,
     validate_app_selection,
@@ -142,6 +143,7 @@ def create_run(body: RunRequest) -> dict:
     except ValueError as exc:
         logger.debug("api: run selection rejected: %s", exc)
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    narrow_to_app_selection(config, body.apps)
     if body.build_version is not None:
         pin_build_version(config, body.platform, selected_apps, body.build_version)
 
