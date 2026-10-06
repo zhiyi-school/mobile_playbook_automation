@@ -143,3 +143,43 @@ def test_unreadable_manifest_reads_as_absent(tmp_path):
     (tmp_path / MANIFEST_NAME).write_text("{ not json")
 
     assert read_manifest(tmp_path) is None
+
+
+class BuildOnDisk:
+    """Stands in for the build file the artifact resolver digests."""
+
+    def __init__(self, digest: str):
+        self.digest = digest
+
+
+@pytest.fixture
+def build_on_disk(monkeypatch):
+    from mobile_playbook.artifact_store import resolver
+
+    build = BuildOnDisk("a" * 64)
+    monkeypatch.setattr(resolver, "prepare_icon_for_app_config", lambda platform, app: build.digest)
+    monkeypatch.setattr(resolver, "artifact_version_for_app_config", lambda platform, app: None)
+    return build
+
+
+class PullsBuildRunner(FakeRunner):
+    def __init__(self, build, acquires):
+        super().__init__(tests=(("app_one", "risk_one"),))
+        self.build = build
+        self.acquires_builds_during_tests = acquires
+
+    def run_test(self, app, test_id, config, device_client, report_writer):
+        super().run_test(app, test_id, config, device_client, report_writer)
+        self.build.digest = "b" * 64
+
+
+def test_a_build_the_risk_pulls_is_recorded_rather_than_one_left_by_an_earlier_run(tmp_path, build_on_disk):
+    outcome = _run(PullsBuildRunner(build_on_disk, acquires=True), tmp_path)
+
+    assert read_manifest(outcome.run_dir)["artifacts"] == {"app_one": "b" * 64}
+
+
+def test_a_build_pinned_before_the_run_is_not_replaced_by_a_later_one(tmp_path, build_on_disk):
+    outcome = _run(PullsBuildRunner(build_on_disk, acquires=False), tmp_path)
+
+    assert read_manifest(outcome.run_dir)["artifacts"] == {"app_one": "a" * 64}

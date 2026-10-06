@@ -41,6 +41,7 @@ LEFTOVER_PROMPT_WAIT_SECONDS = 1.0
 
 class IosPlatformRunner:
     platform = "ios"
+    acquires_builds_during_tests = False
 
     # Return whether any selected test for the selected apps needs a device.
     def requires_device(self, config, selected_tests: set[str] | None, selected_apps: set[str] | None = None) -> bool:

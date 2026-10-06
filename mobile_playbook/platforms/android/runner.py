@@ -35,6 +35,7 @@ class AndroidPlatformRunner:
     """Plans, connects and runs Android risk checks for the shared scan runner."""
 
     platform = "android"
+    acquires_builds_during_tests = True
 
     # Report whether any planned Android risk needs a connected device.
     def requires_device(self, config, selected_tests: set[str] | None, selected_apps: set[str] | None = None) -> bool:

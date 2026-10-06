@@ -40,6 +40,8 @@ class PlatformRunner(Protocol):
     """Interface each platform implements so run_platform can plan, connect and run its risks."""
 
     platform: str
+    # True when the risks themselves pull the build under test, so its digest is only known after they run.
+    acquires_builds_during_tests: bool
 
     # Report whether any planned risk needs a connected device.
     def requires_device(self, config: Any, selected_tests: set[str] | None, selected_apps: set[str] | None) -> bool:
@@ -129,12 +131,16 @@ def run_platform(
             append_event(writer.run_dir, "risk_started", app_id=getattr(app, "id", app), risk_id=test_id)
             app_id = str(getattr(app, "id", app))
             attempted.append({"app_id": app_id, "risk_id": str(test_id)})
-            if app_id not in artifacts:
+            acquires_build = getattr(platform_runner, "acquires_builds_during_tests", False)
+            if not acquires_build and app_id not in artifacts:
                 _record_artifact(artifacts, artifact_versions, app_id, getattr(platform_runner, "platform", ""), app)
             logger.debug("%s: risk %s/%s starting %s for app %s", platform_name, index, len(planned_tests), test_id, app_id)
             risk_started = time.monotonic()
             platform_runner.run_test(app, test_id, config, client, writer)
             logger.debug("%s: risk %s for app %s finished in %.2fs", platform_name, test_id, app_id, time.monotonic() - risk_started)
+            if acquires_build:
+                # A build left by an earlier run must not stand in for the one this risk just pulled.
+                _record_artifact(artifacts, artifact_versions, app_id, getattr(platform_runner, "platform", ""), app)
     except BaseException as exc:
         logger.debug("%s: run %s aborted after %s attempted risks: %s", platform_name, run_timestamp, len(attempted), exc, exc_info=True)
         failure = exc

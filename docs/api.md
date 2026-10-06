@@ -639,8 +639,11 @@ A run records the SHA-256 of the build it actually executed against, per app, in
 {"artifacts": {"<APP_ID>": "<ARTIFACT_SHA256>"}}
 ```
 
-The checksum is taken when the app is first attempted, and the icon is derived
-at the same moment, so both are pinned to the build under test. The sync worker
+For iOS the checksum is taken when the app is first attempted, and the icon is
+derived at the same moment, so both are pinned to the build under test. Android
+risks pull the installed APK from the device themselves, so an Android app's
+checksum and icon are taken after each of its risks runs, from the build that
+risk pulled, never from one an earlier run left in the work folder. The sync worker
 then links the icon for *that* checksum. Uploading a new build between execution
 and synchronisation therefore cannot change what the dashboard shows for a
 finished run.
