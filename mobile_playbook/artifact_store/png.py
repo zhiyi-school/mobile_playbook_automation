@@ -1,5 +1,5 @@
 """
-PNG validation and conversion of Apple CgBI icons into standard PNGs.
+PNG validation, conversion of Apple CgBI icons into standard PNGs, and composition of Android adaptive icon layers.
 """
 
 from __future__ import annotations
@@ -15,8 +15,13 @@ logger = logging.getLogger(__name__)
 MAX_SOURCE_BYTES = 4 * 1024 * 1024
 MAX_DIMENSION = 2048
 MAX_CGBI_DIMENSION = 512
+MAX_DECODE_DIMENSION = 1024
+# An adaptive icon's layers are 108dp square, and launchers show at most the central 72dp.
+ADAPTIVE_VISIBLE_FRACTION = (72, 108)
 
 _RGBA8 = (8, 6)
+# Bytes per pixel of each 8-bit colour type: greyscale, RGB, palette, greyscale with alpha, RGBA.
+_BYTES_PER_PIXEL = {0: 1, 2: 3, 3: 1, 4: 2, 6: 4}
 
 #: Adam7 (x_start, y_start, x_step, y_step) per interlace pass.
 ADAM7_PASSES = (
@@ -175,16 +180,16 @@ def _to_straight_rgba(line: bytearray, stride: int) -> None:
         line[index : index + 4] = bytes((red, green, blue, alpha))
 
 
-# Reverses a PNG scanline filter in place using the previous row.
-def _unfilter(line: bytearray, previous: bytearray, filter_type: int, stride: int) -> None:
+# Reverses a PNG scanline filter in place using the previous row, for pixels of `bpp` bytes.
+def _unfilter(line: bytearray, previous: bytearray, filter_type: int, stride: int, bpp: int = 4) -> None:
     if filter_type == 0:
         return
     if filter_type not in (1, 2, 3, 4):
         raise UnsupportedImage("Unsupported PNG filter type")
     for index in range(stride):
-        left = line[index - 4] if index >= 4 else 0
+        left = line[index - bpp] if index >= bpp else 0
         up = previous[index]
-        up_left = previous[index - 4] if index >= 4 else 0
+        up_left = previous[index - bpp] if index >= bpp else 0
         if filter_type == 1:
             line[index] = (line[index] + left) & 0xFF
         elif filter_type == 2:
@@ -214,3 +219,125 @@ def _build_png(pixels: bytes, width: int, height: int) -> bytes:
         + _chunk(b"IDAT", zlib.compress(pixels, 9))
         + _chunk(b"IEND", b"")
     )
+
+
+# Decodes an 8-bit, non-interlaced PNG into straight RGBA bytes, raising UnsupportedImage for any other format.
+def decode_rgba(data: bytes) -> tuple[bytes, int, int]:
+    if len(data) > MAX_SOURCE_BYTES or not looks_like_png(data):
+        raise UnsupportedImage("Not a PNG image within the icon size limit")
+    chunks = list(_iter_chunks(data))
+    header = next((body for kind, body in chunks if kind == b"IHDR"), None)
+    if header is None or any(kind == b"CgBI" for kind, _ in chunks):
+        raise UnsupportedImage("Not a standard PNG")
+    width, height, depth, color_type, interlace = _header(header)
+    bpp = _BYTES_PER_PIXEL.get(color_type)
+    if depth != 8 or bpp is None or interlace != 0:
+        raise UnsupportedImage("Only 8-bit, non-interlaced PNGs are decoded")
+    if not 0 < width <= MAX_DECODE_DIMENSION or not 0 < height <= MAX_DECODE_DIMENSION:
+        raise UnsupportedImage("Image is outside the dimensions this decoder handles")
+    palette = next((body for kind, body in chunks if kind == b"PLTE"), b"")
+    transparency = next((body for kind, body in chunks if kind == b"tRNS"), b"")
+    try:
+        raw = zlib.decompress(b"".join(body for kind, body in chunks if kind == b"IDAT"))
+    except zlib.error as exc:
+        raise UnsupportedImage("PNG image data could not be decompressed") from exc
+    stride = width * bpp
+    if len(raw) < (stride + 1) * height:
+        raise UnsupportedImage("PNG image data is shorter than its header claims")
+
+    pixels = bytearray(width * height * 4)
+    previous = bytearray(stride)
+    for y in range(height):
+        start = y * (stride + 1)
+        line = bytearray(raw[start + 1 : start + 1 + stride])
+        _unfilter(line, previous, raw[start], stride, bpp)
+        previous = line
+        for x in range(width):
+            pixels[(y * width + x) * 4 : (y * width + x) * 4 + 4] = _rgba(
+                line[x * bpp : x * bpp + bpp], color_type, palette, transparency
+            )
+    return bytes(pixels), width, height
+
+
+# Converts one decoded pixel of a colour type to an RGBA tuple, applying any tRNS transparency.
+def _rgba(pixel: bytearray, color_type: int, palette: bytes, transparency: bytes) -> bytes:
+    if color_type == 6:
+        return bytes(pixel)
+    if color_type == 4:
+        return bytes((pixel[0], pixel[0], pixel[0], pixel[1]))
+    if color_type == 3:
+        index = pixel[0]
+        if index * 3 + 3 > len(palette):
+            raise UnsupportedImage("PNG palette index out of range")
+        alpha = transparency[index] if index < len(transparency) else 255
+        return bytes((*palette[index * 3 : index * 3 + 3], alpha))
+    if color_type == 2:
+        transparent = len(transparency) == 6 and bytes(pixel) == transparency[1::2]
+        return bytes((*pixel, 0 if transparent else 255))
+    transparent = len(transparency) == 2 and pixel[0] == transparency[1]
+    return bytes((pixel[0], pixel[0], pixel[0], 0 if transparent else 255))
+
+
+# Scales RGBA pixels to a new size by nearest neighbour.
+def _scale(pixels: bytes, width: int, height: int, new_width: int, new_height: int) -> bytes:
+    if (width, height) == (new_width, new_height):
+        return pixels
+    scaled = bytearray(new_width * new_height * 4)
+    for y in range(new_height):
+        source_row = (y * height // new_height) * width
+        for x in range(new_width):
+            source = (source_row + x * width // new_width) * 4
+            target = (y * new_width + x) * 4
+            scaled[target : target + 4] = pixels[source : source + 4]
+    return bytes(scaled)
+
+
+# Builds an Android adaptive icon from its layers: the foreground over a PNG or solid-colour background,
+# cropped to the central area a launcher shows.
+def compose_adaptive_icon(
+    foreground: bytes, background: bytes | None = None, background_color: tuple[int, int, int, int] | None = None
+) -> NormalizedPng:
+    front, width, height = decode_rgba(foreground)
+    if background is not None:
+        back_pixels, back_width, back_height = decode_rgba(background)
+        back = _scale(back_pixels, back_width, back_height, width, height)
+    elif background_color is not None:
+        back = bytes(background_color) * (width * height)
+    else:
+        raise UnsupportedImage("An adaptive icon needs a background layer")
+
+    composed = bytearray(width * height * 4)
+    for offset in range(0, len(composed), 4):
+        alpha = front[offset + 3]
+        back_alpha = back[offset + 3]
+        out_alpha = alpha + back_alpha * (255 - alpha) // 255
+        for channel in range(3):
+            if out_alpha:
+                value = (front[offset + channel] * alpha + back[offset + channel] * back_alpha * (255 - alpha) // 255)
+                composed[offset + channel] = min(255, value // out_alpha)
+        composed[offset + 3] = out_alpha
+
+    visible, full = ADAPTIVE_VISIBLE_FRACTION
+    crop_width, crop_height = width * visible // full, height * visible // full
+    left, top = (width - crop_width) // 2, (height - crop_height) // 2
+    rows = [
+        b"\x00" + bytes(composed[((top + y) * width + left) * 4 : ((top + y) * width + left + crop_width) * 4])
+        for y in range(crop_height)
+    ]
+    return NormalizedPng(_build_png(b"".join(rows), crop_width, crop_height), crop_width, crop_height)
+
+
+# Parses an Android colour value (#RGB, #ARGB, #RRGGBB or #AARRGGBB) into RGBA, or returns None.
+def android_color(value: str) -> tuple[int, int, int, int] | None:
+    digits = (value or "").strip().lstrip("#")
+    if len(digits) in (3, 4):
+        digits = "".join(character * 2 for character in digits)
+    if len(digits) == 6:
+        digits = "ff" + digits
+    if len(digits) != 8:
+        return None
+    try:
+        alpha, red, green, blue = (int(digits[index : index + 2], 16) for index in range(0, 8, 2))
+    except ValueError:
+        return None
+    return red, green, blue, alpha

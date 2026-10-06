@@ -6,7 +6,7 @@ import zlib
 import pytest
 
 from mobile_playbook.artifact_store import png
-from tests.icon_helpers import make_cgbi_png, make_png
+from tests.icon_helpers import make_cgbi_png, make_png, make_png_rows
 
 
 def _pixels(data: bytes) -> bytes:
@@ -107,3 +107,95 @@ def test_cgbi_beyond_the_decoder_limit_is_rejected():
     oversized = png.MAX_CGBI_DIMENSION + 1
     with pytest.raises(png.UnsupportedImage, match="this decoder handles"):
         png.normalize(make_cgbi_png(oversized, 1))
+
+
+class TestDecoding:
+    def test_rgba_is_returned_as_is(self):
+        pixels, width, height = png.decode_rgba(make_png(2, 3, (10, 20, 30, 40)))
+
+        assert (width, height) == (2, 3)
+        assert pixels == bytes((10, 20, 30, 40)) * 6
+
+    @pytest.mark.parametrize(
+        ("color_type", "row", "extra", "expected"),
+        [
+            (0, b"\x80", {}, (128, 128, 128, 255)),
+            (0, b"\x80", {"transparency": b"\x00\x80"}, (128, 128, 128, 0)),
+            (2, b"\x01\x02\x03", {}, (1, 2, 3, 255)),
+            (2, b"\x01\x02\x03", {"transparency": b"\x00\x01\x00\x02\x00\x03"}, (1, 2, 3, 0)),
+            (3, b"\x01", {"palette": b"\x00\x00\x00\x2b\x57\x97"}, (0x2B, 0x57, 0x97, 255)),
+            (3, b"\x01", {"palette": b"\x00\x00\x00\x2b\x57\x97", "transparency": b"\xff\x40"}, (0x2B, 0x57, 0x97, 0x40)),
+            (4, b"\xff\x7f", {}, (255, 255, 255, 127)),
+        ],
+    )
+    def test_every_eight_bit_colour_type_decodes_to_rgba(self, color_type, row, extra, expected):
+        pixels, _, _ = png.decode_rgba(make_png_rows(color_type, [row], 1, **extra))
+
+        assert tuple(pixels) == expected
+
+    def test_filtered_rows_of_narrow_pixels_are_unfiltered_by_their_own_width(self):
+        row = b"\x10\x20\x30\x40"
+        pixels, width, _ = png.decode_rgba(make_png_rows(4, [row], 2, filter_type=1))
+
+        assert width == 2
+        assert pixels == bytes((0x10, 0x10, 0x10, 0x20, 0x30, 0x30, 0x30, 0x40))
+
+    @pytest.mark.parametrize(
+        "data",
+        [
+            b"not a png",
+            make_cgbi_png(4, 4),
+            make_png_rows(3, [b"\x05"], 1, palette=b"\x00\x00\x00"),
+        ],
+    )
+    def test_formats_it_cannot_decode_are_rejected(self, data):
+        with pytest.raises(png.UnsupportedImage):
+            png.decode_rgba(data)
+
+    def test_images_too_large_to_decode_quickly_are_rejected(self):
+        with pytest.raises(png.UnsupportedImage):
+            png.decode_rgba(make_png(png.MAX_DECODE_DIMENSION + 1, 1))
+
+
+class TestAdaptiveIcons:
+    def test_the_foreground_sits_over_the_background_and_is_cropped_to_the_visible_area(self):
+        foreground = make_png_rows(6, [b"\x00\x00\x00\x00" * 108] * 54 + [b"\xff\xff\xff\xff" * 108] * 54, 108)
+        background = make_png(54, 54, (0x2B, 0x57, 0x97, 255))
+
+        composed = png.compose_adaptive_icon(foreground, background)
+        pixels, width, height = png.decode_rgba(composed.data)
+
+        assert (width, height) == (composed.width, composed.height) == (72, 72)
+        assert tuple(pixels[:4]) == (0x2B, 0x57, 0x97, 255)
+        assert tuple(pixels[-4:]) == (255, 255, 255, 255)
+
+    def test_half_transparent_foreground_blends_with_the_background(self):
+        composed = png.compose_adaptive_icon(make_png(3, 3, (255, 255, 255, 128)), make_png(3, 3, (0, 0, 0, 255)))
+
+        assert tuple(png.decode_rgba(composed.data)[0][:4]) == (128, 128, 128, 255)
+
+    def test_a_solid_colour_background_fills_behind_the_foreground(self):
+        composed = png.compose_adaptive_icon(make_png(6, 6, (0, 0, 0, 0)), background_color=(1, 2, 3, 255))
+
+        pixels, width, _ = png.decode_rgba(composed.data)
+        assert width == 4
+        assert pixels == bytes((1, 2, 3, 255)) * 16
+
+    def test_a_missing_background_is_rejected(self):
+        with pytest.raises(png.UnsupportedImage):
+            png.compose_adaptive_icon(make_png(6, 6))
+
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            ("#ff2b5797", (0x2B, 0x57, 0x97, 255)),
+            ("#2B5797", (0x2B, 0x57, 0x97, 255)),
+            ("#8abc", (0xAA, 0xBB, 0xCC, 0x88)),
+            ("#abc", (0xAA, 0xBB, 0xCC, 255)),
+            ("@0x7f050001", None),
+            ("#zzzzzz", None),
+            ("", None),
+        ],
+    )
+    def test_android_colour_values_are_parsed(self, value, expected):
+        assert png.android_color(value) == expected

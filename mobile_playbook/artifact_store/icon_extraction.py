@@ -30,6 +30,9 @@ ENVIRONMENT_DEPENDENT_REASONS = frozenset({"asset_catalog_tool_unavailable", "un
 
 _IOS_FALLBACK_STEM = re.compile(r"^(appicon|icon)", re.IGNORECASE)
 _ANDROID_ICON_STEM = re.compile(r"(ic_launcher|ic_app|app_icon)", re.IGNORECASE)
+_ANDROID_LAYER_STEM = re.compile(r"_(foreground|background|monochrome)$", re.IGNORECASE)
+# Bumped when Android icon selection changes, so icons cached under older rules are extracted again.
+ANDROID_ICON_REVISION = 2
 _ANDROID_DENSITY = ("xxxhdpi", "xxhdpi", "xhdpi", "hdpi", "mdpi", "ldpi", "nodpi", "anydpi")
 
 
@@ -306,6 +309,8 @@ def _android_zip_candidates(zf: zipfile.ZipFile, declared: Iterable[str]) -> lis
             continue
         directory = posixpath.dirname(name)
         stem = PurePosixPath(name).stem.lower()
+        if _ANDROID_LAYER_STEM.search(stem):
+            continue
         matches_declared = stem in declared_stems
         matches_convention = (
             _ANDROID_ICON_STEM.search(stem) is not None
@@ -314,6 +319,63 @@ def _android_zip_candidates(zf: zipfile.ZipFile, declared: Iterable[str]) -> lis
         if matches_declared or matches_convention:
             candidates.append(_Candidate(name, item.file_size))
     return candidates
+
+
+# Ranks a complete icon by name: the declared icon itself, then its round variant, then other launcher icons.
+def _android_preference(name: str, declared_stems: set[str]) -> int:
+    stem = PurePosixPath(name).stem.lower()
+    if stem in declared_stems:
+        return 2
+    return 1 if stem in {f"{declared}_round" for declared in declared_stems} else 0
+
+
+# Returns the densest readable PNG among an adaptive icon layer's files, or None.
+def _densest_member(zf: zipfile.ZipFile, files: Iterable[str]) -> bytes | None:
+    for name in sorted(files, key=_android_density_rank, reverse=True):
+        data = _read_member(zf, name)
+        if data is not None:
+            return data
+    return None
+
+
+# Returns an adaptive icon's layers found by naming convention, for when aapt2 cannot resolve them.
+def _conventional_layers(zf: zipfile.ZipFile, stem: str) -> dict[str, dict] | None:
+    layers: dict[str, dict] = {}
+    for layer in ("foreground", "background"):
+        files = [
+            name
+            for name in zf.namelist()
+            if name.startswith("res/") and name.lower().endswith(".png") and PurePosixPath(name).stem.lower() == f"{stem}_{layer}"
+        ]
+        if not files:
+            return None
+        layers[layer] = {"files": files, "color": None}
+    return layers
+
+
+# Composes the declared adaptive icon from its foreground and background layers, or returns None when it cannot.
+def _compose_adaptive_icon(artifact_path: Path, zf: zipfile.ZipFile, declared: Iterable[str]) -> png.NormalizedPng | None:
+    from mobile_playbook.platforms.android import apk_tools
+
+    for icon_xml in dict.fromkeys(name for name in declared if name.lower().endswith(".xml")):
+        stem = PurePosixPath(icon_xml).stem.lower()
+        layers = apk_tools.adaptive_icon_layers(artifact_path, icon_xml) or _conventional_layers(zf, stem)
+        if not layers:
+            continue
+        foreground = _densest_member(zf, layers["foreground"]["files"])
+        background = _densest_member(zf, layers["background"]["files"]) if layers["background"]["files"] else None
+        color = None if background is not None else png.android_color(layers["background"]["color"] or "")
+        if foreground is None or (background is None and color is None):
+            logger.debug("artifact store: adaptive icon %s has no usable raster layers.", icon_xml)
+            continue
+        try:
+            composed = png.compose_adaptive_icon(foreground, background, color)
+        except png.UnsupportedImage:
+            logger.debug("artifact store: adaptive icon %s layers could not be composed.", icon_xml, exc_info=True)
+            continue
+        logger.debug("artifact store: composed adaptive icon %s at %dx%d.", icon_xml, composed.width, composed.height)
+        return composed
+    return None
 
 
 # Ranks a resource path by screen density, highest density first.
@@ -325,7 +387,8 @@ def _android_density_rank(name: str) -> int:
     return 0
 
 
-# Extracts the best-density launcher icon PNG from an APK, or returns why none is usable.
+# Extracts an APK's launcher icon: the declared adaptive icon composed from its layers, else the best complete
+# icon PNG, else a lone adaptive layer; or returns why none is usable.
 def _extract_android_icon(artifact_path: Path) -> tuple[png.NormalizedPng | None, str]:
     declared = _android_declared_icons(artifact_path)
     with zipfile.ZipFile(artifact_path) as zf:
@@ -335,8 +398,12 @@ def _extract_android_icon(artifact_path: Path) -> tuple[png.NormalizedPng | None
             for name in declared
             if name.lower().endswith(".png") and is_safe_member_name(name) and name in members
         ]
-        candidates = direct or _android_zip_candidates(zf, declared)
         only_xml = bool(declared) and all(name.lower().endswith(".xml") for name in declared)
+        if not direct and only_xml:
+            composed = _compose_adaptive_icon(artifact_path, zf, declared)
+            if composed is not None:
+                return composed, STATUS_AVAILABLE
+        candidates = direct or _android_zip_candidates(zf, declared)
         logger.debug(
             "artifact store: %d direct and %d total Android icon candidate(s); declared only XML=%s.",
             len(direct),
@@ -348,11 +415,14 @@ def _extract_android_icon(artifact_path: Path) -> tuple[png.NormalizedPng | None
             logger.debug("artifact store: %d adaptive icon layer candidate(s).", len(candidates))
         if not candidates:
             return None, "adaptive_icon_vector_only" if only_xml else "no_icon_in_archive"
-        candidates.sort(key=lambda item: (_android_density_rank(item.name), item.size), reverse=True)
-        best = _best_icon(zf, candidates)
-        if best is None:
-            return None, "unsupported_icon_format"
-        return best[0], STATUS_AVAILABLE
+        stems = _android_declared_stems(declared)
+        # The widest icon wins only among equally preferred names, so a larger round or other icon cannot beat the declared one.
+        for preference in sorted({_android_preference(item.name, stems) for item in candidates}, reverse=True):
+            group = [item for item in candidates if _android_preference(item.name, stems) == preference]
+            best = _best_icon(zf, group)
+            if best is not None:
+                return best[0], STATUS_AVAILABLE
+        return None, "unsupported_icon_format"
 
 
 _EXTRACTORS = {"ios": _extract_ios_icon, "android": _extract_android_icon}
@@ -376,7 +446,10 @@ def extract_icon(
     cached_meta = store.read_metadata(resolved_id) or {}
     icon_meta = cached_meta.get("icon") or {}
     logger.debug("artifact store: icon for %s artifact %s (force=%s).", platform, resolved_id[:12], force)
-    if not force:
+    outdated = platform == "android" and icon_meta.get("revision", 1) < ANDROID_ICON_REVISION
+    if outdated:
+        logger.debug("artifact store: icon for %s predates revision %d; extracting again.", resolved_id[:12], ANDROID_ICON_REVISION)
+    if not force and not outdated:
         if cached.is_file():
             logger.debug("artifact store: icon cache hit at %s.", cached)
             return IconExtraction(
@@ -450,6 +523,8 @@ def _record_icon(platform: str, artifact_id: str, icon: IconExtraction) -> None:
     metadata = store.read_metadata(artifact_id) or {}
     metadata.update({"artifact_id": artifact_id, "sha256": artifact_id, "platform": platform})
     metadata["icon"] = icon.as_dict()
+    if platform == "android":
+        metadata["icon"]["revision"] = ANDROID_ICON_REVISION
     logger.debug("artifact store: recording icon status %s for %s.", icon.status, artifact_id[:12])
     try:
         store.write_metadata(artifact_id, metadata)

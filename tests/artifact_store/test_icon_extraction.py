@@ -5,7 +5,15 @@ import zipfile
 import pytest
 
 from mobile_playbook.artifact_store import icon_extraction, png, store
-from tests.icon_helpers import make_apk, make_cgbi_png, make_ipa, make_png, primary_icon_info
+from tests.icon_helpers import make_apk, make_cgbi_png, make_ipa, make_png, make_png_rows, primary_icon_info
+
+
+@pytest.fixture(autouse=True)
+def no_sdk_layer_lookup(monkeypatch):
+    """Answer as a host without aapt2 would, so results never depend on the SDK tools installed."""
+    from mobile_playbook.platforms.android import apk_tools
+
+    monkeypatch.setattr(apk_tools, "adaptive_icon_layers", lambda apk_path, icon_xml: None)
 
 
 @pytest.fixture(autouse=True)
@@ -411,3 +419,156 @@ def test_only_the_named_artifact_is_read_from_the_archive(tmp_path):
 
     assert result.width == 64
     assert store.icon_path(result.artifact_id).read_bytes() != outside.read_bytes()
+
+
+ADAPTIVE_XML = "res/mipmap-anydpi-v26/ic_launcher.xml"
+BLUE = (0x2B, 0x57, 0x97, 255)
+WHITE = (255, 255, 255, 255)
+
+
+def _declare(monkeypatch, *declared):
+    monkeypatch.setattr(icon_extraction, "_android_declared_icons", lambda path: list(declared))
+
+
+def _stored_pixels(result):
+    return png.decode_rgba(store.icon_path(result.artifact_id).read_bytes())
+
+
+def _foreground() -> bytes:
+    """A 432px adaptive foreground: transparent at the edges, opaque white in the middle."""
+    clear, white = b"\x00\x00\x00\x00", b"\xff\xff\xff\xff"
+    middle = clear * 144 + white * 144 + clear * 144
+    return make_png_rows(6, [clear * 432] * 144 + [middle] * 144 + [clear * 432] * 144, 432)
+
+
+def test_an_adaptive_icon_is_composed_from_its_layers_and_cropped_to_what_launchers_show(tmp_path, monkeypatch):
+    apk = make_apk(
+        tmp_path / "app.apk",
+        {
+            ADAPTIVE_XML: b"<adaptive-icon/>",
+            "res/mipmap-xxxhdpi-v4/ic_launcher_foreground.png": _foreground(),
+            "res/mipmap-xxxhdpi-v4/ic_launcher_background.png": make_png(432, 432, BLUE),
+            "res/mipmap-xxxhdpi-v4/ic_launcher.png": make_png(192, 192, (9, 9, 9, 255)),
+        },
+    )
+    _declare(monkeypatch, ADAPTIVE_XML)
+
+    result = icon_extraction.extract_icon("android", apk)
+
+    pixels, width, height = _stored_pixels(result)
+    assert result.available
+    assert (width, height) == (288, 288)
+    assert tuple(pixels[:4]) == BLUE
+    centre = (144 * 288 + 144) * 4
+    assert tuple(pixels[centre : centre + 4]) == WHITE
+
+
+def test_layers_named_by_aapt2_and_a_colour_background_are_used(tmp_path, monkeypatch):
+    from mobile_playbook.platforms.android import apk_tools
+
+    apk = make_apk(
+        tmp_path / "app.apk",
+        {ADAPTIVE_XML: b"<adaptive-icon/>", "res/a1.png": make_png(108, 108, (0, 0, 0, 0))},
+    )
+    _declare(monkeypatch, ADAPTIVE_XML)
+    monkeypatch.setattr(
+        apk_tools,
+        "adaptive_icon_layers",
+        lambda apk_path, icon_xml: {
+            "foreground": {"files": ["res/a1.png"], "color": None},
+            "background": {"files": [], "color": "#ff2b5797"},
+        },
+    )
+
+    result = icon_extraction.extract_icon("android", apk)
+
+    pixels, width, _ = _stored_pixels(result)
+    assert width == 72
+    assert pixels == bytes(BLUE) * (72 * 72)
+
+
+def test_without_both_layers_the_complete_icon_beats_a_larger_lone_layer(tmp_path, monkeypatch):
+    apk = make_apk(
+        tmp_path / "app.apk",
+        {
+            ADAPTIVE_XML: b"<adaptive-icon/>",
+            "res/mipmap-xxxhdpi-v4/ic_launcher_foreground.png": make_png(432, 432, WHITE),
+            "res/mipmap-xxxhdpi-v4/ic_launcher_round.png": make_png(256, 256, (1, 1, 1, 255)),
+            "res/mipmap-xxxhdpi-v4/ic_launcher.png": make_png(192, 192, BLUE),
+        },
+    )
+    _declare(monkeypatch, ADAPTIVE_XML)
+
+    result = icon_extraction.extract_icon("android", apk)
+
+    pixels, width, _ = _stored_pixels(result)
+    assert width == 192
+    assert tuple(pixels[:4]) == BLUE
+
+
+def test_the_round_icon_is_used_when_it_is_the_only_complete_one(tmp_path, monkeypatch):
+    apk = make_apk(
+        tmp_path / "app.apk",
+        {
+            ADAPTIVE_XML: b"<adaptive-icon/>",
+            "res/mipmap-xxxhdpi-v4/ic_launcher_background.png": make_png(432, 432, BLUE),
+            "res/mipmap-xxxhdpi-v4/ic_launcher_round.png": make_png(192, 192, WHITE),
+        },
+    )
+    _declare(monkeypatch, ADAPTIVE_XML)
+
+    assert icon_extraction.extract_icon("android", apk).width == 192
+
+
+def test_an_icon_cached_under_the_old_android_rules_is_extracted_again(tmp_path, monkeypatch):
+    apk = make_apk(
+        tmp_path / "app.apk",
+        {
+            ADAPTIVE_XML: b"<adaptive-icon/>",
+            "res/mipmap-xxxhdpi-v4/ic_launcher_foreground.png": make_png(432, 432, WHITE),
+            "res/mipmap-xxxhdpi-v4/ic_launcher.png": make_png(192, 192, BLUE),
+        },
+    )
+    _declare(monkeypatch, ADAPTIVE_XML)
+    artifact_id = store.artifact_digest(apk)
+    store.write_atomic(store.icon_path(artifact_id), make_png(432, 432, WHITE))
+    store.write_metadata(artifact_id, {"artifact_id": artifact_id, "icon": {"status": "available", "width": 432}})
+
+    result = icon_extraction.extract_icon("android", apk)
+
+    assert result.width == 192
+    assert tuple(_stored_pixels(result)[0][:4]) == BLUE
+    assert store.read_metadata(artifact_id)["icon"]["revision"] == icon_extraction.ANDROID_ICON_REVISION
+    assert icon_extraction.extract_icon("android", apk).width == 192
+
+
+def test_an_ios_icon_cached_without_a_revision_is_left_alone(tmp_path):
+    ipa = make_ipa(
+        tmp_path / "app.ipa",
+        info_extra=primary_icon_info("AppIcon60x60"),
+        files={"AppIcon60x60@2x.png": make_png(120, 120)},
+    )
+    artifact_id = store.artifact_digest(ipa)
+    cached = make_png(10, 10, BLUE)
+    store.write_atomic(store.icon_path(artifact_id), cached)
+    store.write_metadata(artifact_id, {"artifact_id": artifact_id, "icon": {"status": "available", "width": 10}})
+
+    assert icon_extraction.extract_icon("ios", ipa).width == 10
+    assert store.icon_path(artifact_id).read_bytes() == cached
+
+
+def test_a_lone_layer_never_stands_in_for_a_launcher_icon(tmp_path, monkeypatch):
+    apk = make_apk(
+        tmp_path / "app.apk",
+        {
+            ADAPTIVE_XML: b"<adaptive-icon/>",
+            "res/mipmap-xxxhdpi-v4/ic_launcher_background.png": make_png(432, 432, BLUE),
+            "res/mipmap-xxxhdpi-v4/ic_app.png": make_png(192, 192, WHITE),
+        },
+    )
+    _declare(monkeypatch, ADAPTIVE_XML)
+
+    result = icon_extraction.extract_icon("android", apk)
+
+    assert result.width == 192
+    assert tuple(_stored_pixels(result)[0][:4]) == WHITE

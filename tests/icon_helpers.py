@@ -16,6 +16,30 @@ def _chunk(kind: bytes, body: bytes) -> bytes:
     return struct.pack(">I", len(body)) + kind + body + struct.pack(">I", zlib.crc32(kind + body) & 0xFFFFFFFF)
 
 
+def make_png_rows(
+    color_type: int,
+    rows: list[bytes],
+    width: int,
+    palette: bytes | None = None,
+    transparency: bytes | None = None,
+    filter_type: int = 0,
+) -> bytes:
+    """An 8-bit PNG of any colour type from raw pixel rows, optionally with PLTE and tRNS, every row filtered alike."""
+    header = struct.pack(">IIBBBBB", width, len(rows), 8, color_type, 0, 0, 0)
+    chunks = _chunk(b"IHDR", header)
+    if palette is not None:
+        chunks += _chunk(b"PLTE", palette)
+    if transparency is not None:
+        chunks += _chunk(b"tRNS", transparency)
+    bpp = {0: 1, 2: 3, 3: 1, 4: 2, 6: 4}[color_type]
+    encoded = b""
+    for row in rows:
+        if filter_type == 1:
+            row = bytes((row[i] - (row[i - bpp] if i >= bpp else 0)) & 0xFF for i in range(len(row)))
+        encoded += bytes((filter_type,)) + row
+    return PNG_SIGNATURE + chunks + _chunk(b"IDAT", zlib.compress(encoded)) + _chunk(b"IEND", b"")
+
+
 def _scanlines(width: int, height: int, pixel: tuple[int, int, int, int]) -> bytes:
     row = bytes(pixel) * width
     return b"".join(b"\x00" + row for _ in range(height))

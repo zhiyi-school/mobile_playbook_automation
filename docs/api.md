@@ -677,9 +677,17 @@ which no browser can decode, so they are rebuilt into standard PNGs before being
 stored.
 
 **Android** asks `aapt`/`aapt2`/`apkanalyzer` for the manifest's declared icon
-resources and reads the densest PNG among them. Without those tools on `PATH` it
-falls back to scanning the archive for conventional `res/mipmap-*`/`res/drawable-*`
-launcher icons, so extraction still works, just less precisely.
+resources. When the declared icon is an adaptive icon, `aapt2` resolves its
+background and foreground layers, and the foreground is placed over the
+background (a PNG or a solid colour) and cropped to the central 72 of 108 units
+that launchers show. That is the icon Android 8 and later display. Without
+`aapt2`, layers named `<icon>_foreground` and `<icon>_background` are used.
+Otherwise the complete icon is read: the declared icon's own PNG, then its
+`_round` variant, then other conventional `res/mipmap-*`/`res/drawable-*`
+launcher icons, the widest within each. A `_foreground`, `_background` or
+`_monochrome` layer never stands in for a complete icon; a lone foreground is
+used only when nothing else exists. Icons stored under earlier Android rules
+are extracted again the next time they are requested.
 
 ### iOS asset catalogs
 
@@ -711,11 +719,11 @@ catalog, and that loose copy is what the normal path reads.
 
 - `Assets.car` raster export is not available (above). A build whose icon exists
   *only* in the catalog reports unavailable.
-- An Android adaptive icon falls back to its raster foreground
-  (`res/**/ic_launcher_foreground.png` and friends). One that is vector-only
-  reports `adaptive_icon_vector_only`; binary XML and vector drawables are not
-  rendered, and the foreground is used as-is rather than composited over its
-  background layer.
+- An Android adaptive icon is composed only from raster layers: binary XML and
+  vector drawables are not rendered. One whose layers are all vectors, with no
+  complete PNG, reports `adaptive_icon_vector_only`. Layer PNGs are decoded only
+  when they are 8-bit, non-interlaced and at most 1024x1024; otherwise the
+  complete icon is used.
 - A CgBI image larger than 512x512 is rejected; the pure-Python decoder is not
   worth running at that size. Standard PNGs are unaffected up to 2048x2048.
 - Android apps configured by package name alone have no icon until the workflow
