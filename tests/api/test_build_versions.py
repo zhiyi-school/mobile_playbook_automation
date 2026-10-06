@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import threading
 from types import SimpleNamespace
 
@@ -12,6 +11,7 @@ from mobile_playbook.api.routes import config as config_routes
 from mobile_playbook.api.routes import runs as runs_routes
 from mobile_playbook.api.run_registry import JobRegistry
 from mobile_playbook.api.services import runs as runs_service
+from tests.asgi_helpers import call
 from tests.conftest import make_ipa
 
 
@@ -37,45 +37,6 @@ def _app(intake, source="local_ipa", **artifact):
             **artifact,
         },
     )
-
-
-async def _call(app: FastAPI, method: str, path: str, body: dict | None = None):
-    sent: list[dict] = []
-    payload = json.dumps(body).encode() if body is not None else b""
-    received = False
-
-    async def receive():
-        nonlocal received
-        if received:
-            return {"type": "http.disconnect"}
-        received = True
-        return {"type": "http.request", "body": payload, "more_body": False}
-
-    async def send(message):
-        sent.append(message)
-
-    headers = [(b"content-type", b"application/json")] if body is not None else []
-    await app(
-        {
-            "type": "http",
-            "asgi": {"version": "3.0"},
-            "http_version": "1.1",
-            "method": method,
-            "scheme": "http",
-            "path": path,
-            "raw_path": path.encode(),
-            "query_string": b"",
-            "headers": headers,
-            "client": ("test", 1),
-            "server": ("testserver", 80),
-            "root_path": "",
-        },
-        receive,
-        send,
-    )
-    start = next(message for message in sent if message["type"] == "http.response.start")
-    raw = b"".join(message.get("body", b"") for message in sent if message["type"] == "http.response.body")
-    return start["status"], json.loads(raw) if raw else None
 
 
 class TestPinningARun:
@@ -147,7 +108,7 @@ class TestRunsEndpoint:
         app, _, started, ran = runs_app
 
         status, body = asyncio.run(
-            _call(app, "POST", "/runs", {"platform": "ios", "config_path": "configs/ios.yaml", "apps": "care", "build_version": "3.9.9"})
+            call(app, "POST", "/runs", {"platform": "ios", "config_path": "configs/ios.yaml", "apps": "care", "build_version": "3.9.9"})
         )
 
         assert status == 202, body
@@ -159,7 +120,7 @@ class TestRunsEndpoint:
         app, registry, started, _ = runs_app
 
         status, body = asyncio.run(
-            _call(app, "POST", "/runs", {"platform": "ios", "config_path": "configs/ios.yaml", "apps": "care", "build_version": "9.9"})
+            call(app, "POST", "/runs", {"platform": "ios", "config_path": "configs/ios.yaml", "apps": "care", "build_version": "9.9"})
         )
 
         assert status == 422
@@ -184,7 +145,7 @@ def builds_app(monkeypatch, intake):
 
 class TestBuildsEndpoint:
     def test_lists_the_apps_builds_highest_version_first_with_the_default(self, builds_app):
-        status, body = asyncio.run(_call(builds_app, "GET", "/config/ios/apps/care/builds"))
+        status, body = asyncio.run(call(builds_app, "GET", "/config/ios/apps/care/builds"))
 
         assert status == 200
         assert [build["version"] for build in body["builds"]] == ["4.3.4", "3.9.9"]
@@ -193,13 +154,13 @@ class TestBuildsEndpoint:
         assert body["ambiguous"] is False
 
     def test_an_app_installed_from_the_device_has_no_builds(self, builds_app):
-        status, body = asyncio.run(_call(builds_app, "GET", "/config/ios/apps/device/builds"))
+        status, body = asyncio.run(call(builds_app, "GET", "/config/ios/apps/device/builds"))
 
         assert status == 200
         assert body == {"builds": [], "default_version": None, "ambiguous": False}
 
     def test_an_unknown_app_is_not_found(self, builds_app):
-        assert asyncio.run(_call(builds_app, "GET", "/config/ios/apps/missing/builds"))[0] == 404
+        assert asyncio.run(call(builds_app, "GET", "/config/ios/apps/missing/builds"))[0] == 404
 
     def test_android_has_no_selectable_builds(self, builds_app):
-        assert asyncio.run(_call(builds_app, "GET", "/config/android/apps/care/builds"))[0] == 422
+        assert asyncio.run(call(builds_app, "GET", "/config/android/apps/care/builds"))[0] == 422
