@@ -4,6 +4,7 @@ Services for listing, inspecting and resolving icons of uploaded app builds.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from pathlib import Path
 
@@ -65,6 +66,11 @@ def app_icon_file_path(platform: Platform, app_id: str) -> tuple[Path, str] | No
     resolved = app_icon_file(platform, app_id)
     logger.debug("api: icon for %s app %s resolved=%s.", platform, app_id, resolved is not None)
     return resolved
+
+
+# Return the icon's entity tag: its artifact plus a digest of the stored image, so a re-extracted icon revalidates.
+def icon_etag(path: Path, artifact_id: str) -> str:
+    return f'"{artifact_id}.{hashlib.sha256(path.read_bytes()).hexdigest()[:16]}"'
 
 
 # List an iOS app's intake builds, highest version first, marking the one a run uses by default.

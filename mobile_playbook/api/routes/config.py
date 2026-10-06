@@ -136,7 +136,7 @@ def get_app_icon(platform: Platform, app_id: str, request: Request) -> Response:
         raise HTTPException(status_code=404, detail="No icon is available for this app")
 
     path, artifact_id = resolved
-    etag = f'"{artifact_id}"'
+    etag = artifact_service.icon_etag(path, artifact_id)
     headers = {"Cache-Control": artifact_service.ICON_CACHE_CONTROL, "ETag": etag}
     if request.headers.get("if-none-match") == etag:
         logger.debug("api: icon for %s app %s unchanged (ETag %s); responding 304.", platform, app_id, etag)

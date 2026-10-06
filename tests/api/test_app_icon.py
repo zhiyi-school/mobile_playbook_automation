@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
+from pathlib import Path
 
 import pytest
 from fastapi import HTTPException
@@ -46,7 +48,9 @@ def test_icon_endpoint_serves_a_png_with_cache_headers(configured_app):
     assert isinstance(response, FileResponse)
     assert response.media_type == "image/png"
     assert response.headers["cache-control"] == artifact_service.ICON_CACHE_CONTROL
-    assert response.headers["etag"].strip('"') == resolver.app_icon("ios", "example_app").artifact_id
+    artifact_id, image_digest = response.headers["etag"].strip('"').split(".")
+    assert artifact_id == resolver.app_icon("ios", "example_app").artifact_id
+    assert image_digest == hashlib.sha256(Path(response.path).read_bytes()).hexdigest()[:16]
 
 
 def test_icon_endpoint_serves_the_stored_file_not_the_artifact(configured_app):
@@ -64,6 +68,17 @@ def test_icon_endpoint_answers_a_matching_etag_with_304(configured_app):
 
     assert second.status_code == 304
     assert second.headers["etag"] == etag
+
+
+def test_a_replaced_icon_image_gets_a_new_etag_so_browsers_refetch_it(configured_app):
+    first = config_routes.get_app_icon("ios", "example_app", FakeRequest({}))
+    Path(first.path).write_bytes(make_png(24, 24))
+
+    second = config_routes.get_app_icon("ios", "example_app", FakeRequest({"if-none-match": first.headers["etag"]}))
+
+    assert second.status_code == 200
+    assert second.headers["etag"] != first.headers["etag"]
+    assert second.headers["etag"].strip('"').startswith(first.headers["etag"].strip('"').split(".")[0] + ".")
 
 
 def test_icon_endpoint_404s_for_an_unknown_app(monkeypatch):

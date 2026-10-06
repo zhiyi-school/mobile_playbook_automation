@@ -428,6 +428,7 @@ GET /config/{platform}/apps/{app_id}/icon   ->  200 image/png | 404
 
 `404` covers an unknown app and an app with no readable icon alike, and its
 detail names no path or filename. `ETag` carries the source build's checksum and
+a digest of the stored image, so it changes when an icon is extracted again, and
 `Cache-Control` is `private, max-age=300`. There is no write endpoint: icons are
 derived by runs and by `python -m mobile_playbook.workers.icon_backfill`, never by a
 browser.

@@ -607,8 +607,11 @@ curl -o icon.png http://127.0.0.1:8080/config/ios/apps/<APP_ID>/icon
 ```
 
 `GET /config/{platform}/apps/{app_id}/icon` returns `200` with `image/png`, an
-`ETag` of the source build's SHA-256 and `Cache-Control: private, max-age=300`.
-A matching `If-None-Match` gets `304`. An unknown app and an app whose build has
+`ETag` of the source build's SHA-256 followed by a digest of the stored image
+(`"<ARTIFACT_SHA256>.<IMAGE_DIGEST>"`), and `Cache-Control: private, max-age=300`.
+A matching `If-None-Match` gets `304`. When an icon is extracted again from the
+same build, its ETag changes, so a browser picks up the new image within five
+minutes. An unknown app and an app whose build has
 no readable icon both get `404`, with a detail that names no path or filename.
 
 Read-only is the whole surface. Re-extraction is not exposed over HTTP: it reads
