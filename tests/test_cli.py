@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+
+import pytest
 from dataclasses import replace
 from datetime import datetime, timezone
 
@@ -227,3 +229,39 @@ def test_the_cli_loads_the_repository_env_file_whatever_the_working_directory(tm
 
     assert cli_module.main(["list-risks", "--platform", "android"]) == 0
     assert seen == [REPOSITORY_ROOT / ".env"]
+
+
+def test_install_app_installs_the_selected_missing_app_and_reports_it(config_root, monkeypatch, capsys):
+    from mobile_playbook.orchestration.appium_server import AppiumStartResult
+    from mobile_playbook.platforms.android.acquisition.play_store import InstallOutcome, failure
+
+    installed: list[str] = []
+    outcomes = {"com.example.one": InstallOutcome(status="installed", installer="com.android.vending")}
+
+    def fake_install(adb, make_driver, package, diagnostics_root, **kwargs):
+        installed.append(package)
+        return outcomes.get(package) or failure("paid")
+
+    monkeypatch.setattr(cli_module, "ensure_appium_running", lambda *args: AppiumStartResult("ALREADY_RUNNING"))
+    monkeypatch.setattr(cli_module, "install_from_play_store", fake_install)
+    config = str(config_root / "configs/android.yaml")
+
+    assert cli_module.main(["install-app", "--config", config, "--apps", "one"]) == 0
+    assert installed == ["com.example.one"]
+    assert "one (com.example.one): installed" in capsys.readouterr().out
+
+    outcomes.clear()
+    assert cli_module.main(["install-app", "--config", config]) == 1
+    printed = capsys.readouterr().out
+    assert "one (com.example.one): app_paid" in printed
+    assert "Someone must verify the purchase" in printed
+
+
+def test_install_app_stops_when_appium_is_not_available(config_root, monkeypatch, capsys):
+    from mobile_playbook.orchestration.appium_server import AppiumStartResult
+
+    monkeypatch.setattr(cli_module, "ensure_appium_running", lambda *args: AppiumStartResult("DISABLED"))
+    monkeypatch.setattr(cli_module, "install_from_play_store", lambda *args, **kwargs: pytest.fail("installed anyway"))
+
+    assert cli_module.main(["install-app", "--config", str(config_root / "configs/android.yaml")]) == 1
+    assert "Appium is not available" in capsys.readouterr().err

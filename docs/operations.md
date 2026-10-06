@@ -106,6 +106,16 @@ automation host has no build with that version, the request waits with the
 retryable blocker `app_build_missing` and is retried once the build is in
 intake. A request without one lets the host test the app's highest version.
 
+When readiness reports an Android app as `app_not_installed`, the worker asks the
+automation API to install it from the Play Store, then checks readiness again
+and starts the run. That request waits up to eight minutes. A paid or
+unavailable app, a Play Store account prompt, or a Play Store screen the
+installer does not recognise fails the request with its own `blocker_code`, so
+someone can act on the device and press **Retry now**. A slow download or a
+device error waits and is retried. iOS readiness never reports
+`app_not_installed`. See
+[Installing apps from the Play Store](android/README.md#installing-apps-from-the-play-store).
+
 | Variable / flag | Default | Effect |
 | --- | --- | --- |
 | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | — | required; the queue lives in the dashboard database |
@@ -190,7 +200,9 @@ curl http://127.0.0.1:8080/config/<PLATFORM>/apps/<APP_ID>/provisioning
 
 Read `blocker_code`. `no_device` means nothing is attached; `device_unreachable`
 means the device tooling could not be reached at all; `platform_busy` means
-another run holds the device — check `GET /runs`. `configuration_incomplete` and
+another run holds the device — check `GET /runs`. `app_not_installed` on Android
+is installed by the worker; the install outcomes are listed in
+[Installing apps from the Play Store](android/README.md#installing-apps-from-the-play-store). `configuration_incomplete` and
 `no_tests_enabled` will not clear on their own and need a config change.
 
 ### Shutting it down safely

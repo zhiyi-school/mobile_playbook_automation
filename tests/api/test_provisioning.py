@@ -175,6 +175,17 @@ def test_android_waits_on_install_then_goes_ready(config_root, device_with):
     assert _stage(report, "configuration_applied")["state"] == "done"
 
 
+def test_a_missing_android_app_reports_the_blocker_the_worker_installs_on(config_root, device_with):
+    device_with([])
+
+    report = provisioning.describe("android", "one")
+
+    assert report["runnable"] is False
+    assert report["blocker_code"] == "app_not_installed"
+    assert report["retryable"] is True
+    assert "Play Store" in report["detail"]
+
+
 def test_android_without_a_connected_device_is_unknown_not_pending(config_root, no_device):
     report = provisioning.describe("android", "one")
 

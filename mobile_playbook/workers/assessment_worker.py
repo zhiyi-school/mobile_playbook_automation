@@ -30,6 +30,8 @@ DEFAULT_POLL_SECONDS = 15.0
 BACKOFF_BASE_SECONDS = 30
 BACKOFF_MAX_SECONDS = 900
 MAX_ATTEMPTS = 20
+# A Play Store install waits up to five minutes for the download, plus Appium start-up and page loads.
+INSTALL_REQUEST_TIMEOUT_SECONDS = 480.0
 
 ACTIVE_REQUEST_STATUSES = ("queued", "waiting", "claimed", "running")
 
@@ -89,7 +91,7 @@ def backoff_seconds(attempts: int) -> float:
 
 
 class AutomationApi:
-    """Minimal JSON client for the automation API's readiness and run-start endpoints."""
+    """Minimal JSON client for the automation API's readiness, app install and run-start endpoints."""
 
     # Stores the API base URL without a trailing slash and the request timeout.
     def __init__(self, base_url: str, timeout: float = 30.0):
@@ -105,8 +107,16 @@ class AutomationApi:
     def start_run(self, payload: Mapping[str, Any]) -> dict[str, Any]:
         return self._request("POST", "/runs", payload)
 
+    # Asks the automation API to install a missing app on the test device and returns the outcome.
+    def install_app(self, platform: str, app_external_id: str) -> dict[str, Any]:
+        path = f"/config/{parse.quote(platform)}/apps/{parse.quote(app_external_id)}/install"
+        return self._request("POST", path, timeout=INSTALL_REQUEST_TIMEOUT_SECONDS)
+
     # Sends a JSON request, mapping 409 and other 4xx to RunRejected and other failures to AutomationUnavailable.
-    def _request(self, method: str, path: str, payload: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    def _request(
+        self, method: str, path: str, payload: Mapping[str, Any] | None = None, timeout: float | None = None
+    ) -> dict[str, Any]:
+        timeout = timeout or self.timeout
         body = json.dumps(payload).encode("utf-8") if payload is not None else None
         headers = {"Accept": "application/json"}
         if body is not None:
@@ -118,10 +128,10 @@ class AutomationApi:
             self.base_url,
             path,
             sorted(payload) if payload is not None else None,
-            self.timeout,
+            timeout,
         )
         try:
-            with request.urlopen(req, timeout=self.timeout) as response:
+            with request.urlopen(req, timeout=timeout) as response:
                 content = response.read()
                 logger.debug(
                     "assessment worker: API %s %s -> %s (%d bytes).",
@@ -226,6 +236,36 @@ def _wait(store: Store, req: Mapping[str, Any], assessment: Mapping[str, Any], b
     return "waiting"
 
 
+# Installs the request's missing Android app, returning None once it is installed or else the outcome name.
+def _install_missing_app(
+    store: Store, req: Mapping[str, Any], assessment: Mapping[str, Any], api: AutomationApi, external_id: str
+) -> str | None:
+    logger.info("assessment worker: installing %s from the Play Store for request %s.", external_id, req["id"])
+    try:
+        outcome = api.install_app(req["platform"], external_id)
+    except RunRejected as exc:
+        logger.debug("assessment worker: install refused with blocker %s: %s", exc.blocker, exc.detail)
+        if exc.blocker in NON_RETRYABLE_BLOCKERS:
+            _finish(store, req["id"], "failed", blocker_code=exc.blocker, last_error=exc.detail)
+            _set_assessment_status(store, assessment, "failed")
+            return "blocked"
+        return _wait(store, req, assessment, exc.blocker, exc.detail)
+    except AutomationUnavailable as exc:
+        logger.debug("assessment worker: install request failed: %s", exc)
+        return _wait(store, req, assessment, "automation_unavailable", str(exc))
+    if outcome.get("status") in ("installed", "already_installed"):
+        logger.debug("assessment worker: %s is %s.", external_id, outcome.get("status"))
+        return None
+    blocker = outcome.get("blocker_code") or "app_install_failed"
+    detail = outcome.get("detail") or "The app could not be installed from the Play Store."
+    if outcome.get("retryable") is False:
+        logger.debug("assessment worker: install blocker %s needs a person; failing request %s.", blocker, req["id"])
+        _finish(store, req["id"], "failed", blocker_code=blocker, last_error=detail)
+        _set_assessment_status(store, assessment, "failed")
+        return "blocked"
+    return _wait(store, req, assessment, blocker, detail)
+
+
 # Claims at most one request, checks readiness and starts its run, returning a short outcome name.
 def process_once(
     store: Store,
@@ -306,6 +346,20 @@ def process_once(
         readiness.get("blocker_code"),
         readiness.get("retryable"),
     )
+
+    if (
+        not readiness.get("runnable")
+        and readiness.get("blocker_code") == "app_not_installed"
+        and req["platform"] == "android"
+    ):
+        installed = _install_missing_app(store, req, assessment, api, external_id)
+        if installed is not None:
+            return installed
+        try:
+            readiness = api.readiness(req["platform"], external_id)
+        except AutomationUnavailable as exc:
+            logger.debug("assessment worker: readiness re-check failed: %s", exc)
+            return _wait(store, req, assessment, "automation_unavailable", str(exc))
 
     if not readiness.get("runnable"):
         blocker = readiness.get("blocker_code") or "not_ready"

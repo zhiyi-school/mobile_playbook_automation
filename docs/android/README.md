@@ -50,6 +50,7 @@ artifacts/reports/<RUN_TIMESTAMP>/android/<APP_ID>/<RISK_ID>/<CASE_ID>/
 | A connected device with USB debugging **authorised** | everything |
 | Appium with the UiAutomator2 driver | both risks |
 | `apktool`, `apksigner`, `keytool` on `PATH` | `android-feature-01-risk-02` only |
+| The Play Store app, signed in to a Google account, with the device language set to English | installing missing apps |
 
 Confirm the device before running anything:
 
@@ -83,6 +84,48 @@ apps:
 An older flat package-list shape is still accepted; see
 [Configuration](configuration.md). Where a local file is supplied instead, it
 goes under `artifacts/intake/android/apks/` and is referenced as `<APK_PATH>`.
+
+## Installing apps from the Play Store
+
+An app that is not installed on the test device is installed from its Play
+Store listing by package name. The assessment worker does this before starting
+a run: readiness reports `app_not_installed`, the worker calls
+`POST /config/android/apps/<APP_ID>/install`, and the run starts once the app is
+there. The API holds the Android device for the whole install, so it never
+overlaps a run. To install by hand:
+
+```bash
+python -m mobile_playbook install-app --config configs/android.yaml --apps example-app
+```
+
+Omit `--apps` to install every configured app that is missing. The command
+exits `1` when any app was not installed.
+
+The installer opens the listing in the Play Store app, reads the screen, and
+taps **Install** only. It never taps a price, Buy, Update, a sign-in or
+account prompt, or anything on a screen it does not recognise. Only a free app
+is ever installed. An app already installed is left as it is, including an
+older version.
+
+| Outcome | `blocker_code` | Retries on its own | What to do |
+| --- | --- | --- | --- |
+| Installed, or already installed | — | — | nothing; the run starts |
+| A price or Buy button | `app_paid` | no | verify the purchase, install it on the device by hand, then **Retry now** |
+| Not found, not released, region-locked or incompatible | `app_unavailable` | no | install it another way, or remove the app |
+| Signed out, or account setup or verification asked for | `store_account_action_required` | no | sign in or finish the prompt on the device, then **Retry now** |
+| A screen the rules do not recognise | `store_screen_unrecognised` | no | see below |
+| The download did not finish within five minutes | `app_install_timeout` | yes | usually a slow network |
+| Appium or adb failed | `app_install_failed` | yes | check the device and Appium |
+
+The rules match the English labels and the Play Store's own layout, so set the
+test device's language to English. When the Play Store shows something
+unexpected, nothing is tapped. A screenshot and the screen's layout
+(`screenshot.png`, `page_source.xml`) are saved under
+`artifacts/work/android/play_store/diagnostics/<TIMESTAMP>_<PACKAGE_NAME>/`, and
+the rules in `mobile_playbook/platforms/android/acquisition/play_store.py` can be
+updated from them. The Appium server log for installs is
+`artifacts/work/android/play_store/appium.log`. After an install, the installer
+should be `com.android.vending`; any other installer is reported in the outcome.
 
 ## Risk execution
 

@@ -146,7 +146,7 @@ def _android_configuration(app: dict) -> tuple[str, str | None, str | None]:
         logger.debug("api: package %s is installed on the device.", package_name)
         return "done", None, package_name
     logger.debug("api: package %s is not installed on the device yet.", package_name)
-    return "in_progress", "Waiting for the app to be installed on the test device.", package_name
+    return "in_progress", "The app is not installed on the test device yet; it is installed from the Play Store before testing.", package_name
 
 
 # Count the app's enabled risks.
@@ -205,7 +205,10 @@ BLOCKERS: dict[str, tuple[bool, str]] = {
     "no_tests_enabled": (False, "No security tests are enabled for this app."),
     "configuration_pending": (True, "The test configuration is still being applied."),
     "app_build_missing": (True, "Waiting for the app build to be provided."),
-    "app_not_installed": (True, "Waiting for the app to be installed on the test device."),
+    "app_not_installed": (
+        True,
+        "The app is not installed on the test device yet; it is installed from the Play Store before testing.",
+    ),
     "no_device": (True, "Waiting for a compatible test device to become available."),
     "device_unreachable": (True, "The test device could not be reached."),
     "platform_busy": (True, "Another run is already using the test device."),
@@ -271,6 +274,9 @@ def _readiness(platform: str, app: dict | None, stages: list[Stage]) -> dict:
     )
     if app is not None and _enabled_risk_count(app) == 0:
         configuration_ready, config_blocker = False, "no_tests_enabled"
+    # An Android app in progress is one not yet installed, which the worker installs from the Play Store.
+    if platform == "android" and config_blocker == "app_build_missing":
+        config_blocker = "app_not_installed"
 
     device_needed = _device_required(platform, app)
     if not device_needed:

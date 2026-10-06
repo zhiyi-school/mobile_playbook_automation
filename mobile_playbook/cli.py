@@ -1,5 +1,5 @@
 """
-Command-line entry point for validating configs and playbooks, listing risks, and running scans.
+Command-line entry point for validating configs and playbooks, listing risks, installing Android apps, and running scans.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ import uuid
 from datetime import timedelta
 from pathlib import Path
 
-from mobile_playbook.common.storage_paths import REPOSITORY_ROOT, ios_work_dir, reports_root, work_root
+from mobile_playbook.common.storage_paths import REPOSITORY_ROOT, android_work_dir, ios_work_dir, reports_root, work_root
 
 from mobile_playbook.orchestration.scan_runner import RunOptions, run_platform
 from mobile_playbook.orchestration.work_retention import DEFAULT_RETENTION_DAYS, apply_prune, plan_prune
@@ -24,11 +24,15 @@ from mobile_playbook.orchestration.selection import (
     validate_app_selection,
     validate_risk_selection,
 )
+from mobile_playbook.orchestration.appium_server import ensure_appium_running
+from mobile_playbook.platforms.android.acquisition.play_store import install_from_play_store
 from mobile_playbook.platforms.android.config import ConfigError as AndroidConfigError
 from mobile_playbook.platforms.android.config import load_config as load_android_config
 from mobile_playbook.platforms.android.results import normalize_android_result
 from mobile_playbook.platforms.android.risks import known_risks as known_android_risks
 from mobile_playbook.platforms.android.risks import list_risks as list_android_risks
+from mobile_playbook.platforms.android.device.adb import AdbClient
+from mobile_playbook.platforms.android.device.client import AndroidDeviceClient
 from mobile_playbook.platforms.android.runner import AndroidPlatformRunner
 from mobile_playbook.platforms.ios.config import ConfigError, load_config
 from mobile_playbook.platforms.ios.ipa.encryption import inspect_main_executable
@@ -91,6 +95,13 @@ def build_parser() -> argparse.ArgumentParser:
     acquire.add_argument("--config", required=True)
     acquire.add_argument("--apps", default=None, help="Comma-separated app IDs")
     acquire.add_argument("--out", default=str(ios_work_dir() / "acquired"))
+
+    install_app = sub.add_parser(
+        "install-app",
+        help="Install configured Android apps that are missing from the test device from the Play Store. Paid apps are never installed.",
+    )
+    install_app.add_argument("--config", required=True)
+    install_app.add_argument("--apps", default=None, help="Comma-separated app IDs; omit for every configured app")
 
     inspect = sub.add_parser("inspect-ipa")
     inspect.add_argument("--ipa", required=True)
@@ -273,6 +284,11 @@ def main(argv: list[str] | None = None) -> int:
             finally:
                 logger.debug("cli: run-all finished; triggering dashboard sync for %s.", out_dir)
                 trigger_dashboard_sync(out_dir)
+        if args.command == "install-app":
+            config = load_android_config(Path(args.config), dry_run=True)
+            validate_app_selection(config.apps, selected_app_csv(args.apps))
+            narrow_to_app_selection(config, args.apps)
+            return _install_apps(config)
         if args.command == "acquire":
             config = load_config(Path(args.config), dry_run=False)
             selected_apps = selected_app_csv(args.apps)
@@ -426,6 +442,29 @@ def _acquire(config, selected_apps: set[str] | None, out_dir: Path) -> int:
     results_path.write_text(json.dumps(results, indent=2, sort_keys=True))
     logger.debug("cli: wrote acquire results to %s.", results_path)
     return 0
+
+
+# Installs each missing app in the config from the Play Store, printing each outcome; 1 when any is not installed.
+def _install_apps(config) -> int:
+    work = android_work_dir() / "play_store"
+    appium = ensure_appium_running(
+        config.device.appium_server_url, getattr(config.device, "appium_auto_start", None), work / "appium.log"
+    )
+    if appium.status in ("FAILED", "DISABLED"):
+        print(f"FAILED: Appium is not available at {config.device.appium_server_url}: {appium.error or appium.status}", file=sys.stderr)
+        return 1
+    adb = AdbClient(config.device.adb_path, config.device.adb_serial)
+    client = AndroidDeviceClient(config, adb)
+    exit_code = 0
+    for app in config.apps:
+        outcome = install_from_play_store(adb, client.make_driver, app.package_name, work / "diagnostics")
+        print(f"{app.id} ({app.package_name}): {outcome.blocker_code or outcome.status}")
+        for line in (outcome.detail, f"Diagnostics: {outcome.diagnostics}" if outcome.diagnostics else None):
+            if line:
+                print(f"  {line}")
+        if outcome.status == "failed":
+            exit_code = 1
+    return exit_code
 
 
 # Prints IPA metadata and main-executable inspection as JSON after unpacking to a temp dir.

@@ -10,7 +10,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, Response
 
 from mobile_playbook.api import config_editing
-from mobile_playbook.api.services import provisioning
+from mobile_playbook.api.services import app_install, provisioning
 from mobile_playbook.api.dependencies import load_config_or_400
 from mobile_playbook.api.services import artifacts as artifact_service
 from mobile_playbook.api.schemas import (
@@ -107,6 +107,13 @@ def delete_config_app(platform: Platform, app_id: str) -> None:
 def get_app_provisioning(platform: Platform, app_id: str) -> dict:
     logger.debug("api: GET /config/%s/apps/%s/provisioning.", platform, app_id)
     return provisioning.describe(platform, app_id)
+
+
+# Install an Android app from the Play Store if it is missing, holding the device while it does.
+@router.post("/config/{platform}/apps/{app_id}/install")
+def install_config_app(platform: Platform, app_id: str) -> dict:
+    logger.debug("api: POST /config/%s/apps/%s/install.", platform, app_id)
+    return app_install.install_app(platform, app_id)
 
 
 # List an iOS app's intake builds, highest version first, with the version a run uses by default.

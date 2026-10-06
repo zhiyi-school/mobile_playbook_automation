@@ -130,17 +130,26 @@ def readiness(**overrides: Any) -> dict[str, Any]:
 
 
 class FakeApi:
-    def __init__(self, ready: dict[str, Any] | None = None, start: Any = None):
+    def __init__(self, ready: Any = None, start: Any = None, install: Any = None):
         self.ready = ready if ready is not None else readiness()
         self.start = start
+        self.install = install if install is not None else {"status": "installed"}
         self.readiness_calls = 0
         self.started: list[dict[str, Any]] = []
+        self.installs: list[tuple[str, str]] = []
 
     def readiness(self, platform: str, app_external_id: str) -> dict[str, Any]:
         self.readiness_calls += 1
-        if isinstance(self.ready, Exception):
-            raise self.ready
-        return self.ready
+        ready = self.ready.pop(0) if isinstance(self.ready, list) else self.ready
+        if isinstance(ready, Exception):
+            raise ready
+        return ready
+
+    def install_app(self, platform: str, app_external_id: str) -> dict[str, Any]:
+        self.installs.append((platform, app_external_id))
+        if isinstance(self.install, Exception):
+            raise self.install
+        return self.install
 
     def start_run(self, payload: Mapping[str, Any]) -> dict[str, Any]:
         if isinstance(self.start, Exception):
@@ -364,6 +373,79 @@ def test_every_temporary_blocker_keeps_the_assessment_recoverable(blocker: str):
     assert store.request["status"] == "waiting"
 
 
+def android_store() -> FakeStore:
+    store = FakeStore()
+    store.applications[APPLICATION]["platform"] = "android"
+    store.request["platform"] = "android"
+    return store
+
+
+NOT_INSTALLED = readiness(runnable=False, blocker_code="app_not_installed", detail="Not installed yet.")
+
+
+def test_a_missing_android_app_is_installed_then_its_run_starts():
+    store = android_store()
+    api = FakeApi([NOT_INSTALLED, readiness()])
+
+    assert run(store, api) == "started"
+
+    assert api.installs == [("android", "example_app")]
+    assert api.readiness_calls == 2
+    assert api.started[0]["apps"] == "example_app"
+    assert store.request["status"] == "completed"
+
+
+def test_a_paid_android_app_fails_the_request_for_a_person_to_handle():
+    store = android_store()
+    paid = {"status": "failed", "blocker_code": "app_paid", "retryable": False, "detail": "This app is paid."}
+    api = FakeApi([NOT_INSTALLED], install=paid)
+
+    assert run(store, api) == "blocked"
+
+    assert store.request["status"] == "failed"
+    assert store.request["blocker_code"] == "app_paid"
+    assert store.request["last_error"] == "This app is paid."
+    assert store.assessment["status"] == "failed"
+    assert api.started == []
+
+
+def test_a_slow_android_install_waits_and_retries():
+    store = android_store()
+    slow = {"status": "failed", "blocker_code": "app_install_timeout", "retryable": True, "detail": "Too slow."}
+    api = FakeApi([NOT_INSTALLED], install=slow)
+
+    assert run(store, api) == "waiting"
+
+    assert store.request["status"] == "waiting"
+    assert store.request["blocker_code"] == "app_install_timeout"
+    assert store.assessment["status"] == "waiting"
+
+
+@pytest.mark.parametrize(
+    ("error", "blocker"),
+    [
+        (RunRejected("platform_busy", "Another run is already using the test device."), "platform_busy"),
+        (AutomationUnavailable("The automation host could not be reached."), "automation_unavailable"),
+    ],
+)
+def test_an_install_that_cannot_reach_the_device_waits(error, blocker):
+    store = android_store()
+    api = FakeApi([NOT_INSTALLED], install=error)
+
+    assert run(store, api) == "waiting"
+
+    assert store.request["blocker_code"] == blocker
+
+
+def test_an_ios_app_not_installed_is_never_sent_to_the_play_store():
+    store = FakeStore()
+    api = FakeApi(NOT_INSTALLED)
+
+    assert run(store, api) == "waiting"
+
+    assert api.installs == []
+
+
 def test_the_selected_risks_are_passed_through_when_the_caller_names_them():
     store, api = FakeStore(), FakeApi()
 
@@ -469,3 +551,38 @@ def test_a_refusal_without_a_blocker_is_still_an_invalid_request(monkeypatch):
         assessment_worker.AutomationApi("http://automation").start_run({"platform": "ios"})
 
     assert exc.value.blocker == "invalid_run_request"
+
+
+def test_an_install_request_waits_long_enough_for_a_store_download(monkeypatch):
+    import io
+    import json
+
+    from mobile_playbook.workers import assessment_worker
+
+    seen: list[tuple[str, str, float]] = []
+
+    class Response(io.BytesIO):
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    def respond(req, timeout):
+        seen.append((req.get_method(), req.full_url, timeout))
+        return Response(json.dumps({"status": "installed"}).encode())
+
+    monkeypatch.setattr(assessment_worker.request, "urlopen", respond)
+    api = assessment_worker.AutomationApi("http://automation")
+
+    assert api.install_app("android", "example_app") == {"status": "installed"}
+    api.readiness("android", "example_app")
+
+    assert seen[0] == (
+        "POST",
+        "http://automation/config/android/apps/example_app/install",
+        assessment_worker.INSTALL_REQUEST_TIMEOUT_SECONDS,
+    )
+    assert seen[1][2] == api.timeout

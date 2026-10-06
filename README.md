@@ -121,6 +121,12 @@ Acquire iOS artifacts only:
 python -m mobile_playbook acquire --config configs/ios.yaml --apps example-app
 ```
 
+Install missing Android apps from the Play Store (free apps only):
+
+```bash
+python -m mobile_playbook install-app --config configs/android.yaml --apps example-app
+```
+
 Inspect IPA mutability:
 
 ```bash
