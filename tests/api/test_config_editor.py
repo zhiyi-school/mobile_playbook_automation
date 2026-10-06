@@ -142,6 +142,19 @@ def test_android_add_edit_delete_app(config_root):
     assert len(ce.list_android_apps()) == 1
 
 
+def test_an_android_package_already_configured_names_the_existing_app(config_root):
+    path = config_root / "configs/split/android/apps.yaml"
+    text_before = path.read_text()
+    existing = next(app for app in ce.list_android_apps() if app["id"] == "one")
+
+    with pytest.raises(HTTPException) as excinfo:
+        ce.add_android_app({"name": "One Again", "package_name": existing["package_name"]})
+
+    assert excinfo.value.status_code == 409
+    assert excinfo.value.detail["app_id"] == "one"
+    assert path.read_text() == text_before
+
+
 def test_android_edit_preserves_other_untouched_entries(config_root):
     text_before = (config_root / "configs/split/android/apps.yaml").read_text()
     ce.edit_android_app("one", {"risks": {"android-feature-01-risk-02": {"enabled": True}}})

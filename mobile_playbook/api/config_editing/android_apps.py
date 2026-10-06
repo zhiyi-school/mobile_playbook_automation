@@ -28,6 +28,11 @@ def android_app_id(item: dict) -> str:
     return item.get("id") or android_slugify(item.get("package_name") or item.get("name") or "")
 
 
+# Return an Android app's package, read from the same keys the config parser accepts.
+def android_package_name(item: dict) -> str:
+    return item.get("package_name") or item.get("package") or item.get("bundle_id") or ""
+
+
 # List Android apps from the apps YAML with id and metadata defaults filled in.
 def list_android_apps() -> list[dict]:
     data = rt_yaml.load(config_path(APPS_FILES["android"]).read_text())
@@ -42,18 +47,29 @@ def list_android_apps() -> list[dict]:
     return items
 
 
-# Append a new Android app, raising 409 when its id already exists.
+# Append a new Android app, raising 409 naming the existing app when its id or package is already configured.
 def add_android_app(app: dict) -> dict:
     path = config_path(APPS_FILES["android"])
 
-    # Append the app unless an app with the same id exists.
+    # Append the app unless an app with the same id or package exists.
     def mutate(data: Any) -> None:
         apps = data.setdefault("apps", [])
         app_id = android_app_id(app)
+        package_name = android_package_name(app)
         logger.debug("api: adding Android app %s to %s.", app_id, path)
         if any(android_app_id(plain(item)) == app_id for item in apps):
             logger.debug("api: Android app %s already exists; responding 409.", app_id)
             raise HTTPException(status_code=409, detail={"message": f"App already exists: {app_id}", "app_id": app_id})
+        same_package = next(
+            (plain(item) for item in apps if package_name and android_package_name(plain(item)) == package_name), None
+        )
+        if same_package is not None:
+            existing_id = android_app_id(same_package)
+            logger.debug("api: package %s is already configured as Android app %s; responding 409.", package_name, existing_id)
+            raise HTTPException(
+                status_code=409,
+                detail={"message": f"Package {package_name} is already configured as {existing_id}", "app_id": existing_id},
+            )
         new_app = dict(app)
         new_app.setdefault("id", app_id)
         apps.append(new_app)

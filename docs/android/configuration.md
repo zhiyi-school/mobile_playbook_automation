@@ -88,6 +88,13 @@ apps:
 
 When using the legacy shape, both Android risks are enabled for each package.
 
+Configure each package once. The app's `id` is its identity on the dashboard,
+and its backed-up APKs live in a work folder named after the package, so two
+entries for one package would share that folder and appear as two apps. Adding
+an app through `POST /config/android/apps` refuses a package that is already
+configured and names the existing app. The `id` may match an iOS app's `id`; the
+dashboard keeps one application per `id` and platform.
+
 Each app can also carry `sector`, `agency`, `version`, and `cisos` (a list of `{name, email}`) — organizational metadata a dashboard displays alongside an app's findings. None of this is read by the automation run itself; all four are optional and default to blank/empty, and can be set here directly or through `GET`/`PUT /config/android/apps/{app_id}` (see [HTTP API](../api.md#editing-config)).
 
 See the one app entry under `apps:` in [configs/split/android/apps.example.yaml](../../configs/split/android/apps.example.yaml) for a full, copyable app block including per-app risk overrides.

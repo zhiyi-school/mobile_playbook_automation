@@ -1055,7 +1055,7 @@ error.
 | `GET /apps/{app_id}/risks/{risk_id}/history?limit=20` | Returns the latest matching summary rows for one app/risk without forcing clients to scan all report folders. |
 | `GET /artifacts/{platform}` | Builds sitting in `intake/{ios,android}/{ipas,apks}/`, newest first. iOS identity fields are read from each IPA; Android APK identity fields are read with Android SDK tooling when available. Unreadable files are skipped. |
 | `POST /artifacts/{platform}` | Multipart file upload (`file`) into `intake/{ios,android}/{ipas,apks}/`. Returns `{"path", "metadata"}`; `400` if the file extension doesn't match the platform. |
-| `GET/POST /config/{platform}/apps` | List every configured app, or add a new one. |
+| `GET/POST /config/{platform}/apps` | List every configured app, or add a new one. Adding an app whose id is already configured, or an Android app whose package is, is `409` with `{"detail": {"message", "app_id"}}` naming the existing app. |
 | `GET/PUT/DELETE /config/{platform}/apps/{app_id}` | Read, partially update, or remove one app. |
 | `GET /config/{platform}/apps/{app_id}/builds` | An iOS app's intake builds as `{"builds": [{"version", "build_number", "file", "modified_at"}], "default_version", "ambiguous"}`, highest version first; `default_version` is the one a run tests when no `build_version` is given. An app tested from the device has no builds. `404` for an unknown app; `422` for Android, which tests the installed app. |
 | `GET /config/{platform}/apps/{app_id}/provisioning` | Whether this app is ready to be tested yet, stage by stage. See [Is an app ready to test?](#is-an-app-ready-to-test) |
