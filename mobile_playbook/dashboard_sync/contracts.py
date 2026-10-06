@@ -33,7 +33,7 @@ class DashboardSyncStore(Protocol):
     # Updates one application by id and returns the stored row.
     def update_application(self, application_id: str, fields: Mapping[str, Any]) -> dict[str, Any]: ...
 
-    # Inserts or merges an application keyed on external_id.
+    # Inserts or merges an application keyed on external_id and platform.
     def upsert_application(self, fields: Mapping[str, Any]) -> dict[str, Any]: ...
 
     # Returns the assessment with this external id, or None.

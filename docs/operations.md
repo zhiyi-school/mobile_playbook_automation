@@ -244,8 +244,8 @@ to the sha256 digest of that run's manifest and results feed. A matching digest
 short-circuits the report as unchanged. A re-run that rewrites the same
 timestamp changes the digest and is resynced.
 
-**Idempotency, independent of both.** Applications and assessments are upserted
-on `external_id`. `finding_history` and `activity_log` rows carry a
+**Idempotency, independent of both.** Applications are upserted on
+`external_id` and `platform`; assessments on `external_id`. `finding_history` and `activity_log` rows carry a
 deterministic `sync_key` with a unique index behind it, so a duplicate insert
 conflicts and is swallowed. A finding's `status` and `latest_test_run_id` are
 written **last**, so a pass that dies partway leaves the pre-run state for the

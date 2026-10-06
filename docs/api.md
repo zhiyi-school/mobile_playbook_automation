@@ -541,7 +541,8 @@ rather than seeing "no change" and skipping them permanently.
 
 Use `--run-timestamp 2026-01-01_00-00-00` to sync one completed run, or
 `--interval-seconds 60` to run it as a development reconciler loop. The worker
-uses stable dashboard keys (`applications.external_id = app_id`,
+uses stable dashboard keys (`applications.external_id = app_id`, unique per
+`platform`,
 `assessments.external_id = "<run_timestamp>::<app_id>"`, and
 `findings.external_id = "<app_id>::<test_id>"`) so re-running it updates the
 same rows. If it adopts a dashboard-created `manual::...` assessment

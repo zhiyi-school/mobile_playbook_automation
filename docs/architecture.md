@@ -297,8 +297,10 @@ Three files carry the state, each with one job:
 - `artifacts/reports/.dashboard_sync.lock` — the host-wide `flock` that serializes passes.
   The API reads it (without holding it) to answer whether a worker is running.
 
-Idempotency does not depend on any of that state being correct. Applications and
-assessments are upserted on `external_id`; `finding_history` and `activity_log`
+Idempotency does not depend on any of that state being correct. Applications are
+upserted on `external_id` and `platform`, so the iOS and Android builds of an app
+can share an app id without one merging into the other, and assessments are
+upserted on `external_id`; `finding_history` and `activity_log`
 rows carry a deterministic `sync_key` with a unique index behind it, so a
 duplicate insert conflicts and is swallowed; and a finding's status and
 `latest_test_run_id` are written last, so a pass that dies partway leaves the

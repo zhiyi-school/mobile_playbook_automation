@@ -48,3 +48,12 @@ def test_a_non_integer_scalar_response_is_still_rejected(monkeypatch):
 
     with pytest.raises(SupabaseRestError, match="unexpected JSON"):
         store.recover_expired_assessment_run_leases()
+
+
+def test_an_application_upsert_conflicts_on_external_id_and_platform(monkeypatch):
+    urls = respond_with(monkeypatch, b'[{"id": "app_1"}]')
+    store = SupabaseRestStore("https://example.supabase.co", "synthetic-key")
+
+    store.upsert_application({"external_id": "example_app", "platform": "android", "name": "Example"})
+
+    assert urls == ["https://example.supabase.co/rest/v1/applications?on_conflict=external_id%2Cplatform&select=%2A"]

@@ -70,7 +70,10 @@ class FakeStore:
         return _update(self.applications, application_id, fields)
 
     def upsert_application(self, fields: Mapping[str, Any]) -> dict[str, Any]:
-        existing = self.find_application_by_external_id(str(fields["external_id"]))
+        """Mirror the unique constraint on (external_id, platform)."""
+        existing = self.find_application_by_external_id_and_platform(
+            str(fields["external_id"]), str(fields["platform"])
+        )
         return _update(self.applications, existing["id"], fields) if existing else self._insert(self.applications, "app", fields)
 
     def find_assessment_by_external_id(self, external_id: str) -> dict[str, Any] | None:
@@ -751,3 +754,45 @@ def test_a_rerun_of_another_build_keeps_the_assessments_version():
     assessment = _find(store.assessments, id="v2")
     assert assessment["latest_run_id"] == "2026-02-10_00-00-00"
     assert assessment["app_version"] == "4.3.4"
+
+
+def test_an_android_run_sharing_an_ios_app_id_gets_its_own_application():
+    store = FakeStore()
+    store.applications.append(
+        {
+            "id": "ios_app",
+            "external_id": "example_app",
+            "name": "Example Banking App",
+            "platform": "ios",
+            "identifier": "com.example.app",
+        }
+    )
+    store.assessments.append(
+        {
+            "id": "ios_assessment",
+            "external_id": "2026-01-01_00-00-00::example_app",
+            "application_id": "ios_app",
+            "status": "completed",
+            "latest_run_id": "2026-01-01_00-00-00",
+            "created_at": "2026-01-01_00-00-00",
+        }
+    )
+    android_row = {
+        **_row("2026-02-01_00-00-00"),
+        "platform": "android",
+        "category": "android",
+        "package_or_bundle_id": "com.example.android",
+        "test_id": "android-example-risk",
+    }
+
+    sync_dashboard_results([android_row], store, risk_counts={"android": 2})
+
+    ios_app = _find(store.applications, id="ios_app")
+    android_app = _find(store.applications, external_id="example_app", platform="android")
+    assert ios_app["platform"] == "ios"
+    assert ios_app["identifier"] == "com.example.app"
+    assert android_app is not None and android_app["id"] != "ios_app"
+    assert _find(store.assessments, id="ios_assessment")["latest_run_id"] == "2026-01-01_00-00-00"
+    android_assessment = _find(store.assessments, external_id="2026-02-01_00-00-00::example_app")
+    assert android_assessment is not None and android_assessment["application_id"] == android_app["id"]
+    assert _find(store.findings, external_id="example_app::android-example-risk")["application_id"] == android_app["id"]

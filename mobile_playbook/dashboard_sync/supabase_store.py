@@ -87,9 +87,9 @@ class SupabaseRestStore:
     def update_application(self, application_id: str, fields: Mapping[str, Any]) -> dict[str, Any]:
         return self._update_one("applications", {"id": f"eq.{application_id}"}, fields)
 
-    # Inserts or merges an application keyed on external_id.
+    # Inserts or merges an application keyed on external_id and platform, so one platform never merges into the other.
     def upsert_application(self, fields: Mapping[str, Any]) -> dict[str, Any]:
-        return self._upsert_one("applications", "external_id", fields)
+        return self._upsert_one("applications", "external_id,platform", fields)
 
     # Returns the assessment with this external id, or None.
     def find_assessment_by_external_id(self, external_id: str) -> dict[str, Any] | None:
