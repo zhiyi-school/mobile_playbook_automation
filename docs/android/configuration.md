@@ -27,7 +27,9 @@ device:
   adb_serial: null
 ```
 
-`adb_serial` is optional. Set it when more than one Android device is attached.
+`adb_serial` is optional. Set it when more than one Android device is attached, or when one phone is connected over both USB and Wi-Fi (for example `10.0.0.5:5555` to use only the Wi-Fi connection). It selects the device for adb commands and is passed to Appium as the session's `udid`.
+
+Set `adb_serial: "wifi"` to use the phone's Wi-Fi connection without fixing its address. Each adb client finds it the first time it targets the device. An existing Wi-Fi connection is used as is. Otherwise, with exactly one phone attached by USB, its `wlan0` address is read, adb on the phone is switched to Wi-Fi on port 5555 if it is not listening already (`adb tcpip`, which lasts until the phone reboots), and the host connects to it. The phone must be on a network this host can reach. Without a Wi-Fi connection or a single USB phone to find one through, the device counts as not connected and the API log says why. Use this when USB transfers are unreliable, as on some Huawei phones, while keeping the cable attached for charging.
 
 ### Appium auto-start
 

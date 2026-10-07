@@ -54,6 +54,8 @@ Android ADB failure:
 
 Run `adb devices`, unlock the device, approve debugging, and set `device.adb_serial` if multiple devices are attached.
 
+If the dashboard says more than one test device is connected, `adb devices` lists several entries and `device.adb_serial` is unset; one phone attached over both USB and Wi-Fi counts as two. Set `device.adb_serial` to the entry to test, for example `10.0.0.5:5555` for the Wi-Fi connection, or `wifi` to follow the phone's Wi-Fi address automatically. The API log names the setting when this happens.
+
 Appium connection failure:
 
 Confirm Appium is running and the UiAutomator2 driver is installed. Set `device.appium_auto_start` (see [Configuration](configuration.md#appium-auto-start)) to have the framework start and monitor Appium itself instead — including recovering automatically if it crashes mid-run. Every launch attempt lands in that run's `appium.log`.

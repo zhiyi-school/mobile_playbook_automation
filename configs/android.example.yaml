@@ -3,7 +3,7 @@
 device:
   appium_server_url: "http://127.0.0.1:4723"
   adb_path: "adb"
-  adb_serial: null
+  adb_serial: null    # A serial from "adb devices", or "wifi" to follow the phone's Wi-Fi address.
   appium_auto_start:
     enabled: false
     command: ["appium"]

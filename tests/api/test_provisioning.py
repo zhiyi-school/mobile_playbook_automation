@@ -317,3 +317,34 @@ def test_readiness_never_names_a_device_or_a_path(config_root, no_device):
     text = str(report["detail"]) + str(report["blocker_code"])
     for fragment in ("/", "udid", "serial", "adb", "emulator-"):
         assert fragment not in text.lower()
+
+
+@pytest.fixture
+def several_devices(monkeypatch):
+    monkeypatch.setattr(provisioning.AdbClient, "is_available", lambda self: True)
+    monkeypatch.setattr(
+        provisioning.AdbClient, "run", lambda self, args, timeout=None: (1, "", "error: more than one device/emulator")
+    )
+
+
+def test_several_devices_without_a_chosen_one_say_so_instead_of_no_device(config_root, several_devices, caplog):
+    with caplog.at_level("WARNING", logger=provisioning.logger.name):
+        report = provisioning.describe("android", "one")
+
+    assert _stage(report, "configuration_applied")["state"] == "unknown"
+    assert _stage(report, "configuration_applied")["detail"] == provisioning.AMBIGUOUS_DEVICE_DETAIL
+    assert report["blocker_code"] == "no_device"
+    assert report["retryable"] is True
+    assert report["runnable"] is False
+    assert report["detail"] == provisioning.AMBIGUOUS_DEVICE_DETAIL
+    assert "device.adb_serial" in caplog.text
+    _assert_discloses_nothing(report)
+    for fragment in ("/", "udid", "serial", "adb", "emulator-"):
+        assert fragment not in str(report["detail"]).lower()
+
+
+def test_no_device_keeps_its_own_message(config_root, no_device):
+    report = provisioning.describe("android", "one")
+
+    assert _stage(report, "configuration_applied")["detail"] == "No test device is currently connected."
+    assert report["detail"] == provisioning.BLOCKERS["no_device"][1]

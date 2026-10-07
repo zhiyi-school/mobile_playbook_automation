@@ -10,6 +10,9 @@ import time
 
 logger = logging.getLogger(__name__)
 
+# Commands the adb host answers itself; they never target a device, so they skip resolving `adb_serial: wifi`.
+HOST_COMMANDS = frozenset({"version", "devices", "connect", "disconnect", "start-server", "kill-server", "mdns"})
+
 
 class AdbClient:
     """Runs adb commands, optionally pinned to one device serial."""
@@ -20,13 +23,16 @@ class AdbClient:
     def __init__(self, adb_path: str = "adb", serial: str | None = None):
         self.adb_path = adb_path
         self.serial = serial
+        self._wifi_serial: str | None = None
+        self._wifi_resolved = False
         logger.debug("android adb: client created (adb_path=%s, serial=%s)", adb_path, serial)
 
     # Run an adb command and return its exit code, stdout and stderr, using 127 and 124 for missing adb and timeouts.
     def run(self, args: list[str], timeout: float | None = DEFAULT_TIMEOUT) -> tuple[int, str, str]:
         command = [self.adb_path]
-        if self.serial:
-            command.extend(["-s", self.serial])
+        serial = self.serial if args[:1] and args[0] in HOST_COMMANDS else self.target_serial()
+        if serial:
+            command.extend(["-s", serial])
         command.extend(args)
         logger.debug("android adb: running argv=%s (timeout=%s)", command, timeout)
         started = time.monotonic()
@@ -58,6 +64,19 @@ class AdbClient:
         )
         return result.returncode, stdout, stderr
 
+    # Return the serial device commands use, resolving `wifi` to the phone's Wi-Fi connection once per client.
+    def target_serial(self) -> str | None:
+        from mobile_playbook.platforms.android.device.wifi import WIFI_SERIAL, connect_over_wifi
+
+        if self.serial != WIFI_SERIAL:
+            return self.serial
+        if not self._wifi_resolved:
+            self._wifi_serial = connect_over_wifi(self.adb_path)
+            self._wifi_resolved = True
+            logger.debug("android adb: resolved adb_serial wifi to %s", self._wifi_serial)
+        # Unresolved, commands keep targeting "wifi" so they fail as no device instead of reaching a USB connection.
+        return self._wifi_serial or self.serial
+
     # Report whether `adb version` succeeds.
     def is_available(self) -> bool:
         code, _, _ = self.run(["version"])
@@ -80,9 +99,10 @@ class AdbClient:
 
     # Report whether the configured serial, or any device when none is set, is connected.
     def is_device_connected(self) -> bool:
-        if self.serial:
-            connected = self.serial in self.connected_devices()
-            logger.debug("android adb: device %s connected=%s", self.serial, connected)
+        serial = self.target_serial()
+        if serial:
+            connected = serial in self.connected_devices()
+            logger.debug("android adb: device %s connected=%s", serial, connected)
             return connected
         connected = bool(self.connected_devices())
         logger.debug("android adb: any device connected=%s", connected)

@@ -117,14 +117,23 @@ def _android_adb() -> AdbClient:
         return AdbClient()
 
 
-# Return connected, no_device or unreachable for the Android device, never the serial.
+# Return connected, no_device, ambiguous or unreachable for the Android device, never the serial.
 def _android_device(adb: AdbClient) -> str:
     if not adb.is_available():
         logger.debug("api: adb is not available; Android device unreachable.")
         return "unreachable"
-    state_code, state_out, _ = adb.run(["get-state"])
+    state_code, state_out, state_err = adb.run(["get-state"])
     logger.debug("api: adb get-state exited %s (state=%r).", state_code, state_out.strip())
-    return "connected" if state_code == 0 and state_out.strip() == "device" else "no_device"
+    if state_code == 0 and state_out.strip() == "device":
+        return "connected"
+    # Without a serial, adb refuses to choose between devices, including one phone attached over USB and Wi-Fi.
+    if "more than one device" in (state_err or state_out or ""):
+        logger.warning(
+            "Several Android devices are connected and device.adb_serial is not set; run 'adb devices' and set "
+            "device.adb_serial in the Android config to the one to test, or to wifi for a phone on USB and Wi-Fi."
+        )
+        return "ambiguous"
+    return "no_device"
 
 
 # Return the state, detail and package name of an Android app's test configuration.
@@ -141,6 +150,8 @@ def _android_configuration(app: dict) -> tuple[str, str | None, str | None]:
         return "unknown", "The test device could not be reached.", package_name
     if device == "no_device":
         return "unknown", "No test device is currently connected.", package_name
+    if device == "ambiguous":
+        return "unknown", AMBIGUOUS_DEVICE_DETAIL, package_name
 
     if android_is_installed(adb, package_name):
         logger.debug("api: package %s is installed on the device.", package_name)
@@ -214,6 +225,11 @@ BLOCKERS: dict[str, tuple[bool, str]] = {
     "platform_busy": (True, "Another run is already using the test device."),
 }
 
+# Shown when several devices are attached and none is chosen; it names no device, since dashboards must not.
+AMBIGUOUS_DEVICE_DETAIL = (
+    "More than one test device is connected, so none could be chosen. The automation host must be set to use one of them."
+)
+
 _CONFIG_BLOCKER_BY_STAGE_STATE = {
     "failed": "configuration_incomplete",
     "in_progress": "app_build_missing",
@@ -279,12 +295,15 @@ def _readiness(platform: str, app: dict | None, stages: list[Stage]) -> dict:
         config_blocker = "app_not_installed"
 
     device_needed = _device_required(platform, app)
+    device_detail = None
     if not device_needed:
         device_ready, device_blocker = True, None
     elif platform == "android":
         state = _android_device(_android_adb())
         device_ready = state == "connected"
         device_blocker = None if device_ready else ("device_unreachable" if state == "unreachable" else "no_device")
+        # Several devices keep the no_device code, so consumers are unchanged, with a detail saying why.
+        device_detail = AMBIGUOUS_DEVICE_DETAIL if state == "ambiguous" else None
     else:
         device_ready = _ios_device_ready()
         device_blocker = None if device_ready else "no_device"
@@ -298,6 +317,8 @@ def _readiness(platform: str, app: dict | None, stages: list[Stage]) -> dict:
     blocker = config_blocker or device_blocker or (None if platform_available else "platform_busy")
     runnable = configuration_ready and device_ready and platform_available and blocker is None
     retryable, detail = BLOCKERS.get(blocker, (True, None)) if blocker else (True, None)
+    if blocker == device_blocker and device_detail:
+        detail = device_detail
     logger.debug(
         "api: %s readiness config_ready=%s device_needed=%s device_ready=%s platform_available=%s blocker=%s.",
         platform,

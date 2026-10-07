@@ -27,8 +27,8 @@ def appium_available() -> bool:
     return available
 
 
-# Start a no-reset UiAutomator2 Appium session, optionally launching a package and activity.
-def create_appium_driver(server_url: str, app_package: str | None = None, app_activity: str | None = None):
+# Start a no-reset UiAutomator2 Appium session, optionally pinned to one adb serial and launching a package and activity.
+def create_appium_driver(server_url: str, app_package: str | None = None, app_activity: str | None = None, udid: str | None = None):
     if not appium_available():
         raise RuntimeError("Appium-Python-Client is not installed. Run 'pip install Appium-Python-Client'.")
 
@@ -37,6 +37,9 @@ def create_appium_driver(server_url: str, app_package: str | None = None, app_ac
     options.automation_name = "UiAutomator2"
     options.no_reset = True
     options.new_command_timeout = 120
+    # Without a udid, UiAutomator2 takes the first device adb lists, which may be another transport to the same phone.
+    if udid:
+        options.udid = udid
     if app_package:
         options.app_package = app_package
     if app_activity:
