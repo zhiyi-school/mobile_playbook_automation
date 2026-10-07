@@ -23,7 +23,7 @@ BROWSER_PACKAGES = [
     "com.android.browser",
     "com.sec.android.app.sbrowser",
 ]
-LAUNCHER_PACKAGES = ["com.google.android.apps.nexuslauncher", "com.sec.android.app.launcher"]
+LAUNCHER_PACKAGES = ["com.google.android.apps.nexuslauncher", "com.sec.android.app.launcher", "com.huawei.android.launcher"]
 PLAY_STORE_PACKAGE = "com.android.vending"
 DEBUGGING_KEYWORDS = ["developer options", "debugging", "usb debugging", "debugging detected"]
 CAPTURE_KEYWORDS = ["screen recording", "screen sharing", "screen recording/sharing"]

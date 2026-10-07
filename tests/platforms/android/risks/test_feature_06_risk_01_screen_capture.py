@@ -39,6 +39,7 @@ class ForegroundDriver:
         ("com.android.vending", "INCONCLUSIVE"),
         ("com.android.chrome", "BLOCKED (Redirected to Browser"),
         ("com.google.android.apps.nexuslauncher", "BLOCKED (App exited to Home Screen"),
+        ("com.huawei.android.launcher", "BLOCKED (App exited to Home Screen"),
         ("com.example.other", "BLOCKED (Switched to unknown app"),
         ("com.example.app", "Unknown"),
     ],

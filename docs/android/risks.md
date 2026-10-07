@@ -11,7 +11,7 @@ Stages:
 1. Connect an Appium driver and start a screen recording (best-effort; the test continues if recording cannot start).
 2. Wait `record_lead_in` seconds, then activate (launch) the target app.
 3. Wait `launch_wait` seconds, then evaluate the app's response, checking in order:
-   - Did the foreground app switch away from the target package? If so, classify as redirected to a known browser, exited to the home-screen launcher, or switched to an unknown app. A switch to the Play Store (`com.android.vending`) is inconclusive instead: the app refused to open, typically because it was not installed from the Play Store, so its screen was never shown and screen capture was not tested.
+   - Did the foreground app switch away from the target package? If so, classify as redirected to a known browser, exited to the home-screen launcher (Pixel, Samsung or Huawei), or switched to an unknown app. A switch to the Play Store (`com.android.vending`) is inconclusive instead: the app refused to open, typically because it was not installed from the Play Store, so its screen was never shown and screen capture was not tested.
    - Does the visible UI contain developer/USB-debugging keywords (for example "usb debugging")?
    - Does the visible UI contain screen-recording/sharing warning keywords?
    - Does `adb shell dumpsys window windows` report `FLAG_SECURE` on the current window?
