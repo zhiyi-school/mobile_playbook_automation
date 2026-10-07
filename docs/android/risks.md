@@ -11,7 +11,7 @@ Stages:
 1. Connect an Appium driver and start a screen recording (best-effort; the test continues if recording cannot start).
 2. Wait `record_lead_in` seconds, then activate (launch) the target app.
 3. Wait `launch_wait` seconds, then evaluate the app's response, checking in order:
-   - Did the foreground app switch away from the target package? If so, classify as redirected to a known browser, exited to the home-screen launcher, or switched to an unknown app.
+   - Did the foreground app switch away from the target package? If so, classify as redirected to a known browser, exited to the home-screen launcher, or switched to an unknown app. A switch to the Play Store (`com.android.vending`) is inconclusive instead: the app refused to open, typically because it was not installed from the Play Store, so its screen was never shown and screen capture was not tested.
    - Does the visible UI contain developer/USB-debugging keywords (for example "usb debugging")?
    - Does the visible UI contain screen-recording/sharing warning keywords?
    - Does `adb shell dumpsys window windows` report `FLAG_SECURE` on the current window?
@@ -23,6 +23,7 @@ Verdict-to-status mapping:
 
 - Any `ALLOWED` verdict (UI visible, no security signal detected) → `SCREEN_CAPTURE_ALLOWED`.
 - Any `BLOCKED` verdict (browser/launcher redirect, debugging/capture warning text, or `FLAG_SECURE`) → `SCREEN_CAPTURE_BLOCKED`.
+- Any `INCONCLUSIVE` verdict (the app redirected to the Play Store instead of opening) → `SCREEN_CAPTURE_NOT_TESTED`, with the Inconclusive security verdict.
 - Any `ERROR` verdict (driver, launch, or ADB failure) → `FAILED`.
 
 Timing knobs (`record_lead_in`, `launch_wait`, `record_tail`) are documented in [Configuration](configuration.md).

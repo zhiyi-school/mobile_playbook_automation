@@ -39,7 +39,8 @@ for each platform. See [docs/ios/reports-and-troubleshooting.md](../ios/reports-
 Each test's `report.json` (and `logs.txt`) carries one of these precise statuses in its `final_status` field:
 
 - `SCREEN_CAPTURE_ALLOWED`: UI was visible and no secure-window signal was detected.
-- `SCREEN_CAPTURE_BLOCKED`: app redirected, warned, exited, or set `FLAG_SECURE`.
+- `SCREEN_CAPTURE_BLOCKED`: app redirected to a browser or another app, warned, exited, or set `FLAG_SECURE`.
+- `SCREEN_CAPTURE_NOT_TESTED`: app redirected to the Play Store instead of opening, so screen capture was not tested. Reported as Inconclusive. Reinstall the app from the Play Store and run the test again.
 - `REPACKAGING_SURVIVED`: repackaged app installed and passed basic launch validation.
 - `REPACKAGING_BLOCKED`: repackaged app installed but failed validation.
 - `REPACKAGING_FAILED`: backup, decode, patch, rebuild, sign, or install failed.
