@@ -17,6 +17,7 @@ from mobile_playbook.common.storage_paths import android_work_dir, resolve_under
 
 from mobile_playbook.common.logging_setup import REDACTED, redacted
 from mobile_playbook.platforms.android.acquisition.store import STORE_NAME, STORE_PACKAGE, WORK_DIR_NAME, install_missing_app
+from mobile_playbook.platforms.android.device.install import install_apks
 from mobile_playbook.platforms.android.models import AndroidRiskRunResult
 from mobile_playbook.platforms.android.risks.base import AndroidRisk
 
@@ -29,7 +30,6 @@ except ImportError:
     AppiumBy = None
 
 APKEDITOR_DIR = "tools/vendor/apkeditor"
-INSTALL_FAILURE_RE = re.compile(r"Failure \[.*\]")
 
 
 class StageFailure(Exception):
@@ -359,21 +359,7 @@ class AndroidRepackagingRisk(AndroidRisk):
         if not apks:
             return False, f"No APKs to install in {app_dir}"
         self._uninstall_app(device_client, package_name)
-        if len(apks) == 1:
-            command = ["install", "-r", "-g", str(apks[0])]
-        else:
-            command = ["install-multiple", "-r", "-g", *[str(apk) for apk in apks]]
-        code, out, err = device_client.adb.run(command, timeout=180)
-        output = "\n".join(part for part in (out, err) if part)
-        failure = INSTALL_FAILURE_RE.search(output)
-        logger.debug("%s[%s]: adb %s exit %s (failure=%r)", self.risk_id, package_name, command[0], code, failure.group(0) if failure else None)
-        # Older adb versions exit 0 even when the package manager reports Failure [...].
-        if code == 0 and not failure:
-            return True, ""
-        if failure:
-            return False, failure.group(0)
-        lines = [line.strip() for line in output.splitlines() if line.strip()]
-        return False, lines[-1] if lines else f"adb {command[0]} exited {code}"
+        return install_apks(device_client.adb, apks, grant_permissions=True)
 
     # Replace the rebuilt app with an install from the configured app store, falling back to the backed-up APKs over adb, and record which one ran.
     def _restore_original(self, device_client, app_dir: Path, package_name: str, result: AndroidRiskRunResult) -> None:
