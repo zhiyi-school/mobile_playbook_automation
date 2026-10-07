@@ -102,12 +102,14 @@ Omit `--apps` to install every configured app that is missing. The command
 exits `1` when any app was not installed.
 
 `mobile_playbook/platforms/android/acquisition/store.py` chooses the store with
-a single import:
+a single import. The repackaging risk (`android-feature-01-risk-02`) follows
+the same choice: it reinstalls the original app from this store after its test,
+and treats a redirect to this store as the app blocking the repackaged build.
 
 | Store | Device | Import in `store.py` |
 | --- | --- | --- |
-| Huawei AppGallery (`app_gallery.py`) | Huawei phones without Google services, such as HarmonyOS 4.x | `from ...app_gallery import WORK_DIR_NAME, failure, install_from_app_gallery as install_missing_app` |
-| Google Play Store (`play_store.py`) | Android phones with Google Play | `from ...play_store import WORK_DIR_NAME, failure, install_from_play_store as install_missing_app` |
+| Huawei AppGallery (`app_gallery.py`) | Huawei phones without Google services, such as HarmonyOS 4.x | `from ...app_gallery import APP_GALLERY_PACKAGE as STORE_PACKAGE, STORE_NAME, WORK_DIR_NAME, failure, install_from_app_gallery as install_missing_app` |
+| Google Play Store (`play_store.py`) | Android phones with Google Play | `from ...play_store import PLAY_STORE_PACKAGE as STORE_PACKAGE, STORE_NAME, WORK_DIR_NAME, failure, install_from_play_store as install_missing_app` |
 
 Switching stores is that one import; restart the API and the worker after
 changing it. HarmonyOS NEXT (5.x and later) does not run Android apps and is

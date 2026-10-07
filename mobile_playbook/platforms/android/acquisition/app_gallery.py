@@ -31,6 +31,7 @@ except ImportError:
     AppiumBy = None
 
 APP_GALLERY_PACKAGE = "com.huawei.appmarket"
+STORE_NAME = "AppGallery"
 WORK_DIR_NAME = "app_gallery"
 
 INSTALL_LABEL = "install"

@@ -147,7 +147,7 @@ though `validate` and `--dry-run` work without any of it.
   one, so a locked secured device needs a person.
 - **Android**: Android platform-tools on `PATH` (`adb`), the UiAutomator2
   driver, and a device with USB debugging authorized.
-- **Android repackaging risk only**: `apktool`, `apksigner`, `keytool`.
+- **Android repackaging risk only**: `apktool`, `apksigner`, `keytool`, plus `java` for apps installed as split APKs (APKEditor is vendored under `tools/vendor/apkeditor/`).
 - **MobSF** (optional): only for the iOS static-analysis risk when its
   `analyzer.provider` is `mobsf`. Set `MOBSF_API_KEY`. MobSF defaults to port
   8000, which is why this API defaults to 8080.

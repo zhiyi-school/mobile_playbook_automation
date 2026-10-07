@@ -5,6 +5,8 @@ repackaging:
   keystore_alias: "mobileplaybook"
   keystore_pass: "password"
   restore_original_after_test: true
+  # Merges split APKs before decoding. Defaults to the newest APKEditor*.jar under tools/vendor/apkeditor/.
+  apkeditor_jar: null
   record_lead_in: 2
   launch_wait: 8
   post_click_wait: 5

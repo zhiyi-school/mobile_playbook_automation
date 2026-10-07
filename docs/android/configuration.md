@@ -144,7 +144,8 @@ repackaging:
 - `work_dir` (optional): root directory for backed-up, decoded, and rebuilt APKs (per app, under `<work_dir>/<package_name_with_underscores>/`). Unset, it is `<work>/android/repackaging`; a relative value resolves against the repository root.
 - `keystore_path`: path to a debug/release keystore used to re-sign the repackaged APK; a relative value resolves against the repository root. If unset, a keystore is generated at `<work_dir>/<app>/../release.keystore` via `keytool` on first use.
 - `keystore_alias` / `keystore_pass`: alias and password used when generating the keystore and signing with `apksigner`.
-- `restore_original_after_test`: whether to reinstall the original, backed-up APK(s) after the repackaged build has been validated.
+- `restore_original_after_test`: whether to replace the repackaged build with the original after validation, from the app store that `acquisition/store.py` selects first and from the backed-up APKs over adb if that fails.
+- `apkeditor_jar` (optional): path to the APKEditor jar used to merge split APKs before decoding; a relative value resolves against the repository root. Unset, the newest `APKEditor*.jar` under `tools/vendor/apkeditor/` is used.
 - `launch_wait` / `post_click_wait` / `record_lead_in` / `record_tail`: pacing for the post-repackaging Appium launch validation and its screen recording.
 
 ### Screen capture timing (`android-feature-06-risk-01`)

@@ -32,30 +32,31 @@ Timing knobs (`record_lead_in`, `launch_wait`, `record_tail`) are documented in 
 
 `android-feature-01-risk-02` demonstrates whether a repackaged (decompiled, patched, and re-signed) build of the app can still install and launch, which indicates the app lacks effective tamper/signature detection.
 
-Requires: `adb`, `apktool`, `apksigner`, `keytool`, `appium`.
+Requires: `adb`, `apktool`, `apksigner`, `keytool`, `appium`. Apps installed as split APKs also need [APKEditor](https://github.com/REAndroid/APKEditor) and `java`; preflight does not check these because apps without splits don't use them.
 
 Stages (each must succeed before the next runs; the first failure stops the pipeline):
 
 1. **Backup APKs** — `adb shell pm path <package>` to enumerate installed APK paths (handles split APKs), then `adb pull` each into `artifacts/work/android/repackaging/<package>/original/`.
 2. **Ensure keystore** — generate a local signing keystore with `keytool -genkeypair` if one does not already exist at `keystore_path`.
-3. **apktool decode** — `apktool d` the base APK into `repackaged/base/`.
-4. **Patch manifest** — add `android:debuggable="true"` to the `<application>` element if not already present.
-5. **Change app name** — prefix the `app_name` string resource with `RPK ` so the repackaged build is visually distinguishable (best-effort; does not fail the pipeline if the string is missing).
-6. **Rebuild APK** — `apktool b` the patched sources into `repackaged.apk`.
-7. **Sign APKs** — `apksigner sign` the rebuilt APK (and any split APKs) with the local keystore.
-8. **Install repackaged APKs** — uninstall the existing app, then `adb install` / `adb install-multiple` the signed, repackaged build(s).
+3. **Merge split APKs** — when the backup holds split APKs, `java -jar APKEditor.jar m` merges `base.apk` and the splits into `merged.apk`, so resources that live in a split are not decoded as `@null`. Apps without splits skip this. If the app has splits and APKEditor or `java` is missing, the stage fails with a message saying so.
+4. **apktool decode** — `apktool d` `merged.apk` (or `base.apk` when there are no splits) into `repackaged/base/`.
+5. **Patch manifest** — add `android:debuggable="true"` to the `<application>` element if not already present.
+6. **Change app name** — prefix the `app_name` string resource with `RPK ` so the repackaged build is visually distinguishable (best-effort; does not fail the pipeline if the string is missing).
+7. **Rebuild APK** — `apktool b` the patched sources into `repackaged.apk`.
+8. **Sign APKs** — `apksigner sign` the rebuilt APK with the local keystore.
+9. **Install repackaged APKs** — uninstall the existing app, then `adb install` the signed, repackaged APK.
 
-If any stage fails, the run stops there and reports `REPACKAGING_FAILED` with the failing stage name in `errors`.
+If any stage fails, the run stops there and reports `REPACKAGING_FAILED` with the Inconclusive verdict. `errors` names the failing stage and, where the tool gave one, its reason, for example `Failed at stage: install_repackaged_apks - Failure [INSTALL_FAILED_...]`.
 
 If all stages succeed, an Appium-driven validation launches the repackaged app and checks:
 
-- Does it redirect to the Play Store with a "get this app from play" prompt (a common tamper-detection response)?
+- Does it redirect to the app store that `platforms/android/acquisition/store.py` selects, such as the Play Store's "get this app from Play" prompt or an AppGallery listing (a common tamper-detection response)?
 - Does it exit immediately after launch?
 - After tapping the first clickable element, does either of the above happen?
 
-`PASS` → `REPACKAGING_SURVIVED` (the repackaged build kept working — the app did not detect the tampering). Any `FAIL` → `REPACKAGING_BLOCKED` (the app detected the repackaging and reacted, for example by redirecting to the Play Store or exiting).
+`PASS` → `REPACKAGING_SURVIVED` (the repackaged build kept working — the app did not detect the tampering). Any `FAIL` → `REPACKAGING_BLOCKED` (the app detected the repackaging and reacted, for example by redirecting to the app store or exiting).
 
-When `restore_original_after_test` is true (the default), the original, backed-up APK(s) are reinstalled after validation regardless of outcome.
+When `restore_original_after_test` is true (the default) and the install stage ran, the rebuilt app is uninstalled after the test and the original is reinstalled from the app store that `platforms/android/acquisition/store.py` selects (Play Store or AppGallery). If that does not succeed (for example, a paid app), the backed-up APKs are reinstalled with `adb install-multiple` instead, and `metadata.restore` records `method: adb`, the app store outcome, and a note that later tests ran against an adb install. The restore also runs when validation raises an error; a restore that fails adds a `Restore failed: …` entry to `errors`. If the pipeline stopped before the install stage, the original was never replaced and nothing is reinstalled.
 
 Generated work files (backed-up, decoded, and rebuilt APKs) are left under `artifacts/work/android/repackaging/` for inspection.
 

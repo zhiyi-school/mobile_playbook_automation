@@ -26,6 +26,7 @@ except ImportError:
     AppiumBy = None
 
 PLAY_STORE_PACKAGE = "com.android.vending"
+STORE_NAME = "Play Store"
 WORK_DIR_NAME = "play_store"
 PACKAGE_RE = re.compile(r"^[A-Za-z0-9_]+(\.[A-Za-z0-9_]+)+$")
 
