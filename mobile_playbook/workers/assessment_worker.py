@@ -30,7 +30,7 @@ DEFAULT_POLL_SECONDS = 15.0
 BACKOFF_BASE_SECONDS = 30
 BACKOFF_MAX_SECONDS = 900
 MAX_ATTEMPTS = 20
-# A Play Store install waits up to five minutes for the download, plus Appium start-up and page loads.
+# An app store install waits up to five minutes for the download, plus Appium start-up and page loads.
 INSTALL_REQUEST_TIMEOUT_SECONDS = 480.0
 
 ACTIVE_REQUEST_STATUSES = ("queued", "waiting", "claimed", "running")
@@ -240,7 +240,7 @@ def _wait(store: Store, req: Mapping[str, Any], assessment: Mapping[str, Any], b
 def _install_missing_app(
     store: Store, req: Mapping[str, Any], assessment: Mapping[str, Any], api: AutomationApi, external_id: str
 ) -> str | None:
-    logger.info("assessment worker: installing %s from the Play Store for request %s.", external_id, req["id"])
+    logger.info("assessment worker: installing %s from the app store for request %s.", external_id, req["id"])
     try:
         outcome = api.install_app(req["platform"], external_id)
     except RunRejected as exc:
@@ -257,7 +257,7 @@ def _install_missing_app(
         logger.debug("assessment worker: %s is %s.", external_id, outcome.get("status"))
         return None
     blocker = outcome.get("blocker_code") or "app_install_failed"
-    detail = outcome.get("detail") or "The app could not be installed from the Play Store."
+    detail = outcome.get("detail") or "The app could not be installed from the app store."
     if outcome.get("retryable") is False:
         logger.debug("assessment worker: install blocker %s needs a person; failing request %s.", blocker, req["id"])
         _finish(store, req["id"], "failed", blocker_code=blocker, last_error=detail)

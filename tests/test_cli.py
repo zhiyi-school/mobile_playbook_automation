@@ -243,7 +243,7 @@ def test_install_app_installs_the_selected_missing_app_and_reports_it(config_roo
         return outcomes.get(package) or failure("paid")
 
     monkeypatch.setattr(cli_module, "ensure_appium_running", lambda *args: AppiumStartResult("ALREADY_RUNNING"))
-    monkeypatch.setattr(cli_module, "install_from_play_store", fake_install)
+    monkeypatch.setattr(cli_module, "install_missing_app", fake_install)
     config = str(config_root / "configs/android.yaml")
 
     assert cli_module.main(["install-app", "--config", config, "--apps", "one"]) == 0
@@ -261,7 +261,7 @@ def test_install_app_stops_when_appium_is_not_available(config_root, monkeypatch
     from mobile_playbook.orchestration.appium_server import AppiumStartResult
 
     monkeypatch.setattr(cli_module, "ensure_appium_running", lambda *args: AppiumStartResult("DISABLED"))
-    monkeypatch.setattr(cli_module, "install_from_play_store", lambda *args, **kwargs: pytest.fail("installed anyway"))
+    monkeypatch.setattr(cli_module, "install_missing_app", lambda *args, **kwargs: pytest.fail("installed anyway"))
 
     assert cli_module.main(["install-app", "--config", str(config_root / "configs/android.yaml")]) == 1
     assert "Appium is not available" in capsys.readouterr().err

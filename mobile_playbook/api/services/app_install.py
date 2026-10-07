@@ -1,5 +1,5 @@
 """
-Installs a configured Android app on the test device from the Play Store while holding the Android device.
+Installs a configured Android app on the test device from the configured app store while holding the Android device.
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from mobile_playbook.api.config_editing.shared import ENTRY_FILES
 from mobile_playbook.api.run_registry import registry
 from mobile_playbook.common.storage_paths import android_work_dir, config_path
 from mobile_playbook.orchestration.appium_server import ensure_appium_running
-from mobile_playbook.platforms.android.acquisition.play_store import failure, install_from_play_store
+from mobile_playbook.platforms.android.acquisition.store import WORK_DIR_NAME, failure, install_missing_app
 from mobile_playbook.platforms.android.config import ConfigError as AndroidConfigError
 from mobile_playbook.platforms.android.config import load_config as load_android_config
 from mobile_playbook.platforms.android.device.adb import AdbClient
@@ -52,7 +52,7 @@ def install_app(platform: str, app_id: str) -> dict:
             detail={"blocker_code": "platform_busy", "message": "Another run is already using the test device."},
         )
     try:
-        work = android_work_dir() / "play_store"
+        work = android_work_dir() / WORK_DIR_NAME
         appium = ensure_appium_running(
             config.device.appium_server_url, getattr(config.device, "appium_auto_start", None), work / "appium.log"
         )
@@ -61,10 +61,10 @@ def install_app(platform: str, app_id: str) -> dict:
         else:
             adb = AdbClient(config.device.adb_path, config.device.adb_serial)
             client = AndroidDeviceClient(config, adb)
-            outcome = install_from_play_store(adb, client.make_driver, package, work / "diagnostics")
+            outcome = install_missing_app(adb, client.make_driver, package, work / "diagnostics")
     finally:
         registry.release_platform("android")
-    logger.info("Play Store install of %s (%s): %s %s.", app_id, package, outcome.status, outcome.blocker_code or "")
+    logger.info("App store install of %s (%s): %s %s.", app_id, package, outcome.status, outcome.blocker_code or "")
     result = outcome.to_dict()
     result.pop("diagnostics", None)
     return result

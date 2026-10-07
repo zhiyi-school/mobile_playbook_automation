@@ -50,7 +50,7 @@ artifacts/reports/<RUN_TIMESTAMP>/android/<APP_ID>/<RISK_ID>/<CASE_ID>/
 | A connected device with USB debugging **authorised** | everything |
 | Appium with the UiAutomator2 driver | both risks |
 | `apktool`, `apksigner`, `keytool` on `PATH` | `android-feature-01-risk-02` only |
-| The Play Store app, signed in to a Google account, with the device language set to English | installing missing apps |
+| The app store in use (Play Store signed in to a Google account, or AppGallery signed in to a HUAWEI ID), with the device language set to English | installing missing apps |
 
 Confirm the device before running anything:
 
@@ -85,11 +85,11 @@ An older flat package-list shape is still accepted; see
 [Configuration](configuration.md). Where a local file is supplied instead, it
 goes under `artifacts/intake/android/apks/` and is referenced as `<APK_PATH>`.
 
-## Installing apps from the Play Store
+## Installing apps from an app store
 
-An app that is not installed on the test device is installed from its Play
-Store listing by package name. The assessment worker does this before starting
-a run: readiness reports `app_not_installed`, the worker calls
+An app that is not installed on the test device is installed from its app store
+listing by package name. The assessment worker does this before starting a run:
+readiness reports `app_not_installed`, the worker calls
 `POST /config/android/apps/<APP_ID>/install`, and the run starts once the app is
 there. The API holds the Android device for the whole install, so it never
 overlaps a run. To install by hand:
@@ -101,11 +101,26 @@ python -m mobile_playbook install-app --config configs/android.yaml --apps examp
 Omit `--apps` to install every configured app that is missing. The command
 exits `1` when any app was not installed.
 
-The installer opens the listing in the Play Store app, reads the screen, and
-taps **Install** only. It never taps a price, Buy, Update, a sign-in or
-account prompt, or anything on a screen it does not recognise. Only a free app
-is ever installed. An app already installed is left as it is, including an
-older version.
+`mobile_playbook/platforms/android/acquisition/store.py` chooses the store with
+a single import:
+
+| Store | Device | Import in `store.py` |
+| --- | --- | --- |
+| Huawei AppGallery (`app_gallery.py`) | Huawei phones without Google services, such as HarmonyOS 4.x | `from ...app_gallery import WORK_DIR_NAME, failure, install_from_app_gallery as install_missing_app` |
+| Google Play Store (`play_store.py`) | Android phones with Google Play | `from ...play_store import WORK_DIR_NAME, failure, install_from_play_store as install_missing_app` |
+
+Switching stores is that one import; restart the API and the worker after
+changing it. HarmonyOS NEXT (5.x and later) does not run Android apps and is
+not supported.
+
+The installer opens the listing in the store app, reads the screen, and taps
+**Install** only. It never taps a price, Buy, Update, a sign-in or account
+prompt, or anything on a screen it does not recognise. Only a free app is ever
+installed. An app already installed is left as it is, including an older
+version. On AppGallery, where listings also show recommended apps with their
+own Install and Open buttons, a screen showing both Install and Open is treated
+as unrecognised, and Install is tapped only when the listing's own detail-bar
+button can be told apart or exactly one Install button is on screen.
 
 | Outcome | `blocker_code` | Retries on its own | What to do |
 | --- | --- | --- | --- |
@@ -117,15 +132,16 @@ older version.
 | The download did not finish within five minutes | `app_install_timeout` | yes | usually a slow network |
 | Appium or adb failed | `app_install_failed` | yes | check the device and Appium |
 
-The rules match the English labels and the Play Store's own layout, so set the
-test device's language to English. When the Play Store shows something
-unexpected, nothing is tapped. A screenshot and the screen's layout
-(`screenshot.png`, `page_source.xml`) are saved under
-`artifacts/work/android/play_store/diagnostics/<TIMESTAMP>_<PACKAGE_NAME>/`, and
-the rules in `mobile_playbook/platforms/android/acquisition/play_store.py` can be
-updated from them. The Appium server log for installs is
-`artifacts/work/android/play_store/appium.log`. After an install, the installer
-should be `com.android.vending`; any other installer is reported in the outcome.
+The rules match each store's English labels and layout, so set the test
+device's language to English. When the store shows something unexpected,
+nothing is tapped. A screenshot and the screen's layout (`screenshot.png`,
+`page_source.xml`) are saved under
+`artifacts/work/android/<STORE>/diagnostics/<TIMESTAMP>_<PACKAGE_NAME>/`, where
+`<STORE>` is `play_store` or `app_gallery`, and the rules in the store's module
+can be updated from them. The Appium server log for installs is
+`artifacts/work/android/<STORE>/appium.log`. After an install, the installer
+should be the store's own package (`com.android.vending` or
+`com.huawei.appmarket`); any other installer is reported in the outcome.
 
 ## Risk execution
 

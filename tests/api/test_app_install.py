@@ -10,6 +10,7 @@ from mobile_playbook.api.run_registry import JobRegistry
 from mobile_playbook.api.services import app_install
 from mobile_playbook.orchestration.appium_server import AppiumStartResult
 from mobile_playbook.platforms.android.acquisition.play_store import InstallOutcome, failure
+from mobile_playbook.platforms.android.acquisition.store import WORK_DIR_NAME
 from tests.asgi_helpers import call
 
 
@@ -29,7 +30,7 @@ def installer(config_root, monkeypatch):
             raise outcome["value"]
         return outcome["value"]
 
-    monkeypatch.setattr(app_install, "install_from_play_store", fake_install)
+    monkeypatch.setattr(app_install, "install_missing_app", fake_install)
     app = FastAPI()
     app.include_router(config_routes.router)
     return app, registry, calls, outcome
@@ -46,7 +47,7 @@ def test_a_missing_app_is_installed_by_its_package_while_the_device_is_held(inst
     assert calls == [
         {"package": "com.example.one", "diagnostics_root": calls[0]["diagnostics_root"], "busy": True}
     ]
-    assert calls[0]["diagnostics_root"].parts[-2:] == ("play_store", "diagnostics")
+    assert calls[0]["diagnostics_root"].parts[-2:] == (WORK_DIR_NAME, "diagnostics")
     assert not registry.is_platform_busy("android")
 
 

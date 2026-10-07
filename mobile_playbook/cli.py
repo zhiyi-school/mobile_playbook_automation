@@ -25,7 +25,7 @@ from mobile_playbook.orchestration.selection import (
     validate_risk_selection,
 )
 from mobile_playbook.orchestration.appium_server import ensure_appium_running
-from mobile_playbook.platforms.android.acquisition.play_store import install_from_play_store
+from mobile_playbook.platforms.android.acquisition.store import WORK_DIR_NAME, install_missing_app
 from mobile_playbook.platforms.android.config import ConfigError as AndroidConfigError
 from mobile_playbook.platforms.android.config import load_config as load_android_config
 from mobile_playbook.platforms.android.results import normalize_android_result
@@ -98,7 +98,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     install_app = sub.add_parser(
         "install-app",
-        help="Install configured Android apps that are missing from the test device from the Play Store. Paid apps are never installed.",
+        help="Install configured Android apps that are missing from the test device from the configured app store. Paid apps are never installed.",
     )
     install_app.add_argument("--config", required=True)
     install_app.add_argument("--apps", default=None, help="Comma-separated app IDs; omit for every configured app")
@@ -444,9 +444,9 @@ def _acquire(config, selected_apps: set[str] | None, out_dir: Path) -> int:
     return 0
 
 
-# Installs each missing app in the config from the Play Store, printing each outcome; 1 when any is not installed.
+# Installs each missing app in the config from the configured app store, printing each outcome; 1 when any is not installed.
 def _install_apps(config) -> int:
-    work = android_work_dir() / "play_store"
+    work = android_work_dir() / WORK_DIR_NAME
     appium = ensure_appium_running(
         config.device.appium_server_url, getattr(config.device, "appium_auto_start", None), work / "appium.log"
     )
@@ -457,7 +457,7 @@ def _install_apps(config) -> int:
     client = AndroidDeviceClient(config, adb)
     exit_code = 0
     for app in config.apps:
-        outcome = install_from_play_store(adb, client.make_driver, app.package_name, work / "diagnostics")
+        outcome = install_missing_app(adb, client.make_driver, app.package_name, work / "diagnostics")
         print(f"{app.id} ({app.package_name}): {outcome.blocker_code or outcome.status}")
         for line in (outcome.detail, f"Diagnostics: {outcome.diagnostics}" if outcome.diagnostics else None):
             if line:

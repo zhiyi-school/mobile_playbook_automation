@@ -26,6 +26,7 @@ except ImportError:
     AppiumBy = None
 
 PLAY_STORE_PACKAGE = "com.android.vending"
+WORK_DIR_NAME = "play_store"
 PACKAGE_RE = re.compile(r"^[A-Za-z0-9_]+(\.[A-Za-z0-9_]+)+$")
 
 INSTALL_LABEL = "install"
@@ -206,7 +207,7 @@ def open_listing(adb: AdbClient, package: str) -> tuple[bool, str]:
     return True, output
 
 
-# Save the current screen and its layout for whoever updates the Play Store rules, returning the folder.
+# Save the current screen and its layout for whoever updates the store rules, returning the folder.
 def save_diagnostics(driver: Any, diagnostics_root: Path, package: str, page_source: str) -> Path | None:
     folder = diagnostics_root / f"{datetime.now():%Y-%m-%d_%H-%M-%S}_{package}"
     try:
@@ -217,9 +218,9 @@ def save_diagnostics(driver: Any, diagnostics_root: Path, package: str, page_sou
             (folder / "screenshot.png").write_bytes(png)
     except Exception:
         logger.debug("android play store: saving diagnostics to %s failed", folder, exc_info=True)
-        logger.warning("Could not save Play Store diagnostics for %s.", package)
+        logger.warning("Could not save app store diagnostics for %s.", package)
         return None
-    logger.info("Play Store diagnostics for %s saved to %s.", package, folder)
+    logger.info("App store diagnostics for %s saved to %s.", package, folder)
     return folder
 
 

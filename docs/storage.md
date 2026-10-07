@@ -22,7 +22,8 @@ artifacts/
   work/
     ios/, android/       working directories, acquired originals and
                          unpacked bundles still referenced by evidence
-    android/play_store/  Appium log and screen diagnostics from Play Store
+    android/play_store/, android/app_gallery/
+                         Appium log and screen diagnostics from app store
                          installs
 ```
 

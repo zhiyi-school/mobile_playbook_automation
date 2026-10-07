@@ -109,7 +109,7 @@ def get_app_provisioning(platform: Platform, app_id: str) -> dict:
     return provisioning.describe(platform, app_id)
 
 
-# Install an Android app from the Play Store if it is missing, holding the device while it does.
+# Install an Android app from the configured app store if it is missing, holding the device while it does.
 @router.post("/config/{platform}/apps/{app_id}/install")
 def install_config_app(platform: Platform, app_id: str) -> dict:
     logger.debug("api: POST /config/%s/apps/%s/install.", platform, app_id)
