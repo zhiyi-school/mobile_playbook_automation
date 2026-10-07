@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import subprocess
+from dataclasses import replace
 
 import pytest
 
 from mobile_playbook.platforms.android.acquisition.play_store import InstallOutcome, failure
-from mobile_playbook.platforms.android.models import AndroidRiskRunResult
+from mobile_playbook.platforms.android.acquisition.store import APP_STORES
+from mobile_playbook.platforms.android.models import AndroidDeviceConfig, AndroidRiskRunResult
 from mobile_playbook.platforms.android.risks import feature_01_risk_02_repackaging as repackaging
 from mobile_playbook.platforms.android.risks.feature_01_risk_02_repackaging import AndroidRepackagingRisk, StageFailure
 
@@ -29,7 +31,7 @@ class FakeDeviceClient:
         self.adb = adb
 
     def make_driver(self):
-        raise AssertionError("install_missing_app is stubbed in these tests")
+        raise AssertionError("the store install is stubbed in these tests")
 
 
 def write_apks(directory, *names):
@@ -120,27 +122,31 @@ def test_the_install_stage_keeps_adbs_failure_line(tmp_path, install_result):
     assert str(raised.value) == "Failure [INSTALL_PARSE_FAILED_NO_CERTIFICATES: no certs]"
 
 
-def test_restore_reinstalls_from_the_configured_app_store(tmp_path, monkeypatch):
+def test_restore_reinstalls_from_the_configured_app_store(tmp_path):
     write_apks(tmp_path / "original", "base.apk")
     adb = FakeAdb()
-    monkeypatch.setattr(repackaging, "install_missing_app", lambda *a, **k: InstallOutcome(status="installed", installer="com.huawei.appmarket"))
+    risk = AndroidRepackagingRisk()
+    risk.store = replace(
+        APP_STORES["play_store"], install=lambda *a, **k: InstallOutcome(status="installed", installer="com.android.vending")
+    )
     result = make_result()
 
-    AndroidRepackagingRisk()._restore_original(FakeDeviceClient(adb), tmp_path, PACKAGE, result)
+    risk._restore_original(FakeDeviceClient(adb), tmp_path, PACKAGE, result)
 
-    assert result.metadata["restore"] == {"method": "app_store", "store": repackaging.WORK_DIR_NAME, "installer": "com.huawei.appmarket"}
+    assert result.metadata["restore"] == {"method": "app_store", "store": "play_store", "installer": "com.android.vending"}
     assert ["uninstall", PACKAGE] in adb.commands
     assert not any(command[0].startswith("install") for command in adb.commands)
     assert result.errors == []
 
 
-def test_restore_falls_back_to_adb_and_records_it(tmp_path, monkeypatch):
+def test_restore_falls_back_to_adb_and_records_it(tmp_path):
     write_apks(tmp_path / "original", "base.apk", "split_config.xxhdpi.apk")
     adb = FakeAdb()
-    monkeypatch.setattr(repackaging, "install_missing_app", lambda *a, **k: failure("paid"))
+    risk = AndroidRepackagingRisk()
+    risk.store = replace(APP_STORES["play_store"], install=lambda *a, **k: failure("paid"))
     result = make_result()
 
-    AndroidRepackagingRisk()._restore_original(FakeDeviceClient(adb), tmp_path, PACKAGE, result)
+    risk._restore_original(FakeDeviceClient(adb), tmp_path, PACKAGE, result)
 
     restore = result.metadata["restore"]
     assert restore["method"] == "adb"
@@ -166,7 +172,14 @@ class FakeReportWriter:
 
 def make_configs(tmp_path, **repackaging_cfg):
     app_config = type("App", (), {"id": "app", "name": "App", "package_name": PACKAGE, "risks": {}})()
-    global_config = type("Config", (), {"repackaging": {"work_dir": str(tmp_path / "work"), "keystore_path": str(tmp_path / "ks"), **repackaging_cfg}})()
+    global_config = type(
+        "Config",
+        (),
+        {
+            "device": AndroidDeviceConfig(app_store="other_store"),
+            "repackaging": {"work_dir": str(tmp_path / "work"), "keystore_path": str(tmp_path / "ks"), **repackaging_cfg},
+        },
+    )()
     return app_config, global_config
 
 
@@ -239,6 +252,24 @@ def test_restore_is_skipped_when_disabled(tmp_path, monkeypatch):
     assert result.final_status == "REPACKAGING_SURVIVED"
 
 
+@pytest.fixture(autouse=True)
+def other_store(monkeypatch):
+    other = replace(APP_STORES["play_store"], key="other_store", name="Other Store")
+    monkeypatch.setitem(APP_STORES, "other_store", other)
+    return other
+
+
+def test_a_run_uses_the_store_from_the_device_config(tmp_path, monkeypatch):
+    app_config, global_config = make_configs(tmp_path, restore_original_after_test=False)
+    risk = AndroidRepackagingRisk()
+    stub_pipeline(risk, monkeypatch)
+    monkeypatch.setattr(risk, "_validate_with_appium", lambda *a: ("PASS: able to work after repackaging", None))
+
+    risk.run(app_config, global_config, FakeDeviceClient(FakeAdb()), FakeReportWriter(tmp_path))
+
+    assert risk.store is APP_STORES["other_store"]
+
+
 def test_a_missing_merge_tool_stops_the_run_as_inconclusive_without_touching_the_app(tmp_path, monkeypatch):
     app_config, global_config = make_configs(tmp_path)
     risk = AndroidRepackagingRisk()
@@ -274,23 +305,22 @@ class LaunchDriver:
 
 
 @pytest.mark.parametrize(
-    ("store_package", "store_name"),
-    [("com.huawei.appmarket", "AppGallery"), ("com.android.vending", "Play Store")],
+    ("store_package", "store_name"), [("com.android.vending", "Play Store"), ("com.aurora.store", "Aurora Store")]
 )
-def test_a_redirect_to_the_selected_store_blocks_the_repackaged_app(monkeypatch, store_package, store_name):
-    monkeypatch.setattr(repackaging, "STORE_PACKAGE", store_package)
-    monkeypatch.setattr(repackaging, "STORE_NAME", store_name)
+@pytest.mark.parametrize("key", ["apk", "play_store", "aurora_store"])
+def test_a_redirect_to_any_store_app_blocks_the_repackaged_app(key, store_package, store_name):
+    risk = AndroidRepackagingRisk()
+    risk.store = APP_STORES[key]
     driver = LaunchDriver(store_package)
 
-    verdict = AndroidRepackagingRisk()._check_app_after_launch(driver, PACKAGE, {"launch_wait": 0})
+    verdict = risk._check_app_after_launch(driver, PACKAGE, {"launch_wait": 0})
 
     assert verdict == f"FAIL: app fail to work after repackaging (redirected to {store_name} after launch)"
     assert driver.terminated == [store_package]
 
 
-def test_a_switch_to_another_store_is_an_exit_not_a_redirect(monkeypatch):
-    monkeypatch.setattr(repackaging, "STORE_PACKAGE", "com.huawei.appmarket")
-    driver = LaunchDriver("com.android.vending")
+def test_a_switch_to_another_app_is_an_exit_not_a_redirect():
+    driver = LaunchDriver("com.huawei.appmarket")
 
     verdict = AndroidRepackagingRisk()._check_app_after_launch(driver, PACKAGE, {"launch_wait": 0})
 

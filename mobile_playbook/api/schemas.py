@@ -133,6 +133,7 @@ class DeviceUpdateRequest(BaseModel):
     allow_provisioning_device_registration: bool | None = None
     adb_path: str | None = None
     adb_serial: str | None = None
+    app_store: Literal["apk", "play_store", "aurora_store"] | None = None
     appium_auto_start: AppiumAutoStartRequest | None = None
 
     # Return the set fields as JSON-compatible values.

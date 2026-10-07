@@ -4,6 +4,9 @@ device:
   appium_server_url: "http://127.0.0.1:4723"
   adb_path: "adb"
   adb_serial: null    # A serial from "adb devices", or "wifi" to follow the phone's Wi-Fi address.
+  # How missing apps are installed: "apk" (adb, from artifacts/intake/android/apks/<package>/),
+  # "play_store" (default) or "aurora_store".
+  app_store: "play_store"
   appium_auto_start:
     enabled: false
     command: ["appium"]

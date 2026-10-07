@@ -52,8 +52,20 @@ def test_only_a_real_hand_off_counts_as_blocking_screen_capture(foreground, expe
     assert verdict.startswith(expected)
 
 
-def test_a_play_store_redirect_is_inconclusive_not_reduced_risk():
+def test_a_store_redirect_is_inconclusive_not_reduced_risk():
     verdict = AndroidScreenCaptureRisk()._check_app_switch(ForegroundDriver("com.android.vending"), "com.example.app")
 
     assert _security_verdict_from_verdict(verdict) == "Inconclusive"
     assert _status_from_verdict(verdict) == "SCREEN_CAPTURE_NOT_TESTED"
+
+
+@pytest.mark.parametrize(
+    ("store_package", "store_name"), [("com.android.vending", "Play Store"), ("com.aurora.store", "Aurora Store")]
+)
+def test_a_redirect_to_any_store_app_is_inconclusive(store_package, store_name):
+    risk = AndroidScreenCaptureRisk()
+
+    verdict = risk._check_app_switch(ForegroundDriver(store_package), "com.example.app")
+
+    assert verdict.startswith(f"INCONCLUSIVE (Redirected to {store_name}")
+    assert risk._check_app_switch(ForegroundDriver("com.huawei.appmarket"), "com.example.app").startswith("BLOCKED (Switched to unknown app")

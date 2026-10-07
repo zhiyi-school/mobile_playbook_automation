@@ -50,7 +50,7 @@ artifacts/reports/<RUN_TIMESTAMP>/android/<APP_ID>/<RISK_ID>/<CASE_ID>/
 | A connected device with USB debugging **authorised** | everything |
 | Appium with the UiAutomator2 driver | both risks |
 | `apktool`, `apksigner`, `keytool` on `PATH` | `android-feature-01-risk-02` only |
-| The app store in use (Play Store signed in to a Google account, or AppGallery signed in to a HUAWEI ID), with the device language set to English | installing missing apps |
+| For `play_store` or `aurora_store`, that store app signed in to a Google account, with the device language set to English | installing missing apps |
 
 Confirm the device before running anything:
 
@@ -82,14 +82,17 @@ apps:
 ```
 
 An older flat package-list shape is still accepted; see
-[Configuration](configuration.md). Where a local file is supplied instead, it
-goes under `artifacts/intake/android/apks/` and is referenced as `<APK_PATH>`.
+[Configuration](configuration.md). An app's own APKs go in
+`artifacts/intake/android/apks/<PACKAGE_NAME>/`: `base.apk` plus any
+`split_*.apk` files, as `adb shell pm path <PACKAGE_NAME>` lists them on a device
+that has the app. The `apk` install method installs from there, and the app's
+icon and version are read from that `base.apk`.
 
-## Installing apps from an app store
+## Installing missing apps
 
-An app that is not installed on the test device is installed from its app store
-listing by package name. The assessment worker does this before starting a run:
-readiness reports `app_not_installed`, the worker calls
+An app that is not installed on the test device is installed by package name.
+The assessment worker does this before starting a run: readiness reports
+`app_not_installed`, the worker calls
 `POST /config/android/apps/<APP_ID>/install`, and the run starts once the app is
 there. The API holds the Android device for the whole install, so it never
 overlaps a run. To install by hand:
@@ -99,51 +102,79 @@ python -m mobile_playbook install-app --config configs/android.yaml --apps examp
 ```
 
 Omit `--apps` to install every configured app that is missing. The command
-exits `1` when any app was not installed.
+exits `1` when any app was not installed. An app already installed is left as
+it is, including an older version.
 
-`mobile_playbook/platforms/android/acquisition/store.py` chooses the store with
-a single import. The repackaging risk (`android-feature-01-risk-02`) follows
-the same choice: it reinstalls the original app from this store after its test,
-and treats a redirect to this store as the app blocking the repackaged build.
+`device.app_store` in `configs/android.yaml` chooses the install method.
+Restart the API and the assessment worker after changing it.
 
-| Store | Device | Import in `store.py` |
+| `app_store` | Installs from | Module |
 | --- | --- | --- |
-| Huawei AppGallery (`app_gallery.py`) | Huawei phones without Google services, such as HarmonyOS 4.x | `from ...app_gallery import APP_GALLERY_PACKAGE as STORE_PACKAGE, STORE_NAME, WORK_DIR_NAME, failure, install_from_app_gallery as install_missing_app` |
-| Google Play Store (`play_store.py`) | Android phones with Google Play | `from ...play_store import PLAY_STORE_PACKAGE as STORE_PACKAGE, STORE_NAME, WORK_DIR_NAME, failure, install_from_play_store as install_missing_app` |
+| `apk` | the app's APKs in `artifacts/intake/android/apks/<PACKAGE_NAME>/`, over adb | `apk.py` |
+| `play_store` (default) | the Google Play Store app | `play_store.py` |
+| `aurora_store` | the Aurora Store app, which downloads Google Play builds | `aurora_store.py` |
 
-Switching stores is that one import; restart the API and the worker after
-changing it. HarmonyOS NEXT (5.x and later) does not run Android apps and is
-not supported.
+### APKs over adb
 
-The installer opens the listing in the store app, reads the screen, and taps
-**Install** only. It never taps a price, Buy, Update, a sign-in or account
-prompt, or anything on a screen it does not recognise. Only a free app is ever
-installed. An app already installed is left as it is, including an older
-version. On AppGallery, where listings also show recommended apps with their
-own Install and Open buttons, a screen showing both Install and Open is treated
-as unrecognised, and Install is tapped only when the listing's own detail-bar
-button can be told apart or exactly one Install button is on screen.
+The `apk` method installs every APK in the app's intake folder as one app with
+`adb install-multiple -r`; no runtime permissions are granted. It needs no
+Appium session and no store account. It does not check who signed the APKs, so
+put only APKs taken from a trusted source in the intake folder, such as
+`adb pull` of the paths `adb shell pm path <PACKAGE_NAME>` lists on a device
+that installed the app from Google Play.
+
+Some devices, such as Huawei phones with **Monitor apps installed via ADB**
+turned on in Developer options (`settings get secure adb_install_need_confirm`
+is `1`), hold every adb install until someone confirms it on screen. The
+installer checks this first and stops without installing; turn the option off.
+Appium's own helper apps are installed over adb too, so Appium cannot start on
+such a device either.
+
+### Play Store and Aurora Store
+
+The store installers open the app's listing in the store app, read the screen,
+and tap **Install** only; Aurora Store's "Continue to Aurora Store?" prompt is
+also answered with **Open**. They never tap a price, Buy, Update, Manual
+download, a sign-in or account prompt, the system's install confirmation, a
+device security notice, or anything on a screen they do not recognise. Only a
+free app is ever installed. Aurora Store keeps an **Open** button on the
+listing while it installs, so the installer waits for the package to appear on
+the device rather than reading Open as installed.
+
+Aurora Store hands the download to Android to install. A device that asks for
+confirmation at that point, or a Huawei phone whose security check shows a risk
+notice and CAPTCHA for apps from outside AppGallery, stops the install for a
+person to finish on the device. The Aurora Store rules come from its listing,
+link prompt and in-progress screens; a complete install through it has not been
+observed yet.
+
+Some Huawei phones ship `com.android.vending` and `com.google.android.gms` as
+Huawei stub packages (versions ending in `-hw`); these are not the Google Play
+Store, and the Play Store installer cannot install apps on them.
+
+### Outcomes
 
 | Outcome | `blocker_code` | Retries on its own | What to do |
 | --- | --- | --- | --- |
 | Installed, or already installed | — | — | nothing; the run starts |
 | A price or Buy button | `app_paid` | no | verify the purchase, install it on the device by hand, then **Retry now** |
-| Not found, not released, region-locked or incompatible | `app_unavailable` | no | install it another way, or remove the app |
-| Signed out, or account setup or verification asked for | `store_account_action_required` | no | sign in or finish the prompt on the device, then **Retry now** |
+| Not found, not released, region-locked or incompatible; for `apk`, no APKs in the intake folder | `app_unavailable` | no | add the APKs or install it another way, or remove the app |
+| Signed out, account setup or verification, the system's install confirmation, or a device security check | `store_account_action_required` | no | finish the prompt on the device, then **Retry now** |
 | A screen the rules do not recognise | `store_screen_unrecognised` | no | see below |
 | The download did not finish within five minutes | `app_install_timeout` | yes | usually a slow network |
+| The device confirms every adb install, refused the APKs, or the APKs are another app's | `app_install_failed` | no | follow the detail, then **Retry now** |
 | Appium or adb failed | `app_install_failed` | yes | check the device and Appium |
 
-The rules match each store's English labels and layout, so set the test
-device's language to English. When the store shows something unexpected,
-nothing is tapped. A screenshot and the screen's layout (`screenshot.png`,
-`page_source.xml`) are saved under
-`artifacts/work/android/<STORE>/diagnostics/<TIMESTAMP>_<PACKAGE_NAME>/`, where
-`<STORE>` is `play_store` or `app_gallery`, and the rules in the store's module
-can be updated from them. The Appium server log for installs is
-`artifacts/work/android/<STORE>/appium.log`. After an install, the installer
-should be the store's own package (`com.android.vending` or
-`com.huawei.appmarket`); any other installer is reported in the outcome.
+The store rules match English labels, so set the test device's language to
+English. When a store shows something unexpected, nothing is tapped. A
+screenshot and the screen's layout (`screenshot.png`, `page_source.xml`) are
+saved under
+`artifacts/work/android/<APP_STORE>/diagnostics/<TIMESTAMP>_<PACKAGE_NAME>/`,
+and the rules in the store's module can be updated from them. The Appium server
+log for installs is `artifacts/work/android/<APP_STORE>/appium.log`. After a
+store install, the installer should be the store's own package
+(`com.android.vending` or `com.aurora.store`); any other installer is reported
+in the outcome.
 
 ## Risk execution
 

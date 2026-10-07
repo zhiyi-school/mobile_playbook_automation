@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 
 import pytest
 from fastapi import FastAPI
@@ -10,7 +11,7 @@ from mobile_playbook.api.run_registry import JobRegistry
 from mobile_playbook.api.services import app_install
 from mobile_playbook.orchestration.appium_server import AppiumStartResult
 from mobile_playbook.platforms.android.acquisition.play_store import InstallOutcome, failure
-from mobile_playbook.platforms.android.acquisition.store import WORK_DIR_NAME
+from mobile_playbook.platforms.android.acquisition import store
 from tests.asgi_helpers import call
 
 
@@ -30,7 +31,8 @@ def installer(config_root, monkeypatch):
             raise outcome["value"]
         return outcome["value"]
 
-    monkeypatch.setattr(app_install, "install_missing_app", fake_install)
+    for key, app_store in list(store.APP_STORES.items()):
+        monkeypatch.setitem(store.APP_STORES, key, replace(app_store, install=fake_install))
     app = FastAPI()
     app.include_router(config_routes.router)
     return app, registry, calls, outcome
@@ -47,8 +49,39 @@ def test_a_missing_app_is_installed_by_its_package_while_the_device_is_held(inst
     assert calls == [
         {"package": "com.example.one", "diagnostics_root": calls[0]["diagnostics_root"], "busy": True}
     ]
-    assert calls[0]["diagnostics_root"].parts[-2:] == (WORK_DIR_NAME, "diagnostics")
+    assert calls[0]["diagnostics_root"].parts[-2:] == ("play_store", "diagnostics")
     assert not registry.is_platform_busy("android")
+
+
+def test_the_store_set_in_the_device_config_does_the_install(installer, config_root, monkeypatch):
+    app, _, calls, _ = installer
+    monkeypatch.setitem(store.APP_STORES, "other_store", replace(store.APP_STORES["play_store"], key="other_store"))
+    entry = config_root / "configs/android.yaml"
+    entry.write_text(entry.read_text().replace("device:\n", "device:\n  app_store: \"other_store\"\n", 1))
+
+    status, body = asyncio.run(call(app, "POST", "/config/android/apps/one/install"))
+
+    assert status == 200, body
+    assert calls[-1]["diagnostics_root"].parts[-2:] == ("other_store", "diagnostics")
+
+
+@pytest.mark.parametrize("name", ["apk", "play_store", "aurora_store"])
+def test_each_install_method_can_be_set_through_the_api(installer, name):
+    app, _, _, _ = installer
+
+    status, body = asyncio.run(call(app, "PUT", "/config/android/device", {"app_store": name}))
+
+    assert status == 200, body
+    assert body["app_store"] == name
+
+
+@pytest.mark.parametrize("name", ["app_gallery", "galaxy_store"])
+def test_an_unknown_store_is_refused(installer, name):
+    app, _, _, _ = installer
+
+    status, _ = asyncio.run(call(app, "PUT", "/config/android/device", {"app_store": name}))
+
+    assert status == 422
 
 
 def test_a_paid_app_comes_back_as_a_blocker_that_needs_a_person(installer):

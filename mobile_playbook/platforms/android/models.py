@@ -18,6 +18,7 @@ class AndroidDeviceConfig(SerializableDataclass):
     appium_server_url: str = "http://127.0.0.1:4723"
     adb_path: str = "adb"
     adb_serial: str | None = None
+    app_store: str = "play_store"
     # See docs/android/configuration.md#appium-auto-start.
     appium_auto_start: dict[str, Any] = field(default_factory=dict)
 

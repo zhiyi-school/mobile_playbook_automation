@@ -183,7 +183,7 @@ def test_a_missing_android_app_reports_the_blocker_the_worker_installs_on(config
     assert report["runnable"] is False
     assert report["blocker_code"] == "app_not_installed"
     assert report["retryable"] is True
-    assert "app store" in report["detail"]
+    assert "installed before testing" in report["detail"]
 
 
 def test_android_without_a_connected_device_is_unknown_not_pending(config_root, no_device):

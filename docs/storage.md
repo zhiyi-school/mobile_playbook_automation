@@ -10,7 +10,8 @@ not part of this layout.
 artifacts/
   intake/
     ios/ipas/            IPA inputs
-    android/apks/        APK inputs
+    android/apks/        APK inputs, one <package name>/ folder of base and
+                         split APKs per app
   companion/
     ios/ipas/            tester-owned helper apps a risk installs next to
                          the target (LocalKeyboard, ReplayConsentRecorder)
@@ -22,9 +23,8 @@ artifacts/
   work/
     ios/, android/       working directories, acquired originals and
                          unpacked bundles still referenced by evidence
-    android/play_store/, android/app_gallery/
-                         Appium log and screen diagnostics from app store
-                         installs
+    android/play_store/, android/aurora_store/
+                         Appium log and screen diagnostics from store installs
 ```
 
 `work/` is **not** disposable: report evidence references files inside it, and

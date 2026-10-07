@@ -121,7 +121,7 @@ Acquire iOS artifacts only:
 python -m mobile_playbook acquire --config configs/ios.yaml --apps example-app
 ```
 
-Install missing Android apps from the configured app store (free apps only):
+Install missing Android apps with the configured install method (APKs from intake, or free apps from a store):
 
 ```bash
 python -m mobile_playbook install-app --config configs/android.yaml --apps example-app

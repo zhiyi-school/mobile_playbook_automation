@@ -25,11 +25,19 @@ device:
   appium_server_url: "http://127.0.0.1:4723"
   adb_path: "adb"
   adb_serial: null
+  app_store: "play_store"
 ```
 
 `adb_serial` is optional. Set it when more than one Android device is attached, or when one phone is connected over both USB and Wi-Fi (for example `10.0.0.5:5555` to use only the Wi-Fi connection). It selects the device for adb commands and is passed to Appium as the session's `udid`.
 
 Set `adb_serial: "wifi"` to use the phone's Wi-Fi connection without fixing its address. Each adb client finds it the first time it targets the device. An existing Wi-Fi connection is used as is. Otherwise, with exactly one phone attached by USB, its `wlan0` address is read, adb on the phone is switched to Wi-Fi on port 5555 if it is not listening already (`adb tcpip`, which lasts until the phone reboots), and the host connects to it. The phone must be on a network this host can reach. Without a Wi-Fi connection or a single USB phone to find one through, the device counts as not connected and the API log says why. Use this when USB transfers are unreliable, as on some Huawei phones, while keeping the cable attached for charging.
+
+`app_store` chooses how missing apps are installed: `apk` (adb, from the app's
+APKs in `artifacts/intake/android/apks/<PACKAGE_NAME>/`), `play_store` (the
+default when unset) or `aurora_store`. Any other value fails config validation. It can also be set with
+`PUT /config/android/device`. Restart the API and the assessment worker after
+changing it in the file. See
+[Installing missing apps](README.md#installing-missing-apps).
 
 ### Appium auto-start
 
@@ -146,7 +154,7 @@ repackaging:
 - `work_dir` (optional): root directory for backed-up, decoded, and rebuilt APKs (per app, under `<work_dir>/<package_name_with_underscores>/`). Unset, it is `<work>/android/repackaging`; a relative value resolves against the repository root.
 - `keystore_path`: path to a debug/release keystore used to re-sign the repackaged APK; a relative value resolves against the repository root. If unset, a keystore is generated at `<work_dir>/<app>/../release.keystore` via `keytool` on first use.
 - `keystore_alias` / `keystore_pass`: alias and password used when generating the keystore and signing with `apksigner`.
-- `restore_original_after_test`: whether to replace the repackaged build with the original after validation, from the app store that `acquisition/store.py` selects first and from the backed-up APKs over adb if that fails.
+- `restore_original_after_test`: whether to replace the repackaged build with the original after validation, with the install method that `device.app_store` selects first and from the backed-up APKs over adb if that fails.
 - `apkeditor_jar` (optional): path to the APKEditor jar used to merge split APKs before decoding; a relative value resolves against the repository root. Unset, the newest `APKEditor*.jar` under `tools/vendor/apkeditor/` is used.
 - `launch_wait` / `post_click_wait` / `record_lead_in` / `record_tail`: pacing for the post-repackaging Appium launch validation and its screen recording.
 

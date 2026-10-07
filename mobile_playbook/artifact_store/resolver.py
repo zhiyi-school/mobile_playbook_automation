@@ -121,6 +121,9 @@ def _resolve_android(app: dict[str, Any]) -> Path | None:
     if not intake_dir.is_dir():
         logger.debug("artifact store: Android intake directory %s missing.", intake_dir)
         return None
+    if package_name and (intake_dir / package_name / "base.apk").is_file():
+        logger.debug("artifact store: Android app %r uses intake split APKs in %s.", app.get("id"), intake_dir / package_name)
+        return intake_dir / package_name / "base.apk"
     wanted = {normalize_app_name(package_name), normalize_app_name(app.get("name"))} - {""}
     for candidate in sorted(intake_dir.glob("*.apk")):
         if normalize_app_name(candidate.stem) in wanted:

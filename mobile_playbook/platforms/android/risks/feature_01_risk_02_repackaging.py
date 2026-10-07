@@ -16,7 +16,7 @@ from pathlib import Path
 from mobile_playbook.common.storage_paths import android_work_dir, resolve_under_repository
 
 from mobile_playbook.common.logging_setup import REDACTED, redacted
-from mobile_playbook.platforms.android.acquisition.store import STORE_NAME, STORE_PACKAGE, WORK_DIR_NAME, install_missing_app
+from mobile_playbook.platforms.android.acquisition.store import APP_STORES, DEFAULT_APP_STORE, STORE_APPS, app_store_for
 from mobile_playbook.platforms.android.device.install import install_apks
 from mobile_playbook.platforms.android.models import AndroidRiskRunResult
 from mobile_playbook.platforms.android.risks.base import AndroidRisk
@@ -43,12 +43,14 @@ class AndroidRepackagingRisk(AndroidRisk):
     test_case_id = "repackaging"
     test_case_type = "apk_decode_patch_resign_validate"
     requires = ["adb", "apktool", "apksigner", "keytool", "appium"]
+    store = APP_STORES[DEFAULT_APP_STORE]
 
     # Repackage and reinstall the app, validate it with Appium, optionally restore the original and write the result.
     def run(self, app_config, global_config, device_client, report_writer):
         started_at = datetime.now().astimezone()
         report_dir = report_writer.test_report_dir(app_config.id, self.risk_id, self.test_case_id, platform="android")
         cfg = {**global_config.repackaging, **(app_config.risks.get(self.risk_id) or {})}
+        self.store = app_store_for(global_config)
         result = AndroidRiskRunResult(
             run_timestamp=report_writer.run_timestamp,
             timestamp_start=started_at.isoformat(),
@@ -361,33 +363,33 @@ class AndroidRepackagingRisk(AndroidRisk):
         self._uninstall_app(device_client, package_name)
         return install_apks(device_client.adb, apks, grant_permissions=True)
 
-    # Replace the rebuilt app with an install from the configured app store, falling back to the backed-up APKs over adb, and record which one ran.
+    # Replace the rebuilt app with an install by the configured method, falling back to the backed-up APKs over adb, and record which one ran.
     def _restore_original(self, device_client, app_dir: Path, package_name: str, result: AndroidRiskRunResult) -> None:
         if not self._uninstall_app(device_client, package_name):
             result.metadata["restore"] = {"method": None}
             result.errors.append("Restore failed: the repackaged app could not be uninstalled.")
             logger.warning("Could not uninstall the repackaged %s; it is still on the device.", package_name)
             return
-        logger.debug("%s[%s]: reinstalling the original from the app store (%s)", self.risk_id, package_name, WORK_DIR_NAME)
-        outcome = install_missing_app(device_client.adb, device_client.make_driver, package_name, android_work_dir() / WORK_DIR_NAME / "diagnostics")
+        logger.debug("%s[%s]: reinstalling the original from %s", self.risk_id, package_name, self.store.name)
+        outcome = self.store.install(device_client.adb, device_client.make_driver, package_name, android_work_dir() / self.store.key / "diagnostics")
         logger.debug("%s[%s]: app store restore status=%s blocker=%s installer=%s", self.risk_id, package_name, outcome.status, outcome.blocker_code, outcome.installer)
         if outcome.status == "installed":
-            result.metadata["restore"] = {"method": "app_store", "store": WORK_DIR_NAME, "installer": outcome.installer}
+            result.metadata["restore"] = {"method": "app_store", "store": self.store.key, "installer": outcome.installer}
             return
-        app_store = {"store": WORK_DIR_NAME, "status": outcome.status, "blocker_code": outcome.blocker_code, "detail": outcome.detail}
+        app_store = {"store": self.store.key, "status": outcome.status, "blocker_code": outcome.blocker_code, "detail": outcome.detail}
         restored, reason = self._install_apks(device_client, app_dir / "original", package_name)
         logger.debug("%s[%s]: adb restore of %s ok=%s (%s)", self.risk_id, package_name, app_dir / "original", restored, reason)
         if restored:
             result.metadata["restore"] = {
                 "method": "adb",
                 "app_store": app_store,
-                "note": "The app store reinstall did not succeed, so the original APKs were reinstalled with adb. Later tests ran against an adb install.",
+                "note": "The configured reinstall did not succeed, so the original APKs were reinstalled with adb. Later tests ran against an adb install.",
             }
-            logger.warning("Restored %s with adb after the app store reinstall failed; later tests run against an adb install.", package_name)
+            logger.warning("Restored %s with adb after the configured reinstall failed; later tests run against an adb install.", package_name)
             return
         result.metadata["restore"] = {"method": None, "app_store": app_store}
         result.errors.append(f"Restore failed: {reason}")
-        logger.warning("Could not restore %s from the app store or with adb; it is not installed.", package_name)
+        logger.warning("Could not restore %s with the configured install method or with adb; it is not installed.", package_name)
 
     # Uninstall the package, treating an absent package as success.
     def _uninstall_app(self, device_client, package_name: str) -> bool:
@@ -446,10 +448,10 @@ class AndroidRepackagingRisk(AndroidRisk):
             logger.debug("%s[%s]: reading current_package failed: %s", self.risk_id, package_name, exc, exc_info=True)
             return f"ERROR: failed to read current package - {exc}"
         logger.debug("%s[%s]: foreground package after launch is %s", self.risk_id, package_name, current_package)
-        if current_package == STORE_PACKAGE:
-            logger.debug("%s[%s]: redirected to %s after launch", self.risk_id, package_name, STORE_NAME)
-            self._close_app(driver, STORE_PACKAGE)
-            return f"FAIL: app fail to work after repackaging (redirected to {STORE_NAME} after launch)"
+        if current_package in STORE_APPS:
+            logger.debug("%s[%s]: redirected to %s after launch", self.risk_id, package_name, current_package)
+            self._close_app(driver, current_package)
+            return f"FAIL: app fail to work after repackaging (redirected to {STORE_APPS[current_package]} after launch)"
         if current_package != package_name:
             logger.debug("%s[%s]: app not in foreground after launch (foreground=%s)", self.risk_id, package_name, current_package)
             return "FAIL: app fail to work after repackaging (exited immediately after launch)"
@@ -474,10 +476,10 @@ class AndroidRepackagingRisk(AndroidRisk):
                 logger.debug("%s[%s]: reading current_package after click failed: %s", self.risk_id, package_name, exc, exc_info=True)
                 return f"ERROR: failed to read current package after button click - {exc}"
             logger.debug("%s[%s]: foreground package after click is %s", self.risk_id, package_name, current_package)
-            if current_package == STORE_PACKAGE:
-                logger.debug("%s[%s]: redirected to %s after click", self.risk_id, package_name, STORE_NAME)
-                self._close_app(driver, STORE_PACKAGE)
-                return f"FAIL: app fail to work after repackaging (redirected to {STORE_NAME} after clicking button)"
+            if current_package in STORE_APPS:
+                logger.debug("%s[%s]: redirected to %s after click", self.risk_id, package_name, current_package)
+                self._close_app(driver, current_package)
+                return f"FAIL: app fail to work after repackaging (redirected to {STORE_APPS[current_package]} after clicking button)"
             if current_package != package_name:
                 logger.debug("%s[%s]: app left foreground after click (foreground=%s)", self.risk_id, package_name, current_package)
                 return "FAIL: app fail to work after repackaging (exited after clicking button)"

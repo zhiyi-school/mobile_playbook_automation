@@ -151,6 +151,21 @@ def test_android_uses_an_apk_the_workflow_already_acquired(tmp_path, monkeypatch
     assert resolver.app_icon("android", "example_app").width == 192
 
 
+def test_android_uses_the_base_apk_in_the_package_intake_folder(tmp_path, monkeypatch):
+    intake = tmp_path / "intake"
+    make_apk(intake / "com.example.placeholder" / "base.apk", {"res/mipmap-xxxhdpi-v4/ic_launcher.png": make_png(144, 144)})
+    monkeypatch.setattr(resolver, "ANDROID_WORKFLOW_APK_DIR", tmp_path / "absent")
+    entry = {
+        "id": "example_app",
+        "name": "Example App",
+        "package_name": "com.example.placeholder",
+        "artifact": {"intake_dir": str(intake)},
+    }
+    monkeypatch.setattr(resolver, "_app_entry", lambda platform, app_id: entry)
+
+    assert resolver.app_icon("android", "example_app").width == 144
+
+
 def test_android_package_name_alone_reads_no_device(monkeypatch, tmp_path):
     monkeypatch.setattr(resolver, "ANDROID_WORKFLOW_APK_DIR", tmp_path / "absent")
     monkeypatch.setattr(resolver, "ANDROID_INTAKE_DIR", tmp_path / "absent")

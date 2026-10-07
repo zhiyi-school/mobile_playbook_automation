@@ -11,7 +11,7 @@ Stages:
 1. Connect an Appium driver and start a screen recording (best-effort; the test continues if recording cannot start).
 2. Wait `record_lead_in` seconds, then activate (launch) the target app.
 3. Wait `launch_wait` seconds, then evaluate the app's response, checking in order:
-   - Did the foreground app switch away from the target package? If so, classify as redirected to a known browser, exited to the home-screen launcher (Pixel, Samsung or Huawei), or switched to an unknown app. A switch to the Play Store (`com.android.vending`) is inconclusive instead: the app refused to open, typically because it was not installed from the Play Store, so its screen was never shown and screen capture was not tested.
+   - Did the foreground app switch away from the target package? If so, classify as redirected to a known browser, exited to the home-screen launcher (Pixel, Samsung or Huawei), or switched to an unknown app. A switch to a store app (the Play Store, `com.android.vending`, or Aurora Store, `com.aurora.store`) is inconclusive instead: the app refused to open, typically because it was not installed from that store, so its screen was never shown and screen capture was not tested.
    - Does the visible UI contain developer/USB-debugging keywords (for example "usb debugging")?
    - Does the visible UI contain screen-recording/sharing warning keywords?
    - Does `adb shell dumpsys window windows` report `FLAG_SECURE` on the current window?
@@ -23,7 +23,7 @@ Verdict-to-status mapping:
 
 - Any `ALLOWED` verdict (UI visible, no security signal detected) → `SCREEN_CAPTURE_ALLOWED`.
 - Any `BLOCKED` verdict (browser/launcher redirect, debugging/capture warning text, or `FLAG_SECURE`) → `SCREEN_CAPTURE_BLOCKED`.
-- Any `INCONCLUSIVE` verdict (the app redirected to the Play Store instead of opening) → `SCREEN_CAPTURE_NOT_TESTED`, with the Inconclusive security verdict.
+- Any `INCONCLUSIVE` verdict (the app redirected to the app store instead of opening) → `SCREEN_CAPTURE_NOT_TESTED`, with the Inconclusive security verdict.
 - Any `ERROR` verdict (driver, launch, or ADB failure) → `FAILED`.
 
 Timing knobs (`record_lead_in`, `launch_wait`, `record_tail`) are documented in [Configuration](configuration.md).
@@ -50,13 +50,13 @@ If any stage fails, the run stops there and reports `REPACKAGING_FAILED` with th
 
 If all stages succeed, an Appium-driven validation launches the repackaged app and checks:
 
-- Does it redirect to the app store that `platforms/android/acquisition/store.py` selects, such as the Play Store's "get this app from Play" prompt or an AppGallery listing (a common tamper-detection response)?
+- Does it redirect to a store app (the Play Store or Aurora Store), such as the Play Store's "get this app from Play" prompt (a common tamper-detection response)?
 - Does it exit immediately after launch?
 - After tapping the first clickable element, does either of the above happen?
 
 `PASS` → `REPACKAGING_SURVIVED` (the repackaged build kept working — the app did not detect the tampering). Any `FAIL` → `REPACKAGING_BLOCKED` (the app detected the repackaging and reacted, for example by redirecting to the app store or exiting).
 
-When `restore_original_after_test` is true (the default) and the install stage ran, the rebuilt app is uninstalled after the test and the original is reinstalled from the app store that `platforms/android/acquisition/store.py` selects (Play Store or AppGallery). If that does not succeed (for example, a paid app), the backed-up APKs are reinstalled with `adb install-multiple` instead, and `metadata.restore` records `method: adb`, the app store outcome, and a note that later tests ran against an adb install. The restore also runs when validation raises an error; a restore that fails adds a `Restore failed: …` entry to `errors`. If the pipeline stopped before the install stage, the original was never replaced and nothing is reinstalled.
+When `restore_original_after_test` is true (the default) and the install stage ran, the rebuilt app is uninstalled after the test and the original is reinstalled with the install method that `device.app_store` selects. If that does not succeed (for example, a paid app), the backed-up APKs are reinstalled with `adb install-multiple` instead, and `metadata.restore` records `method: adb`, the app store outcome, and a note that later tests ran against an adb install. The restore also runs when validation raises an error; a restore that fails adds a `Restore failed: …` entry to `errors`. If the pipeline stopped before the install stage, the original was never replaced and nothing is reinstalled.
 
 Generated work files (backed-up, decoded, and rebuilt APKs) are left under `artifacts/work/android/repackaging/` for inspection.
 

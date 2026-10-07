@@ -12,6 +12,7 @@ from typing import Any
 
 from mobile_playbook.common.logging_setup import REDACTED, redacted
 from mobile_playbook.common.config_loader import load_yaml_config
+from mobile_playbook.platforms.android.acquisition.store import APP_STORES, DEFAULT_APP_STORE
 from mobile_playbook.platforms.android.models import (
     AndroidAppConfig,
     AndroidDeviceConfig,
@@ -74,6 +75,7 @@ def parse_config(raw: dict[str, Any], config_path: Path | None = None) -> Androi
             appium_server_url=device_raw.get("appium_server_url") or device_raw.get("appium_server", "http://127.0.0.1:4723"),
             adb_path=device_raw.get("adb_path", "adb"),
             adb_serial=device_raw.get("adb_serial") or device_raw.get("serial"),
+            app_store=device_raw.get("app_store") or DEFAULT_APP_STORE,
             appium_auto_start=device_raw.get("appium_auto_start") or {},
         ),
         runner=AndroidRunnerConfig(
@@ -105,6 +107,8 @@ def collect_config_errors(config: AndroidGlobalConfig, dry_run: bool = False) ->
     errors: list[str] = []
     if not config.device.appium_server_url:
         errors.append("device.appium_server_url is required")
+    if config.device.app_store not in APP_STORES:
+        errors.append(f"device.app_store must be one of: {', '.join(APP_STORES)}")
     if not config.apps:
         errors.append("apps list must not be empty")
     known = known_risks()

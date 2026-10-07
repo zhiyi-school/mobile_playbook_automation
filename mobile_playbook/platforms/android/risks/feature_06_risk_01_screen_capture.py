@@ -12,6 +12,7 @@ from pathlib import Path
 
 from mobile_playbook.platforms.android.models import AndroidRiskRunResult
 from mobile_playbook.common.logging_setup import redacted
+from mobile_playbook.platforms.android.acquisition.store import STORE_APPS
 from mobile_playbook.platforms.android.risks.base import AndroidRisk
 
 logger = logging.getLogger(__name__)
@@ -24,7 +25,6 @@ BROWSER_PACKAGES = [
     "com.sec.android.app.sbrowser",
 ]
 LAUNCHER_PACKAGES = ["com.google.android.apps.nexuslauncher", "com.sec.android.app.launcher", "com.huawei.android.launcher"]
-PLAY_STORE_PACKAGE = "com.android.vending"
 DEBUGGING_KEYWORDS = ["developer options", "debugging", "usb debugging", "debugging detected"]
 CAPTURE_KEYWORDS = ["screen recording", "screen sharing", "screen recording/sharing"]
 
@@ -155,8 +155,8 @@ class AndroidScreenCaptureRisk(AndroidRisk):
         except Exception as exc:
             logger.debug("%s[%s]: terminate_app failed: %s", self.risk_id, package_name, exc, exc_info=True)
 
-    # Return a BLOCKED observation when the app hands the foreground to a browser, launcher or other app; a Play
-    # Store redirect is INCONCLUSIVE, since the app refused to open and its screen was never shown.
+    # Return a BLOCKED observation when the app hands the foreground to a browser, launcher or other app; an app
+    # store redirect is INCONCLUSIVE, since the app refused to open and its screen was never shown.
     def _check_app_switch(self, driver, package_name: str) -> str:
         try:
             current_package = driver.current_package
@@ -166,8 +166,8 @@ class AndroidScreenCaptureRisk(AndroidRisk):
         logger.debug("%s[%s]: foreground package after launch is %s", self.risk_id, package_name, current_package)
         if current_package == package_name:
             return "Unknown"
-        if current_package == PLAY_STORE_PACKAGE:
-            verdict = "INCONCLUSIVE (Redirected to the Play Store - the app did not open, so screen capture was not tested)"
+        if current_package in STORE_APPS:
+            verdict = f"INCONCLUSIVE (Redirected to {STORE_APPS[current_package]} - the app did not open, so screen capture was not tested)"
         elif current_package in BROWSER_PACKAGES:
             verdict = f"BLOCKED (Redirected to Browser: {current_package})"
         elif current_package in LAUNCHER_PACKAGES:
