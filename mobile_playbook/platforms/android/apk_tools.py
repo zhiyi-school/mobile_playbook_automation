@@ -33,6 +33,18 @@ def icon_resource_paths(apk_path: Path) -> list[str]:
     return icons
 
 
+# Return the AndroidManifest.xml element tree of an APK, dumped by aapt or aapt2.
+def manifest_tree(apk_path: Path) -> str:
+    apk_path = Path(apk_path)
+    if not apk_path.is_file():
+        logger.debug("android apk tools: %s is not a file", apk_path)
+        raise FileNotFoundError(apk_path)
+    return _run_first_available([
+        ["aapt", "dump", "xmltree", str(apk_path), "AndroidManifest.xml"],
+        ["aapt2", "dump", "xmltree", "--file", "AndroidManifest.xml", str(apk_path)],
+    ])
+
+
 # Return the badging or manifest dump of an existing APK from the first SDK tool that works.
 def _badging(apk_path: Path) -> str:
     apk_path = Path(apk_path)
@@ -76,7 +88,7 @@ def _run_first_available(commands: list[list[str]]) -> str:
             )
             errors.append((exc.stderr or exc.stdout or str(exc)).strip())
     logger.debug("android apk tools: no SDK tool succeeded (%s attempts)", len(commands))
-    raise RuntimeError("APK metadata inspection needs aapt, aapt2 or apkanalyzer on PATH: " + "; ".join(errors))
+    raise RuntimeError("APK inspection needs aapt, aapt2 or apkanalyzer on PATH: " + "; ".join(errors))
 
 
 # Extract package, version and label fields from badging output.

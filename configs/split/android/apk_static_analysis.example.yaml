@@ -1,0 +1,24 @@
+# Example Android apk_static_analysis settings. Copy to apk_static_analysis.yaml; see docs/android/configuration.md.
+
+apk_static_analysis:
+  analyzer:
+    provider: "mobsf"
+    # mobsf_url and api_key default to tools.mobsf_url and tools.mobsf_api_key when left unset.
+    mobsf_url: null
+    api_key_env: "MOBSF_API_KEY"
+    timeout_seconds: 120
+    auto_start:
+      enabled: false
+      command: []
+      wait_seconds: 90
+      stop_after_scan: false
+      generate_api_key: true
+    fallback_to_builtin: true
+  sensitive_scan:
+    reveal_values: false
+  api_key_reuse_test:
+    enabled: true
+    provider: "google_geocode"
+    timeout_seconds: 5
+    max_keys: 5
+    test_address: "Singapore"

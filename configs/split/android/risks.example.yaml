@@ -1,4 +1,43 @@
 # Example Android risk text shown in the dashboard. Copy to risks.yaml; see docs/android/risks.md#risk-metadata.
+android-feature-01-risk-01:
+  name: Android APK Static Analysis
+  description: The app's APK can be obtained and unpacked, so static analysis exposes its manifest, permissions, exported components, code, bundled resources and any embedded secrets.
+  tactic: Discovery
+  demonstration:
+    - id: setup_table
+      type: table
+      label: Setup
+      rows:
+        - Configuration: APK source
+          Detail: "The app's base and split APKs in artifacts/intake/android/apks/<package>/; no device is needed"
+        - Configuration: Analyzer
+          Detail: MobSF when apk_static_analysis.analyzer.provider is mobsf, otherwise the built-in scanner; a failed MobSF scan falls back to the built-in scanner when fallback_to_builtin is true
+    - id: steps
+      type: steps
+      label: Demonstration
+      items:
+        - id: step_1
+          text: Take the app's APKs from the intake folder, hash each one, and read the base APK's package name and version
+          images: []
+          commands:
+            - aapt dump badging base.apk
+        - id: step_2
+          text: Upload the base APK to MobSF, start the scan and fetch the JSON report
+          images: []
+          commands:
+            - POST /api/v1/upload
+            - POST /api/v1/scan
+            - POST /api/v1/report_json
+        - id: step_3
+          text: "Built-in scanner (fallback): dump the manifest, inventory every APK's files, and scan text assets, DEX code and resources.arsc for secrets"
+          images: []
+          commands:
+            - aapt dump xmltree base.apk AndroidManifest.xml
+        - id: step_4
+          text: Write apk_analysis.json, package_inventory.json, critical_findings.json and critical_findings.md (and mobsf_report.json when MobSF was used)
+          images: []
+          commands: []
+
 
 # Where the developer remediation playbook lives; ANDROID_PLAYBOOK_DIR in .env takes precedence. See docs/configuration.md.
 playbook_dir: "REPLACE_WITH_PLAYBOOK_DIR"

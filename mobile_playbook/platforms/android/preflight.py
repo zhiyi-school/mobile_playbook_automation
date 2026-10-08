@@ -25,7 +25,7 @@ class AndroidPreflightResult:
 
 
 # Check each requirement and collect failures as errors and passing checks as warnings.
-def check_android_preflight(config, adb: AdbClient, requires: list[str]) -> AndroidPreflightResult:
+def check_android_preflight(config, adb: AdbClient | None, requires: list[str]) -> AndroidPreflightResult:
     errors: list[str] = []
     warnings: list[str] = []
     logger.debug("android preflight: checking requirements %s", requires)
@@ -37,7 +37,7 @@ def check_android_preflight(config, adb: AdbClient, requires: list[str]) -> Andr
 
 
 # Return a (name, ok, message) result for each named requirement, failing unknown names.
-def check_requirements(requires: list[str], adb: AdbClient, config) -> list[tuple[str, bool, str]]:
+def check_requirements(requires: list[str], adb: AdbClient | None, config) -> list[tuple[str, bool, str]]:
     results = []
     for name in requires:
         if name == "adb":

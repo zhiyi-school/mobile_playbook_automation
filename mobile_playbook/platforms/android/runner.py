@@ -105,19 +105,23 @@ class AndroidPlatformRunner:
         started = time.monotonic()
         try:
             logger.debug("android runner: preflight for %s/%s requires=%s", app.id, test_id, getattr(risk, "requires", []))
-            preflight = check_android_preflight(config, device_client.adb, getattr(risk, "requires", []))
+            # The scan runner connects no device when no planned risk needs one, so device_client can be None here.
+            adb = device_client.adb if device_client is not None else None
+            preflight = check_android_preflight(config, adb, getattr(risk, "requires", []))
             logger.debug("android runner: preflight for %s/%s ok=%s errors=%s warnings=%s", app.id, test_id, getattr(preflight, "ok", None), getattr(preflight, "errors", None), getattr(preflight, "warnings", None))
             if not preflight.ok:
                 raise RuntimeError("; ".join(preflight.errors))
             if getattr(risk, "requires_device", True):
-                # The screen may have timed out since the last test; every Android risk drives the UI.
-                wake_and_unlock(device_client.adb)
-            if config.runner.auto_grant_permissions:
-                logger.debug("android runner: auto-granting permissions for %s", app.package_name)
-                grant_result = grant_all(device_client.adb, app.package_name)
-                logger.debug("android runner: grant result for %s: %s", app.package_name, grant_result)
+                # The screen may have timed out since the last test; a risk that uses the device drives its UI.
+                wake_and_unlock(adb)
+                if config.runner.auto_grant_permissions:
+                    logger.debug("android runner: auto-granting permissions for %s", app.package_name)
+                    grant_result = grant_all(adb, app.package_name)
+                    logger.debug("android runner: grant result for %s: %s", app.package_name, grant_result)
+                else:
+                    logger.debug("android runner: auto_grant_permissions disabled; not granting for %s", app.package_name)
             else:
-                logger.debug("android runner: auto_grant_permissions disabled; not granting for %s", app.package_name)
+                logger.debug("android runner: %s does not use the device; skipping wake and permission grants", test_id)
             logger.debug("android runner: running %s (%s) for app %s package %s", test_id, type(risk).__name__, app.id, app.package_name)
             risk.run(app, config, device_client, report_writer)
             logger.debug("android runner: %s for app %s returned after %.2fs", test_id, app.id, time.monotonic() - started)

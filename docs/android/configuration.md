@@ -16,7 +16,7 @@ done
 Every file an entry config includes has its own `*.example.yaml` next to it, so
 the copies load as they are. The loop skips any real config you already have.
 
-The config contains `device`, `runner`, `tools`, per-risk timing blocks, and `apps` — the first two inline, the rest via `include:`.
+The config contains `device`, `runner`, `tools`, per-risk settings blocks, and `apps` — the first two inline, the rest via `include:`.
 
 ## Device
 
@@ -62,7 +62,7 @@ runner:
   keep_screen_on: false
 ```
 
-Before every Android test the runner wakes the device's screen and dismisses its lock screen over adb (`input keyevent KEYCODE_WAKEUP`, then `wm dismiss-keyguard`), since every Android risk drives the device's UI. This only works without a PIN, password or pattern; if the lock screen is still showing afterwards, the test fails with `the device is still locked after waking it` and does not run.
+Before every Android test that uses the device, the runner wakes the device's screen and dismisses its lock screen over adb (`input keyevent KEYCODE_WAKEUP`, then `wm dismiss-keyguard`), since those risks drive the device's UI. `android-feature-01-risk-01` reads APKs from the intake folder and does not use the device, so it skips this and the permission grant, and a run of only that risk connects to no device. This only works without a PIN, password or pattern; if the lock screen is still showing afterwards, the test fails with `the device is still locked after waking it` and does not run.
 
 `runner.keep_screen_on: true` also sets the device to keep its screen on whenever it is charging, from any power source (`adb shell svc power stayon true`), when a run connects to it, so the screen does not time out between tests. It changes a device setting that stays after the run; `adb shell svc power stayon false` turns it off again.
 
@@ -77,7 +77,7 @@ tools:
   burp_proxy: "http://127.0.0.1:8080"
 ```
 
-These are reserved settings for future Android static-analysis and proxy integrations; the current Android risks (`android-feature-06-risk-01`, `android-feature-01-risk-02`) do not read them.
+`mobsf_url` and `mobsf_api_key` are the defaults for `android-feature-01-risk-01` when its `apk_static_analysis.analyzer` sets no `mobsf_url` or `api_key`, so MobSF is configured in one place. `burp_proxy` is reserved for a future proxy integration; no Android risk reads it.
 
 ## Apps
 
@@ -87,6 +87,8 @@ apps:
     name: "Example App"
     package_name: "com.example.app"
     risks:
+      android-feature-01-risk-01:
+        enabled: true
       android-feature-06-risk-01:
         enabled: true
       android-feature-01-risk-02:
@@ -101,7 +103,7 @@ apps:
   - com.example.other_app
 ```
 
-When using the legacy shape, both Android risks are enabled for each package.
+When using the legacy shape, every Android risk is enabled for each package.
 
 Configure each package once. The app's `id` is its identity on the dashboard,
 and its backed-up APKs live in a work folder named after the package, so two
@@ -135,10 +137,47 @@ Android risk IDs are prefixed `android-feature...`. To configure a risk for an a
      keystore_pass: "REPLACE_WITH_KEYSTORE_PASSWORD"
    ```
 
-   See `configs/split/android/repackaging.example.yaml` and `screen_capture.example.yaml` for the rest of these fields, and the field references below for what each controls.
+   See `configs/split/android/repackaging.example.yaml`, `screen_capture.example.yaml` and `apk_static_analysis.example.yaml` for the rest of these fields, and the field references below for what each controls.
 3. Only add more fields under the app's own `risks.<risk_id>` entry when this one app needs to differ from those shared defaults — nest just the field being changed. Anything left unset there falls back to the global file.
 
 Risks run in the order they're listed under an app's `risks` mapping, not sorted by ID — keep that in mind if the order of your own `risks:` blocks matters to you.
+
+### APK static analysis (`android-feature-01-risk-01`)
+
+Global defaults live under a top-level `apk_static_analysis` block and can be overridden per app under `risks.android-feature-01-risk-01`. The block has the same shape as iOS's `ipa_static_analysis` and is merged recursively, so an app can override one nested field such as `analyzer.provider`:
+
+```yaml
+apk_static_analysis:
+  analyzer:
+    provider: "mobsf"
+    mobsf_url: null
+    api_key_env: "MOBSF_API_KEY"
+    timeout_seconds: 120
+    auto_start:
+      enabled: false
+      command: []
+      wait_seconds: 90
+      stop_after_scan: false
+      generate_api_key: true
+    fallback_to_builtin: true
+  sensitive_scan:
+    reveal_values: false
+  api_key_reuse_test:
+    enabled: true
+    provider: "google_geocode"
+    timeout_seconds: 5
+    max_keys: 5
+    test_address: "Singapore"
+```
+
+- `analyzer.provider`: `mobsf` to scan the base APK with MobSF, or `builtin` for the built-in scanner. Unset, the built-in scanner runs.
+- `analyzer.mobsf_url` / `analyzer.api_key`: the MobSF server and key. Unset, they come from `tools.mobsf_url` and `tools.mobsf_api_key`, and the key then from the environment variable `analyzer.api_key_env` names (`MOBSF_API_KEY`).
+- `analyzer.auto_start`, `analyzer.timeout_seconds`: start MobSF with `command` when it is not reachable, and how long each MobSF request may take, as for [iOS](../ios/configuration.md).
+- `analyzer.fallback_to_builtin`: when MobSF fails, run the built-in scanner instead of failing the test.
+- `sensitive_scan.reveal_values`: report secrets in full instead of masked. Leave it false unless the reports stay on this workstation.
+- `api_key_reuse_test`: test Google API keys found in the APK against the Geocoding API from the workstation (an outbound request per key, up to `max_keys`).
+
+The APKs are always read from `artifacts/intake/android/apks/<package_name>/`; see [Risks](risks.md#android-feature-01-risk-01).
 
 ### Repackaging timing and signing (`android-feature-01-risk-02`)
 
@@ -198,6 +237,7 @@ runner:
 
 include:
   tools: split/android/tools.yaml
+  apk_static_analysis: split/android/apk_static_analysis.yaml
   repackaging: split/android/repackaging.yaml
   screen_capture: split/android/screen_capture.yaml
   apps: split/android/apps.yaml
@@ -205,8 +245,8 @@ include:
 
 Included paths are resolved relative to the entry-point file — here, that's `configs/`, so each path is prefixed `split/android/`. Inline values and included sections can coexist in the same file — nothing requires every section to go through `include:`, which is how `device`/`runner` stay inline while the rest are pulled in. See `configs/android.example.yaml`, the tracked example of this entry-point file.
 
-The real tools/repackaging/screen_capture/app-roster content lives in `configs/split/android/*.yaml` (all git-ignored, since they contain real app config — only the `*.example.yaml` files under `configs/split/android/` are tracked). `configs/android.yaml` itself is also git-ignored, since it holds the real device config.
+The real tools/apk_static_analysis/repackaging/screen_capture/app-roster content lives in `configs/split/android/*.yaml` (all git-ignored, since they contain real app config — only the `*.example.yaml` files under `configs/split/android/` are tracked). `configs/android.yaml` itself is also git-ignored, since it holds the real device config.
 
 ## Environment Files
 
-The CLI loads `.env` from the project root and from the directory containing the selected config file, the same as for iOS. Existing shell environment variables are not overwritten. Android risks do not currently require any environment variables.
+The CLI loads `.env` from the project root and from the directory containing the selected config file, the same as for iOS. Existing shell environment variables are not overwritten. `android-feature-01-risk-01` reads the MobSF API key from `MOBSF_API_KEY` (or the variable `analyzer.api_key_env` names) when neither `analyzer.api_key` nor `tools.mobsf_api_key` sets one; no other Android risk needs an environment variable.

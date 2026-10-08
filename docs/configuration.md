@@ -111,7 +111,7 @@ processes in deliberately different ways.
 
 | Variable | Read by | Purpose |
 | --- | --- | --- |
-| `MOBSF_API_KEY` | run process | authenticates to a local MobSF instance for the iOS static-analysis risk |
+| `MOBSF_API_KEY` | run process | authenticates to a local MobSF instance for the iOS and Android static-analysis risks |
 | `SUPABASE_URL` | dashboard sync, assessment, and icon backfill workers | dashboard project URL |
 | `SUPABASE_SERVICE_ROLE_KEY` | dashboard sync, assessment, and icon backfill workers | bypasses row-level security |
 | `DASHBOARD_SYNC_AUTO_TRIGGER` | API and CLI | `false` disables the post-run worker launch |

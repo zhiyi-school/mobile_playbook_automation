@@ -21,6 +21,17 @@ for each platform. See [docs/ios/reports-and-troubleshooting.md](../ios/reports-
 
 ## Common Risk Files
 
+`android-feature-01-risk-01`:
+
+- `report.json`
+- `logs.txt`
+- `apk_analysis.json`, the analysis summary: APK identity and hashes, manifest summary, file counts, findings, and masked secrets
+- `package_inventory.json`, every file in the APKs with DEX files, native libraries and ABIs
+- `critical_findings.json` and `critical_findings.md`, the ranked flags
+- `mobsf_report.json`, MobSF's raw report, when MobSF ran
+
+These are listed in `evidence` with kind `report`.
+
 `android-feature-06-risk-01`:
 
 - `report.json`
@@ -40,6 +51,9 @@ for each platform. See [docs/ios/reports-and-troubleshooting.md](../ios/reports-
 
 Each test's `report.json` (and `logs.txt`) carries one of these precise statuses in its `final_status` field:
 
+- `APK_ANALYSIS_COMPLETE`: the APK was analysed; reported as At Risk, since the analysis itself shows the APK's contents are exposed.
+- `APK_NOT_FOUND`: no APKs for the app in `artifacts/intake/android/apks/<package>/`. Reported as Inconclusive.
+- `APK_PACKAGE_MISMATCH`: the intake APK belongs to a different package. Reported as Inconclusive.
 - `SCREEN_CAPTURE_ALLOWED`: UI was visible and no secure-window signal was detected.
 - `SCREEN_CAPTURE_BLOCKED`: app redirected to a browser or another app, warned, exited, or set `FLAG_SECURE`.
 - `SCREEN_CAPTURE_NOT_TESTED`: app redirected to the app store instead of opening, or a system permission prompt covered it, so screen capture was not tested. Reported as Inconclusive. For a store redirect, reinstall the app from that store and run the test again; for a permission prompt, set `runner.auto_grant_permissions: true` (or grant the permission on the device) and run it again.
@@ -52,7 +66,7 @@ Each test's `report.json` (and `logs.txt`) carries one of these precise statuses
 
 ## Which build was tested
 
-Each Android test's `report.json` records `metadata.installed_base_apk_sha256`: the SHA-256 of the installed `base.apk`, hashed on the device before the test changes anything (`null` if the device could not hash it). Two results for the same app can only be compared when this fingerprint matches; a different fingerprint means a different build was tested, even when the version number is the same. The repackaging test also records `metadata.installer`, the app that installed the tested build (`null` for an adb or sideloaded install), and `metadata.restore.matches_original`, whether the build put back afterwards is the one tested.
+`android-feature-01-risk-01` analyses the intake APKs rather than the installed build, so its `report.json` records `metadata.apk_sha256`, the SHA-256 of the intake `base.apk`, and `metadata.apks` with every APK's hash. Each Android test that uses the device records `metadata.installed_base_apk_sha256`: the SHA-256 of the installed `base.apk`, hashed on the device before the test changes anything (`null` if the device could not hash it). Two results for the same app can only be compared when this fingerprint matches; a different fingerprint means a different build was tested, even when the version number is the same. The repackaging test also records `metadata.installer`, the app that installed the tested build (`null` for an adb or sideloaded install), and `metadata.restore.matches_original`, whether the build put back afterwards is the one tested.
 
 ## Troubleshooting
 

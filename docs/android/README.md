@@ -30,6 +30,9 @@ the split-file setup steps.
 python -m mobile_playbook list-risks --platform android
 
 python -m mobile_playbook run --platform android --config configs/android.yaml \
+  --risks android-feature-01-risk-01
+
+python -m mobile_playbook run --platform android --config configs/android.yaml \
   --risks android-feature-06-risk-01
 
 python -m mobile_playbook run --platform android --config configs/android.yaml \
@@ -46,10 +49,11 @@ artifacts/reports/<RUN_TIMESTAMP>/android/<APP_ID>/<RISK_ID>/<CASE_ID>/
 
 | | Needed for |
 | --- | --- |
-| `adb` on `PATH` (Android platform-tools) | everything |
-| A connected device with USB debugging **authorised** | everything |
-| No PIN, password or pattern on the device, so the runner can unlock it over adb before each test | everything |
-| Appium with the UiAutomator2 driver | both risks |
+| `adb` on `PATH` (Android platform-tools) | every risk that uses the device |
+| A connected device with USB debugging **authorised** | every risk except `android-feature-01-risk-01` |
+| No PIN, password or pattern on the device, so the runner can unlock it over adb before each test | every risk except `android-feature-01-risk-01` |
+| Appium with the UiAutomator2 driver | `android-feature-06-risk-01` and `android-feature-01-risk-02` |
+| The app's APKs in `artifacts/intake/android/apks/<PACKAGE_NAME>/`; MobSF when `analyzer.provider` is `mobsf`; `aapt` or `aapt2` on `PATH` for the built-in scanner's manifest checks | `android-feature-01-risk-01` only |
 | The screen-capture helper APK, built with `python tools/companion_apps/android_screen_capture/build.py` (Android SDK and a JDK), and the device language set to English for Android versions that ask to share one app or the entire screen | `android-feature-06-risk-01` only |
 | `apktool`, `apksigner`, `keytool` on `PATH` | `android-feature-01-risk-02` only |
 | For `play_store` or `aurora_store`, that store app signed in to a Google account, with the device language set to English | installing missing apps |
@@ -209,6 +213,7 @@ has no column for it.
 
 | Risk | Needs | Notes |
 | --- | --- | --- |
+| `android-feature-01-risk-01` — APK static analysis | the app's intake APKs; MobSF optional | no device; scans the base APK with MobSF or the built-in scanner and ranks what it exposes |
 | `android-feature-06-risk-01` — screen recording / `FLAG_SECURE` | ADB, Appium, the screen-capture helper, a device without a PIN, password or pattern | records the screen with a helper app, as the playbook does, and checks whether the app's content was captured |
 | `android-feature-01-risk-02` — APK repackaging | ADB, Appium, plus `apktool`, `apksigner`, `keytool` | pulls, decodes, rebuilds, resigns, reinstalls and launches |
 

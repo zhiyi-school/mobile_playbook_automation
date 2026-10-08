@@ -45,7 +45,7 @@ requirement.
 | iOS | Xcode, XCUITest driver, Apple Team ID, device with no passcode/biometric |
 | Android | platform-tools (`adb`), UiAutomator2 driver |
 | Android repackaging risk | `apktool`, `apksigner`, `keytool` |
-| Optional | MobSF (iOS static analysis, `analyzer.provider: mobsf`) |
+| Optional | MobSF (iOS and Android static analysis, `analyzer.provider: mobsf`) |
 | Optional | Supabase project + service-role key (dashboard sync only) |
 
 One run per platform at a time — the device is the constraint, and the API

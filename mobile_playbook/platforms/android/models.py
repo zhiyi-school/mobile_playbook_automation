@@ -58,6 +58,7 @@ class AndroidGlobalConfig(SerializableDataclass):
     tools: dict[str, Any] = field(default_factory=dict)
     screen_capture: dict[str, Any] = field(default_factory=dict)
     repackaging: dict[str, Any] = field(default_factory=dict)
+    apk_static_analysis: dict[str, Any] = field(default_factory=dict)
     config_path: Path | None = None
 
 

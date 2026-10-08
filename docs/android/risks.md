@@ -1,5 +1,31 @@
 # Android Risks
 
+## android-feature-01-risk-01
+
+`android-feature-01-risk-01` demonstrates that the app's APK can be obtained and analysed statically, following the playbook: the APK is uploaded to MobSF, and the report shows what anyone with the APK can learn from its manifest, code and bundled files. As on iOS, completing the analysis is itself the finding, so a run that analyses the APK is **At Risk**; the critical findings rank what the analysis exposed.
+
+Requires: the app's APKs in `artifacts/intake/android/apks/<package>/` (`base.apk` plus any `split_*.apk`, as for the [`apk` install method](README.md#apks-over-adb)). It needs no device, so a run of only this risk connects to none; pulling the installed APKs from the phone instead is planned. MobSF is needed only when `analyzer.provider` is `mobsf`; `aapt` or `aapt2` on `PATH` lets the built-in scanner read the manifest.
+
+Stages:
+
+1. Take the app's APKs from the intake folder, `base.apk` first, and record each one's name, size and SHA-256 under `metadata.apks` (`metadata.apk_sha256` is the base APK's). Read the base APK's package name and version with `aapt dump badging`; an APK of a different package stops the run as `APK_PACKAGE_MISMATCH` without analysing it. When no SDK tool can read the APK, this check is skipped.
+2. With `analyzer.provider: mobsf`, upload the base APK to MobSF, scan it and fetch the JSON report (the same client as iOS: `POST /api/v1/upload`, `/api/v1/scan`, `/api/v1/report_json`), then normalize it: package identity and SDK levels, permissions and which are dangerous, exported component counts, the file list, and every titled finding MobSF rated above info.
+3. Otherwise, or when MobSF fails and `fallback_to_builtin` is true, run the built-in scanner over every intake APK: parse the base APK's `AndroidManifest.xml` from `aapt dump xmltree` (falling back to `aapt2`), list every file in each APK, and scan for secrets. Text files outside compiled `res/` XML (for example `assets/*.json`) are checked for key-value secrets and known secret formats; `classes*.dex` and `resources.arsc`, where Firebase and Google API keys are compiled, are checked for the known formats only. Values are masked unless `sensitive_scan.reveal_values` is true.
+4. When `api_key_reuse_test.enabled` is true, test up to `max_keys` Google API keys found against the Geocoding API from the workstation, as iOS does.
+5. Write the reports and record the verdict.
+
+Critical findings (`critical_findings.json`, ranked HIGH to LOW):
+
+- `APK_PACKAGE_ANALYZABLE` (HIGH, always).
+- `SENSITIVE_INFORMATION_EXPOSURE`, with the highest severity of the secrets found, and `GOOGLE_API_KEY_REUSE_TEST` when keys were tested.
+- `MOBSF_STATIC_ANALYSIS_FINDINGS`: MobSF's high and medium findings (MobSF only).
+- From the manifest: `DEBUGGABLE_BUILD` (HIGH), `DANGEROUS_PERMISSIONS_REQUESTED` (MEDIUM), `EXPORTED_COMPONENTS` (MEDIUM: components other apps can start without a permission, leaving out the launcher activity), `CLEARTEXT_TRAFFIC_ALLOWED` (MEDIUM: `usesCleartextTraffic="true"`, or unset with `targetSdkVersion` below 28) and `APP_DATA_BACKUP_ALLOWED` (LOW: `allowBackup` true or unset). With MobSF, only permissions and exported components come from the manifest summary; MobSF's own manifest findings cover the rest.
+- `NATIVE_LIBRARIES_PRESENT` (LOW), `CANDIDATE_CONFIG_RESOURCES` (MEDIUM, built-in only), and `MOBSF_FALLBACK_USED` (LOW) when the built-in scanner stood in for MobSF.
+
+Statuses: `APK_ANALYSIS_COMPLETE` (At Risk), `APK_NOT_FOUND` and `APK_PACKAGE_MISMATCH` (Inconclusive, nothing analysed), and `FAILED` (Inconclusive), for example when MobSF fails and `fallback_to_builtin` is false.
+
+Settings (`analyzer`, `sensitive_scan`, `api_key_reuse_test`) are documented in [Configuration](configuration.md#apk-static-analysis-android-feature-01-risk-01).
+
 ## android-feature-06-risk-01
 
 `android-feature-06-risk-01` demonstrates whether another app on the device can record the target app's screen, following the playbook: a helper app records the screen through Android's screen-recording API (`MediaProjection`) after the user approves the system prompt, the target app is opened while it records, and the recording shows whether the app's content was captured or came out blank, as a `FLAG_SECURE` window does.
@@ -69,7 +95,7 @@ Generated work files (backed-up, decoded, and rebuilt APKs) are left under `arti
 
 **`configs/split/android/risks.yaml` is the source of truth for everything a dashboard displays about a risk** — its `name`, `description`, `tactic` and `demonstration`. The `AndroidRisk` class holds none of that text: it carries only `risk_id`, `feature_id`, the test-case identifiers and the flags that change what a run does (`is_blocking`, `requires`, `requires_device`). `list_risks()` returns the class's empty defaults and `GET /platforms/{platform}/risks` overlays the YAML entry on top. See [iOS risk metadata](../ios/risks.md#risk-metadata) for the reasoning — the same arrangement applies here.
 
-There is no Android playbook yet, so the current entries carry over what the risk classes used to say; once one exists its `### Title` and `### Description` take over automatically and these entries become the fallback. `tactic` is `null` for both Android risks until they're mapped.
+There is no Android playbook yet, so the current entries carry over what the risk classes used to say; once one exists its `### Title` and `### Description` take over automatically and these entries become the fallback. `tactic` is `null` for the screen-capture and repackaging risks until they're mapped; the APK static-analysis entry carries `Discovery`, the tactic its playbook entry names.
 
 Both halves of an entry are editable over HTTP without a code change: `PUT /platforms/android/risks/{risk_id}` replaces the metadata fields, and `PUT /platforms/android/risks/{risk_id}/demonstration` replaces the demonstration. Neither touches the run.
 

@@ -42,20 +42,26 @@ class FakeRisk:
         self.runs += 1
 
 
-def run_one(monkeypatch, risk, unlock):
+CONNECTED = SimpleNamespace(adb="ADB")
+
+
+def run_one(monkeypatch, risk, unlock, device_client=CONNECTED, auto_grant_permissions=False, preflight_adbs=None):
     monkeypatch.setattr("mobile_playbook.platforms.android.runner.get_risk", lambda test_id: risk)
-    monkeypatch.setattr(
-        "mobile_playbook.platforms.android.runner.check_android_preflight",
-        lambda config, adb, requires: SimpleNamespace(ok=True, errors=[], warnings=[]),
-    )
+
+    def preflight(config, adb, requires):
+        if preflight_adbs is not None:
+            preflight_adbs.append(adb)
+        return SimpleNamespace(ok=True, errors=[], warnings=[])
+
+    monkeypatch.setattr("mobile_playbook.platforms.android.runner.check_android_preflight", preflight)
     monkeypatch.setattr("mobile_playbook.platforms.android.runner.wake_and_unlock", unlock)
     recorded = []
     runner = AndroidPlatformRunner()
     monkeypatch.setattr(runner, "_failure_result_template", lambda *a: SimpleNamespace(errors=[]))
     monkeypatch.setattr(runner, "_record_failure", lambda result, writer, exc: recorded.append(str(exc)))
     app = SimpleNamespace(id="example_app", package_name="com.example.one")
-    config = SimpleNamespace(runner=SimpleNamespace(auto_grant_permissions=False))
-    runner.run_test(app, "risk_id", config, SimpleNamespace(adb="ADB"), None)
+    config = SimpleNamespace(runner=SimpleNamespace(auto_grant_permissions=auto_grant_permissions))
+    runner.run_test(app, "risk_id", config, device_client, None)
     return recorded
 
 
@@ -86,6 +92,27 @@ def test_a_risk_without_a_device_does_not_touch_the_screen(monkeypatch):
 
     run_one(monkeypatch, risk, lambda adb: pytest.fail("no device to unlock"))
 
+    assert risk.runs == 1
+
+
+def test_a_risk_without_a_device_runs_when_no_device_was_connected(monkeypatch):
+    risk = FakeRisk(requires_device=False)
+    preflight_adbs = []
+
+    recorded = run_one(monkeypatch, risk, lambda adb: pytest.fail("no device to unlock"), device_client=None, preflight_adbs=preflight_adbs)
+
+    assert recorded == []
+    assert risk.runs == 1
+    assert preflight_adbs == [None]
+
+
+def test_a_risk_without_a_device_is_not_granted_permissions(monkeypatch):
+    risk = FakeRisk(requires_device=False)
+    monkeypatch.setattr("mobile_playbook.platforms.android.runner.grant_all", lambda adb, package: pytest.fail("no device to grant on"))
+
+    recorded = run_one(monkeypatch, risk, lambda adb: pytest.fail("no device to unlock"), device_client=None, auto_grant_permissions=True)
+
+    assert recorded == []
     assert risk.runs == 1
 
 

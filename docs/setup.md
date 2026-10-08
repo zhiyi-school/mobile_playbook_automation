@@ -64,7 +64,7 @@ allowlisted settings from it; the CLI and database workers load the whole file:
 
 | Key | Used by | Notes |
 | --- | --- | --- |
-| `MOBSF_API_KEY` | the run, when the iOS static-analysis risk uses the MobSF provider | |
+| `MOBSF_API_KEY` | the run, when a static-analysis risk (iOS or Android) uses the MobSF provider | |
 | `SUPABASE_URL` | dashboard sync, assessment, and icon backfill workers | dashboard project URL |
 | `SUPABASE_SERVICE_ROLE_KEY` | dashboard sync, assessment, and icon backfill workers | bypasses row-level security; never expose it to a browser |
 | `DASHBOARD_SYNC_AUTO_TRIGGER` | the API and CLI, to decide whether to launch a post-run worker | |
@@ -148,8 +148,9 @@ though `validate` and `--dry-run` work without any of it.
 - **Android**: Android platform-tools on `PATH` (`adb`), the UiAutomator2
   driver, and a device with USB debugging authorized.
 - **Android repackaging risk only**: `apktool`, `apksigner`, `keytool`, plus `java` for apps installed as split APKs (APKEditor is vendored under `tools/vendor/apkeditor/`).
+- **Android APK static-analysis risk**: the app's APKs in `artifacts/intake/android/apks/<package>/`; no device. `aapt` or `aapt2` (Android SDK build-tools) on `PATH` lets the built-in scanner read the manifest; without them it still inventories and scans the APKs.
 - **Android screen capture risk only**: the screen-capture helper APK, built once with `python tools/companion_apps/android_screen_capture/build.py`, which needs the Android SDK (build-tools and a platform) and a JDK.
-- **MobSF** (optional): only for the iOS static-analysis risk when its
+- **MobSF** (optional): only for the iOS and Android static-analysis risks when their
   `analyzer.provider` is `mobsf`. Set `MOBSF_API_KEY`. MobSF defaults to port
   8000, which is why this API defaults to 8080.
 
