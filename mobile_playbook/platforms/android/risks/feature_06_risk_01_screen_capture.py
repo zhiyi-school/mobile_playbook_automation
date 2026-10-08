@@ -25,6 +25,8 @@ BROWSER_PACKAGES = [
     "com.sec.android.app.sbrowser",
 ]
 LAUNCHER_PACKAGES = ["com.google.android.apps.nexuslauncher", "com.sec.android.app.launcher", "com.huawei.android.launcher"]
+# System dialogs Android shows over the app, such as a runtime permission prompt; they are not the app protecting itself.
+SYSTEM_PROMPT_PACKAGES = ["com.android.permissioncontroller", "com.google.android.permissioncontroller"]
 DEBUGGING_KEYWORDS = ["developer options", "debugging", "usb debugging", "debugging detected"]
 CAPTURE_KEYWORDS = ["screen recording", "screen sharing", "screen recording/sharing"]
 
@@ -63,7 +65,9 @@ class AndroidScreenCaptureRisk(AndroidRisk):
             driver = device_client.make_driver()
             recordings_dir = report_dir / "recordings"
             recordings_dir.mkdir(parents=True, exist_ok=True)
-            recording_started = self._start_recording(driver)
+            recording_started, recording_error = self._start_recording(driver)
+            if not recording_started:
+                result.metadata["recording"] = f"not started: {recording_error}"
             logger.debug("%s[%s]: screen recording started=%s (recordings_dir=%s)", self.risk_id, app_config.id, recording_started, recordings_dir)
             if recording_started:
                 time.sleep(float(cfg.get("record_lead_in", 2)))
@@ -125,14 +129,16 @@ class AndroidScreenCaptureRisk(AndroidRisk):
             logger.debug("%s[%s]: FLAG_SECURE check -> %s", self.risk_id, package_name, verdict)
         return verdict
 
-    # Start Appium screen recording, returning False when unsupported.
-    def _start_recording(self, driver) -> bool:
+    # Start Appium screen recording, returning whether it started and, when it did not, why.
+    def _start_recording(self, driver) -> tuple[bool, str | None]:
         try:
             driver.start_recording_screen()
-            return True
+            return True, None
         except Exception as exc:
             logger.debug("%s: start_recording_screen failed: %s", self.risk_id, exc, exc_info=True)
-            return False
+            # Appium errors carry a server stack trace after the message; the report keeps only the message's first line.
+            message = (getattr(exc, "msg", None) or str(exc)).strip()
+            return False, message.splitlines()[0] if message else type(exc).__name__
 
     # Stop recording and save the MP4, returning its path or None on failure.
     def _stop_recording(self, driver, package_name: str, recordings_dir: Path) -> Path | None:
@@ -156,7 +162,7 @@ class AndroidScreenCaptureRisk(AndroidRisk):
             logger.debug("%s[%s]: terminate_app failed: %s", self.risk_id, package_name, exc, exc_info=True)
 
     # Return a BLOCKED observation when the app hands the foreground to a browser, launcher or other app; an app
-    # store redirect is INCONCLUSIVE, since the app refused to open and its screen was never shown.
+    # store redirect or a system prompt over the app is INCONCLUSIVE, since the app's screen was never examined.
     def _check_app_switch(self, driver, package_name: str) -> str:
         try:
             current_package = driver.current_package
@@ -166,6 +172,8 @@ class AndroidScreenCaptureRisk(AndroidRisk):
         logger.debug("%s[%s]: foreground package after launch is %s", self.risk_id, package_name, current_package)
         if current_package == package_name:
             return "Unknown"
+        if current_package in SYSTEM_PROMPT_PACKAGES:
+            return f"INCONCLUSIVE (A system prompt covered the app: {current_package} - screen capture was not tested)"
         if current_package in STORE_APPS:
             verdict = f"INCONCLUSIVE (Redirected to {STORE_APPS[current_package]} - the app did not open, so screen capture was not tested)"
         elif current_package in BROWSER_PACKAGES:
