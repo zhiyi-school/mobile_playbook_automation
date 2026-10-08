@@ -443,3 +443,95 @@ def test_a_switch_to_another_app_is_an_exit_not_a_redirect():
     verdict = AndroidRepackagingRisk()._check_app_after_launch(driver, PACKAGE, {"launch_wait": 0})
 
     assert verdict == "FAIL: app fail to work after repackaging (exited immediately after launch)"
+
+
+class ScreenshotDriver(LaunchDriver):
+    def __init__(self, foreground: str, buttons=()):
+        super().__init__(foreground)
+        self.buttons = list(buttons)
+
+    def get_screenshot_as_png(self) -> bytes:
+        return b"png"
+
+    def find_elements(self, by, selector):
+        return self.buttons
+
+
+class Button:
+    def click(self) -> None:
+        pass
+
+
+def test_a_screenshot_is_saved_after_launch_and_after_the_tap(tmp_path):
+    driver = ScreenshotDriver(PACKAGE, buttons=[Button()])
+
+    verdict = AndroidRepackagingRisk()._check_app_after_launch(driver, PACKAGE, {"launch_wait": 0, "post_click_wait": 0}, tmp_path)
+
+    assert verdict == "PASS: able to work after repackaging"
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["after_launch.png", "after_tap.png"]
+
+
+def test_a_screenshot_is_saved_even_when_the_app_left_the_screen(tmp_path):
+    driver = ScreenshotDriver("com.huawei.android.internal.app")
+
+    AndroidRepackagingRisk()._check_app_after_launch(driver, PACKAGE, {"launch_wait": 0}, tmp_path)
+
+    assert [p.name for p in tmp_path.iterdir()] == ["after_launch.png"]
+
+
+class RunAsAdb(FakeAdb):
+    def __init__(self, response):
+        super().__init__()
+        self.response = response
+
+    def run(self, args, timeout=None):
+        self.commands.append(args)
+        return self.response if args[:2] == ["shell", "run-as"] else (0, "Success", "")
+
+
+def test_a_debuggable_app_has_its_private_files_listed(tmp_path):
+    listing = ".:\ncache\nfiles\nshared_prefs\n\n./shared_prefs:\nprefs.xml\n"
+    adb = RunAsAdb((0, listing, ""))
+
+    debuggable = AndroidRepackagingRisk()._check_debuggable(FakeDeviceClient(adb), PACKAGE, tmp_path)
+
+    assert debuggable == {"run_as": True, "files_listed": 4, "listing": str(tmp_path / "run_as_ls.txt")}
+    assert (tmp_path / "run_as_ls.txt").read_text() == listing
+    assert ["shell", "run-as", PACKAGE, "ls", "-R"] in adb.commands
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        (1, "", f"run-as: package not debuggable: {PACKAGE}"),
+        # Some devices print the refusal on stdout and still exit 0.
+        (0, f"run-as: package not debuggable: {PACKAGE}\n", ""),
+    ],
+)
+def test_a_refused_run_as_means_not_debuggable(tmp_path, response):
+    debuggable = AndroidRepackagingRisk()._check_debuggable(FakeDeviceClient(RunAsAdb(response)), PACKAGE, tmp_path)
+
+    assert debuggable == {"run_as": False, "detail": f"run-as: package not debuggable: {PACKAGE}"}
+    assert not (tmp_path / "run_as_ls.txt").exists()
+
+
+def test_a_validated_run_records_screenshots_and_the_run_as_check(tmp_path, monkeypatch):
+    app_config, global_config = make_configs(tmp_path, restore_original_after_test=False)
+    risk = AndroidRepackagingRisk()
+    stub_pipeline(risk, monkeypatch)
+    report_dir = tmp_path / "report"
+
+    def validation(device_client, package, report_dir_arg, cfg):
+        (report_dir_arg / "screenshots").mkdir(parents=True)
+        (report_dir_arg / "screenshots" / "after_launch.png").write_bytes(b"png")
+        return "PASS: able to work after repackaging", None
+
+    monkeypatch.setattr(risk, "_validate_with_appium", validation)
+    adb = RunAsAdb((0, ".:\nfiles\n", ""))
+
+    result = risk.run(app_config, global_config, FakeDeviceClient(adb), FakeReportWriter(tmp_path))
+
+    assert result.metadata["debuggable"]["run_as"] is True
+    assert [item["kind"] for item in result.evidence] == ["screenshot", "run_as_listing"]
+    assert result.evidence[0]["path"] == str(report_dir / "screenshots" / "after_launch.png")
+    assert result.final_status == "REPACKAGING_SURVIVED"

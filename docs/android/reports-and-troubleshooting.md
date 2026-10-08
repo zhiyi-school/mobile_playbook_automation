@@ -32,6 +32,8 @@ for each platform. See [docs/ios/reports-and-troubleshooting.md](../ios/reports-
 - `report.json`
 - `logs.txt`
 - `recordings/<package>.mp4` when Appium validation recording succeeds
+- `screenshots/after_launch.png`, and `screenshots/after_tap.png` when something was tapped
+- `run_as_ls.txt` when `run-as` could list the repackaged app's private files
 - generated APK work files under `artifacts/work/android/repackaging/`
 
 ## Statuses

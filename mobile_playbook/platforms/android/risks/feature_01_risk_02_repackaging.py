@@ -115,6 +115,11 @@ class AndroidRepackagingRisk(AndroidRisk):
                         result.evidence.append({"kind": "screen_recording", "path": str(recording_path), "label": "Repackaged launch recording"})
                     else:
                         logger.debug("%s[%s]: no launch recording evidence saved", self.risk_id, app_config.id)
+                    for screenshot in sorted((report_dir / "screenshots").glob("*.png")):
+                        result.evidence.append({"kind": "screenshot", "path": str(screenshot), "label": f"Repackaged app {screenshot.stem.replace('_', ' ')}"})
+                    result.metadata["debuggable"] = self._check_debuggable(device_client, app_config.package_name, report_dir)
+                    if result.metadata["debuggable"].get("listing"):
+                        result.evidence.append({"kind": "run_as_listing", "path": result.metadata["debuggable"]["listing"], "label": "Private files listed with run-as"})
                     result.final_status = "REPACKAGING_SURVIVED" if verdict.startswith("PASS") else "REPACKAGING_BLOCKED"
                     result.verdict = "At Risk" if verdict.startswith("PASS") else "Reduced Risk"
                     logger.debug("%s[%s]: validation %r -> final_status=%s verdict=%s", self.risk_id, app_config.id, verdict, result.final_status, result.verdict)
@@ -449,7 +454,7 @@ class AndroidRepackagingRisk(AndroidRisk):
             logger.debug("%s[%s]: screen recording started=%s (recordings_dir=%s)", self.risk_id, package_name, recording_started, recordings_dir)
             if recording_started:
                 time.sleep(float(cfg.get("record_lead_in", 2)))
-            verdict = self._check_app_after_launch(driver, package_name, cfg)
+            verdict = self._check_app_after_launch(driver, package_name, cfg, report_dir / "screenshots")
             recording_path = None
             if recording_started:
                 time.sleep(float(cfg.get("record_tail", 3)))
@@ -467,8 +472,9 @@ class AndroidRepackagingRisk(AndroidRisk):
             logger.debug("%s[%s]: quitting Appium session %s", self.risk_id, package_name, getattr(driver, "session_id", None))
             driver.quit()
 
-    # Return PASS when the app stays in the foreground after launch and a click, else a FAIL or ERROR reason.
-    def _check_app_after_launch(self, driver, package_name: str, cfg: dict) -> str:
+    # Return PASS when the app stays in the foreground after launch and a click, else a FAIL or ERROR reason,
+    # saving a screenshot after each so a tamper warning shown inside the app can be seen in the report.
+    def _check_app_after_launch(self, driver, package_name: str, cfg: dict, screenshots_dir: Path | None = None) -> str:
         try:
             logger.debug("%s[%s]: activating repackaged app", self.risk_id, package_name)
             driver.activate_app(package_name)
@@ -476,6 +482,7 @@ class AndroidRepackagingRisk(AndroidRisk):
             logger.debug("%s[%s]: activate_app failed: %s", self.risk_id, package_name, exc, exc_info=True)
             return f"ERROR: failed to launch app - {exc}"
         time.sleep(float(cfg.get("launch_wait", 8)))
+        self._save_screenshot(driver, package_name, screenshots_dir, "after_launch")
         try:
             current_package = driver.current_package
         except Exception as exc:
@@ -504,6 +511,7 @@ class AndroidRepackagingRisk(AndroidRisk):
                 logger.debug("%s[%s]: click failed: %s", self.risk_id, package_name, exc, exc_info=True)
                 return f"ERROR: failed to click button - {exc}"
             time.sleep(float(cfg.get("post_click_wait", 5)))
+            self._save_screenshot(driver, package_name, screenshots_dir, "after_tap")
             try:
                 current_package = driver.current_package
             except Exception as exc:
@@ -520,6 +528,33 @@ class AndroidRepackagingRisk(AndroidRisk):
         else:
             logger.debug("%s[%s]: no clickable elements; judging on launch only", self.risk_id, package_name)
         return "PASS: able to work after repackaging"
+
+    # Save a screenshot of the device screen as <name>.png, ignoring failures; FLAG_SECURE windows come out black.
+    def _save_screenshot(self, driver, package_name: str, screenshots_dir: Path | None, name: str) -> None:
+        if screenshots_dir is None:
+            return
+        try:
+            screenshots_dir.mkdir(parents=True, exist_ok=True)
+            path = screenshots_dir / f"{name}.png"
+            path.write_bytes(driver.get_screenshot_as_png())
+            logger.debug("%s[%s]: saved screenshot %s", self.risk_id, package_name, path)
+        except Exception as exc:
+            logger.debug("%s[%s]: screenshot %s failed: %s", self.risk_id, package_name, name, exc, exc_info=True)
+
+    # List the repackaged app's private files with run-as, which only works for a debuggable app, as the playbook's
+    # last step does; save the listing and return whether it worked.
+    def _check_debuggable(self, device_client, package_name: str, report_dir: Path) -> dict:
+        code, out, err = device_client.adb.run(["shell", "run-as", package_name, "ls", "-R"], timeout=60)
+        output = out or ""
+        # run-as reports its own refusal ("run-as: package not debuggable: ...") on stderr or stdout depending on the device.
+        refusal = next((line.strip() for line in f"{err or ''}\n{output}".splitlines() if line.strip().startswith("run-as:")), None)
+        logger.debug("%s[%s]: run-as ls exit %s, %s chars, refusal=%r", self.risk_id, package_name, code, len(output), refusal)
+        if code != 0 or refusal:
+            return {"run_as": False, "detail": refusal or (err or "").strip() or f"run-as exited {code}"}
+        report_dir.mkdir(parents=True, exist_ok=True)
+        listing = report_dir / "run_as_ls.txt"
+        listing.write_text(output)
+        return {"run_as": True, "files_listed": sum(1 for line in output.splitlines() if line.strip() and not line.endswith(":")), "listing": str(listing)}
 
     # Start Appium screen recording, returning False when unsupported.
     def _start_recording(self, driver) -> bool:
