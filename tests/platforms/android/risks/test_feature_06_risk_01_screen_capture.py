@@ -133,6 +133,10 @@ class FakeReportWriter:
 
 def test_a_recording_that_fails_to_start_is_reported_without_changing_the_verdict(tmp_path):
     def adb_run(args):
+        if args[:3] == ["shell", "pm", "path"]:
+            return 0, "package:/data/app/x/base.apk\n", ""
+        if args[:2] == ["shell", "sha256sum"]:
+            return 0, f"{'c' * 64}  /data/app/x/base.apk\n", ""
         return 0, window_dump(("com.example.app", "SECURE HARDWARE_ACCELERATED")), ""
 
     adb = SimpleNamespace(run=adb_run)
@@ -143,6 +147,7 @@ def test_a_recording_that_fails_to_start_is_reported_without_changing_the_verdic
     result = AndroidScreenCaptureRisk().run(app_config, global_config, device_client, FakeReportWriter(tmp_path))
 
     assert result.metadata["recording"] == "not started: screenrecord not found"
+    assert result.metadata["installed_base_apk_sha256"] == "c" * 64
     assert result.final_status == "SCREEN_CAPTURE_BLOCKED"
     assert result.errors == []
     assert result.evidence == []

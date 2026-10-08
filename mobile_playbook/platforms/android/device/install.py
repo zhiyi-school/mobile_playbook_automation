@@ -16,10 +16,13 @@ INSTALL_FAILURE_RE = re.compile(r"Failure \[.*\]")
 
 
 # Install the APKs as one app, replacing any installed copy, and return whether it worked with the failure reason.
-def install_apks(adb: AdbClient, apks: list[Path], *, grant_permissions: bool, timeout: float = 180) -> tuple[bool, str]:
+# `installer` records that package as the app's installer, as if that store had installed it.
+def install_apks(adb: AdbClient, apks: list[Path], *, grant_permissions: bool, installer: str | None = None, timeout: float = 180) -> tuple[bool, str]:
     if not apks:
         return False, "No APKs to install"
     options = ["-r", "-g"] if grant_permissions else ["-r"]
+    if installer:
+        options += ["-i", installer]
     if len(apks) == 1:
         command = ["install", *options, str(apks[0])]
     else:

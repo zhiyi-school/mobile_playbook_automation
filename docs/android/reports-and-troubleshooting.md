@@ -48,6 +48,10 @@ Each test's `report.json` (and `logs.txt`) carries one of these precise statuses
 
 `summary.md`'s `Status` column doesn't show these directly — it shows a 3-way security verdict (`AndroidRiskRunResult.verdict`) that each risk sets itself, alongside `final_status`, at the point it decides the outcome: **At Risk** (the risk was demonstrated, e.g. `SCREEN_CAPTURE_ALLOWED`/`REPACKAGING_SURVIVED`), **Reduced Risk** (the app mitigated it, e.g. `SCREEN_CAPTURE_BLOCKED`/`REPACKAGING_BLOCKED`), or **Inconclusive** — the field's default, and what `REPACKAGING_FAILED`/`FAILED` leave it as. The precise underlying status is always still in that test's `report.json`.
 
+## Which build was tested
+
+Each Android test's `report.json` records `metadata.installed_base_apk_sha256`: the SHA-256 of the installed `base.apk`, hashed on the device before the test changes anything (`null` if the device could not hash it). Two results for the same app can only be compared when this fingerprint matches; a different fingerprint means a different build was tested, even when the version number is the same. The repackaging test also records `metadata.installer`, the app that installed the tested build (`null` for an adb or sideloaded install), and `metadata.restore.matches_original`, whether the build put back afterwards is the one tested.
+
 ## Troubleshooting
 
 Android ADB failure:

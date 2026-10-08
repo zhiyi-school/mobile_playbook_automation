@@ -194,9 +194,10 @@ version and the `versionCode` is the build number. It is read three times:
 - **After an app's last risk in a run.** When the version or build number
   differs from the one read at the start, the run adds an
   `app_version_changed` warning event with both versions. The repackaging risk
-  can cause this: it restores the original app by reinstalling it with the
-  configured install method, and a store installs its latest version. The
-  version recorded for the run stays the one read at the start.
+  restores the build it backed up, so it causes this only when that backup
+  cannot be reinstalled and it falls back to the configured install method,
+  which installs the store's latest version. The version recorded for the run
+  stays the one read at the start.
 
 A version the device does not report is left out with a warning; the run still
 goes ahead. The build number is kept in the run's events only, as the dashboard

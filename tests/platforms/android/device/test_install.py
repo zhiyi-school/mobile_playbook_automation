@@ -32,6 +32,14 @@ def test_a_single_apk_can_be_installed_with_permissions_granted():
     assert adb.commands == [["install", "-r", "-g", "app.apk"]]
 
 
+def test_an_installer_is_recorded_when_given():
+    adb = FakeAdb()
+
+    install_apks(adb, [Path("base.apk"), Path("split_config.en.apk")], grant_permissions=True, installer="com.android.vending")
+
+    assert adb.commands == [["install-multiple", "-r", "-g", "-i", "com.android.vending", "base.apk", "split_config.en.apk"]]
+
+
 @pytest.mark.parametrize(
     "result",
     [(0, "Failure [INSTALL_FAILED_NO_MATCHING_ABIS]", ""), (1, "", "Failure [INSTALL_FAILED_NO_MATCHING_ABIS]")],

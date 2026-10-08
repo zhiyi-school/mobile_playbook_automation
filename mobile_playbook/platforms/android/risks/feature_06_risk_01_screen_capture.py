@@ -14,6 +14,7 @@ from pathlib import Path
 from mobile_playbook.platforms.android.models import AndroidRiskRunResult
 from mobile_playbook.common.logging_setup import redacted
 from mobile_playbook.platforms.android.acquisition.store import STORE_APPS
+from mobile_playbook.platforms.android.device.fingerprint import installed_base_apk_sha256
 from mobile_playbook.platforms.android.risks.base import AndroidRisk
 
 logger = logging.getLogger(__name__)
@@ -66,6 +67,7 @@ class AndroidScreenCaptureRisk(AndroidRisk):
         driver = None
         recording_started = False
         try:
+            result.metadata["installed_base_apk_sha256"] = installed_base_apk_sha256(device_client.adb, app_config.package_name)
             logger.debug("%s[%s]: creating Appium driver", self.risk_id, app_config.id)
             driver = device_client.make_driver()
             recordings_dir = report_dir / "recordings"

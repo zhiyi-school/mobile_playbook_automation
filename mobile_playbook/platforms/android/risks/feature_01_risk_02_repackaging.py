@@ -17,6 +17,7 @@ from mobile_playbook.common.storage_paths import android_work_dir, resolve_under
 
 from mobile_playbook.common.logging_setup import REDACTED, redacted
 from mobile_playbook.platforms.android.acquisition.store import APP_STORES, DEFAULT_APP_STORE, STORE_APPS, app_store_for
+from mobile_playbook.platforms.android.device.fingerprint import installed_base_apk_sha256, installer_of
 from mobile_playbook.platforms.android.device.install import install_apks
 from mobile_playbook.platforms.android.models import AndroidRiskRunResult
 from mobile_playbook.platforms.android.risks.base import AndroidRisk
@@ -75,6 +76,9 @@ class AndroidRepackagingRisk(AndroidRisk):
                 logger.debug("%s[%s]: setup package=%s app_dir=%s report_dir=%s keystore=%s alias=%s", self.risk_id, app_config.id, app_config.package_name, app_dir, report_dir, keystore, keystore_alias)
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug("%s[%s]: effective config %s", self.risk_id, app_config.id, redacted({key: REDACTED if "pass" in str(key).lower() else value for key, value in cfg.items()}))
+                # Identify the tested build, and remember its installer so the restore can record the same one.
+                result.metadata["installed_base_apk_sha256"] = installed_base_apk_sha256(device_client.adb, app_config.package_name)
+                result.metadata["installer"] = installer_of(device_client.adb, app_config.package_name)
 
                 stages = [
                     ("backup_apks", lambda: self._backup_apks(device_client, app_config.package_name, app_dir)),
@@ -355,41 +359,71 @@ class AndroidRepackagingRisk(AndroidRisk):
         return True
 
     # Uninstall the package, then install every APK in the directory with adb, returning success and adb's failure reason.
-    def _install_apks(self, device_client, app_dir: Path, package_name: str) -> tuple[bool, str]:
+    def _install_apks(self, device_client, app_dir: Path, package_name: str, installer: str | None = None) -> tuple[bool, str]:
         apks = sorted(p for p in app_dir.iterdir() if p.is_file() and p.suffix == ".apk")
-        logger.debug("%s[%s]: installing %s APKs from %s: %s", self.risk_id, package_name, len(apks), app_dir, [p.name for p in apks])
+        logger.debug("%s[%s]: installing %s APKs from %s: %s (installer=%s)", self.risk_id, package_name, len(apks), app_dir, [p.name for p in apks], installer)
         if not apks:
             return False, f"No APKs to install in {app_dir}"
         self._uninstall_app(device_client, package_name)
-        return install_apks(device_client.adb, apks, grant_permissions=True)
+        return install_apks(device_client.adb, apks, grant_permissions=True, installer=installer)
 
-    # Replace the rebuilt app with an install by the configured method, falling back to the backed-up APKs over adb, and record which one ran.
+    # Replace the rebuilt app with the backed-up original APKs, so later tests run against the build that was tested;
+    # fall back to the configured install method, which may fetch a different build, and record which one ran.
     def _restore_original(self, device_client, app_dir: Path, package_name: str, result: AndroidRiskRunResult) -> None:
         if not self._uninstall_app(device_client, package_name):
             result.metadata["restore"] = {"method": None}
             result.errors.append("Restore failed: the repackaged app could not be uninstalled.")
             logger.warning("Could not uninstall the repackaged %s; it is still on the device.", package_name)
             return
+        installer = result.metadata.get("installer")
+        restored, reason = self._install_apks(device_client, app_dir / "original", package_name, installer=installer)
+        logger.debug("%s[%s]: backup restore of %s with installer=%s ok=%s (%s)", self.risk_id, package_name, app_dir / "original", installer, restored, reason)
+        if not restored and installer:
+            # The device may refuse to record another app as the installer; the build matters more than the installer.
+            installer_failure = reason
+            restored, reason = self._install_apks(device_client, app_dir / "original", package_name)
+            logger.debug("%s[%s]: backup restore without installer ok=%s (%s)", self.risk_id, package_name, restored, reason)
+            if restored:
+                result.metadata["restore"] = {
+                    "method": "backup",
+                    "installer": None,
+                    "note": f"The original build was reinstalled, but the device refused to record {installer} as its installer ({installer_failure}). Later tests ran against an adb install.",
+                }
+                self._record_restored_build(device_client, package_name, result)
+                return
+        if restored:
+            result.metadata["restore"] = {"method": "backup", "installer": installer}
+            self._record_restored_build(device_client, package_name, result)
+            return
+        backup_failure = reason
         logger.debug("%s[%s]: reinstalling the original from %s", self.risk_id, package_name, self.store.name)
         outcome = self.store.install(device_client.adb, device_client.make_driver, package_name, android_work_dir() / self.store.key / "diagnostics")
         logger.debug("%s[%s]: app store restore status=%s blocker=%s installer=%s", self.risk_id, package_name, outcome.status, outcome.blocker_code, outcome.installer)
         if outcome.status == "installed":
-            result.metadata["restore"] = {"method": "app_store", "store": self.store.key, "installer": outcome.installer}
+            result.metadata["restore"] = {
+                "method": "app_store",
+                "store": self.store.key,
+                "installer": outcome.installer,
+                "backup_failure": backup_failure,
+                "note": f"The backed-up APKs could not be reinstalled, so the app was reinstalled from {self.store.name}. It may be a different build from the one tested.",
+            }
+            logger.warning("Restored %s from %s after the backup could not be reinstalled; it may be a different build.", package_name, self.store.name)
+            self._record_restored_build(device_client, package_name, result)
             return
         app_store = {"store": self.store.key, "status": outcome.status, "blocker_code": outcome.blocker_code, "detail": outcome.detail}
-        restored, reason = self._install_apks(device_client, app_dir / "original", package_name)
-        logger.debug("%s[%s]: adb restore of %s ok=%s (%s)", self.risk_id, package_name, app_dir / "original", restored, reason)
-        if restored:
-            result.metadata["restore"] = {
-                "method": "adb",
-                "app_store": app_store,
-                "note": "The configured reinstall did not succeed, so the original APKs were reinstalled with adb. Later tests ran against an adb install.",
-            }
-            logger.warning("Restored %s with adb after the configured reinstall failed; later tests run against an adb install.", package_name)
-            return
-        result.metadata["restore"] = {"method": None, "app_store": app_store}
-        result.errors.append(f"Restore failed: {reason}")
-        logger.warning("Could not restore %s with the configured install method or with adb; it is not installed.", package_name)
+        result.metadata["restore"] = {"method": None, "backup_failure": backup_failure, "app_store": app_store}
+        result.errors.append(f"Restore failed: {backup_failure}")
+        logger.warning("Could not restore %s from the backup or with the configured install method; it is not installed.", package_name)
+
+    # Record the restored build's fingerprint and whether it is the build that was tested.
+    def _record_restored_build(self, device_client, package_name: str, result: AndroidRiskRunResult) -> None:
+        restore = result.metadata["restore"]
+        original = result.metadata.get("installed_base_apk_sha256")
+        restored = installed_base_apk_sha256(device_client.adb, package_name)
+        restore["base_apk_sha256"] = restored
+        restore["matches_original"] = restored == original if restored and original else None
+        if restore["matches_original"] is False:
+            logger.warning("The restored %s (%s) is a different build from the one tested (%s).", package_name, restored[:12], original[:12])
 
     # Uninstall the package, treating an absent package as success.
     def _uninstall_app(self, device_client, package_name: str) -> bool:
