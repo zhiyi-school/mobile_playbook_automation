@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import base64
 import logging
+import re
 import time
 from datetime import datetime
 from pathlib import Path
@@ -29,6 +30,10 @@ LAUNCHER_PACKAGES = ["com.google.android.apps.nexuslauncher", "com.sec.android.a
 SYSTEM_PROMPT_PACKAGES = ["com.android.permissioncontroller", "com.google.android.permissioncontroller"]
 DEBUGGING_KEYWORDS = ["developer options", "debugging", "usb debugging", "debugging detected"]
 CAPTURE_KEYWORDS = ["screen recording", "screen sharing", "screen recording/sharing"]
+# dumpsys prints window flags by name without the FLAG_ prefix ("fl=SECURE HARDWARE_ACCELERATED"), or as hex on
+# some builds ("fl=#2000"); the lookbehind skips the private flags line ("pfl=").
+WINDOW_FLAGS_RE = re.compile(r"(?<![A-Za-z])fl=(#[0-9a-fA-F]+|[A-Z_]+(?: [A-Z_]+)*)")
+FLAG_SECURE_VALUE = 0x2000
 
 
 class AndroidScreenCaptureRisk(AndroidRisk):
@@ -125,7 +130,7 @@ class AndroidScreenCaptureRisk(AndroidRisk):
             verdict = self._check_ui_keywords(driver, CAPTURE_KEYWORDS, "BLOCKED (Screen capture warning detected in UI)")
             logger.debug("%s[%s]: capture keyword check -> %s", self.risk_id, package_name, verdict)
         if verdict == "Unknown":
-            verdict = self._check_flag_secure(device_client)
+            verdict = self._check_flag_secure(device_client, package_name)
             logger.debug("%s[%s]: FLAG_SECURE check -> %s", self.risk_id, package_name, verdict)
         return verdict
 
@@ -196,15 +201,38 @@ class AndroidScreenCaptureRisk(AndroidRisk):
         logger.debug("%s: page_source %s chars, keywords matched=%s of %s", self.risk_id, len(source), matched, keywords)
         return block_message if any(keyword in source for keyword in keywords) else "Unknown"
 
-    # Check the window dump for FLAG_SECURE and report BLOCKED, ALLOWED or an adb error.
-    def _check_flag_secure(self, device_client) -> str:
+    # Check the app's own windows in the window dump for FLAG_SECURE and report BLOCKED, ALLOWED or an error.
+    def _check_flag_secure(self, device_client, package_name: str) -> str:
         code, out, err = device_client.adb.run(["shell", "dumpsys", "window", "windows"])
-        logger.debug("%s: dumpsys window exit %s, %s chars, FLAG_SECURE present=%s, err head=%r", self.risk_id, code, len(out or ""), "FLAG_SECURE" in (out or ""), (err or "")[:200])
         if code != 0:
+            logger.debug("%s: dumpsys window exit %s, err head=%r", self.risk_id, code, (err or "")[:200])
             return f"ERROR (ADB check failed: {err})"
-        if "FLAG_SECURE" in out:
+        window_flags = _window_flags(out or "", package_name)
+        logger.debug("%s[%s]: dumpsys window %s chars, app window flags=%s", self.risk_id, package_name, len(out or ""), window_flags)
+        if not window_flags:
+            return f"ERROR (no window found for {package_name} in dumpsys window)"
+        if any(_is_secure(flags) for flags in window_flags):
             return "BLOCKED (FLAG_SECURE detected via ADB)"
         return "ALLOWED (UI visible and no security flags)"
+
+
+# Return the fl= flags of each window the package owns in a `dumpsys window windows` dump.
+def _window_flags(dump: str, package_name: str) -> list[str]:
+    flags = []
+    for block in re.split(r"^  Window #", dump, flags=re.MULTILINE)[1:]:
+        if f"package={package_name} " not in block and not block.rstrip().endswith(f"package={package_name}"):
+            continue
+        match = WINDOW_FLAGS_RE.search(block)
+        if match:
+            flags.append(match.group(1))
+    return flags
+
+
+# Report whether a window's flags include FLAG_SECURE, by name or as a hex value.
+def _is_secure(flags: str) -> bool:
+    if flags.startswith("#"):
+        return bool(int(flags[1:], 16) & FLAG_SECURE_VALUE)
+    return "SECURE" in flags.split()
 
 
 # Map an observation to the risk's final status.

@@ -14,7 +14,7 @@ Stages:
    - Did the foreground app switch away from the target package? If so, classify as redirected to a known browser, exited to the home-screen launcher (Pixel, Samsung or Huawei), or switched to an unknown app. A system permission prompt (`com.android.permissioncontroller`) covering the app is inconclusive: it is Android asking for a permission, not the app protecting itself, so screen capture was not tested. Set `runner.auto_grant_permissions: true` to grant the app's permissions before the test so no prompt appears. A switch to a store app (the Play Store, `com.android.vending`, or Aurora Store, `com.aurora.store`) is inconclusive instead: the app refused to open, typically because it was not installed from that store, so its screen was never shown and screen capture was not tested.
    - Does the visible UI contain developer/USB-debugging keywords (for example "usb debugging")?
    - Does the visible UI contain screen-recording/sharing warning keywords?
-   - Does `adb shell dumpsys window windows` report `FLAG_SECURE` on the current window?
+   - Does any of the target app's own windows in `adb shell dumpsys window windows` have `FLAG_SECURE` set? Android lists window flags by name without the `FLAG_` prefix (`fl=LAYOUT_IN_SCREEN SECURE …`), or as a hex value on some builds, so the check reads the `fl=` line of each window whose `package=` is the target app; other apps' windows are ignored. If the app has no window in the dump, the result is an `ERROR` rather than `ALLOWED`.
    - If none of the above trip, the screen is considered visible and unprotected.
 4. Wait `record_tail` seconds, stop the recording, and save it as `recordings/<package>.mp4`.
 5. Close the app and write the report.
@@ -24,7 +24,7 @@ Verdict-to-status mapping:
 - Any `ALLOWED` verdict (UI visible, no security signal detected) → `SCREEN_CAPTURE_ALLOWED`.
 - Any `BLOCKED` verdict (browser/launcher redirect, debugging/capture warning text, or `FLAG_SECURE`) → `SCREEN_CAPTURE_BLOCKED`.
 - Any `INCONCLUSIVE` verdict (the app redirected to the app store instead of opening, or a system permission prompt covered it) → `SCREEN_CAPTURE_NOT_TESTED`, with the Inconclusive security verdict.
-- Any `ERROR` verdict (driver, launch, or ADB failure) → `FAILED`.
+- Any `ERROR` verdict (driver, launch, or ADB failure, or no window for the app in the window dump) → `FAILED`.
 
 Timing knobs (`record_lead_in`, `launch_wait`, `record_tail`) are documented in [Configuration](configuration.md).
 

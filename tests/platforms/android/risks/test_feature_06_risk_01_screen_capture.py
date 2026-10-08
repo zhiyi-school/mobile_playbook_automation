@@ -6,6 +6,8 @@ import pytest
 
 from mobile_playbook.platforms.android.risks.feature_06_risk_01_screen_capture import (
     AndroidScreenCaptureRisk,
+    _is_secure,
+    _window_flags,
     _security_verdict_from_verdict,
     _status_from_verdict,
 )
@@ -85,6 +87,23 @@ def test_a_permission_prompt_is_inconclusive_and_left_open():
     assert driver.terminated == []
 
 
+# Build a `dumpsys window windows` dump in the format Android 12 prints, one window per (package, fl= flags) pair.
+def window_dump(*windows) -> str:
+    lines = ["WINDOW MANAGER WINDOWS (dumpsys window windows)"]
+    for index, (package, flags) in enumerate(windows):
+        lines += [
+            f"  Window #{index} Window{{{index:07x} u0 {package}/{package}.MainActivity}}:",
+            "    mDisplayId=0 rootTaskId=33 mSession=Session{44db5be 7267:u0a10117}",
+            f"    mOwnerUid=10117 showForAllUsers=false package={package} appop=NONE",
+            "    mAttrs={(0,0)(fillxfill) sim={adjust=resize} ty=BASE_APPLICATION",
+            f"      fl={flags}",
+            "      pfl=NO_MOVE_ANIMATION USE_BLAST SECURE_LOOKING",
+            "      bhv=DEFAULT",
+            "      fitSides=}",
+        ]
+    return "\n".join(lines) + "\n"
+
+
 class NoRecordingDriver(ForegroundDriver):
     session_id = "session"
     page_source = "<hierarchy/>"
@@ -113,7 +132,10 @@ class FakeReportWriter:
 
 
 def test_a_recording_that_fails_to_start_is_reported_without_changing_the_verdict(tmp_path):
-    adb = SimpleNamespace(run=lambda args: (0, "Window #1 ... FLAG_SECURE ...", ""))
+    def adb_run(args):
+        return 0, window_dump(("com.example.app", "SECURE HARDWARE_ACCELERATED")), ""
+
+    adb = SimpleNamespace(run=adb_run)
     device_client = SimpleNamespace(make_driver=lambda: NoRecordingDriver("com.example.app"), adb=adb)
     app_config = SimpleNamespace(id="example", name="Example", package_name="com.example.app", risks={})
     global_config = SimpleNamespace(screen_capture={"launch_wait": 0})
@@ -124,3 +146,47 @@ def test_a_recording_that_fails_to_start_is_reported_without_changing_the_verdic
     assert result.final_status == "SCREEN_CAPTURE_BLOCKED"
     assert result.errors == []
     assert result.evidence == []
+
+
+class DumpAdb:
+    def __init__(self, dump: str, code: int = 0):
+        self.dump = dump
+        self.code = code
+
+    def run(self, args):
+        return self.code, self.dump, "" if self.code == 0 else "error: closed"
+
+
+@pytest.mark.parametrize(
+    ("windows", "expected"),
+    [
+        ([("com.example.app", "LAYOUT_IN_SCREEN SECURE HARDWARE_ACCELERATED")], "BLOCKED (FLAG_SECURE detected via ADB)"),
+        ([("com.example.app", "LAYOUT_IN_SCREEN HARDWARE_ACCELERATED")], "ALLOWED (UI visible and no security flags)"),
+        # Another app's secure window, such as a password manager overlay, says nothing about the tested app.
+        ([("com.other.vault", "SECURE"), ("com.example.app", "HARDWARE_ACCELERATED")], "ALLOWED (UI visible and no security flags)"),
+        # A secure dialog window of the app is enough, even when its main window is not.
+        ([("com.example.app", "HARDWARE_ACCELERATED"), ("com.example.app", "SECURE DIM_BEHIND")], "BLOCKED (FLAG_SECURE detected via ADB)"),
+        ([("com.other.app", "SECURE")], "ERROR (no window found for com.example.app in dumpsys window)"),
+    ],
+)
+def test_flag_secure_is_read_from_the_apps_own_windows(windows, expected):
+    device_client = SimpleNamespace(adb=DumpAdb(window_dump(*windows)))
+
+    assert AndroidScreenCaptureRisk()._check_flag_secure(device_client, "com.example.app") == expected
+
+
+def test_a_package_name_prefix_does_not_count_as_the_app():
+    dump = window_dump(("com.example.app.helper", "SECURE"))
+
+    assert _window_flags(dump, "com.example.app") == []
+
+
+@pytest.mark.parametrize(("flags", "secure"), [("#2000", True), ("#81810100", False), ("SECURE", True), ("SECURE_LOOKING", False)])
+def test_flag_secure_is_recognised_by_name_or_hex_value(flags, secure):
+    assert _is_secure(flags) is secure
+
+
+def test_a_failed_window_dump_is_an_adb_error():
+    device_client = SimpleNamespace(adb=DumpAdb("", code=1))
+
+    assert AndroidScreenCaptureRisk()._check_flag_secure(device_client, "com.example.app").startswith("ERROR (ADB check failed")
