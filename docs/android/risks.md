@@ -4,7 +4,7 @@
 
 `android-feature-06-risk-01` demonstrates whether another app on the device can record the target app's screen, following the playbook: a helper app records the screen through Android's screen-recording API (`MediaProjection`) after the user approves the system prompt, the target app is opened while it records, and the recording shows whether the app's content was captured or came out blank, as a `FLAG_SECURE` window does.
 
-Requires: `adb`, `appium`, `screen_capture_helper` (the helper APK built with `python tools/companion_apps/android_screen_capture/build.py`, or the current helper already installed on the device; see [the helper's README](../../tools/companion_apps/android_screen_capture/README.md)). The device must be unlocked, since the consent prompt has to be tapped.
+Requires: `adb`, `appium`, `screen_capture_helper` (the helper APK built with `python tools/companion_apps/android_screen_capture/build.py`, or the current helper already installed on the device; see [the helper's README](../../tools/companion_apps/android_screen_capture/README.md)). The consent prompt has to be tapped, so the device must not have a PIN, password or pattern; the runner wakes and unlocks it before each test (see [Configuration](configuration.md#runner)).
 
 Stages:
 

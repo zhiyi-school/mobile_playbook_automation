@@ -59,7 +59,12 @@ This is checked once when a run connects to the device, and again before every s
 ```yaml
 runner:
   auto_grant_permissions: false
+  keep_screen_on: false
 ```
+
+Before every Android test the runner wakes the device's screen and dismisses its lock screen over adb (`input keyevent KEYCODE_WAKEUP`, then `wm dismiss-keyguard`), since every Android risk drives the device's UI. This only works without a PIN, password or pattern; if the lock screen is still showing afterwards, the test fails with `the device is still locked after waking it` and does not run.
+
+`runner.keep_screen_on: true` also sets the device to keep its screen on whenever it is charging, from any power source (`adb shell svc power stayon true`), when a run connects to it, so the screen does not time out between tests. It changes a device setting that stays after the run; `adb shell svc power stayon false` turns it off again.
 
 `runner.work_dir` is optional. Unset, it follows `WORK_DIR` to `<work>/android`; a relative value resolves against the repository root, never the working directory the run started from.
 

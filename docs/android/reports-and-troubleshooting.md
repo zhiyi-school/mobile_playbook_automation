@@ -74,9 +74,13 @@ Android app redirects to Play Store after repackaging:
 
 This is treated as repackaging blocked. The app likely detected signature or package tampering and routed to Play Store recovery.
 
+Test fails with `the device is still locked after waking it`:
+
+The runner wakes and unlocks the device over adb before each test, which only works when the device has no PIN, password or pattern. Remove it in the device's security settings, or unlock the device by hand before the run. Set `runner.keep_screen_on: true` so the screen does not time out during a run while the device charges.
+
 Screen capture test fails before launching the app:
 
-The test needs the screen-capture helper. `screen-capture helper APK not found` means it has not been built: run `python tools/companion_apps/android_screen_capture/build.py` (needs the Android SDK and a JDK). `the screen-capture consent prompt did not appear` usually means the device was locked or its screen was off; unlock it and run again. `screen capture did not start (denied: …)` means the prompt was cancelled instead of allowed.
+The test needs the screen-capture helper. `screen-capture helper APK not found` means it has not been built: run `python tools/companion_apps/android_screen_capture/build.py` (needs the Android SDK and a JDK). `the screen-capture consent prompt did not appear` usually means the device's screen was off or locked when the prompt opened; the runner wakes and unlocks it before each test, so check that the device has no PIN, password or pattern. `screen capture did not start (denied: …)` means the prompt was cancelled instead of allowed.
 
 Keystore or signing failure:
 

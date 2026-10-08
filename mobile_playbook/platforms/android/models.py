@@ -27,6 +27,7 @@ class AndroidDeviceConfig(SerializableDataclass):
 class AndroidRunnerConfig(SerializableDataclass):
     work_dir: Path = field(default_factory=android_work_dir)
     auto_grant_permissions: bool = False
+    keep_screen_on: bool = False
     launch_wait_seconds: float = 4
 
 

@@ -83,6 +83,7 @@ def parse_config(raw: dict[str, Any], config_path: Path | None = None) -> Androi
             auto_grant_permissions=bool(
                 runner_raw.get("auto_grant_permissions", permissions_raw.get("auto_grant", False))
             ),
+            keep_screen_on=bool(runner_raw.get("keep_screen_on", False)),
             launch_wait_seconds=float(runner_raw.get("launch_wait_seconds", 4)),
         ),
         apps=apps,

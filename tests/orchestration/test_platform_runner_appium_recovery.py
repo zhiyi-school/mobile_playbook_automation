@@ -27,7 +27,7 @@ def _android_config():
         adb_serial=None,
         appium_auto_start={"enabled": True, "command": ["appium"]},
     )
-    return SimpleNamespace(device=device, runner=SimpleNamespace(work_dir="work/android"))
+    return SimpleNamespace(device=device, runner=SimpleNamespace(work_dir="work/android", keep_screen_on=False))
 
 
 # --- iOS -----------------------------------------------------------------
@@ -312,6 +312,7 @@ def test_android_run_test_records_failure_with_typed_result(monkeypatch):
         "mobile_playbook.platforms.android.runner.check_android_preflight",
         lambda config, adb, requires: SimpleNamespace(ok=True, errors=[]),
     )
+    monkeypatch.setattr("mobile_playbook.platforms.android.runner.wake_and_unlock", lambda adb: None)
     config = SimpleNamespace(runner=SimpleNamespace(auto_grant_permissions=False))
     device_client = SimpleNamespace(adb=object())
     report_writer = FakeReportWriter()

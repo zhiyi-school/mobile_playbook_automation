@@ -161,6 +161,7 @@ class RunnerUpdateRequest(BaseModel):
     work_dir: str | None = None
     permission_alerts: PermissionAlertsRequest | None = None
     auto_grant_permissions: bool | None = None
+    keep_screen_on: bool | None = None
 
     # Return the set fields as JSON-compatible values.
     def updates(self) -> dict[str, Any]:

@@ -145,6 +145,10 @@ def test_runner_body_rejects_unknown_fields():
         RunnerUpdateRequest.model_validate({"unknown_runner_field": True})
 
 
+def test_runner_body_accepts_keep_screen_on():
+    assert RunnerUpdateRequest.model_validate({"keep_screen_on": True}).updates() == {"keep_screen_on": True}
+
+
 def test_runner_permission_alerts_rejects_unknown_fields():
     with pytest.raises(ValidationError):
         RunnerUpdateRequest.model_validate({"permission_alerts": {"enabled": True, "surprise": "nope"}})

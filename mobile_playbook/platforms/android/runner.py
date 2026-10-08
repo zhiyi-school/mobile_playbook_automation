@@ -26,6 +26,7 @@ from mobile_playbook.platforms.android.device.app_version import installed_versi
 from mobile_playbook.platforms.android.device.client import AndroidDeviceClient
 from mobile_playbook.platforms.android.models import AndroidRiskRunResult
 from mobile_playbook.platforms.android.device.permissions import grant_all
+from mobile_playbook.platforms.android.device.screen import keep_screen_on_while_charging, wake_and_unlock
 from mobile_playbook.platforms.android.preflight import check_android_preflight
 from mobile_playbook.platforms.android.risks import get_risk
 
@@ -55,7 +56,13 @@ class AndroidPlatformRunner:
             detail = f" Appium log tail:\n{outcome.log_tail}" if outcome.log_tail else ""
             raise RuntimeError(f"android: {outcome.error}{detail}")
         adb = AdbClient(config.device.adb_path, config.device.adb_serial)
-        return AndroidDeviceClient(config, adb).connect()
+        client = AndroidDeviceClient(config, adb).connect()
+        if config.runner.keep_screen_on:
+            kept_on = keep_screen_on_while_charging(adb)
+            logger.debug("android runner: keep screen on while charging -> %s", kept_on)
+            if not kept_on:
+                logger.warning("Could not set the device to keep its screen on while charging; tests still wake it first.")
+        return client
 
     # Release the device client.
     def close_device(self, device_client) -> None:
@@ -102,6 +109,9 @@ class AndroidPlatformRunner:
             logger.debug("android runner: preflight for %s/%s ok=%s errors=%s warnings=%s", app.id, test_id, getattr(preflight, "ok", None), getattr(preflight, "errors", None), getattr(preflight, "warnings", None))
             if not preflight.ok:
                 raise RuntimeError("; ".join(preflight.errors))
+            if getattr(risk, "requires_device", True):
+                # The screen may have timed out since the last test; every Android risk drives the UI.
+                wake_and_unlock(device_client.adb)
             if config.runner.auto_grant_permissions:
                 logger.debug("android runner: auto-granting permissions for %s", app.package_name)
                 grant_result = grant_all(device_client.adb, app.package_name)

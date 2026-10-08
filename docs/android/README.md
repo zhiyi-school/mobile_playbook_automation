@@ -48,6 +48,7 @@ artifacts/reports/<RUN_TIMESTAMP>/android/<APP_ID>/<RISK_ID>/<CASE_ID>/
 | --- | --- |
 | `adb` on `PATH` (Android platform-tools) | everything |
 | A connected device with USB debugging **authorised** | everything |
+| No PIN, password or pattern on the device, so the runner can unlock it over adb before each test | everything |
 | Appium with the UiAutomator2 driver | both risks |
 | The screen-capture helper APK, built with `python tools/companion_apps/android_screen_capture/build.py` (Android SDK and a JDK) | `android-feature-06-risk-01` only |
 | `apktool`, `apksigner`, `keytool` on `PATH` | `android-feature-01-risk-02` only |
@@ -208,7 +209,7 @@ has no column for it.
 
 | Risk | Needs | Notes |
 | --- | --- | --- |
-| `android-feature-06-risk-01` — screen recording / `FLAG_SECURE` | ADB, Appium, the screen-capture helper, an unlocked device | records the screen with a helper app, as the playbook does, and checks whether the app's content was captured |
+| `android-feature-06-risk-01` — screen recording / `FLAG_SECURE` | ADB, Appium, the screen-capture helper, a device without a PIN, password or pattern | records the screen with a helper app, as the playbook does, and checks whether the app's content was captured |
 | `android-feature-01-risk-02` — APK repackaging | ADB, Appium, plus `apktool`, `apksigner`, `keytool` | pulls, decodes, rebuilds, resigns, reinstalls and launches |
 
 The repackaging risk modifies device state. Working files are left under

@@ -79,6 +79,7 @@ def test_run_test_records_failure_without_raising(monkeypatch, tmp_path):
 
     monkeypatch.setattr(risk_class, "requires", [])
     monkeypatch.setattr(risk_class, "run", flaky_run)
+    monkeypatch.setattr("mobile_playbook.platforms.android.runner.wake_and_unlock", lambda adb: None)
 
     app = SimpleNamespace(id="parking", name="Parking", package_name="com.example.parking")
     config = SimpleNamespace(runner=SimpleNamespace(auto_grant_permissions=False))
@@ -106,3 +107,8 @@ def test_android_unset_runner_work_dir_follows_the_work_root(tmp_path, monkeypat
     monkeypatch.setenv("WORK_DIR", str(tmp_path / "work"))
 
     assert parse_config({}).runner.work_dir == android_work_dir() == tmp_path / "work" / "android"
+
+
+def test_keep_screen_on_defaults_off_and_reads_the_runner_setting():
+    assert parse_config({"apps": ["com.example.parking"]}).runner.keep_screen_on is False
+    assert parse_config({"apps": ["com.example.parking"], "runner": {"keep_screen_on": True}}).runner.keep_screen_on is True
