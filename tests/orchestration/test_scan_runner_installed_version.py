@@ -42,6 +42,8 @@ class VersionReadingRunner(DeviceRunner):
     def installed_app_version(self, app, device_client):
         self.order.append(("version", app.id))
         value = self.versions[app.id]
+        if isinstance(value, list):
+            value = value.pop(0)
         if isinstance(value, Exception):
             raise value
         return value
@@ -60,7 +62,7 @@ def _run(runner, tmp_path):
     )
 
 
-def test_each_apps_installed_version_is_read_once_before_its_first_risk(tmp_path):
+def test_each_apps_installed_version_is_read_before_its_first_risk_and_after_its_last(tmp_path):
     runner = VersionReadingRunner(
         [(ONE, "risk_a"), (ONE, "risk_b"), (TWO, "risk_a")],
         {"app_one": ("3.2.1", "321"), "app_two": ("1.0", None)},
@@ -72,8 +74,10 @@ def test_each_apps_installed_version_is_read_once_before_its_first_risk(tmp_path
         ("version", "app_one"),
         ("risk", "app_one/risk_a"),
         ("risk", "app_one/risk_b"),
+        ("version", "app_one"),
         ("version", "app_two"),
         ("risk", "app_two/risk_a"),
+        ("version", "app_two"),
     ]
     assert read_manifest(outcome.run_dir)["artifact_versions"] == {"app_one": "3.2.1", "app_two": "1.0"}
     events, _ = read_events(outcome.run_dir)
@@ -84,6 +88,7 @@ def test_each_apps_installed_version_is_read_once_before_its_first_risk(tmp_path
     ]
     assert recorded[0]["message"] == "Testing app_one version 3.2.1 (build 321)."
     assert events.index(recorded[0]) < next(i for i, e in enumerate(events) if e["type"] == "risk_started")
+    assert not [event for event in events if event["type"] == "app_version_changed"]
 
 
 def test_an_unreadable_version_is_left_out_and_the_risks_still_run(tmp_path):
@@ -94,8 +99,12 @@ def test_an_unreadable_version_is_left_out_and_the_risks_still_run(tmp_path):
 
     outcome = _run(runner, tmp_path)
 
-    assert ("risk", "app_one/risk_a") in runner.order
-    assert ("risk", "app_two/risk_a") in runner.order
+    assert runner.order == [
+        ("version", "app_one"),
+        ("risk", "app_one/risk_a"),
+        ("version", "app_two"),
+        ("risk", "app_two/risk_a"),
+    ]
     manifest = read_manifest(outcome.run_dir)
     assert manifest["status"] == "completed"
     assert manifest["artifact_versions"] == {}
@@ -112,3 +121,45 @@ def test_a_platform_without_the_reader_records_no_installed_version(tmp_path):
     assert read_manifest(outcome.run_dir)["artifact_versions"] == {}
     events, _ = read_events(outcome.run_dir)
     assert [event["type"] for event in events if event["type"] == "app_version"] == []
+
+
+def test_a_version_that_changes_during_the_run_is_flagged_and_the_tested_version_kept(tmp_path):
+    runner = VersionReadingRunner(
+        [(ONE, "risk_a"), (ONE, "risk_b")],
+        {"app_one": [("3.2.1", "321"), ("3.3.0", "330")]},
+    )
+
+    outcome = _run(runner, tmp_path)
+
+    assert read_manifest(outcome.run_dir)["artifact_versions"] == {"app_one": "3.2.1"}
+    events, _ = read_events(outcome.run_dir)
+    changed = [event for event in events if event["type"] == "app_version_changed"]
+    assert len(changed) == 1
+    assert changed[0]["app_id"] == "app_one"
+    assert (changed[0]["previous_version"], changed[0]["previous_build_number"]) == ("3.2.1", "321")
+    assert (changed[0]["version"], changed[0]["build_number"]) == ("3.3.0", "330")
+    assert changed[0]["message"] == (
+        "app_one changed from version 3.2.1 (build 321) to 3.3.0 (build 330) during the run; "
+        "its results may cover both versions."
+    )
+    assert events.index(changed[0]) > max(i for i, e in enumerate(events) if e["type"] == "risk_started")
+
+
+def test_a_new_build_of_the_same_version_is_flagged(tmp_path):
+    runner = VersionReadingRunner([(ONE, "risk_a")], {"app_one": [("3.2.1", "321"), ("3.2.1", "322")]})
+
+    events, _ = read_events(_run(runner, tmp_path).run_dir)
+
+    assert [(e["previous_build_number"], e["build_number"]) for e in events if e["type"] == "app_version_changed"] == [
+        ("321", "322")
+    ]
+
+
+def test_an_unreadable_version_after_the_last_risk_is_not_flagged(tmp_path):
+    runner = VersionReadingRunner([(ONE, "risk_a")], {"app_one": [("3.2.1", "321"), RuntimeError("device offline")]})
+
+    outcome = _run(runner, tmp_path)
+
+    assert read_manifest(outcome.run_dir)["status"] == "completed"
+    events, _ = read_events(outcome.run_dir)
+    assert not [event for event in events if event["type"] == "app_version_changed"]

@@ -180,7 +180,7 @@ in the outcome.
 
 Android tests the app installed on the device, so its version is read from the
 device with `adb shell dumpsys package <PACKAGE_NAME>`: the `versionName` is the
-version and the `versionCode` is the build number. It is read twice:
+version and the `versionCode` is the build number. It is read three times:
 
 - **After an install**, whether the app was just installed or was already
   there, by any install method. The install outcome carries `version_name` and
@@ -191,6 +191,12 @@ version and the `versionCode` is the build number. It is read twice:
   assessment, and adds an `app_version` event with `version` and
   `build_number` to `events.jsonl`. This is the version the run tested, and it
   is read for every run, including CLI runs and reruns that skip the install.
+- **After an app's last risk in a run.** When the version or build number
+  differs from the one read at the start, the run adds an
+  `app_version_changed` warning event with both versions. The repackaging risk
+  can cause this: it restores the original app by reinstalling it with the
+  configured install method, and a store installs its latest version. The
+  version recorded for the run stays the one read at the start.
 
 A version the device does not report is left out with a warning; the run still
 goes ahead. The build number is kept in the run's events only, as the dashboard

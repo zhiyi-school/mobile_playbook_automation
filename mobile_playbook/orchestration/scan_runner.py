@@ -92,7 +92,7 @@ def run_platform(
     attempted: list[dict[str, str]] = []
     artifacts: dict[str, str] = {}
     artifact_versions: dict[str, str] = {}
-    versions_read: set[str] = set()
+    start_versions: dict[str, tuple[str, str | None] | None] = {}
     failure: BaseException | None = None
     try:
         planned_tests = list(
@@ -126,13 +126,15 @@ def run_platform(
             logger.debug("%s: device connected in %.2fs (%s)", platform_name, time.monotonic() - connect_started, type(client).__name__)
         else:
             logger.debug("%s: no device needed for this run", platform_name)
+        last_risk = {str(getattr(app, "id", app)): index for index, (app, _) in enumerate(planned_tests, start=1)}
         for index, (app, test_id) in enumerate(planned_tests, start=1):
             if client is not None:
                 client = platform_runner.ensure_device_healthy(config, client, writer.run_dir)
             app_id = str(getattr(app, "id", app))
-            if client is not None and app_id not in versions_read:
-                versions_read.add(app_id)
-                _record_installed_version(platform_runner, app, app_id, client, writer.run_dir, artifact_versions)
+            if client is not None and app_id not in start_versions:
+                start_versions[app_id] = _record_installed_version(
+                    platform_runner, app, app_id, client, writer.run_dir, artifact_versions
+                )
             append_event(writer.run_dir, "risk_started", app_id=getattr(app, "id", app), risk_id=test_id)
             attempted.append({"app_id": app_id, "risk_id": str(test_id)})
             acquires_build = getattr(platform_runner, "acquires_builds_during_tests", False)
@@ -145,6 +147,9 @@ def run_platform(
             if acquires_build:
                 # A build left by an earlier run must not stand in for the one this risk just pulled.
                 _record_artifact(artifacts, artifact_versions, app_id, getattr(platform_runner, "platform", ""), app)
+            started_version = start_versions.get(app_id)
+            if index == last_risk[app_id] and started_version is not None and client is not None:
+                _check_installed_version(platform_runner, app, app_id, client, writer.run_dir, started_version)
     except BaseException as exc:
         logger.debug("%s: run %s aborted after %s attempted risks: %s", platform_name, run_timestamp, len(attempted), exc, exc_info=True)
         failure = exc
@@ -195,25 +200,35 @@ def _record_artifact(
         artifact_versions[app_id] = version
 
 
-# Record the version a platform reads from the device before an app's first risk, when the platform tests the
-# installed app; a read failure is logged and never stops the run.
-def _record_installed_version(
-    platform_runner: Any, app: Any, app_id: str, client: Any, run_dir: Path, artifact_versions: dict[str, str]
-) -> None:
+# Return the (version, build number) a platform that tests the installed app reads from the device, or None when the
+# platform has no reader or the read fails; a failure is logged and never stops the run.
+def _read_installed_version(platform_runner: Any, app: Any, app_id: str, client: Any) -> tuple[str, str | None] | None:
     reader = getattr(platform_runner, "installed_app_version", None)
     if reader is None:
-        return
+        return None
     platform = getattr(platform_runner, "platform", "")
     try:
         installed = reader(app, client)
         if installed is None:
             logger.warning("%s: the device reported no installed version for %s.", platform, app_id)
-            return
+            return None
         version, build_number = installed
     except Exception as exc:
         logger.debug("%s: reading the installed version of %s failed: %s", platform, app_id, exc, exc_info=True)
         logger.warning("Could not read the installed version of %s: %s", app_id, type(exc).__name__)
-        return
+        return None
+    return version, build_number
+
+
+# Record the installed version read before an app's first risk as the version the run tests, and return it.
+def _record_installed_version(
+    platform_runner: Any, app: Any, app_id: str, client: Any, run_dir: Path, artifact_versions: dict[str, str]
+) -> tuple[str, str | None] | None:
+    installed = _read_installed_version(platform_runner, app, app_id, client)
+    if installed is None:
+        return None
+    version, build_number = installed
+    platform = getattr(platform_runner, "platform", "")
     artifact_versions[app_id] = version
     logger.info("%s: testing %s version %s (build %s).", platform, app_id, version, build_number or "unknown")
     append_event(
@@ -223,6 +238,33 @@ def _record_installed_version(
         version=version,
         build_number=build_number,
         message=f"Testing {app_id} version {version} (build {build_number or 'unknown'}).",
+    )
+    return installed
+
+
+# Read the installed version again after an app's last risk and record a warning event when it differs from the
+# version the run started with, such as after a store reinstall; the recorded tested version is left unchanged.
+def _check_installed_version(
+    platform_runner: Any, app: Any, app_id: str, client: Any, run_dir: Path, started: tuple[str, str | None]
+) -> None:
+    finished = _read_installed_version(platform_runner, app, app_id, client)
+    if finished is None or finished == started:
+        return
+    platform = getattr(platform_runner, "platform", "")
+    message = (
+        f"{app_id} changed from version {started[0]} (build {started[1] or 'unknown'}) to {finished[0]} "
+        f"(build {finished[1] or 'unknown'}) during the run; its results may cover both versions."
+    )
+    logger.warning("%s: %s", platform, message)
+    append_event(
+        run_dir,
+        "app_version_changed",
+        app_id=app_id,
+        version=finished[0],
+        build_number=finished[1],
+        previous_version=started[0],
+        previous_build_number=started[1],
+        message=message,
     )
 
 
