@@ -53,10 +53,12 @@ by configured applications and assessments. Upload behavior is documented in the
 | Folder | Contents and use |
 | --- | --- |
 | `companion/ios/ipas/` | Tester-owned helper app packages, such as LocalKeyboard and ReplayConsentRecorder. Selected tests install these alongside the target app. |
+| `companion/android/apks/` | Android helper app packages: `screen-capture-helper.apk`, which `android-feature-06-risk-01` installs to record the screen. Build it with `python tools/companion_apps/android_screen_capture/build.py`. |
 
 Companion source and build projects live under `tools/companion_apps/`; this folder
 holds installable packages. Package selection depends on platform risk settings.
-See the [iOS configuration guide](../docs/ios/configuration.md).
+See the [iOS configuration guide](../docs/ios/configuration.md) and the
+[Android configuration guide](../docs/android/configuration.md).
 
 ## Generated metadata and icons: `derived/`
 

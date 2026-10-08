@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Screen-capture helper for android-feature-06-risk-01: records the screen through MediaProjection, as the playbook's malicious app does. -->
+
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.mobileplaybook.screencapture"
+    android:versionCode="1"
+    android:versionName="1">
+
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- debuggable so the test can still read the output with run-as where shared storage is not readable over adb. -->
+    <application
+        android:allowBackup="false"
+        android:debuggable="true"
+        android:label="Playbook Screen Capture">
+
+        <!-- Translucent, so the screen behind it stays visible while consent is asked for and right after. -->
+        <activity
+            android:name=".CaptureActivity"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
+        <service
+            android:name=".CaptureService"
+            android:exported="false"
+            android:foregroundServiceType="mediaProjection" />
+    </application>
+</manifest>

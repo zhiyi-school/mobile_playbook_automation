@@ -4,8 +4,11 @@ from types import SimpleNamespace
 
 import pytest
 
+from mobile_playbook.platforms.android.device.capture_helper import CaptureHelperError, Frame
+from mobile_playbook.platforms.android.risks import feature_06_risk_01_screen_capture as screen_capture
 from mobile_playbook.platforms.android.risks.feature_06_risk_01_screen_capture import (
     AndroidScreenCaptureRisk,
+    _is_blank,
     _is_secure,
     _window_flags,
     _security_verdict_from_verdict,
@@ -104,18 +107,15 @@ def window_dump(*windows) -> str:
     return "\n".join(lines) + "\n"
 
 
-class NoRecordingDriver(ForegroundDriver):
+class AppDriver(ForegroundDriver):
     session_id = "session"
     page_source = "<hierarchy/>"
-
-    def start_recording_screen(self) -> None:
-        raise RuntimeError("screenrecord not found\nStacktrace:\nUnknownError: screenrecord not found\n    at scheduleScreenRecord")
 
     def activate_app(self, package: str) -> None:
         pass
 
     def quit(self) -> None:
-        pass
+        self.quit_called = True
 
 
 class FakeReportWriter:
@@ -131,26 +131,125 @@ class FakeReportWriter:
         pass
 
 
-def test_a_recording_that_fails_to_start_is_reported_without_changing_the_verdict(tmp_path):
-    def adb_run(args):
+CONTENT = Frame(label="", dark_ratio=0.0, distinct_colors=400, png=None)
+BLANK = Frame(label="", dark_ratio=1.0, distinct_colors=1, png=None)
+
+
+class FakeHelper:
+    """Stands in for CaptureHelper: hands out the given frames in order and records what it was asked to do."""
+
+    def __init__(self, frames, start_error=None):
+        self.frames = list(frames)
+        self.start_error = start_error
+        self.calls: list[str] = []
+
+    def __call__(self, adb, apk):
+        return self
+
+    def ensure_installed(self):
+        self.calls.append("install")
+
+    def start(self, driver, timeout):
+        self.calls.append("start")
+        if self.start_error:
+            raise CaptureHelperError(self.start_error)
+
+    def snap(self, label):
+        self.calls.append(f"snap:{label}")
+        frame = self.frames.pop(0)
+        return Frame(label=label, dark_ratio=frame.dark_ratio, distinct_colors=frame.distinct_colors, png=f"{label}.png")
+
+    def pull(self, frame, destination_dir):
+        destination_dir.mkdir(parents=True, exist_ok=True)
+        path = destination_dir / frame.png
+        path.write_bytes(b"png")
+        return path
+
+    def stop(self):
+        self.calls.append("stop")
+
+
+def run_with(tmp_path, monkeypatch, helper, *, flags="HARDWARE_ACCELERATED", foreground="com.example.app"):
+    monkeypatch.setattr(screen_capture, "CaptureHelper", helper)
+
+    def adb_run(args, timeout=None):
         if args[:3] == ["shell", "pm", "path"]:
             return 0, "package:/data/app/x/base.apk\n", ""
         if args[:2] == ["shell", "sha256sum"]:
             return 0, f"{'c' * 64}  /data/app/x/base.apk\n", ""
-        return 0, window_dump(("com.example.app", "SECURE HARDWARE_ACCELERATED")), ""
+        return 0, window_dump(("com.example.app", flags)), ""
 
-    adb = SimpleNamespace(run=adb_run)
-    device_client = SimpleNamespace(make_driver=lambda: NoRecordingDriver("com.example.app"), adb=adb)
+    device_client = SimpleNamespace(make_driver=lambda: AppDriver(foreground), adb=SimpleNamespace(run=adb_run))
     app_config = SimpleNamespace(id="example", name="Example", package_name="com.example.app", risks={})
-    global_config = SimpleNamespace(screen_capture={"launch_wait": 0})
+    global_config = SimpleNamespace(screen_capture={"launch_wait": 0, "record_lead_in": 0})
+    return AndroidScreenCaptureRisk().run(app_config, global_config, device_client, FakeReportWriter(tmp_path))
 
-    result = AndroidScreenCaptureRisk().run(app_config, global_config, device_client, FakeReportWriter(tmp_path))
 
-    assert result.metadata["recording"] == "not started: screenrecord not found"
+def test_an_app_recorded_with_its_content_is_at_risk(tmp_path, monkeypatch):
+    helper = FakeHelper([CONTENT, CONTENT])
+
+    result = run_with(tmp_path, monkeypatch, helper)
+
+    assert result.final_status == "SCREEN_CAPTURE_ALLOWED"
+    assert result.verdict == "At Risk"
+    assert result.metadata["capture"]["app_open"] == {"dark_ratio": 0.0, "distinct_colors": 400, "blank": False}
+    assert result.metadata["flag_secure"] is False
     assert result.metadata["installed_base_apk_sha256"] == "c" * 64
+    assert [item["kind"] for item in result.evidence] == ["screen_capture_frame", "screen_capture_frame"]
+    assert helper.calls == ["install", "start", "snap:before_launch", "snap:app_open", "stop"]
+
+
+def test_an_app_recorded_as_a_blank_screen_is_reduced_risk(tmp_path, monkeypatch):
+    result = run_with(tmp_path, monkeypatch, FakeHelper([CONTENT, BLANK]), flags="SECURE HARDWARE_ACCELERATED")
+
     assert result.final_status == "SCREEN_CAPTURE_BLOCKED"
-    assert result.errors == []
-    assert result.evidence == []
+    assert result.metadata["verdict"] == "BLOCKED (Screen recording captured a blank screen while the app was open)"
+    assert result.metadata["flag_secure"] is True
+
+
+def test_the_recording_decides_even_when_flag_secure_says_otherwise(tmp_path, monkeypatch):
+    # A protected video view inside the screen blanks the recording without the window flag.
+    result = run_with(tmp_path, monkeypatch, FakeHelper([CONTENT, BLANK]), flags="HARDWARE_ACCELERATED")
+
+    assert result.final_status == "SCREEN_CAPTURE_BLOCKED"
+    assert result.metadata["flag_secure"] is False
+
+
+def test_a_recording_blank_before_launch_cannot_judge_the_app(tmp_path, monkeypatch):
+    result = run_with(tmp_path, monkeypatch, FakeHelper([BLANK, BLANK]))
+
+    assert result.final_status == "FAILED"
+    assert result.verdict == "Inconclusive"
+    assert "already blank on the home screen" in result.metadata["verdict"]
+
+
+def test_a_redirect_is_judged_by_the_app_switch_and_its_frame_kept(tmp_path, monkeypatch):
+    result = run_with(tmp_path, monkeypatch, FakeHelper([CONTENT, CONTENT]), foreground="com.android.chrome")
+
+    assert result.final_status == "SCREEN_CAPTURE_BLOCKED"
+    assert result.metadata["verdict"] == "BLOCKED (Redirected to Browser: com.android.chrome)"
+    assert "flag_secure" not in result.metadata
+    assert len(result.evidence) == 2
+
+
+def test_a_helper_that_cannot_start_fails_the_run_and_stops_nothing(tmp_path, monkeypatch):
+    helper = FakeHelper([], start_error="the screen-capture consent prompt did not appear; is the device unlocked?")
+
+    result = run_with(tmp_path, monkeypatch, helper)
+
+    assert result.final_status == "FAILED"
+    assert result.verdict == "Inconclusive"
+    assert result.errors == ["the screen-capture consent prompt did not appear; is the device unlocked?"]
+    assert "stop" not in helper.calls
+
+
+@pytest.mark.parametrize(
+    ("dark_ratio", "distinct_colors", "blank"),
+    [(1.0, 1, True), (0.985, 12, True), (0.99, 300, False), (0.5, 3, False)],
+)
+def test_only_a_flat_black_frame_counts_as_blank(dark_ratio, distinct_colors, blank):
+    # A dark-themed screen can be nearly all black but still has text and icons in many colours.
+    assert _is_blank(Frame(label="x", dark_ratio=dark_ratio, distinct_colors=distinct_colors, png=None)) is blank
 
 
 class DumpAdb:

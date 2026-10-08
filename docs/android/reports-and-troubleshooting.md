@@ -25,7 +25,7 @@ for each platform. See [docs/ios/reports-and-troubleshooting.md](../ios/reports-
 
 - `report.json`
 - `logs.txt`
-- `recordings/<package>.mp4` when Appium recording succeeds
+- `capture/before_launch.png` and `capture/app_open.png`, frames the screen-capture helper recorded before and after launching the app
 
 `android-feature-01-risk-02`:
 
@@ -74,9 +74,9 @@ Android app redirects to Play Store after repackaging:
 
 This is treated as repackaging blocked. The app likely detected signature or package tampering and routed to Play Store recovery.
 
-Screen recording missing from a report:
+Screen capture test fails before launching the app:
 
-Screen recording is best-effort; if the Appium driver cannot start or stop recording (for example, unsupported device or driver version), the risk still runs and reports a verdict, just without a `recordings/<package>.mp4` file. When recording could not start, `metadata.recording` in the test's `report.json` gives the reason, such as `not started: screenrecord not found` on devices without Android's `screenrecord` utility.
+The test needs the screen-capture helper. `screen-capture helper APK not found` means it has not been built: run `python tools/companion_apps/android_screen_capture/build.py` (needs the Android SDK and a JDK). `the screen-capture consent prompt did not appear` usually means the device was locked or its screen was off; unlock it and run again. `screen capture did not start (denied: …)` means the prompt was cancelled instead of allowed.
 
 Keystore or signing failure:
 

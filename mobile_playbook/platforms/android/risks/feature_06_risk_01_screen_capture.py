@@ -1,10 +1,10 @@
 """
-Android risk check for whether an app allows screen recording and capture.
+Android risk check for whether an app allows screen recording and capture, recording the screen through
+MediaProjection with a helper app as the playbook's malicious app does.
 """
 
 from __future__ import annotations
 
-import base64
 import logging
 import re
 import time
@@ -14,6 +14,7 @@ from pathlib import Path
 from mobile_playbook.platforms.android.models import AndroidRiskRunResult
 from mobile_playbook.common.logging_setup import redacted
 from mobile_playbook.platforms.android.acquisition.store import STORE_APPS
+from mobile_playbook.platforms.android.device.capture_helper import CaptureHelper, Frame, helper_apk_path
 from mobile_playbook.platforms.android.device.fingerprint import installed_base_apk_sha256
 from mobile_playbook.platforms.android.risks.base import AndroidRisk
 
@@ -35,6 +36,10 @@ CAPTURE_KEYWORDS = ["screen recording", "screen sharing", "screen recording/shar
 # some builds ("fl=#2000"); the lookbehind skips the private flags line ("pfl=").
 WINDOW_FLAGS_RE = re.compile(r"(?<![A-Za-z])fl=(#[0-9a-fA-F]+|[A-Z_]+(?: [A-Z_]+)*)")
 FLAG_SECURE_VALUE = 0x2000
+# A recorded frame counts as blank when nearly all of it is black and it holds almost no distinct colours: a
+# FLAG_SECURE window is recorded as one flat black, while even a dark-themed screen has text and icons.
+BLANK_DARK_RATIO = 0.98
+BLANK_MAX_COLORS = 16
 
 
 class AndroidScreenCaptureRisk(AndroidRisk):
@@ -43,9 +48,9 @@ class AndroidScreenCaptureRisk(AndroidRisk):
     name = "Android Screen Capture Test"
     test_case_id = "screen_capture"
     test_case_type = "appium_screen_recording"
-    requires = ["adb", "appium"]
+    requires = ["adb", "appium", "screen_capture_helper"]
 
-    # Record the screen while launching the app, classify how it protects itself and write the result.
+    # Record the screen with the helper app while launching the app, classify how it protects itself and write the result.
     def run(self, app_config, global_config, device_client, report_writer):
         started_at = datetime.now().astimezone()
         report_dir = report_writer.test_report_dir(app_config.id, self.risk_id, self.test_case_id, platform="android")
@@ -65,43 +70,37 @@ class AndroidScreenCaptureRisk(AndroidRisk):
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug("%s[%s]: effective config %s", self.risk_id, app_config.id, redacted(cfg))
         driver = None
-        recording_started = False
+        helper = None
+        recording = False
         try:
             result.metadata["installed_base_apk_sha256"] = installed_base_apk_sha256(device_client.adb, app_config.package_name)
             logger.debug("%s[%s]: creating Appium driver", self.risk_id, app_config.id)
             driver = device_client.make_driver()
-            recordings_dir = report_dir / "recordings"
-            recordings_dir.mkdir(parents=True, exist_ok=True)
-            recording_started, recording_error = self._start_recording(driver)
-            if not recording_started:
-                result.metadata["recording"] = f"not started: {recording_error}"
-            logger.debug("%s[%s]: screen recording started=%s (recordings_dir=%s)", self.risk_id, app_config.id, recording_started, recordings_dir)
-            if recording_started:
-                time.sleep(float(cfg.get("record_lead_in", 2)))
-            verdict = self._test_app(driver, device_client, app_config.package_name, cfg)
+            helper = CaptureHelper(device_client.adb, helper_apk_path(cfg.get("helper_apk")))
+            helper.ensure_installed()
+            # Start from the home screen, so the frame recorded before launch shows ordinary content.
+            device_client.adb.run(["shell", "input", "keyevent", "KEYCODE_HOME"])
+            helper.start(driver, timeout=float(cfg.get("consent_timeout", 15)))
+            recording = True
+            time.sleep(float(cfg.get("record_lead_in", 2)))
+            before_launch = helper.snap("before_launch")
+            verdict, app_open = self._test_app(driver, device_client, helper, before_launch, app_config.package_name, cfg, result)
             result.metadata["verdict"] = verdict
             result.final_status = _status_from_verdict(verdict)
             result.verdict = _security_verdict_from_verdict(verdict)
             logger.debug("%s[%s]: observation %r -> final_status=%s verdict=%s", self.risk_id, app_config.id, verdict, result.final_status, result.verdict)
-            if recording_started:
-                time.sleep(float(cfg.get("record_tail", 5)))
-                recording_path = self._stop_recording(driver, app_config.package_name, recordings_dir)
-                if recording_path is not None:
-                    logger.debug("%s[%s]: evidence screen recording at %s", self.risk_id, app_config.id, recording_path)
-                    result.evidence.append({"kind": "screen_recording", "path": str(recording_path), "label": "Screen recording"})
-                else:
-                    logger.debug("%s[%s]: no screen recording evidence saved", self.risk_id, app_config.id)
+            self._record_frames(helper, [before_launch, app_open], report_dir, result)
             self._close_app(driver, app_config.package_name)
         except Exception as exc:
             logger.debug("%s[%s]: run failed: %s", self.risk_id, app_config.id, exc, exc_info=True)
             result.final_status = "FAILED"
             result.errors.append(str(exc))
-            if recording_started and driver is not None:
-                try:
-                    driver.stop_recording_screen()
-                except Exception as stop_exc:
-                    logger.debug("%s[%s]: stopping recording after failure failed: %s", self.risk_id, app_config.id, stop_exc, exc_info=True)
         finally:
+            if recording:
+                try:
+                    helper.stop()
+                except Exception as stop_exc:
+                    logger.debug("%s[%s]: stopping the capture helper failed: %s", self.risk_id, app_config.id, stop_exc, exc_info=True)
             if driver is not None:
                 try:
                     logger.debug("%s[%s]: quitting Appium session %s", self.risk_id, app_config.id, getattr(driver, "session_id", None))
@@ -113,52 +112,48 @@ class AndroidScreenCaptureRisk(AndroidRisk):
             report_writer.write_result(result, report_dir)
         return result
 
-    # Launch the app and return the first conclusive observation from app switch, UI keyword and FLAG_SECURE checks.
-    def _test_app(self, driver, device_client, package_name: str, cfg: dict) -> str:
+    # Launch the app while recording, save a frame, and return the first conclusive observation from the app switch
+    # and UI keyword checks, else whether the recording captured the app, with the frame; FLAG_SECURE is recorded alongside.
+    def _test_app(self, driver, device_client, helper: CaptureHelper, before_launch: Frame, package_name: str, cfg: dict, result: AndroidRiskRunResult) -> tuple[str, Frame | None]:
         try:
             logger.debug("%s[%s]: activating app", self.risk_id, package_name)
             driver.activate_app(package_name)
         except Exception as exc:
             logger.debug("%s[%s]: activate_app failed: %s", self.risk_id, package_name, exc, exc_info=True)
-            return f"ERROR: failed to launch app - {exc}"
+            return f"ERROR: failed to launch app - {exc}", None
         time.sleep(float(cfg.get("launch_wait", 4)))
+        # Snap before the checks, which close any app the target handed the screen to.
+        app_open = helper.snap("app_open")
 
         verdict = self._check_app_switch(driver, package_name)
         logger.debug("%s[%s]: app switch check -> %s", self.risk_id, package_name, verdict)
-        if verdict == "Unknown":
-            verdict = self._check_ui_keywords(driver, DEBUGGING_KEYWORDS, "BLOCKED (USB debugging detected in UI)")
-            logger.debug("%s[%s]: debugging keyword check -> %s", self.risk_id, package_name, verdict)
+        if verdict != "Unknown":
+            return verdict, app_open
+        flag_check = self._check_flag_secure(device_client, package_name)
+        result.metadata["flag_secure"] = True if flag_check.startswith("BLOCKED") else False if flag_check.startswith("ALLOWED") else None
+        logger.debug("%s[%s]: FLAG_SECURE check -> %s", self.risk_id, package_name, flag_check)
+        verdict = self._check_ui_keywords(driver, DEBUGGING_KEYWORDS, "BLOCKED (USB debugging detected in UI)")
+        logger.debug("%s[%s]: debugging keyword check -> %s", self.risk_id, package_name, verdict)
         if verdict == "Unknown":
             verdict = self._check_ui_keywords(driver, CAPTURE_KEYWORDS, "BLOCKED (Screen capture warning detected in UI)")
             logger.debug("%s[%s]: capture keyword check -> %s", self.risk_id, package_name, verdict)
         if verdict == "Unknown":
-            verdict = self._check_flag_secure(device_client, package_name)
-            logger.debug("%s[%s]: FLAG_SECURE check -> %s", self.risk_id, package_name, verdict)
-        return verdict
+            verdict = _capture_verdict(before_launch, app_open)
+            logger.debug("%s[%s]: recorded frames before=%s app=%s -> %s", self.risk_id, package_name, before_launch, app_open, verdict)
+        return verdict, app_open
 
-    # Start Appium screen recording, returning whether it started and, when it did not, why.
-    def _start_recording(self, driver) -> tuple[bool, str | None]:
-        try:
-            driver.start_recording_screen()
-            return True, None
-        except Exception as exc:
-            logger.debug("%s: start_recording_screen failed: %s", self.risk_id, exc, exc_info=True)
-            # Appium errors carry a server stack trace after the message; the report keeps only the message's first line.
-            message = (getattr(exc, "msg", None) or str(exc)).strip()
-            return False, message.splitlines()[0] if message else type(exc).__name__
-
-    # Stop recording and save the MP4, returning its path or None on failure.
-    def _stop_recording(self, driver, package_name: str, recordings_dir: Path) -> Path | None:
-        try:
-            encoded = driver.stop_recording_screen()
-            path = recordings_dir / f"{package_name}.mp4"
-            data = base64.b64decode(encoded)
-            path.write_bytes(data)
-            logger.debug("%s[%s]: saved recording %s (%s bytes)", self.risk_id, package_name, path, len(data))
-            return path
-        except Exception as exc:
-            logger.debug("%s[%s]: stopping or saving recording failed: %s", self.risk_id, package_name, exc, exc_info=True)
-            return None
+    # Copy the recorded frames into the report as evidence and record how blank each was.
+    def _record_frames(self, helper: CaptureHelper, frames: list[Frame | None], report_dir: Path, result: AndroidRiskRunResult) -> None:
+        labels = {"before_launch": "Recorded frame before launching the app", "app_open": "Recorded frame with the app open"}
+        capture = {}
+        for frame in frames:
+            if frame is None:
+                continue
+            capture[frame.label] = {"dark_ratio": round(frame.dark_ratio, 4), "distinct_colors": frame.distinct_colors, "blank": _is_blank(frame)}
+            path = helper.pull(frame, report_dir / "capture")
+            if path is not None:
+                result.evidence.append({"kind": "screen_capture_frame", "path": str(path), "label": labels.get(frame.label, frame.label)})
+        result.metadata["capture"] = capture
 
     # Terminate the app, ignoring failures.
     def _close_app(self, driver, package_name: str) -> None:
@@ -235,6 +230,21 @@ def _is_secure(flags: str) -> bool:
     if flags.startswith("#"):
         return bool(int(flags[1:], 16) & FLAG_SECURE_VALUE)
     return "SECURE" in flags.split()
+
+
+# Report whether a recorded frame is blank, as a FLAG_SECURE window records.
+def _is_blank(frame: Frame) -> bool:
+    return frame.dark_ratio >= BLANK_DARK_RATIO and frame.distinct_colors <= BLANK_MAX_COLORS
+
+
+# Decide from the recorded frames whether the app's screen was captured; a blank frame before launch means the
+# recording itself was not working, so it cannot show anything about the app.
+def _capture_verdict(before_launch: Frame, app_open: Frame) -> str:
+    if _is_blank(before_launch):
+        return "ERROR (the recording was already blank on the home screen before launch, so it cannot show whether the app blocks capture)"
+    if _is_blank(app_open):
+        return "BLOCKED (Screen recording captured a blank screen while the app was open)"
+    return "ALLOWED (Screen recording captured the app's screen)"
 
 
 # Map an observation to the risk's final status.

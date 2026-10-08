@@ -15,6 +15,8 @@ artifacts/
   companion/
     ios/ipas/            tester-owned helper apps a risk installs next to
                          the target (LocalKeyboard, ReplayConsentRecorder)
+    android/apks/        Android helper apps a risk installs (the screen-capture
+                         helper, built by tools/companion_apps/android_screen_capture)
   derived/
     icons/               extracted application icons
     artifacts/           artifact metadata, keyed by sha256

@@ -10,7 +10,9 @@ from dataclasses import dataclass, field
 
 from mobile_playbook.orchestration.appium_server import tcp_reachable as _tcp_reachable
 from mobile_playbook.platforms.android.device.adb import AdbClient
+from mobile_playbook.platforms.android.device.app_version import installed_version
 from mobile_playbook.platforms.android.device.appium_driver import appium_available
+from mobile_playbook.platforms.android.device.capture_helper import BUILD_COMMAND, HELPER_PACKAGE, HELPER_VERSION, helper_apk_path
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +50,8 @@ def check_requirements(requires: list[str], adb: AdbClient, config) -> list[tupl
             results.append((name, *_check_tcp_tool("MobSF", config.tools.get("mobsf_url", ""))))
         elif name == "burp":
             results.append((name, *_check_tcp_tool("Burp proxy", config.tools.get("burp_proxy", ""))))
+        elif name == "screen_capture_helper":
+            results.append((name, *_check_capture_helper(adb, config)))
         else:
             logger.debug("android preflight: unknown requirement %s", name)
             results.append((name, False, f"unknown requirement '{name}'"))
@@ -82,6 +86,18 @@ def _check_executable(name: str) -> tuple[bool, str]:
         return True, f"{name} found on PATH"
     logger.debug("android preflight: executable %s not found on PATH", name)
     return False, f"{name} not found on PATH. Install it and ensure it is on PATH."
+
+
+# Check that the screen-capture helper APK is built, or that the device already has the current helper.
+def _check_capture_helper(adb: AdbClient, config) -> tuple[bool, str]:
+    apk = helper_apk_path((getattr(config, "screen_capture", None) or {}).get("helper_apk"))
+    if apk.is_file():
+        return True, f"screen-capture helper APK found at {apk}"
+    installed = installed_version(adb, HELPER_PACKAGE)
+    if installed is not None and installed.version_name == HELPER_VERSION:
+        return True, "screen-capture helper already installed on the device"
+    logger.debug("android preflight: screen-capture helper APK missing at %s and not installed", apk)
+    return False, f"screen-capture helper APK not found at {apk}. Build it with `{BUILD_COMMAND}`."
 
 
 # Check that a configured tool URL is set and accepts TCP connections.

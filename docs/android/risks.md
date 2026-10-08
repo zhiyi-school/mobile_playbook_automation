@@ -2,31 +2,32 @@
 
 ## android-feature-06-risk-01
 
-`android-feature-06-risk-01` demonstrates whether a sensitive screen can be screen-recorded or screen-shared, either because the app does not set `FLAG_SECURE` or because its own tamper/debugging checks fail to react to a recording session.
+`android-feature-06-risk-01` demonstrates whether another app on the device can record the target app's screen, following the playbook: a helper app records the screen through Android's screen-recording API (`MediaProjection`) after the user approves the system prompt, the target app is opened while it records, and the recording shows whether the app's content was captured or came out blank, as a `FLAG_SECURE` window does.
 
-Requires: `adb`, `appium`.
+Requires: `adb`, `appium`, `screen_capture_helper` (the helper APK built with `python tools/companion_apps/android_screen_capture/build.py`, or the current helper already installed on the device; see [the helper's README](../../tools/companion_apps/android_screen_capture/README.md)). The device must be unlocked, since the consent prompt has to be tapped.
 
 Stages:
 
-1. Connect an Appium driver and start a screen recording (best-effort; the test continues if recording cannot start, and records why in `report.json` as `metadata.recording`, for example on devices without Android's `screenrecord` utility such as some Huawei phones).
-2. Wait `record_lead_in` seconds, then activate (launch) the target app.
-3. Wait `launch_wait` seconds, then evaluate the app's response, checking in order:
+1. Install the helper (`com.mobileplaybook.screencapture`) unless the device already has its current version, go to the home screen, and open the helper, which shows the system's screen-recording consent prompt. Appium taps its allow button (`android:id/button1`: "Start now" on stock Android, "ALLOW" on Huawei), and the helper starts recording as a foreground service.
+2. Wait `record_lead_in` seconds, then save a frame of the home screen (`before_launch`). It shows ordinary content when the recording works.
+3. Activate (launch) the target app, wait `launch_wait` seconds, and save a frame (`app_open`).
+4. Evaluate the app's response, checking in order:
    - Did the foreground app switch away from the target package? If so, classify as redirected to a known browser, exited to the home-screen launcher (Pixel, Samsung or Huawei), or switched to an unknown app. A system permission prompt (`com.android.permissioncontroller`) covering the app is inconclusive: it is Android asking for a permission, not the app protecting itself, so screen capture was not tested. Set `runner.auto_grant_permissions: true` to grant the app's permissions before the test so no prompt appears. A switch to a store app (the Play Store, `com.android.vending`, or Aurora Store, `com.aurora.store`) is inconclusive instead: the app refused to open, typically because it was not installed from that store, so its screen was never shown and screen capture was not tested.
    - Does the visible UI contain developer/USB-debugging keywords (for example "usb debugging")?
-   - Does the visible UI contain screen-recording/sharing warning keywords?
-   - Does any of the target app's own windows in `adb shell dumpsys window windows` have `FLAG_SECURE` set? Android lists window flags by name without the `FLAG_` prefix (`fl=LAYOUT_IN_SCREEN SECURE …`), or as a hex value on some builds, so the check reads the `fl=` line of each window whose `package=` is the target app; other apps' windows are ignored. If the app has no window in the dump, the result is an `ERROR` rather than `ALLOWED`.
-   - If none of the above trip, the screen is considered visible and unprotected.
-4. Wait `record_tail` seconds, stop the recording, and save it as `recordings/<package>.mp4`.
-5. Close the app and write the report.
+   - Does the visible UI contain screen-recording/sharing warning keywords? The recording is running at this point, so an app that detects it and warns is caught here.
+   - Is the `app_open` frame blank? The helper measures the middle 80% of each frame, leaving out the status and navigation bars, which stay visible over a protected window. A frame counts as blank when at least 98% of it is black and it has at most 16 distinct colours: a protected window records as one flat black, while even a dark-themed screen has text and icons. A blank frame is `BLOCKED`; a frame with content is `ALLOWED`. If the `before_launch` frame was already blank, the recording was not working, and the result is an `ERROR` instead.
+5. Copy both frames into the report as `capture/before_launch.png` and `capture/app_open.png` (`screen_capture_frame` evidence), record each frame's `dark_ratio`, `distinct_colors` and `blank` under `metadata.capture`, stop the recording, close the app, and write the report.
+
+Alongside the verdict, `metadata.flag_secure` records whether any of the target app's own windows in `adb shell dumpsys window windows` has `FLAG_SECURE` set (`null` if that could not be read; absent when the app had left the screen). Android lists window flags by name without the `FLAG_` prefix (`fl=LAYOUT_IN_SCREEN SECURE …`), or as a hex value on some builds, so the check reads the `fl=` line of each window whose `package=` is the target app. It explains a blank recording but does not decide the verdict: the recording does, because content can also be protected in other ways, such as a secure video view inside an ordinary window.
 
 Verdict-to-status mapping:
 
-- Any `ALLOWED` verdict (UI visible, no security signal detected) → `SCREEN_CAPTURE_ALLOWED`.
-- Any `BLOCKED` verdict (browser/launcher redirect, debugging/capture warning text, or `FLAG_SECURE`) → `SCREEN_CAPTURE_BLOCKED`.
+- Any `ALLOWED` verdict (the recording captured the app's screen) → `SCREEN_CAPTURE_ALLOWED`.
+- Any `BLOCKED` verdict (browser/launcher redirect, debugging/capture warning text, or a blank recording of the app) → `SCREEN_CAPTURE_BLOCKED`.
 - Any `INCONCLUSIVE` verdict (the app redirected to the app store instead of opening, or a system permission prompt covered it) → `SCREEN_CAPTURE_NOT_TESTED`, with the Inconclusive security verdict.
-- Any `ERROR` verdict (driver, launch, or ADB failure, or no window for the app in the window dump) → `FAILED`.
+- Any `ERROR` verdict (driver, launch, or ADB failure, or a recording that was already blank before launch) → `FAILED`. A helper that cannot be installed, is refused consent, or does not answer also ends the run as `FAILED`, with the reason in `errors`.
 
-Timing knobs (`record_lead_in`, `launch_wait`, `record_tail`) are documented in [Configuration](configuration.md).
+Settings (`record_lead_in`, `launch_wait`, `consent_timeout`, `helper_apk`) are documented in [Configuration](configuration.md).
 
 ## android-feature-01-risk-02
 

@@ -166,12 +166,16 @@ Global defaults live under a top-level `screen_capture` block and can be overrid
 screen_capture:
   record_lead_in: 2
   launch_wait: 4
-  record_tail: 5
+  # consent_timeout: 15
+  # helper_apk: artifacts/companion/android/apks/screen-capture-helper.apk
 ```
 
-- `record_lead_in`: seconds to wait after starting the screen recording before launching the app.
-- `launch_wait`: seconds to wait after launching the app before checking for capture-blocking signals.
-- `record_tail`: seconds to keep recording after the verdict is determined, before stopping.
+- `record_lead_in`: seconds to wait after the helper starts recording before saving the home-screen frame and launching the app.
+- `launch_wait`: seconds to wait after launching the app before saving its frame and checking for capture-blocking signals.
+- `consent_timeout`: seconds to wait for the helper's screen-recording consent prompt to appear and for recording to start (default 15).
+- `helper_apk`: the screen-capture helper APK to install when the device lacks its current version; relative paths resolve against the repository root. Defaults to `artifacts/companion/android/apks/screen-capture-helper.apk` (under `ARTIFACTS_DIR` when that is set), where `python tools/companion_apps/android_screen_capture/build.py` writes it.
+
+`record_tail` is no longer read; the helper's frames replace the Appium recording it paced.
 
 Full risk behavior and status meanings are documented in [Risks](risks.md).
 

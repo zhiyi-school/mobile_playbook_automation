@@ -3,4 +3,5 @@
 screen_capture:
   record_lead_in: 2
   launch_wait: 4
-  record_tail: 5
+  # consent_timeout: 15
+  # helper_apk: artifacts/companion/android/apks/screen-capture-helper.apk
