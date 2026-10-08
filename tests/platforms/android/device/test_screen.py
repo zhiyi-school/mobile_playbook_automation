@@ -9,19 +9,23 @@ from mobile_playbook.platforms.android.device.screen import DeviceLockedError, k
 class PhoneAdb:
     """Fake adb for a phone whose screen and lock screen respond to wake and dismiss commands."""
 
-    def __init__(self, awake=True, locked=False, has_pin=False, reports_keyguard=True):
+    def __init__(self, awake=True, locked=False, has_pin=False, keyguard_in=("activity", "window")):
         self.awake = awake
         self.locked = locked
         self.has_pin = has_pin
-        self.reports_keyguard = reports_keyguard
+        self.keyguard_in = keyguard_in
         self.commands: list[list[str]] = []
 
     def run(self, args, timeout=None):
         self.commands.append(list(args))
         if args == ["shell", "dumpsys", "power"]:
             return 0, f"  mWakefulness={'Awake' if self.awake else 'Dozing'}\n", ""
+        state = str(self.locked).lower()
+        if args == ["shell", "dumpsys", "activity", "activities"]:
+            text = f"  KeyguardController:\n    mKeyguardShowing={state}\n    mAodShowing=false\n" if "activity" in self.keyguard_in else "ACTIVITY MANAGER ACTIVITIES\n"
+            return 0, text, ""
         if args == ["shell", "dumpsys", "window"]:
-            text = f"    isKeyguardShowing={str(self.locked).lower()}\n" if self.reports_keyguard else "WINDOW MANAGER\n"
+            text = f"    isKeyguardShowing={state}\n" if "window" in self.keyguard_in else "WINDOW MANAGER\n"
             return 0, text, ""
         if args == ["shell", "input", "keyevent", "KEYCODE_WAKEUP"]:
             self.awake = True
@@ -58,13 +62,22 @@ def test_a_phone_with_a_pin_stops_the_test_with_a_clear_reason():
         wake_and_unlock(PhoneAdb(awake=False, locked=True, has_pin=True), timeout=0.01)
 
 
-def test_a_phone_that_does_not_report_its_lock_screen_is_only_woken():
-    adb = PhoneAdb(awake=False, reports_keyguard=False)
+@pytest.mark.parametrize("keyguard_in", [("activity",), ("window",)], ids=["stock KeyguardController", "window dump only"])
+def test_the_lock_screen_is_found_in_either_dumpsys_output(keyguard_in):
+    adb = PhoneAdb(awake=False, locked=True, keyguard_in=keyguard_in)
 
     wake_and_unlock(adb)
 
-    assert adb.awake
-    assert ["shell", "wm", "dismiss-keyguard"] not in adb.commands
+    assert not adb.locked
+
+
+def test_a_phone_that_does_not_report_its_lock_screen_is_still_sent_the_dismiss():
+    adb = PhoneAdb(awake=False, locked=True, keyguard_in=())
+
+    wake_and_unlock(adb)
+
+    assert adb.awake and not adb.locked
+    assert ["shell", "wm", "dismiss-keyguard"] in adb.commands
 
 
 def test_keep_screen_on_sets_stay_on_for_every_power_source():

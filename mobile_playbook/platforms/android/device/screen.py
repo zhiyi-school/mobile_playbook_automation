@@ -13,7 +13,10 @@ from mobile_playbook.platforms.android.device.adb import AdbClient
 logger = logging.getLogger(__name__)
 
 WAKEFULNESS_RE = re.compile(r"mWakefulness=(\w+)")
-KEYGUARD_RE = re.compile(r"isKeyguardShowing=(true|false)")
+# Android 10+ prints the lock screen state under KeyguardController in `dumpsys activity activities`; some builds,
+# such as Huawei's, also print isKeyguardShowing in `dumpsys window`, which is the fallback.
+KEYGUARD_CONTROLLER_RE = re.compile(r"KeyguardController:\s*\n\s*mKeyguardShowing=(true|false)")
+WINDOW_KEYGUARD_RE = re.compile(r"isKeyguardShowing=(true|false)")
 POLL_SECONDS = 0.5
 
 
@@ -28,11 +31,14 @@ def screen_awake(adb: AdbClient) -> bool | None:
     return match.group(1) == "Awake" if match else None
 
 
-# Report whether the lock screen is showing, or None when dumpsys does not say.
+# Report whether the lock screen is showing, or None when neither dumpsys output says.
 def keyguard_showing(adb: AdbClient) -> bool | None:
-    code, out, _ = adb.run(["shell", "dumpsys", "window"])
-    match = KEYGUARD_RE.search(out or "") if code == 0 else None
-    return match.group(1) == "true" if match else None
+    for command, pattern in ((["shell", "dumpsys", "activity", "activities"], KEYGUARD_CONTROLLER_RE), (["shell", "dumpsys", "window"], WINDOW_KEYGUARD_RE)):
+        code, out, _ = adb.run(command)
+        match = pattern.search(out or "") if code == 0 else None
+        if match:
+            return match.group(1) == "true"
+    return None
 
 
 # Turn the screen on and dismiss a lock screen that has no PIN, password or pattern, so a test can drive the UI.
@@ -42,13 +48,14 @@ def wake_and_unlock(adb: AdbClient, timeout: float = 5) -> None:
         logger.debug("android screen: screen awake=%s; waking it", awake)
         adb.run(["shell", "input", "keyevent", "KEYCODE_WAKEUP"])
     showing = keyguard_showing(adb)
-    if showing is None:
-        logger.debug("android screen: lock screen state not reported; continuing")
-        return
-    if not showing:
+    if showing is False:
         logger.debug("android screen: already unlocked")
         return
+    # Dismissing an absent lock screen does nothing, so an unreported state is treated as locked.
     adb.run(["shell", "wm", "dismiss-keyguard"])
+    if showing is None:
+        logger.debug("android screen: lock screen state not reported; sent dismiss-keyguard and continuing")
+        return
     # The lock screen takes a moment to go away after the dismiss request.
     deadline = time.monotonic() + timeout
     while keyguard_showing(adb):
