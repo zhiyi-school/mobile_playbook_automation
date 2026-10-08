@@ -1,5 +1,5 @@
 """
-SHA-256 hashing of IPA and binary files.
+SHA-256 hashing of app packages and other files.
 """
 
 from __future__ import annotations
@@ -17,5 +17,5 @@ def sha256_file(path: Path) -> str:
     with Path(path).open("rb") as handle:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
-    logger.debug("ios hashing: sha256 %s = %s", path, digest.hexdigest())
+    logger.debug("hashing: sha256 %s = %s", path, digest.hexdigest())
     return digest.hexdigest()

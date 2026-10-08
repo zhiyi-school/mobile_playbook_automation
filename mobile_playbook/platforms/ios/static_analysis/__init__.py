@@ -1,3 +1,3 @@
 """
-IPA static analysis: package inventory, MobSF scanning, secret detection and critical findings.
+IPA-specific static analysis: built-in package inventory, MobSF IPA report handling and critical findings.
 """

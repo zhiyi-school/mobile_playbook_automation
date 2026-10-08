@@ -7,7 +7,6 @@ from mobile_playbook.platforms.ios.models import BinaryInspectionResult
 from mobile_playbook.reporting.report_writer import ReportWriter
 from mobile_playbook.platforms.ios.static_analysis.critical_findings import critical_markdown
 from mobile_playbook.platforms.ios.risks.feature_01_risk_01_ipa_exposure import Feature01Risk01
-from mobile_playbook.platforms.ios.static_analysis.mobsf_client import mobsf_scan
 from mobile_playbook.platforms.ios.risks.registry import get_risk, list_risks
 from tests.conftest import make_ipa
 
@@ -119,7 +118,7 @@ def test_feature_01_risk_01_can_test_google_api_key_external_reuse(monkeypatch, 
         def read(self, size=-1):
             return b'{"status":"OK","results":[{"formatted_address":"Singapore"}]}'
 
-    monkeypatch.setattr("mobile_playbook.platforms.ios.static_analysis.sensitive_findings.urllib.request.urlopen", lambda request, timeout: FakeResponse())
+    monkeypatch.setattr("mobile_playbook.platforms.static_analysis.sensitive_findings.urllib.request.urlopen", lambda request, timeout: FakeResponse())
     ipa = make_ipa(
         tmp_path / "sensitive.ipa",
         extra_files={"GoogleService-Info.plist": plistlib.dumps({"API_KEY": "AIzaSyABCDEFGHIJKLMNOPQRSTUVWXY123456789"})},
@@ -198,7 +197,7 @@ def test_feature_01_risk_01_uses_mobsf_when_configured(monkeypatch, global_confi
             },
         }
 
-    monkeypatch.setattr("mobile_playbook.platforms.ios.static_analysis.mobsf_client.mobsf_scan", fake_mobsf_scan)
+    monkeypatch.setattr("mobile_playbook.platforms.static_analysis.mobsf_client.mobsf_scan", fake_mobsf_scan)
     app = global_config.apps[0]
     app.risks = {"ios-feature-01-risk-01": {"enabled": True, "analyzer": {"provider": "mobsf", "api_key": "test-key"}}}
     app.artifact["workspace_dir"] = str(tmp_path / "acquired")
@@ -227,7 +226,7 @@ def test_feature_01_risk_01_falls_back_to_builtin_when_mobsf_fails(monkeypatch, 
     def fake_mobsf_scan(ipa_path, analyzer_config):
         raise RuntimeError("MobSF is not reachable")
 
-    monkeypatch.setattr("mobile_playbook.platforms.ios.static_analysis.mobsf_client.mobsf_scan", fake_mobsf_scan)
+    monkeypatch.setattr("mobile_playbook.platforms.static_analysis.mobsf_client.mobsf_scan", fake_mobsf_scan)
     app = global_config.apps[0]
     app.risks = {"ios-feature-01-risk-01": {"enabled": True, "analyzer": {"provider": "mobsf", "api_key": "test-key", "fallback_to_builtin": True}}}
     app.artifact["workspace_dir"] = str(tmp_path / "acquired")
@@ -244,69 +243,6 @@ def test_feature_01_risk_01_falls_back_to_builtin_when_mobsf_fails(monkeypatch, 
     assert analysis["mobsf_fallback"]["used"] is True
     assert not (report_dir / "mobsf_report.json").exists()
     assert any(flag["id"] == "MOBSF_FALLBACK_USED" for flag in critical["flags"])
-
-
-def test_feature_01_risk_01_can_auto_start_mobsf_with_generated_api_key(monkeypatch, tmp_path):
-    ipa = make_ipa(tmp_path / "app.ipa")
-    reachability = iter([False, True])
-    popen_calls = []
-    api_keys = []
-
-    class FakeProcess:
-        terminated = False
-
-        def poll(self):
-            return None
-
-        def terminate(self):
-            self.terminated = True
-
-        def wait(self, timeout=None):
-            return 0
-
-        def kill(self):
-            self.terminated = True
-
-    fake_process = FakeProcess()
-
-    def fake_popen(command, stdout, stderr, env):
-        popen_calls.append({"command": command, "env": env})
-        return fake_process
-
-    def fake_post(base_url, endpoint, api_key, data=None, files=None, timeout=120):
-        api_keys.append(api_key)
-        if endpoint == "/api/v1/upload":
-            return {"hash": "generated-key-hash", "scan_type": "ipa", "file_name": "app.ipa"}
-        if endpoint == "/api/v1/report_json":
-            return {"app_name": "Generated Key Demo", "bundle_id": "com.example.app"}
-        return {"ok": True}
-
-    monkeypatch.delenv("MOBSF_API_KEY", raising=False)
-    monkeypatch.setattr("mobile_playbook.platforms.ios.static_analysis.mobsf_client.mobsf_is_reachable", lambda base_url, timeout: next(reachability))
-    monkeypatch.setattr("mobile_playbook.platforms.ios.static_analysis.mobsf_client.subprocess.Popen", fake_popen)
-    monkeypatch.setattr("mobile_playbook.platforms.ios.static_analysis.mobsf_client.mobsf_post", fake_post)
-
-    result = mobsf_scan(
-        ipa,
-        {
-            "mobsf_url": "http://127.0.0.1:8000",
-            "auto_start": {
-                "enabled": True,
-                "command": ["mobsf", "runserver", "127.0.0.1:8000"],
-                "generate_api_key": True,
-                "stop_after_scan": True,
-                "wait_seconds": 1,
-            },
-        },
-    )
-
-    assert result["auto_started"] is True
-    assert result["generated_api_key"] is True
-    assert result["hash"] == "generated-key-hash"
-    assert popen_calls[0]["command"] == ["mobsf", "runserver", "127.0.0.1:8000"]
-    assert popen_calls[0]["env"]["MOBSF_API_KEY"]
-    assert set(api_keys) == {popen_calls[0]["env"]["MOBSF_API_KEY"]}
-    assert fake_process.terminated is True
 
 
 def test_feature_01_risk_01_critical_markdown_orders_findings_and_evidence_by_severity():

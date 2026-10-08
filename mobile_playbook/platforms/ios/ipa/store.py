@@ -11,7 +11,7 @@ import stat
 import tempfile
 from pathlib import Path
 
-from mobile_playbook.platforms.ios.ipa.hashing import sha256_file
+from mobile_playbook.common.hashing import sha256_file
 
 logger = logging.getLogger(__name__)
 

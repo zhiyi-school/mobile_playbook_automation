@@ -4,24 +4,23 @@ ios-feature-01-risk-01: acquires the IPA and runs static analysis to show its co
 
 from __future__ import annotations
 
-import json
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
 
 from mobile_playbook.common.storage_paths import ios_acquired_dir
-from typing import Any
 
 from mobile_playbook.common.config_loader import merge_dicts
 from mobile_playbook.platforms.ios.acquisition.registry import get_provider
-from mobile_playbook.platforms.ios.ipa.hashing import sha256_file
+from mobile_playbook.common.hashing import sha256_file
 from mobile_playbook.platforms.ios.ipa.encryption import inspect_main_executable
 from mobile_playbook.platforms.ios.ipa.unpacker import unpack_ipa
-from mobile_playbook.platforms.ios.models import ArtifactAcquisitionResult, RiskRunResult
+from mobile_playbook.platforms.ios.models import RiskRunResult
 from mobile_playbook.platforms.ios.risks.base import Risk
-from mobile_playbook.platforms.ios.static_analysis.critical_findings import critical_markdown, highest_severity, sort_flags_by_severity
+from mobile_playbook.platforms.ios.static_analysis.critical_findings import OWASP_REFERENCE, critical_markdown
 from mobile_playbook.platforms.ios.static_analysis.inventory import analyze_package
-from mobile_playbook.platforms.ios.static_analysis.mobsf_client import analyze_with_mobsf
+from mobile_playbook.platforms.ios.static_analysis.mobsf_report import analyze_with_mobsf
+from mobile_playbook.platforms.static_analysis.analyzer import run_configured_analysis, write_analysis_reports
 
 logger = logging.getLogger(__name__)
 
@@ -105,23 +104,13 @@ class Feature01Risk01(Risk):
                 app_config.id, binary_inspection.status, getattr(binary_inspection, "encrypted", None),
                 getattr(binary_inspection, "cryptid", None),
             )
-            analysis = self._run_configured_analysis(acquisition.ipa_path, app_dir, acquisition, binary_inspection, risk_config)
-            analysis_path = report_dir / "ipa_analysis.json"
-            inventory_path = report_dir / "package_inventory.json"
-            critical_path = report_dir / "critical_findings.json"
-            critical_md_path = report_dir / "critical_findings.md"
-            analysis_path.write_text(json.dumps(analysis["summary"], indent=2, sort_keys=True))
-            inventory_path.write_text(json.dumps(analysis["inventory"], indent=2, sort_keys=True))
-            critical_path.write_text(json.dumps(analysis["critical_findings"], indent=2, sort_keys=True))
-            critical_md_path.write_text(critical_markdown(analysis["critical_findings"]))
-            mobsf_report_path = None
-            if analysis.get("mobsf_raw_report") is not None:
-                mobsf_report_path = report_dir / "mobsf_report.json"
-                mobsf_report_path.write_text(json.dumps(analysis["mobsf_raw_report"], indent=2, sort_keys=True))
-            logger.debug(
-                "ios-feature-01-risk-01[%s]: evidence written analysis=%s inventory=%s critical=%s critical_md=%s mobsf=%s",
-                app_config.id, analysis_path, inventory_path, critical_path, critical_md_path, mobsf_report_path,
+            analysis = run_configured_analysis(
+                self.risk_id,
+                risk_config,
+                builtin=lambda: analyze_package(app_dir, acquisition, binary_inspection, risk_config),
+                mobsf=lambda: analyze_with_mobsf(acquisition.ipa_path, acquisition, binary_inspection, risk_config),
             )
+            report_paths = write_analysis_reports(report_dir, analysis, "ipa_analysis.json", critical_markdown(analysis["critical_findings"]))
             if logger.isEnabledFor(logging.DEBUG):
                 flags = analysis["critical_findings"].get("flags") or []
                 logger.debug(
@@ -138,12 +127,8 @@ class Feature01Risk01(Risk):
             result.errors.extend(item["title"] for item in analysis["critical_findings"]["flags"][:3])
             result.launch_result = {
                 "analysis_provider": analysis["summary"].get("analysis_provider", "builtin"),
-                "analysis_path": str(analysis_path),
-                "inventory_path": str(inventory_path),
-                "critical_findings_path": str(critical_path),
-                "critical_findings_markdown_path": str(critical_md_path),
-                "mobsf_report_path": str(mobsf_report_path) if mobsf_report_path else None,
-                "owasp_reference": "https://mas.owasp.org/MASTG/techniques/ios/MASTG-TECH-0058/",
+                **{key: str(path) if path else None for key, path in report_paths.items()},
+                "owasp_reference": OWASP_REFERENCE,
             }
             return [result]
         except Exception as exc:
@@ -175,59 +160,6 @@ class Feature01Risk01(Risk):
             test_case_type="mobsf_or_package_analysis",
             artifact_source=app_config.artifact.get("source", ""),
         )
-
-    # Run the builtin or MobSF analyzer, falling back to builtin when allowed.
-    def _run_configured_analysis(
-        self,
-        ipa_path: Path,
-        app_dir: Path,
-        acquisition: ArtifactAcquisitionResult,
-        binary_inspection,
-        risk_config: dict[str, Any],
-    ) -> dict[str, Any]:
-        analyzer_config = risk_config.get("analyzer") or {}
-        provider = str(analyzer_config.get("provider") or "builtin").strip().lower()
-        fallback_to_builtin = bool(analyzer_config.get("fallback_to_builtin", True))
-        logger.debug("ios-feature-01-risk-01: analyzer provider=%s fallback_to_builtin=%s", provider, fallback_to_builtin)
-
-        if provider in {"builtin", "package", "package_inventory", "local"}:
-            return analyze_package(app_dir, acquisition, binary_inspection, risk_config)
-
-        if provider in {"mobsf", "mobsf_api"}:
-            try:
-                return analyze_with_mobsf(ipa_path, acquisition, binary_inspection, risk_config)
-            except Exception as exc:
-                logger.debug("ios-feature-01-risk-01: MobSF analysis failed: %s", exc, exc_info=True)
-                if not fallback_to_builtin:
-                    raise
-                logger.debug("ios-feature-01-risk-01: falling back to built-in package scanner after MobSF failure")
-                analysis = analyze_package(app_dir, acquisition, binary_inspection, risk_config)
-                analysis["summary"]["mobsf_fallback"] = {
-                    "used": True,
-                    "reason": str(exc),
-                    "configured_provider": provider,
-                }
-                analysis["summary"]["findings"].append(f"MobSF analysis failed; package scanner fallback was used: {exc}")
-                analysis["critical_findings"]["flags"].append(
-                    {
-                        "id": "MOBSF_FALLBACK_USED",
-                        "severity": "LOW",
-                        "title": "MobSF analysis was unavailable, built-in package scanner was used",
-                        "evidence": [str(exc)],
-                        "recommendation": "Start MobSF, verify the API key, and rerun ios-feature-01-risk-01 for a MobSF-backed report.",
-                    }
-                )
-                analysis["critical_findings"]["flags"] = sort_flags_by_severity(analysis["critical_findings"]["flags"])
-                analysis["critical_findings"]["flag_count"] = len(analysis["critical_findings"]["flags"])
-                analysis["critical_findings"]["highest_severity"] = highest_severity(analysis["critical_findings"]["flags"])
-                return analysis
-
-        if fallback_to_builtin:
-            logger.debug("ios-feature-01-risk-01: unknown analyzer provider %r; using built-in package scanner", provider)
-            analysis = analyze_package(app_dir, acquisition, binary_inspection, risk_config)
-            analysis["summary"]["analyzer_warning"] = f"Unknown analyzer provider '{provider}', built-in package scanner was used."
-            return analysis
-        raise ValueError(f"Unknown ios-feature-01-risk-01 analyzer provider: {provider}")
 
     # Map an artifact acquisition status to the risk's final status.
     def _artifact_status_to_final(self, status: str) -> str:

@@ -60,7 +60,10 @@ Paths below are relative to `mobile_playbook/`.
   `mobile_playbook/platforms/<platform>/risks/`; plugin discovery skips
   subpackages. Keep the existing base classes and registry there. Put reusable
   device, acquisition, analysis, and other capability helpers in the
-  corresponding platform packages.
+  corresponding platform packages. Static analysis that both platforms share
+  (MobSF client, secret scanning, severity flags, analyzer selection) lives in
+  `platforms/static_analysis/`; code that reads one package format stays in
+  `platforms/<platform>/static_analysis/`.
 - Keep `dashboard_sync/__init__.py` import-free. Importing `ledger`,
   `run_status`, or `trigger` from the API must not load the Supabase transport
   or worker startup code.

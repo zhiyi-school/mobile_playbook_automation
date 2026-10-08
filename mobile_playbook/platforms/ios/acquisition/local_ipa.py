@@ -8,7 +8,7 @@ import logging
 from pathlib import Path
 
 from mobile_playbook.platforms.ios.acquisition.base import ArtifactProvider
-from mobile_playbook.platforms.ios.ipa.hashing import sha256_file
+from mobile_playbook.common.hashing import sha256_file
 from mobile_playbook.platforms.ios.ipa.plist import inspect_ipa_metadata
 from mobile_playbook.platforms.ios.ipa.store import STORE_DIR_NAME, place_ipa
 from mobile_playbook.platforms.ios.models import ArtifactAcquisitionResult

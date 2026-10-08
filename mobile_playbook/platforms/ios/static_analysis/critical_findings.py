@@ -8,7 +8,18 @@ import json
 import logging
 from typing import Any
 
+from mobile_playbook.platforms.static_analysis import findings as shared_findings
+from mobile_playbook.platforms.static_analysis.findings import (
+    api_key_reuse_flag,
+    critical_report,
+    mobsf_findings_flag,
+    sensitive_information_flag,
+)
+
 logger = logging.getLogger(__name__)
+
+OWASP_REFERENCE = "https://mas.owasp.org/MASTG/techniques/ios/MASTG-TECH-0058/"
+API_KEY_RESTRICTION = "the iOS bundle ID and Apple Team ID"
 
 
 # Build the severity-sorted critical findings report from a MobSF-backed analysis summary.
@@ -37,31 +48,11 @@ def mobsf_critical_findings(summary: dict[str, Any], inventory: dict[str, Any]) 
             "recommendation": "Treat the IPA as inspectable. Do not embed secrets or rely on client-side obscurity for security decisions.",
         }
     ]
-    high_medium = [item for item in findings if item.get("severity") in {"HIGH", "MEDIUM"}]
-    logger.debug("ios critical findings (mobsf): %s high/medium MobSF finding(s)", len(high_medium))
-    if high_medium:
-        flags.append(
-            {
-                "id": "MOBSF_STATIC_ANALYSIS_FINDINGS",
-                "severity": highest_severity(high_medium),
-                "title": "MobSF reported static-analysis findings",
-                "evidence": [f"{item['severity']} {item['title']}: {item.get('evidence')}" for item in high_medium[:15]],
-                "recommendation": "Review the full MobSF report and remediate high-confidence issues based on exploitability and app context.",
-            }
-        )
+    mobsf_flag = mobsf_findings_flag(findings)
+    if mobsf_flag is not None:
+        flags.append(mobsf_flag)
     if sensitive_findings:
-        flags.append(
-            {
-                "id": "SENSITIVE_INFORMATION_EXPOSURE",
-                "severity": highest_severity(sensitive_findings),
-                "title": "Potential sensitive information is present in MobSF report data",
-                "evidence": [
-                    f"{item['severity']} {item['match_type']} in {item['path']}: {item.get('key_path') or item.get('context') or ''} = {item['reported_value']}"
-                    for item in sensitive_findings[:15]
-                ],
-                "recommendation": "Remove credentials and long-lived secrets from the client bundle. Rotate exposed values if they are sensitive, and move privileged operations server-side.",
-            }
-        )
+        flags.append(sensitive_information_flag(sensitive_findings, "MobSF report data"))
     permissions = info.get("permissions") or []
     if permissions:
         flags.append(
@@ -74,28 +65,15 @@ def mobsf_critical_findings(summary: dict[str, Any], inventory: dict[str, Any]) 
             }
         )
     if api_key_reuse_tests:
-        flags.append(api_key_reuse_flag(api_key_reuse_tests))
-    if logger.isEnabledFor(logging.DEBUG):
-        logger.debug(
-            "ios critical findings (mobsf): %s flag(s) %s, highest severity %s",
-            len(flags),
-            [(flag["id"], flag["severity"]) for flag in flags],
-            highest_severity(flags),
-        )
-    return {
-        "app": {
-            "display_name": summary.get("display_name"),
-            "bundle_id": summary.get("bundle_id"),
-            "version": info.get("CFBundleShortVersionString"),
-            "build": info.get("CFBundleVersion"),
-            "ipa_sha256": summary.get("ipa_sha256"),
-        },
-        "status": "FLAGGED" if flags else "NO_CRITICAL_FINDINGS",
-        "flag_count": len(flags),
-        "highest_severity": highest_severity(flags),
-        "flags": sort_flags_by_severity(flags),
-        "owasp_reference": "https://mas.owasp.org/MASTG/techniques/ios/MASTG-TECH-0058/",
+        flags.append(api_key_reuse_flag(api_key_reuse_tests, API_KEY_RESTRICTION))
+    app = {
+        "display_name": summary.get("display_name"),
+        "bundle_id": summary.get("bundle_id"),
+        "version": info.get("CFBundleShortVersionString"),
+        "build": info.get("CFBundleVersion"),
+        "ipa_sha256": summary.get("ipa_sha256"),
     }
+    return critical_report(app, flags, OWASP_REFERENCE)
 
 
 # Build the severity-sorted critical findings report from the builtin package analysis.
@@ -218,67 +196,31 @@ def critical_findings(summary: dict[str, Any], inventory: dict[str, Any]) -> dic
             }
         )
     if sensitive_findings:
-        flags.append(
-            {
-                "id": "SENSITIVE_INFORMATION_EXPOSURE",
-                "severity": highest_severity(sensitive_findings),
-                "title": "Potential sensitive information is present in bundled resources",
-                "evidence": [
-                    f"{item['severity']} {item['match_type']} in {item['path']}: {item.get('key_path') or item.get('context') or ''} = {item['reported_value']}"
-                    for item in sensitive_findings[:15]
-                ],
-                "recommendation": "Remove credentials and long-lived secrets from the client bundle. Rotate exposed values if they are sensitive, and move privileged operations server-side.",
-            }
-        )
+        flags.append(sensitive_information_flag(sensitive_findings, "bundled resources"))
     if api_key_reuse_tests:
-        flags.append(api_key_reuse_flag(api_key_reuse_tests))
-    if logger.isEnabledFor(logging.DEBUG):
-        logger.debug(
-            "ios critical findings: %s flag(s) %s, highest severity %s",
-            len(flags),
-            [(flag["id"], flag["severity"]) for flag in flags],
-            highest_severity(flags),
-        )
-
-    return {
-        "app": {
-            "display_name": summary["display_name"],
-            "bundle_id": summary["bundle_id"],
-            "version": info.get("CFBundleShortVersionString"),
-            "build": info.get("CFBundleVersion"),
-            "ipa_sha256": summary["ipa_sha256"],
-        },
-        "status": "FLAGGED" if flags else "NO_CRITICAL_FINDINGS",
-        "flag_count": len(flags),
-        "highest_severity": highest_severity(flags),
-        "flags": sort_flags_by_severity(flags),
-        "owasp_reference": "https://mas.owasp.org/MASTG/techniques/ios/MASTG-TECH-0058/",
+        flags.append(api_key_reuse_flag(api_key_reuse_tests, API_KEY_RESTRICTION))
+    app = {
+        "display_name": summary["display_name"],
+        "bundle_id": summary["bundle_id"],
+        "version": info.get("CFBundleShortVersionString"),
+        "build": info.get("CFBundleVersion"),
+        "ipa_sha256": summary["ipa_sha256"],
     }
+    return critical_report(app, flags, OWASP_REFERENCE)
 
 
-# Render a critical findings report as a Markdown summary and findings table.
+# Render an IPA critical findings report as a Markdown summary and findings table.
 def critical_markdown(report: dict[str, Any]) -> str:
     app = report["app"]
-    lines = [
-        "# ios-feature-01-risk-01 Critical Findings",
-        "",
-        f"- App: {app.get('display_name') or ''}",
-        f"- Bundle ID: {app.get('bundle_id') or ''}",
-        f"- Version: {app.get('version') or ''} ({app.get('build') or ''})",
-        f"- Highest severity: {report['highest_severity']}",
-        f"- Flag count: {report['flag_count']}",
-        "",
-        "| Severity | Finding | Evidence |",
-        "| --- | --- | --- |",
-    ]
-    for flag in sort_flags_by_severity(report["flags"]):
-        evidence_items = sort_evidence_by_embedded_severity(flag.get("evidence", []))
-        evidence = "<br>".join(str(item) for item in evidence_items[:5])
-        lines.append(f"| {flag['severity']} | {flag['title']} | {evidence} |")
-    lines.append("")
-    markdown = "\n".join(lines)
-    logger.debug("ios critical markdown: rendered %s flag row(s), %s char(s)", len(report["flags"]), len(markdown))
-    return markdown
+    return shared_findings.critical_markdown(
+        report,
+        "ios-feature-01-risk-01 Critical Findings",
+        [
+            f"- App: {app.get('display_name') or ''}",
+            f"- Bundle ID: {app.get('bundle_id') or ''}",
+            f"- Version: {app.get('version') or ''} ({app.get('build') or ''})",
+        ],
+    )
 
 
 # Return sorted bundle files whose suffix and name suggest configuration or secrets.
@@ -296,54 +238,3 @@ def candidate_config_resources(inventory: dict[str, Any]) -> list[str]:
             candidates.append(path)
     logger.debug("ios critical findings: %s candidate config resource(s)", len(candidates))
     return sorted(candidates)
-
-
-# Build the Google API key reuse flag from reuse test results.
-def api_key_reuse_flag(results: list[dict[str, Any]]) -> dict[str, Any]:
-    severity = highest_severity(results)
-    reusable_count = sum(1 for item in results if item.get("status") == "REUSABLE_FROM_WORKSTATION")
-    logger.debug("ios critical findings: api key reuse flag from %s result(s), %s reusable, severity %s", len(results), reusable_count, severity)
-    evidence = [
-        f"{item['severity']} {item['status']} via {item['provider']} for {item.get('path')}: key={item['reported_key']}, google_status={item.get('google_status')}, message={item.get('message')}"
-        for item in results[:10]
-    ]
-    return {
-        "id": "GOOGLE_API_KEY_REUSE_TEST",
-        "severity": severity,
-        "title": "Google API key external reuse test",
-        "evidence": evidence,
-        "recommendation": (
-            "Restrict Google API keys to the iOS bundle ID and Apple Team ID, restrict allowed APIs, and review Firebase/Google Cloud usage logs."
-            if reusable_count
-            else "Review key restrictions in Google Cloud Console. A denied low-impact test does not prove every enabled API is protected."
-        ),
-    }
-
-
-# Return the highest severity among flags, or NONE when there are none.
-def highest_severity(flags: list[dict[str, Any]]) -> str:
-    if not flags:
-        return "NONE"
-    return max((flag["severity"] for flag in flags), key=severity_rank)
-
-
-# Return flags sorted from highest to lowest severity.
-def sort_flags_by_severity(flags: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return sorted(flags, key=lambda flag: severity_rank(str(flag.get("severity", ""))), reverse=True)
-
-
-# Return evidence items sorted by the severity word each starts with, highest first.
-def sort_evidence_by_embedded_severity(evidence: list[Any]) -> list[Any]:
-    return sorted(evidence, key=lambda item: severity_rank(embedded_severity(str(item))), reverse=True)
-
-
-# Return the leading severity word of a string, or NONE when it has none.
-def embedded_severity(value: str) -> str:
-    first_word = value.strip().split(" ", 1)[0].upper()
-    return first_word if first_word in {"HIGH", "MEDIUM", "LOW", "INFO"} else "NONE"
-
-
-# Return a severity's numeric rank, with unknown values ranked lowest.
-def severity_rank(severity: str) -> int:
-    order = {"HIGH": 3, "MEDIUM": 2, "LOW": 1, "INFO": 0, "NONE": -1}
-    return order.get(severity.upper(), -1)

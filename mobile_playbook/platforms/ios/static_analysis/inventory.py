@@ -1,5 +1,5 @@
 """
-Builtin static analysis of an unpacked IPA: Info.plist metadata, package inventory and sensitive-data findings.
+Builtin static analysis of an unpacked IPA: Info.plist metadata, package inventory and a secret scan of bundled resources.
 """
 
 from __future__ import annotations
@@ -9,13 +9,21 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-from mobile_playbook.platforms.ios.ipa.plist import read_info_plist
+from mobile_playbook.platforms.ios.ipa.plist import read_info_plist, read_plist
 from mobile_playbook.platforms.ios.models import ArtifactAcquisitionResult
 from mobile_playbook.platforms.ios.static_analysis.critical_findings import critical_findings
-from mobile_playbook.platforms.ios.static_analysis.sensitive_findings import (
-    public_sensitive_findings,
-    scan_sensitive_information,
-    test_google_api_key_reuse,
+from mobile_playbook.platforms.static_analysis.sensitive_findings import (
+    classify_sensitive_string,
+    dedupe_sensitive_findings,
+    flatten_value,
+    key_looks_sensitive,
+    reveal_sensitive_values,
+    scan_text_for_sensitive_values,
+    sensitive_finding,
+    sensitive_key_severity,
+    sensitive_summary_fields,
+    sensitive_summary_sentences,
+    value_looks_secret,
 )
 
 logger = logging.getLogger(__name__)
@@ -36,17 +44,10 @@ def analyze_package(
         info.get("CFBundleExecutable"),
     )
     package_inventory = inventory(app_dir)
-    sensitive_config = risk_config.get("sensitive_scan") or {}
-    reveal_sensitive_values = bool(sensitive_config.get("reveal_values", False))
-    api_key_reuse_config = risk_config.get("api_key_reuse_test") or {}
-    api_key_reuse_enabled = bool(api_key_reuse_config.get("enabled", False))
     permissions = sorted(k for k in info if k.endswith("UsageDescription"))
     schemes = url_schemes(info)
     ats = info.get("NSAppTransportSecurity") or {}
-    logger.debug(
-        "ios ipa inventory: permissions=%s url_schemes=%s ats_present=%s reveal_sensitive_values=%s api_key_reuse_enabled=%s",
-        permissions, schemes, bool(ats), reveal_sensitive_values, api_key_reuse_enabled,
-    )
+    logger.debug("ios ipa inventory: permissions=%s url_schemes=%s ats_present=%s", permissions, schemes, bool(ats))
     findings = [
         "IPA can be acquired and unpacked for local static analysis.",
         "Analyst can inspect Info.plist metadata, code signature metadata, frameworks, plugins, resources, and the app binary.",
@@ -64,16 +65,9 @@ def analyze_package(
     if binary_inspection.status == "PROTECTED_OR_ENCRYPTED_BINARY":
         findings.append("Main executable appears protected/encrypted, but metadata and bundled resources remain analyzable.")
     logger.debug("ios ipa inventory: binary inspection status=%s", binary_inspection.status)
-    sensitive_findings = scan_sensitive_information(app_dir, package_inventory, reveal_sensitive_values)
-    logger.debug("ios ipa inventory: sensitive scan findings=%d", len(sensitive_findings))
-    if sensitive_findings:
-        findings.append(f"Potential sensitive information found in bundled resources: {len(sensitive_findings)} finding(s).")
-    api_key_reuse_tests = test_google_api_key_reuse(sensitive_findings, api_key_reuse_config, reveal_sensitive_values) if api_key_reuse_enabled else []
-    if api_key_reuse_tests:
-        reusable = sum(1 for item in api_key_reuse_tests if item["status"] == "REUSABLE_FROM_WORKSTATION")
-        logger.debug("ios ipa inventory: api key reuse tests=%d reusable=%d", len(api_key_reuse_tests), reusable)
-        findings.append(f"Google API key external reuse test completed: {reusable}/{len(api_key_reuse_tests)} key(s) appeared reusable from this workstation.")
-    public_findings = public_sensitive_findings(sensitive_findings)
+    sensitive_findings = scan_sensitive_information(app_dir, package_inventory, risk_config)
+    sensitive_fields = sensitive_summary_fields(sensitive_findings, risk_config)
+    findings.extend(sensitive_summary_sentences(sensitive_fields, "bundled resources"))
 
     summary = {
         "analysis_provider": "builtin",
@@ -95,16 +89,7 @@ def analyze_package(
         },
         "counts": package_inventory["counts"],
         "findings": findings,
-        "sensitive_information_findings": public_findings,
-        "sensitive_scan": {
-            "enabled": True,
-            "reveal_values": reveal_sensitive_values,
-        },
-        "api_key_reuse_test": {
-            "enabled": api_key_reuse_enabled,
-            "provider": api_key_reuse_config.get("provider", "google_geocode"),
-            "results": api_key_reuse_tests,
-        },
+        **sensitive_fields,
         "mobsf_demonstration": {
             "tool": "Mobile Security Framework (MobSF)",
             "manual_steps": [
@@ -117,7 +102,7 @@ def analyze_package(
             "owasp_reference": "https://mas.owasp.org/MASTG/techniques/ios/MASTG-TECH-0058/",
         },
     }
-    logger.debug("ios ipa inventory: summary findings=%d public_sensitive_findings=%d", len(findings), len(public_findings))
+    logger.debug("ios ipa inventory: summary findings=%d public_sensitive_findings=%d", len(findings), len(sensitive_fields["sensitive_information_findings"]))
     return {"summary": summary, "inventory": package_inventory, "critical_findings": critical_findings(summary, package_inventory)}
 
 
@@ -182,3 +167,72 @@ def url_schemes(info: dict[str, Any]) -> list[str]:
     for item in info.get("CFBundleURLTypes") or []:
         schemes.extend(str(value) for value in item.get("CFBundleURLSchemes") or [])
     return sorted(set(schemes))
+
+
+# Scan inventoried plist and text resources for secrets, capped at 100 findings.
+def scan_sensitive_information(app_dir: Path, inventory: dict[str, Any], risk_config: dict[str, Any]) -> list[dict[str, Any]]:
+    reveal_values = reveal_sensitive_values(risk_config)
+    findings: list[dict[str, Any]] = []
+    scanned: Counter[str] = Counter()
+    logger.debug("ios sensitive scan: scanning inventoried files under %s", app_dir)
+    for item in inventory.get("files", []):
+        if len(findings) >= 100:
+            logger.debug("ios sensitive scan: finding cap of 100 reached; stopping")
+            break
+        relative = Path(str(item.get("path", "")))
+        if is_sensitive_scan_excluded(relative):
+            scanned["excluded"] += 1
+            continue
+        path = app_dir / relative
+        suffix = str(item.get("suffix", ""))
+        if suffix in {".plist", ".xcprivacy"}:
+            scanned["plist"] += 1
+            findings.extend(scan_plist_for_sensitive_values(path, relative, reveal_values))
+        elif suffix in {".json", ".xml", ".strings", ".txt", ".js", ".jsbundle", ".env", ".properties", ".yaml", ".yml", ".html"}:
+            scanned["text"] += 1
+            findings.extend(scan_text_for_sensitive_values(path, relative, reveal_values))
+        else:
+            scanned["other"] += 1
+    if logger.isEnabledFor(logging.DEBUG):
+        logger.debug("ios sensitive scan: files by kind=%s; %s finding(s), by type=%s", dict(scanned), len(findings[:100]), dict(Counter(item.get("match_type") for item in findings[:100])))
+    return findings[:100]
+
+
+# Scan a plist's string values for secret patterns and sensitive keys, capped at 25.
+def scan_plist_for_sensitive_values(path: Path, relative: Path, reveal_values: bool) -> list[dict[str, Any]]:
+    try:
+        data = read_plist(path)
+    except Exception as exc:
+        logger.debug("ios sensitive scan: could not read plist %s: %s", relative, exc, exc_info=True)
+        return []
+    findings: list[dict[str, Any]] = []
+    for key_path, value in flatten_value(data):
+        if len(findings) >= 25:
+            break
+        if isinstance(value, str):
+            classified = classify_sensitive_string(str(relative), value, reveal_values, key_path=key_path)
+            findings.extend(classified)
+            if not classified and key_looks_sensitive(key_path) and value_looks_secret(value):
+                findings.append(
+                    sensitive_finding(
+                        str(relative),
+                        "SENSITIVE_KEY_NAME",
+                        value,
+                        sensitive_key_severity(key_path),
+                        key_path=key_path,
+                        reveal_values=reveal_values,
+                    )
+                )
+    deduped = dedupe_sensitive_findings(findings)
+    if deduped and logger.isEnabledFor(logging.DEBUG):
+        logger.debug("ios sensitive scan: plist %s: %s finding(s) at %s", relative, len(deduped), [(item["match_type"], item["key_path"]) for item in deduped])
+    return deduped
+
+
+# Return whether a bundle file is in a signature, framework or plugin dir or is a binary asset.
+def is_sensitive_scan_excluded(relative_path: Path) -> bool:
+    if any(part in {"_CodeSignature", "Frameworks", "PlugIns", "SC_Info"} for part in relative_path.parts):
+        return True
+    if relative_path.suffix.lower() in {".png", ".jpg", ".jpeg", ".gif", ".car", ".nib", ".otf", ".ttf", ".bin"}:
+        return True
+    return False

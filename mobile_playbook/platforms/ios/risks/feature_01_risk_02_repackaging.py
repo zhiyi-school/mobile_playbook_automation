@@ -13,7 +13,7 @@ from mobile_playbook.platforms.ios.acquisition.registry import get_provider
 from mobile_playbook.platforms.ios.config import effective_risk_config
 from mobile_playbook.platforms.ios.ipa.unpacker import unpack_ipa
 from mobile_playbook.platforms.ios.models import CleanupResult, RiskRunResult
-from mobile_playbook.platforms.ios.ipa.hashing import sha256_file
+from mobile_playbook.common.hashing import sha256_file
 from mobile_playbook.platforms.ios.repackaging.repackage import (
     add_frida_gadget,
     frida_config_path,
