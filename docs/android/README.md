@@ -50,7 +50,7 @@ artifacts/reports/<RUN_TIMESTAMP>/android/<APP_ID>/<RISK_ID>/<CASE_ID>/
 | A connected device with USB debugging **authorised** | everything |
 | No PIN, password or pattern on the device, so the runner can unlock it over adb before each test | everything |
 | Appium with the UiAutomator2 driver | both risks |
-| The screen-capture helper APK, built with `python tools/companion_apps/android_screen_capture/build.py` (Android SDK and a JDK) | `android-feature-06-risk-01` only |
+| The screen-capture helper APK, built with `python tools/companion_apps/android_screen_capture/build.py` (Android SDK and a JDK), and the device language set to English for Android versions that ask to share one app or the entire screen | `android-feature-06-risk-01` only |
 | `apktool`, `apksigner`, `keytool` on `PATH` | `android-feature-01-risk-02` only |
 | For `play_store` or `aurora_store`, that store app signed in to a Google account, with the device language set to English | installing missing apps |
 

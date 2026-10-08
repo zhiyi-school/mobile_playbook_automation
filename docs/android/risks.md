@@ -8,7 +8,7 @@ Requires: `adb`, `appium`, `screen_capture_helper` (the helper APK built with `p
 
 Stages:
 
-1. Install the helper (`com.mobileplaybook.screencapture`) unless the device already has its current version, go to the home screen, and open the helper, which shows the system's screen-recording consent prompt. Appium taps its allow button (`android:id/button1`: "Start now" on stock Android, "ALLOW" on Huawei), and the helper starts recording as a foreground service.
+1. Install the helper (`com.mobileplaybook.screencapture`) unless the device already has its current version, go to the home screen, and open the helper, which shows the system's screen-recording consent prompt. Newer Android versions first ask whether to share one app or the entire screen and may default to one app, which would record only the helper; Appium then opens that choice (`com.android.systemui:id/screen_share_mode_options`) and picks the option containing "entire screen", so the device language must be English. Appium taps the allow button (`android:id/button1`: "Start now" on Android 14, "ALLOW" on Huawei's Android 12, "Share screen" on Android 17 once the entire screen is chosen), and the helper starts recording as a foreground service.
 2. Wait `record_lead_in` seconds, then save a frame of the home screen (`before_launch`). It shows ordinary content when the recording works.
 3. Activate (launch) the target app, wait `launch_wait` seconds, and save a frame (`app_open`).
 4. Evaluate the app's response, checking in order:

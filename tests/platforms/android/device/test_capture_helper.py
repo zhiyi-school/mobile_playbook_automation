@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 import pytest
 
@@ -10,6 +11,7 @@ from mobile_playbook.platforms.android.device.capture_helper import (
     REPOSITORY_ROOT,
     HELPER_VERSION,
     OUTPUT_DIR,
+    SHARE_MODE_ID,
     CaptureHelper,
     CaptureHelperError,
     Frame,
@@ -43,28 +45,60 @@ class HelperAdb:
 
 
 class ConsentDriver:
-    def __init__(self, adb, appear_after=0):
+    """Fake Appium driver for the consent prompt, optionally with newer Android's one-app / entire-screen choice."""
+
+    def __init__(self, adb, appear_after=0, share_mode=None, options=("Share one app", "Share entire screen")):
         self.adb = adb
         self.appear_after = appear_after
+        self.share_mode = share_mode
+        self.options = options
+        self.dropdown_open = False
         self.clicked = False
 
     def find_elements(self, by, value):
-        assert value == "android:id/button1"
         if self.appear_after > 0:
             self.appear_after -= 1
             return []
-        return [Button(self)]
+        if value == "android:id/button1":
+            return [Button(self)]
+        if value == SHARE_MODE_ID:
+            return [ShareMode(self)] if self.share_mode else []
+        if value == 'new UiSelector().textContains("entire screen")':
+            return [Option(self, text) for text in self.options if "entire screen" in text] if self.dropdown_open else []
+        raise AssertionError(f"unexpected lookup {value!r}")
 
 
 class Button:
-    text = "ALLOW"
+    def __init__(self, driver):
+        self.driver = driver
+        self.text = "Share screen" if driver.share_mode == "Share entire screen" else "ALLOW"
 
+    # Sharing one app would record only the helper, so only an entire-screen grant starts the recording here.
+    def click(self):
+        self.driver.clicked = True
+        if self.driver.share_mode in (None, "Share entire screen"):
+            self.driver.adb.files["status.json"] = {"state": "recording"}
+
+
+class ShareMode:
     def __init__(self, driver):
         self.driver = driver
 
+    def find_elements(self, by, value):
+        return [SimpleNamespace(text=self.driver.share_mode)]
+
     def click(self):
-        self.driver.clicked = True
-        self.driver.adb.files["status.json"] = {"state": "recording"}
+        self.driver.dropdown_open = True
+
+
+class Option:
+    def __init__(self, driver, text):
+        self.driver = driver
+        self.text = text
+
+    def click(self):
+        self.driver.share_mode = self.text
+        self.driver.dropdown_open = False
 
 
 @pytest.fixture(autouse=True)
@@ -108,6 +142,35 @@ def test_start_taps_the_consent_prompt_and_waits_for_recording(tmp_path):
 
     assert driver.clicked
     assert ["shell", "am", "start", "-S", "-n", f"{HELPER_PACKAGE}/.CaptureActivity"] in adb.commands
+
+
+def test_a_prompt_defaulting_to_one_app_is_switched_to_the_entire_screen(tmp_path):
+    adb = HelperAdb(on_command=opens_prompt)
+    driver = ConsentDriver(adb, share_mode="Share one app")
+
+    CaptureHelper(adb, tmp_path / "helper.apk").start(driver, timeout=5)
+
+    assert driver.share_mode == "Share entire screen"
+    assert adb.files["status.json"] == {"state": "recording"}
+
+
+def test_a_prompt_already_sharing_the_entire_screen_is_left_as_is(tmp_path):
+    adb = HelperAdb(on_command=opens_prompt)
+    driver = ConsentDriver(adb, share_mode="Share entire screen", options=())
+
+    CaptureHelper(adb, tmp_path / "helper.apk").start(driver, timeout=5)
+
+    assert not driver.dropdown_open
+    assert adb.files["status.json"] == {"state": "recording"}
+
+
+def test_a_share_mode_prompt_without_the_english_option_says_so(tmp_path):
+    adb = HelperAdb(on_command=opens_prompt)
+    driver = ConsentDriver(adb, share_mode="Eine App teilen", options=("Eine App teilen", "Gesamten Bildschirm teilen"))
+
+    with pytest.raises(CaptureHelperError, match="device language must be English"):
+        CaptureHelper(adb, tmp_path / "helper.apk").start(driver, timeout=0.01)
+    assert not driver.clicked
 
 
 def test_a_refused_consent_stops_the_test_with_the_helpers_reason(tmp_path, monkeypatch):

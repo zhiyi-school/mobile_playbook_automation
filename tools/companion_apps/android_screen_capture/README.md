@@ -18,7 +18,7 @@ All commands go over adb; the package is `com.mobileplaybook.screencapture`.
 
 | Step | Command | Result |
 | --- | --- | --- |
-| Start | `am start -S -n com.mobileplaybook.screencapture/.CaptureActivity` | Clears earlier output and shows the consent prompt; Appium taps `android:id/button1` |
+| Start | `am start -S -n com.mobileplaybook.screencapture/.CaptureActivity` | Clears earlier output and shows the consent prompt; Appium chooses the entire screen when the prompt asks, then taps `android:id/button1` |
 | Save a frame | `am broadcast -a com.mobileplaybook.screencapture.SNAP --es label <label> -p com.mobileplaybook.screencapture` | Writes `<label>.png` and `<label>.json` |
 | Stop | `am broadcast -a com.mobileplaybook.screencapture.STOP -p com.mobileplaybook.screencapture` | Ends the recording and the service |
 

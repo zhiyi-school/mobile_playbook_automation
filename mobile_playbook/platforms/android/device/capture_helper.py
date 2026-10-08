@@ -30,8 +30,13 @@ HELPER_VERSION = "1"
 HELPER_APK_NAME = "screen-capture-helper.apk"
 BUILD_COMMAND = "python tools/companion_apps/android_screen_capture/build.py"
 OUTPUT_DIR = f"/sdcard/Android/data/{HELPER_PACKAGE}/files/capture"
-# The consent prompt's positive button: "Start now" on stock Android, "ALLOW" on Huawei; both are button1.
+# The consent prompt's positive button: "Start now" on Android 10-14, "ALLOW" on Huawei, and "Share screen" once the
+# entire screen is chosen on newer Android; all are button1.
 CONSENT_BUTTON_ID = "android:id/button1"
+# Newer Android asks whether to share one app or the entire screen, and may default to one app, which would record
+# only the helper; the test needs the entire screen. The option is found by its English text.
+SHARE_MODE_ID = "com.android.systemui:id/screen_share_mode_options"
+ENTIRE_SCREEN_TEXT = "entire screen"
 POLL_SECONDS = 0.5
 
 
@@ -123,19 +128,43 @@ class CaptureHelper:
     def stop(self) -> None:
         self.adb.run(["shell", "am", "broadcast", "-a", f"{HELPER_PACKAGE}.STOP", "-p", HELPER_PACKAGE])
 
-    # Tap the consent prompt's allow button, retrying until it appears.
+    # Wait for the consent prompt, choose to share the entire screen when it asks, and tap its allow button.
     def _allow_consent(self, driver, timeout: float) -> None:
         if AppiumBy is None:
             raise CaptureHelperError("Appium-Python-Client is not installed, so the consent prompt cannot be tapped")
         deadline = time.monotonic() + timeout
-        while True:
-            buttons = driver.find_elements(AppiumBy.ID, CONSENT_BUTTON_ID)
-            if buttons:
-                logger.debug("android capture helper: tapping consent button %r", getattr(buttons[0], "text", None))
-                buttons[0].click()
-                return
+        while not driver.find_elements(AppiumBy.ID, CONSENT_BUTTON_ID):
             if time.monotonic() >= deadline:
                 raise CaptureHelperError("the screen-capture consent prompt did not appear; is the device unlocked?")
+            time.sleep(POLL_SECONDS)
+        self._choose_entire_screen(driver, deadline)
+        # Find the button again: choosing the entire screen redraws it as "Share screen".
+        button = driver.find_elements(AppiumBy.ID, CONSENT_BUTTON_ID)[0]
+        logger.debug("android capture helper: tapping consent button %r", getattr(button, "text", None))
+        button.click()
+
+    # When the prompt offers one app or the entire screen, select the entire screen; prompts without the choice
+    # already record the entire screen.
+    def _choose_entire_screen(self, driver, deadline: float) -> None:
+        modes = driver.find_elements(AppiumBy.ID, SHARE_MODE_ID)
+        if not modes:
+            return
+        selected = [getattr(view, "text", "") or "" for view in modes[0].find_elements(AppiumBy.CLASS_NAME, "android.widget.TextView")]
+        logger.debug("android capture helper: share mode prompt shows %r", selected)
+        if any(ENTIRE_SCREEN_TEXT in text.lower() for text in selected):
+            return
+        modes[0].click()
+        option = f'new UiSelector().textContains("{ENTIRE_SCREEN_TEXT}")'
+        while True:
+            options = driver.find_elements(AppiumBy.ANDROID_UIAUTOMATOR, option)
+            if options:
+                options[0].click()
+                return
+            if time.monotonic() >= deadline:
+                raise CaptureHelperError(
+                    "the screen-capture prompt asks to share one app or the entire screen, and the entire-screen option "
+                    "was not found; the device language must be English"
+                )
             time.sleep(POLL_SECONDS)
 
     # Poll the helper's status file until its state is one of the expected ones, and return it.
