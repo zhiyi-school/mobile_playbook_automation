@@ -37,7 +37,7 @@ Requires: `adb`, `apktool`, `apksigner`, `keytool`, `appium`. Apps installed as 
 
 Stages (each must succeed before the next runs; the first failure stops the pipeline):
 
-1. **Backup APKs** — `adb shell pm path <package>` to enumerate installed APK paths (handles split APKs), then `adb pull` each into `artifacts/work/android/repackaging/<package>/original/`.
+1. **Backup APKs** — `adb shell pm path <package>` to enumerate installed APK paths (handles split APKs), then `adb pull` each (`platforms/android/device/apks.py`) into `artifacts/work/android/repackaging/<package>/original/`.
 2. **Ensure keystore** — generate a local signing keystore with `keytool -genkeypair` if one does not already exist at `keystore_path`.
 3. **Merge split APKs** — when the backup holds split APKs, `java -jar APKEditor.jar m` merges `base.apk` and the splits into `merged.apk`, so resources that live in a split are not decoded as `@null`. Apps without splits skip this. If the app has splits and APKEditor or `java` is missing, the stage fails with a message saying so.
 4. **apktool decode** — `apktool d` `merged.apk` (or `base.apk` when there are no splits) into `repackaged/base/`.

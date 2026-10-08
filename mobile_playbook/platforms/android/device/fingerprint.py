@@ -8,6 +8,7 @@ import logging
 import re
 
 from mobile_playbook.platforms.android.device.adb import AdbClient
+from mobile_playbook.platforms.android.device.apks import installed_apk_paths
 
 logger = logging.getLogger(__name__)
 
@@ -16,11 +17,10 @@ SHA256_RE = re.compile(r"^([0-9a-f]{64})\s", re.MULTILINE)
 
 # Return the SHA-256 of the installed app's base.apk, hashed on the device, or None when it cannot be read.
 def installed_base_apk_sha256(adb: AdbClient, package: str) -> str | None:
-    code, out, _ = adb.run(["shell", "pm", "path", package])
-    paths = [line[len("package:") :].strip() for line in (out or "").splitlines() if line.startswith("package:")]
+    paths = installed_apk_paths(adb, package)
     base = next((path for path in paths if path.endswith("/base.apk")), None)
-    if code != 0 or base is None:
-        logger.debug("android fingerprint: no base.apk for %s (pm path exit %s, %s paths)", package, code, len(paths))
+    if base is None:
+        logger.debug("android fingerprint: no base.apk for %s (%s paths)", package, len(paths))
         return None
     code, out, _ = adb.run(["shell", "sha256sum", base])
     match = SHA256_RE.search(out or "") if code == 0 else None

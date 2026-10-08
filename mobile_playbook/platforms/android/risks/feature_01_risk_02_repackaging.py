@@ -17,6 +17,7 @@ from mobile_playbook.common.storage_paths import android_work_dir, resolve_under
 
 from mobile_playbook.common.logging_setup import REDACTED, redacted
 from mobile_playbook.platforms.android.acquisition.store import APP_STORES, DEFAULT_APP_STORE, STORE_APPS, app_store_for
+from mobile_playbook.platforms.android.device.apks import pull_installed_apks
 from mobile_playbook.platforms.android.device.fingerprint import installed_base_apk_sha256, installer_of
 from mobile_playbook.platforms.android.device.install import install_apks
 from mobile_playbook.platforms.android.models import AndroidRiskRunResult
@@ -150,29 +151,9 @@ class AndroidRepackagingRisk(AndroidRisk):
             report_writer.write_result(result, report_dir)
         return result
 
-    # Pull every installed APK for the package into the original directory.
+    # Pull the installed base and split APKs into the app's original/ folder.
     def _backup_apks(self, device_client, package_name: str, app_dir: Path) -> bool:
-        code, output, error = device_client.adb.run(["shell", "pm", "path", package_name])
-        logger.debug("%s[%s]: pm path exit %s, %s chars, err head=%r", self.risk_id, package_name, code, len(output or ""), (error or "")[:200])
-        if code != 0 or not output:
-            return False
-        original_dir = app_dir / "original"
-        original_dir.mkdir(parents=True, exist_ok=True)
-        for stale in original_dir.glob("*.apk"):
-            logger.debug("%s[%s]: removing stale backup %s", self.risk_id, package_name, stale)
-            stale.unlink()
-        ok = True
-        for line in output.splitlines():
-            if not line.startswith("package:"):
-                continue
-            apk_path = line[len("package:") :].strip()
-            destination = original_dir / Path(apk_path).name
-            pull_code, _, _ = device_client.adb.run(["pull", apk_path, str(destination)], timeout=120)
-            logger.debug("%s[%s]: pulled %s -> %s (exit %s)", self.risk_id, package_name, apk_path, destination, pull_code)
-            ok = ok and pull_code == 0
-        backed_up = ok and any(original_dir.glob("*.apk"))
-        logger.debug("%s[%s]: backup ok=%s (all pulls ok=%s) in %s", self.risk_id, package_name, backed_up, ok, original_dir)
-        return backed_up
+        return bool(pull_installed_apks(device_client.adb, package_name, app_dir / "original"))
 
     # Reuse the signing keystore or generate one with keytool.
     def _ensure_keystore(self, keystore: Path, alias: str, password: str) -> bool:
