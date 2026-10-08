@@ -70,7 +70,7 @@ This is treated as repackaging blocked. The app likely detected signature or pac
 
 Screen recording missing from a report:
 
-Screen recording is best-effort; if the Appium driver cannot start or stop recording (for example, unsupported device or driver version), the risk still runs and reports a verdict, just without a `recordings/<package>.mp4` file.
+Screen recording is best-effort; if the Appium driver cannot start or stop recording (for example, unsupported device or driver version), the risk still runs and reports a verdict, just without a `recordings/<package>.mp4` file. When recording could not start, `metadata.recording` in the test's `report.json` gives the reason, such as `not started: screenrecord not found` on devices without Android's `screenrecord` utility.
 
 Keystore or signing failure:
 
