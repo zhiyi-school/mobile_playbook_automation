@@ -4,11 +4,18 @@ Resolves the install method named by device.app_store and names the store apps t
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from pathlib import Path
+from typing import Any
 
 from mobile_playbook.platforms.android.acquisition import apk, aurora_store, play_store
 from mobile_playbook.platforms.android.acquisition.play_store import InstallOutcome
+from mobile_playbook.platforms.android.device.adb import AdbClient
+from mobile_playbook.platforms.android.device.app_version import installed_version
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -17,6 +24,19 @@ class AppStore:
     name: str
     install: Callable[..., InstallOutcome]
     failure: Callable[..., InstallOutcome]
+
+    # Install the app with this method and, once it is on the device, add the version installed there to the outcome.
+    def install_and_read_version(
+        self, adb: AdbClient, make_driver: Callable[[], Any], package: str, diagnostics_root: Path
+    ) -> InstallOutcome:
+        outcome = self.install(adb, make_driver, package, diagnostics_root)
+        if outcome.status not in ("installed", "already_installed"):
+            return outcome
+        version = installed_version(adb, package)
+        if version is None:
+            logger.debug("android install: %s is %s but reports no version.", package, outcome.status)
+            return outcome
+        return replace(outcome, version_name=version.version_name, version_code=version.version_code)
 
 
 APP_STORES: dict[str, AppStore] = {

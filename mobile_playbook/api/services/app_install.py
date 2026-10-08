@@ -62,10 +62,19 @@ def install_app(platform: str, app_id: str) -> dict:
         else:
             adb = AdbClient(config.device.adb_path, config.device.adb_serial)
             client = AndroidDeviceClient(config, adb)
-            outcome = store.install(adb, client.make_driver, package, work / "diagnostics")
+            outcome = store.install_and_read_version(adb, client.make_driver, package, work / "diagnostics")
     finally:
         registry.release_platform("android")
-    logger.info("%s install of %s (%s): %s %s.", store.name, app_id, package, outcome.status, outcome.blocker_code or "")
+    logger.info(
+        "%s install of %s (%s): %s %s version %s build %s.",
+        store.name,
+        app_id,
+        package,
+        outcome.status,
+        outcome.blocker_code or "",
+        outcome.version_name or "unknown",
+        outcome.version_code or "unknown",
+    )
     result = outcome.to_dict()
     result.pop("diagnostics", None)
     return result

@@ -247,12 +247,16 @@ def test_install_app_installs_the_selected_missing_app_and_reports_it(config_roo
 
     from mobile_playbook.platforms.android.acquisition import store
 
+    from mobile_playbook.platforms.android.device.app_version import InstalledVersion
+
     monkeypatch.setitem(store.APP_STORES, "play_store", replace(store.APP_STORES["play_store"], install=fake_install))
+    monkeypatch.setattr(store, "installed_version", lambda adb, package: InstalledVersion("3.2.1", "321"))
     config = str(config_root / "configs/android.yaml")
 
     assert cli_module.main(["install-app", "--config", config, "--apps", "one"]) == 0
     assert installed == ["com.example.one"]
-    assert "one (com.example.one): installed" in capsys.readouterr().out
+    printed = capsys.readouterr().out
+    assert "one (com.example.one): installed\n  Version 3.2.1 (build 321)" in printed
 
     outcomes.clear()
     assert cli_module.main(["install-app", "--config", config]) == 1

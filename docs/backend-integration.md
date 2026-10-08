@@ -201,7 +201,8 @@ curl -N http://127.0.0.1:8080/runs/<RUN_ID>/events
 ```
 
 SSE carries `risk_started`, `risk_completed`, `appium_recovery`,
-`device_unlocked` and `permission_prompts_answered` events, ending with a
+`device_unlocked`, `permission_prompts_answered` and, on Android, `app_version`
+events, ending with a
 `done` event, then closes. The stream
 re-reads `artifacts/reports/<RUN_ID>/events.jsonl` from the start on every connection, so
 a client that connects late still receives the whole history, and any number of

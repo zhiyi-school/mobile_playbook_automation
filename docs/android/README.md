@@ -176,6 +176,26 @@ store install, the installer should be the store's own package
 (`com.android.vending` or `com.aurora.store`); any other installer is reported
 in the outcome.
 
+## Recording the tested version
+
+Android tests the app installed on the device, so its version is read from the
+device with `adb shell dumpsys package <PACKAGE_NAME>`: the `versionName` is the
+version and the `versionCode` is the build number. It is read twice:
+
+- **After an install**, whether the app was just installed or was already
+  there, by any install method. The install outcome carries `version_name` and
+  `version_code`, `install-app` prints them, and the assessment worker logs
+  them.
+- **Before an app's first risk in a run.** The run records the version in its
+  manifest's `artifact_versions`, which the dashboard sync stores on the
+  assessment, and adds an `app_version` event with `version` and
+  `build_number` to `events.jsonl`. This is the version the run tested, and it
+  is read for every run, including CLI runs and reruns that skip the install.
+
+A version the device does not report is left out with a warning; the run still
+goes ahead. The build number is kept in the run's events only, as the dashboard
+has no column for it.
+
 ## Risk execution
 
 | Risk | Needs | Notes |

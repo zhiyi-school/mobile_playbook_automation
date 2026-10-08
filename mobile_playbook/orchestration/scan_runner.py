@@ -92,6 +92,7 @@ def run_platform(
     attempted: list[dict[str, str]] = []
     artifacts: dict[str, str] = {}
     artifact_versions: dict[str, str] = {}
+    versions_read: set[str] = set()
     failure: BaseException | None = None
     try:
         planned_tests = list(
@@ -128,8 +129,11 @@ def run_platform(
         for index, (app, test_id) in enumerate(planned_tests, start=1):
             if client is not None:
                 client = platform_runner.ensure_device_healthy(config, client, writer.run_dir)
-            append_event(writer.run_dir, "risk_started", app_id=getattr(app, "id", app), risk_id=test_id)
             app_id = str(getattr(app, "id", app))
+            if client is not None and app_id not in versions_read:
+                versions_read.add(app_id)
+                _record_installed_version(platform_runner, app, app_id, client, writer.run_dir, artifact_versions)
+            append_event(writer.run_dir, "risk_started", app_id=getattr(app, "id", app), risk_id=test_id)
             attempted.append({"app_id": app_id, "risk_id": str(test_id)})
             acquires_build = getattr(platform_runner, "acquires_builds_during_tests", False)
             if not acquires_build and app_id not in artifacts:
@@ -189,6 +193,37 @@ def _record_artifact(
         artifacts[app_id] = digest
     if version:
         artifact_versions[app_id] = version
+
+
+# Record the version a platform reads from the device before an app's first risk, when the platform tests the
+# installed app; a read failure is logged and never stops the run.
+def _record_installed_version(
+    platform_runner: Any, app: Any, app_id: str, client: Any, run_dir: Path, artifact_versions: dict[str, str]
+) -> None:
+    reader = getattr(platform_runner, "installed_app_version", None)
+    if reader is None:
+        return
+    platform = getattr(platform_runner, "platform", "")
+    try:
+        installed = reader(app, client)
+        if installed is None:
+            logger.warning("%s: the device reported no installed version for %s.", platform, app_id)
+            return
+        version, build_number = installed
+    except Exception as exc:
+        logger.debug("%s: reading the installed version of %s failed: %s", platform, app_id, exc, exc_info=True)
+        logger.warning("Could not read the installed version of %s: %s", app_id, type(exc).__name__)
+        return
+    artifact_versions[app_id] = version
+    logger.info("%s: testing %s version %s (build %s).", platform, app_id, version, build_number or "unknown")
+    append_event(
+        run_dir,
+        "app_version",
+        app_id=app_id,
+        version=version,
+        build_number=build_number,
+        message=f"Testing {app_id} version {version} (build {build_number or 'unknown'}).",
+    )
 
 
 # Return the value's ISO format, or None.

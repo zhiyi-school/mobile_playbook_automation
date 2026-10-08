@@ -22,6 +22,7 @@ from mobile_playbook.orchestration.platform_runner import (
     requires_device,
 )
 from mobile_playbook.platforms.android.device.adb import AdbClient
+from mobile_playbook.platforms.android.device.app_version import installed_version
 from mobile_playbook.platforms.android.device.client import AndroidDeviceClient
 from mobile_playbook.platforms.android.models import AndroidRiskRunResult
 from mobile_playbook.platforms.android.device.permissions import grant_all
@@ -77,6 +78,11 @@ class AndroidPlatformRunner:
     # Yield (app, risk_id) pairs for the selected apps' enabled Android risks.
     def iter_enabled_tests(self, config, selected_tests: set[str] | None, selected_apps: set[str] | None):
         yield from iter_enabled_tests(config, selected_tests, selected_apps, get_risk)
+
+    # Return the version name and version code of the app installed on the device, or None when it reports none.
+    def installed_app_version(self, app, device_client) -> tuple[str, str | None] | None:
+        version = installed_version(device_client.adb, app.package_name)
+        return (version.version_name, version.version_code) if version is not None else None
 
     # Return no run-level preflight warnings, since Android checks run per risk.
     def preflight_warnings(self, config, planned_tests):

@@ -458,9 +458,10 @@ def _install_apps(config) -> int:
     client = AndroidDeviceClient(config, adb)
     exit_code = 0
     for app in config.apps:
-        outcome = store.install(adb, client.make_driver, app.package_name, work / "diagnostics")
+        outcome = store.install_and_read_version(adb, client.make_driver, app.package_name, work / "diagnostics")
         print(f"{app.id} ({app.package_name}): {outcome.blocker_code or outcome.status}")
-        for line in (outcome.detail, f"Diagnostics: {outcome.diagnostics}" if outcome.diagnostics else None):
+        version = f"Version {outcome.version_name} (build {outcome.version_code or 'unknown'})" if outcome.version_name else None
+        for line in (version, outcome.detail, f"Diagnostics: {outcome.diagnostics}" if outcome.diagnostics else None):
             if line:
                 print(f"  {line}")
         if outcome.status == "failed":

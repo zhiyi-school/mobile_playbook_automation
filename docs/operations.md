@@ -29,8 +29,11 @@ Frontend             reads backend automation state and Supabase dashboard
 The worker is the **only** writer of dashboard rows from automation results.
 Nothing in a browser writes them, and nothing reads SARIF back.
 
-The sync records the iOS build version each run tested on its assessment
-(`assessments.app_version`), from the run manifest's `artifact_versions`. A run
+The sync records the build version each run tested on its assessment
+(`assessments.app_version`), from the run manifest's `artifact_versions`: the
+intake build's version on iOS, and on Android the version installed on the
+device when the run started
+([Recording the tested version](android/README.md#recording-the-tested-version)). A run
 that no run request started, such as a risk rerun from a test page or a CLI run,
 updates the assessment that was current when it started instead of adding one,
 and leaves that assessment's `app_version` as it is.

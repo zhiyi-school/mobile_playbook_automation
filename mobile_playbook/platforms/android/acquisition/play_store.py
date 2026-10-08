@@ -111,6 +111,8 @@ class InstallOutcome:
     installer: str | None = None
     seconds: float = 0.0
     diagnostics: str | None = None
+    version_name: str | None = None
+    version_code: str | None = None
 
     # Return the outcome as a plain dict.
     def to_dict(self) -> dict[str, Any]:

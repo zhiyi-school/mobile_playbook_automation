@@ -254,7 +254,13 @@ def _install_missing_app(
         logger.debug("assessment worker: install request failed: %s", exc)
         return _wait(store, req, assessment, "automation_unavailable", str(exc))
     if outcome.get("status") in ("installed", "already_installed"):
-        logger.debug("assessment worker: %s is %s.", external_id, outcome.get("status"))
+        logger.info(
+            "assessment worker: %s is %s at version %s (build %s).",
+            external_id,
+            outcome.get("status"),
+            outcome.get("version_name") or "unknown",
+            outcome.get("version_code") or "unknown",
+        )
         return None
     blocker = outcome.get("blocker_code") or "app_install_failed"
     detail = outcome.get("detail") or "The app could not be installed on the test device."

@@ -12,6 +12,7 @@ from mobile_playbook.api.services import app_install
 from mobile_playbook.orchestration.appium_server import AppiumStartResult
 from mobile_playbook.platforms.android.acquisition.play_store import InstallOutcome, failure
 from mobile_playbook.platforms.android.acquisition import store
+from mobile_playbook.platforms.android.device.app_version import InstalledVersion
 from tests.asgi_helpers import call
 
 
@@ -33,6 +34,7 @@ def installer(config_root, monkeypatch):
 
     for key, app_store in list(store.APP_STORES.items()):
         monkeypatch.setitem(store.APP_STORES, key, replace(app_store, install=fake_install))
+    monkeypatch.setattr(store, "installed_version", lambda adb, package: InstalledVersion("3.2.1", "321"))
     app = FastAPI()
     app.include_router(config_routes.router)
     return app, registry, calls, outcome
@@ -46,6 +48,7 @@ def test_a_missing_app_is_installed_by_its_package_while_the_device_is_held(inst
     assert status == 200, body
     assert body["status"] == "installed"
     assert body["installer"] == "com.android.vending"
+    assert (body["version_name"], body["version_code"]) == ("3.2.1", "321")
     assert calls == [
         {"package": "com.example.one", "diagnostics_root": calls[0]["diagnostics_root"], "busy": True}
     ]
@@ -94,6 +97,7 @@ def test_a_paid_app_comes_back_as_a_blocker_that_needs_a_person(installer):
     assert body["status"] == "failed"
     assert body["blocker_code"] == "app_paid"
     assert body["retryable"] is False
+    assert (body["version_name"], body["version_code"]) == (None, None)
 
 
 def test_diagnostics_paths_stay_on_the_host(installer, tmp_path):
