@@ -50,3 +50,20 @@ def test_upload_artifact_rejects_oversized_file_without_replacing_existing(monke
     assert exc_info.value.status_code == 413
     assert existing.read_bytes() == b"existing"
     assert not (intake / ".example_app.ipa.uploading").exists()
+
+
+def test_android_artifacts_list_each_apks_package_and_version(monkeypatch, tmp_path, apk_metadata):
+    intake = tmp_path / "intake"
+    intake.mkdir()
+    for name, code, version in (("Example_App_1.0.apk", "1", "1.0"), ("Example_App_2.0.apk", "2", "2.0")):
+        (intake / name).write_bytes(b"apk")
+        apk_metadata[name] = {"package_name": "com.example.app", "version_code": code, "version_name": version, "display_name": "Example App"}
+    (intake / "unreadable.apk").write_bytes(b"apk")
+    monkeypatch.setattr(artifact_service, "intake_dirs", lambda: {"android": intake})
+
+    listed = artifact_service.list_artifacts("android")
+
+    assert [(item["file"], item["bundle_id"], item["display_name"], item["version"]) for item in listed] == [
+        ("Example_App_2.0.apk", "com.example.app", "Example App", "2.0"),
+        ("Example_App_1.0.apk", "com.example.app", "Example App", "1.0"),
+    ]

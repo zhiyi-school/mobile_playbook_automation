@@ -13,6 +13,7 @@ from fastapi import HTTPException
 from mobile_playbook.api.schemas import Platform
 from mobile_playbook.artifact_store.icon_extraction import describe_artifact
 from mobile_playbook.artifact_store.resolver import app_icon_file
+from mobile_playbook.platforms.android.acquisition.intake_apk import list_intake_apks
 from mobile_playbook.platforms.android.apk_tools import inspect_apk_metadata
 from mobile_playbook.platforms.ios.acquisition.intake_ipa import (
     PINNABLE_IOS_SOURCES,
@@ -107,25 +108,10 @@ def list_app_builds(platform: Platform, app_id: str) -> dict:
     return {"builds": builds, "default_version": default, "ambiguous": resolution.ambiguous}
 
 
-# List the platform's intake builds, highest version first for iOS and newest first for Android.
+# List the platform's intake builds, highest version first, skipping files whose identity cannot be read.
 def list_artifacts(platform: Platform) -> list[dict]:
     directory = intake_dirs()[platform]
     logger.debug("api: listing %s artifacts in %s.", platform, directory)
     if platform == "ios":
         return [build.as_dict() for build in list_intake_ipas(directory)]
-    if not directory.is_dir():
-        logger.debug("api: intake directory %s does not exist; no artifacts.", directory)
-        return []
-    files = sorted(directory.glob(f"*{ARTIFACT_SUFFIXES[platform]}"), key=lambda p: p.stat().st_mtime, reverse=True)
-    logger.debug("api: found %d %s file(s) in %s.", len(files), ARTIFACT_SUFFIXES[platform], directory)
-    return [
-        {
-            "file": path.name,
-            "path": str(path),
-            "bundle_id": None,
-            "display_name": None,
-            "version": None,
-            "modified_at": path.stat().st_mtime,
-        }
-        for path in files
-    ]
+    return [apk.as_dict() for apk in list_intake_apks(directory)]

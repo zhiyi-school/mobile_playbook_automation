@@ -1,19 +1,17 @@
 """
-Android risk check that takes the app's APKs from the intake folder and runs static analysis to show their contents
-are exposed.
+Android risk check that takes the app's APK from the intake folder and runs static analysis to show its contents are
+exposed.
 """
 
 from __future__ import annotations
 
 import logging
 from datetime import datetime
-from pathlib import Path
 from typing import Any
 
 from mobile_playbook.common.config_loader import merge_dicts
 from mobile_playbook.common.hashing import sha256_file
-from mobile_playbook.platforms.android.acquisition.apk import intake_apks
-from mobile_playbook.platforms.android.apk_tools import inspect_apk_metadata
+from mobile_playbook.platforms.android.acquisition.intake_apk import IntakeApk, find_intake_apk
 from mobile_playbook.platforms.android.models import AndroidRiskRunResult
 from mobile_playbook.platforms.android.risks.base import AndroidRisk
 from mobile_playbook.platforms.android.static_analysis.critical_findings import OWASP_REFERENCE, critical_markdown
@@ -39,10 +37,10 @@ class AndroidApkExposureRisk(AndroidRisk):
     test_case_id = "apk_static_analysis"
     test_case_type = "mobsf_or_package_analysis"
     requires: list[str] = []
-    # The APKs come from the intake folder, so no device is needed.
+    # The APK comes from the intake folder, so no device is needed.
     requires_device = False
 
-    # Analyze the app's intake APKs with the configured analyzer, write the evidence and record the verdict.
+    # Analyze the app's intake APK with the configured analyzer, write the evidence and record the verdict.
     def run(self, app_config, global_config, device_client, report_writer):
         report_dir = report_writer.test_report_dir(app_config.id, self.risk_id, self.test_case_id, platform="android")
         report_dir.mkdir(parents=True, exist_ok=True)
@@ -60,31 +58,24 @@ class AndroidApkExposureRisk(AndroidRisk):
             artifact_source="apk_intake",
         )
         try:
-            apks = intake_apks(app_config.package_name)
-            logger.debug("%s[%s]: intake APKs %s", self.risk_id, app_config.id, [str(apk) for apk in apks])
-            if not apks:
+            apk = find_intake_apk(app_config.package_name)
+            logger.debug("%s[%s]: intake APK %s", self.risk_id, app_config.id, apk.path if apk else None)
+            if apk is None:
                 result.final_status = "APK_NOT_FOUND"
                 result.errors.append(
-                    f"No APKs for {app_config.package_name} are in the intake folder. Put the app's APKs in "
-                    f"artifacts/intake/android/apks/{app_config.package_name}/, then retry."
+                    f"No APK of {app_config.package_name} is in the intake folder. Put the app's installable APK in "
+                    "artifacts/intake/android/apks/, named <App_Name>_<version>.apk, then retry. "
+                    "Finding it needs aapt or aapt2 on PATH."
                 )
                 return result
-            apk_info = self._apk_info(apks)
+            apk_info = self._apk_info(apk)
             result.metadata.update({"base_apk": apk_info["base_apk"], "apk_sha256": apk_info["apk_sha256"], "apks": apk_info["apks"]})
-            if apk_info.get("package_name") and apk_info["package_name"] != app_config.package_name:
-                result.final_status = "APK_PACKAGE_MISMATCH"
-                result.errors.append(
-                    f"The intake APK is {apk_info['package_name']}, not {app_config.package_name}. Replace the APKs in "
-                    f"artifacts/intake/android/apks/{app_config.package_name}/ with this app's APKs, then retry."
-                )
-                return result
 
-            base_apk = apks[0]
             analysis = run_configured_analysis(
                 self.risk_id,
                 risk_config,
-                builtin=lambda: analyze_apk(apks, apk_info, risk_config),
-                mobsf=lambda: analyze_apk_with_mobsf(base_apk, apk_info, risk_config),
+                builtin=lambda: analyze_apk([apk.path], apk_info, risk_config),
+                mobsf=lambda: analyze_apk_with_mobsf(apk.path, apk_info, risk_config),
             )
             report_paths = write_analysis_reports(report_dir, analysis, "apk_analysis.json", critical_markdown(analysis["critical_findings"]))
             critical = analysis["critical_findings"]
@@ -134,14 +125,15 @@ class AndroidApkExposureRisk(AndroidRisk):
         risk_config["analyzer"] = analyzer
         return risk_config
 
-    # Hash every APK and read the base APK's package, version and label; the metadata is left out when no SDK tool
-    # can read it, since the analyzers can still run.
-    def _apk_info(self, apks: list[Path]) -> dict[str, Any]:
-        base_apk = apks[0]
-        hashed = [{"name": apk.name, "path": str(apk), "size": apk.stat().st_size, "sha256": sha256_file(apk)} for apk in apks]
-        info: dict[str, Any] = {"base_apk": str(base_apk), "apk_sha256": hashed[0]["sha256"], "apks": hashed}
-        try:
-            info.update(inspect_apk_metadata(base_apk))
-        except (RuntimeError, OSError) as exc:
-            logger.debug("%s: metadata of %s unavailable: %s", self.risk_id, base_apk, exc, exc_info=True)
-        return info
+    # Hash the APK and collect the package, version and label read from it.
+    def _apk_info(self, apk: IntakeApk) -> dict[str, Any]:
+        sha256 = sha256_file(apk.path)
+        return {
+            "base_apk": str(apk.path),
+            "apk_sha256": sha256,
+            "apks": [{"name": apk.path.name, "path": str(apk.path), "size": apk.path.stat().st_size, "sha256": sha256}],
+            "package_name": apk.package_name,
+            "version_code": apk.version_code,
+            "version_name": apk.version_name,
+            "display_name": apk.display_name,
+        }

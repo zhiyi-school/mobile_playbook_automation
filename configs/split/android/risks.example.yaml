@@ -9,7 +9,7 @@ android-feature-01-risk-01:
       label: Setup
       rows:
         - Configuration: APK source
-          Detail: "The app's base and split APKs in artifacts/intake/android/apks/<package>/; no device is needed"
+          Detail: "The app's installable APK in artifacts/intake/android/apks/, found by its package name; no device is needed"
         - Configuration: Analyzer
           Detail: MobSF when apk_static_analysis.analyzer.provider is mobsf, otherwise the built-in scanner; a failed MobSF scan falls back to the built-in scanner when fallback_to_builtin is true
     - id: steps
@@ -17,22 +17,22 @@ android-feature-01-risk-01:
       label: Demonstration
       items:
         - id: step_1
-          text: Take the app's APKs from the intake folder, hash each one, and read the base APK's package name and version
+          text: Find the app's APK in the intake folder by the package name read from each APK, and hash it
           images: []
           commands:
-            - aapt dump badging base.apk
+            - aapt dump badging <App_Name>_<version>.apk
         - id: step_2
-          text: Upload the base APK to MobSF, start the scan and fetch the JSON report
+          text: Upload the APK to MobSF, start the scan and fetch the JSON report
           images: []
           commands:
             - POST /api/v1/upload
             - POST /api/v1/scan
             - POST /api/v1/report_json
         - id: step_3
-          text: "Built-in scanner (fallback): dump the manifest, inventory every APK's files, and scan text assets, DEX code and resources.arsc for secrets"
+          text: "Built-in scanner (fallback): dump the manifest, inventory the APK's files, and scan text assets, DEX code and resources.arsc for secrets"
           images: []
           commands:
-            - aapt dump xmltree base.apk AndroidManifest.xml
+            - aapt dump xmltree <App_Name>_<version>.apk AndroidManifest.xml
         - id: step_4
           text: Write apk_analysis.json, package_inventory.json, critical_findings.json and critical_findings.md (and mobsf_report.json when MobSF was used)
           images: []

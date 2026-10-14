@@ -53,7 +53,7 @@ artifacts/reports/<RUN_TIMESTAMP>/android/<APP_ID>/<RISK_ID>/<CASE_ID>/
 | A connected device with USB debugging **authorised** | every risk except `android-feature-01-risk-01` |
 | No PIN, password or pattern on the device, so the runner can unlock it over adb before each test | every risk except `android-feature-01-risk-01` |
 | Appium with the UiAutomator2 driver | `android-feature-06-risk-01` and `android-feature-01-risk-02` |
-| The app's APKs in `artifacts/intake/android/apks/<PACKAGE_NAME>/`; MobSF when `analyzer.provider` is `mobsf`; `aapt` or `aapt2` on `PATH` for the built-in scanner's manifest checks | `android-feature-01-risk-01` only |
+| The app's APK in `artifacts/intake/android/apks/` and `aapt` or `aapt2` on `PATH` to find it; MobSF when `analyzer.provider` is `mobsf` | `android-feature-01-risk-01` only |
 | The screen-capture helper APK, built with `python tools/companion_apps/android_screen_capture/build.py` (Android SDK and a JDK), and the device language set to English for Android versions that ask to share one app or the entire screen | `android-feature-06-risk-01` only |
 | `apktool`, `apksigner`, `keytool` on `PATH` | `android-feature-01-risk-02` only |
 | For `play_store` or `aurora_store`, that store app signed in to a Google account, with the device language set to English | installing missing apps |
@@ -88,11 +88,15 @@ apps:
 ```
 
 An older flat package-list shape is still accepted; see
-[Configuration](configuration.md). An app's own APKs go in
-`artifacts/intake/android/apks/<PACKAGE_NAME>/`: `base.apk` plus any
-`split_*.apk` files, as `adb shell pm path <PACKAGE_NAME>` lists them on a device
-that has the app. The `apk` install method installs from there, and the app's
-icon and version are read from that `base.apk`.
+[Configuration](configuration.md). An app's own build goes in
+`artifacts/intake/android/apks/` as one installable APK, named
+`<App_Name>_<version>.apk` like the iOS IPAs (for example
+`Example_App_1.2.3.apk`). The file name is for people: the app's APK is found by
+the package name read from each APK with `aapt` or `aapt2`, so one of them must
+be on `PATH`. When several APKs have the app's package, the highest
+`versionCode` is used. Split APKs (`base.apk` plus `split_*.apk`) are not read
+from the intake folder; merge them into one APK first. The `apk` install method
+installs from there, and the app's icon and version are read from that APK.
 
 ## Installing missing apps
 
@@ -116,18 +120,21 @@ Restart the API and the assessment worker after changing it.
 
 | `app_store` | Installs from | Module |
 | --- | --- | --- |
-| `apk` | the app's APKs in `artifacts/intake/android/apks/<PACKAGE_NAME>/`, over adb | `apk.py` |
+| `apk` | the app's APK in `artifacts/intake/android/apks/`, over adb | `apk.py` |
 | `play_store` (default) | the Google Play Store app | `play_store.py` |
 | `aurora_store` | the Aurora Store app, which downloads Google Play builds | `aurora_store.py` |
 
 ### APKs over adb
 
-The `apk` method installs every APK in the app's intake folder as one app with
-`adb install-multiple -r`; no runtime permissions are granted. It needs no
-Appium session and no store account. It does not check who signed the APKs, so
-put only APKs taken from a trusted source in the intake folder, such as
-`adb pull` of the paths `adb shell pm path <PACKAGE_NAME>` lists on a device
-that installed the app from Google Play.
+The `apk` method installs the app's intake APK with `adb install -r`; no
+runtime permissions are granted. It needs no Appium session and no store
+account. It does not check who signed the APK, so put only APKs from a trusted
+source in the intake folder. An app pulled from a device that installed it from
+Google Play is usually split; merge the pulled APKs into one (for example with
+the vendored APKEditor, `java -jar APKEditor.jar m -i <folder> -o <app>.apk`)
+and sign the result before putting it in the intake folder. A re-signed APK is
+no longer the vendor's build: it cannot be installed over a copy installed from
+a store, and apps that check their own signature may refuse to run.
 
 Some devices, such as Huawei phones with **Monitor apps installed via ADB**
 turned on in Developer options (`settings get secure adb_install_need_confirm`
@@ -164,7 +171,7 @@ Store, and the Play Store installer cannot install apps on them.
 | --- | --- | --- | --- |
 | Installed, or already installed | — | — | nothing; the run starts |
 | A price or Buy button | `app_paid` | no | verify the purchase, install it on the device by hand, then **Retry now** |
-| Not found, not released, region-locked or incompatible; for `apk`, no APKs in the intake folder | `app_unavailable` | no | add the APKs or install it another way, or remove the app |
+| Not found, not released, region-locked or incompatible; for `apk`, no APK of the app in the intake folder | `app_unavailable` | no | add the APK or install it another way, or remove the app |
 | Signed out, account setup or verification, the system's install confirmation, or a device security check | `store_account_action_required` | no | finish the prompt on the device, then **Retry now** |
 | A screen the rules do not recognise | `store_screen_unrecognised` | no | see below |
 | The download did not finish within five minutes | `app_install_timeout` | yes | usually a slow network |
@@ -213,7 +220,7 @@ has no column for it.
 
 | Risk | Needs | Notes |
 | --- | --- | --- |
-| `android-feature-01-risk-01` — APK static analysis | the app's intake APKs; MobSF optional | no device; scans the base APK with MobSF or the built-in scanner and ranks what it exposes |
+| `android-feature-01-risk-01` — APK static analysis | the app's intake APK; MobSF optional | no device; scans the APK with MobSF or the built-in scanner and ranks what it exposes |
 | `android-feature-06-risk-01` — screen recording / `FLAG_SECURE` | ADB, Appium, the screen-capture helper, a device without a PIN, password or pattern | records the screen with a helper app, as the playbook does, and checks whether the app's content was captured |
 | `android-feature-01-risk-02` — APK repackaging | ADB, Appium, plus `apktool`, `apksigner`, `keytool` | pulls, decodes, rebuilds, resigns, reinstalls and launches |
 

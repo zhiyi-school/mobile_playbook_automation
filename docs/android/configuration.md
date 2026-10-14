@@ -33,7 +33,7 @@ device:
 Set `adb_serial: "wifi"` to use the phone's Wi-Fi connection without fixing its address. Each adb client finds it the first time it targets the device. An existing Wi-Fi connection is used as is. Otherwise, with exactly one phone attached by USB, its `wlan0` address is read, adb on the phone is switched to Wi-Fi on port 5555 if it is not listening already (`adb tcpip`, which lasts until the phone reboots), and the host connects to it. The phone must be on a network this host can reach. Without a Wi-Fi connection or a single USB phone to find one through, the device counts as not connected and the API log says why. Use this when USB transfers are unreliable, as on some Huawei phones, while keeping the cable attached for charging.
 
 `app_store` chooses how missing apps are installed: `apk` (adb, from the app's
-APKs in `artifacts/intake/android/apks/<PACKAGE_NAME>/`), `play_store` (the
+APK in `artifacts/intake/android/apks/`), `play_store` (the
 default when unset) or `aurora_store`. Any other value fails config validation. It can also be set with
 `PUT /config/android/device`. Restart the API and the assessment worker after
 changing it in the file. See
@@ -177,7 +177,7 @@ apk_static_analysis:
 - `sensitive_scan.reveal_values`: report secrets in full instead of masked. Leave it false unless the reports stay on this workstation.
 - `api_key_reuse_test`: test Google API keys found in the APK against the Geocoding API from the workstation (an outbound request per key, up to `max_keys`).
 
-The APKs are always read from `artifacts/intake/android/apks/<package_name>/`; see [Risks](risks.md#android-feature-01-risk-01).
+The APK is always the one in `artifacts/intake/android/apks/` with the app's package name; see [Risks](risks.md#android-feature-01-risk-01).
 
 ### Repackaging timing and signing (`android-feature-01-risk-02`)
 

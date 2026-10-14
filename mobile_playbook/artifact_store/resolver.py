@@ -99,9 +99,9 @@ def _resolve_ios(app: dict[str, Any]) -> Path | None:
     return None
 
 
-# Returns the app's configured, acquired or name-matched intake APK, or None.
+# Returns the app's configured, acquired or intake APK, or None.
 def _resolve_android(app: dict[str, Any]) -> Path | None:
-    from mobile_playbook.platforms.ios.acquisition.intake_ipa import normalize_app_name
+    from mobile_playbook.platforms.android.acquisition.intake_apk import find_intake_apk
 
     artifact = app.get("artifact") or {}
     configured = _existing(artifact.get("apk") or artifact.get("path"))
@@ -110,27 +110,17 @@ def _resolve_android(app: dict[str, Any]) -> Path | None:
         return configured
 
     package_name = app.get("package_name") or ""
-    if package_name:
-        acquired = ANDROID_WORKFLOW_APK_DIR / package_name.replace(".", "_") / "original" / "base.apk"
-        if acquired.is_file():
-            logger.debug("artifact store: Android app %r uses acquired APK %s.", app.get("id"), acquired)
-            return acquired
-        logger.debug("artifact store: no acquired APK at %s.", acquired)
-
-    intake_dir = Path(artifact.get("intake_dir") or _android_intake_dir()).expanduser()
-    if not intake_dir.is_dir():
-        logger.debug("artifact store: Android intake directory %s missing.", intake_dir)
+    if not package_name:
         return None
-    if package_name and (intake_dir / package_name / "base.apk").is_file():
-        logger.debug("artifact store: Android app %r uses intake split APKs in %s.", app.get("id"), intake_dir / package_name)
-        return intake_dir / package_name / "base.apk"
-    wanted = {normalize_app_name(package_name), normalize_app_name(app.get("name"))} - {""}
-    for candidate in sorted(intake_dir.glob("*.apk")):
-        if normalize_app_name(candidate.stem) in wanted:
-            logger.debug("artifact store: Android app %r matched intake APK %s.", app.get("id"), candidate)
-            return candidate
-    logger.debug("artifact store: no intake APK in %s matches %s.", intake_dir, sorted(wanted))
-    return None
+    acquired = ANDROID_WORKFLOW_APK_DIR / package_name.replace(".", "_") / "original" / "base.apk"
+    if acquired.is_file():
+        logger.debug("artifact store: Android app %r uses acquired APK %s.", app.get("id"), acquired)
+        return acquired
+    logger.debug("artifact store: no acquired APK at %s.", acquired)
+
+    intake = find_intake_apk(package_name, Path(artifact.get("intake_dir") or _android_intake_dir()).expanduser())
+    logger.debug("artifact store: Android app %r intake APK %s.", app.get("id"), intake.path if intake else None)
+    return intake.path if intake else None
 
 
 # Returns the build a configured app would be tested from, if one is on disk.

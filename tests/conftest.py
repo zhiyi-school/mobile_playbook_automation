@@ -44,6 +44,23 @@ def touch_future(path: Path) -> None:
     os.utime(path, (future, future))
 
 
+# Fakes the SDK tool that reads intake APKs: map an APK file name to the package metadata it reports.
+@pytest.fixture
+def apk_metadata(monkeypatch):
+    from mobile_playbook.platforms.android.acquisition import intake_apk
+
+    by_name: dict[str, dict] = {}
+
+    def inspect(path):
+        if Path(path).name not in by_name:
+            raise RuntimeError("APK inspection needs aapt, aapt2 or apkanalyzer on PATH")
+        return by_name[Path(path).name]
+
+    monkeypatch.setattr(intake_apk, "inspect_apk_metadata", inspect)
+    monkeypatch.setattr(intake_apk, "_scan_cache", {})
+    return by_name
+
+
 # Give each test isolated runtime settings while allowing deliberate test overrides.
 @pytest.fixture(autouse=True)
 def isolated_test_environment(tmp_path, monkeypatch):

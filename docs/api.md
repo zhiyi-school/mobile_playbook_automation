@@ -1070,7 +1070,7 @@ error.
 | `GET /reports/{run_timestamp}/files/{file_path}` | Serves any file inside that run's report directory — screenshots, recordings, `report.json`, `logs.txt`, `critical_findings.md`, etc. |
 | `GET /reports/{run_timestamp}/evidence-file?ref=...` | Serves evidence named by an API-issued opaque ref. Missing query parameter: `422`; malformed ref: `400`; missing, escaped or wrong-run artifact: `404`. See [Report root and evidence contract](#report-root-and-evidence-contract). |
 | `GET /apps/{app_id}/risks/{risk_id}/history?limit=20` | Returns the latest matching summary rows for one app/risk without forcing clients to scan all report folders. |
-| `GET /artifacts/{platform}` | Builds sitting in `intake/{ios,android}/{ipas,apks}/`, newest first. iOS identity fields are read from each IPA; Android APK identity fields are read with Android SDK tooling when available. Unreadable files are skipped. |
+| `GET /artifacts/{platform}` | Builds sitting in `intake/{ios,android}/{ipas,apks}/`, highest version first. iOS identity fields are read from each IPA; Android fields are read with `aapt` or `aapt2`, with the package name in `bundle_id`. Unreadable files, and Android APKs when neither tool is on `PATH`, are skipped. |
 | `POST /artifacts/{platform}` | Multipart file upload (`file`) into `intake/{ios,android}/{ipas,apks}/`. Returns `{"path", "metadata"}`; `400` if the file extension doesn't match the platform. |
 | `GET/POST /config/{platform}/apps` | List every configured app, or add a new one. Adding an app whose id is already configured, or an Android app whose package is, is `409` with `{"detail": {"message", "app_id"}}` naming the existing app. |
 | `GET/PUT/DELETE /config/{platform}/apps/{app_id}` | Read, partially update, or remove one app. |
