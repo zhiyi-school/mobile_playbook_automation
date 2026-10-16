@@ -1,6 +1,43 @@
 from __future__ import annotations
 
-from mobile_playbook.platforms.static_analysis.mobsf_client import mobsf_scan
+import os
+
+import pytest
+
+from mobile_playbook.common import env_file
+from mobile_playbook.platforms.static_analysis.mobsf_client import mobsf_api_key, mobsf_scan
+
+
+@pytest.mark.parametrize("name", ["MOBSF_API_KEY", "CUSTOM_MOBSF_KEY"])
+def test_mobsf_key_is_read_from_dotenv_without_exporting_it(tmp_path, monkeypatch, name):
+    path = tmp_path / ".env"
+    path.write_text(f'{name}="synthetic-mobsf-key"\nSUPABASE_SERVICE_ROLE_KEY=worker-only-secret\n')
+    monkeypatch.setattr(env_file, "ENV_FILE", path)
+    monkeypatch.delenv(name, raising=False)
+    before = os.environ.copy()
+
+    assert mobsf_api_key({"api_key_env": name}) == "synthetic-mobsf-key"
+    assert os.environ == before
+
+
+def test_an_explicit_mobsf_key_takes_precedence_over_the_file(tmp_path, monkeypatch):
+    path = tmp_path / ".env"
+    path.write_text('MOBSF_API_KEY=file-key\n')
+    monkeypatch.setattr(env_file, "ENV_FILE", path)
+    monkeypatch.delenv("MOBSF_API_KEY", raising=False)
+
+    assert mobsf_api_key({"api_key": "configured-key"}) == "configured-key"
+
+
+@pytest.mark.parametrize("name", ["SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_URL", "DASHBOARD_SUPABASE_URL"])
+def test_mobsf_cannot_read_worker_database_settings_as_its_api_key(tmp_path, monkeypatch, name):
+    path = tmp_path / ".env"
+    path.write_text(f'{name}=worker-only-secret\n')
+    monkeypatch.setattr(env_file, "ENV_FILE", path)
+    monkeypatch.delenv(name, raising=False)
+
+    with pytest.raises(ValueError, match="worker-only database setting"):
+        mobsf_api_key({"api_key_env": name})
 
 
 def test_mobsf_scan_can_auto_start_mobsf_with_generated_api_key(monkeypatch, tmp_path):

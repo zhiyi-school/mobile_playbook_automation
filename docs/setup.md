@@ -59,13 +59,14 @@ language-data and recognition options.
 cp .env.example .env
 ```
 
-`.env` holds local secrets and is not committed. The API reads only
-allowlisted settings from it; the CLI and database workers load the whole file:
+`.env` holds local secrets and is not committed. The API reads allowlisted settings,
+and its Corellium and MobSF integrations read only their requested keys directly,
+without exporting file values. The CLI and database workers load the whole file:
 
 | Key | Used by | Notes |
 | --- | --- | --- |
 | `MOBSF_API_KEY` | the run, when a static-analysis risk (iOS or Android) uses the MobSF provider | |
-| `CORELLIUM_API_URL`, `CORELLIUM_API_TOKEN` | the run, readiness and installs, when `device.provider` is `corellium` | export them for the API server; see [Android configuration](android/configuration.md#corellium-virtual-device) |
+| `CORELLIUM_API_URL`, `CORELLIUM_API_TOKEN` | the run, readiness and installs, when `device.provider` is `corellium` | read directly from the repository `.env`; no exports required; see [Android configuration](android/configuration.md#corellium-virtual-device) |
 | `SUPABASE_URL` | dashboard sync, assessment, and icon backfill workers | dashboard project URL |
 | `SUPABASE_SERVICE_ROLE_KEY` | dashboard sync, assessment, and icon backfill workers | bypasses row-level security; never expose it to a browser |
 | `DASHBOARD_SYNC_AUTO_TRIGGER` | the API and CLI, to decide whether to launch a post-run worker | |

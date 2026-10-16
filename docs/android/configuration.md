@@ -85,7 +85,7 @@ The readiness check (`GET /config/android/apps/{app_id}/provisioning`) is polled
 
 #### Requirements
 
-- `CORELLIUM_API_URL` (for example `https://app.corellium.com/api`; the site URL without `/api` also works) and `CORELLIUM_API_TOKEN` in the environment. The CLI loads them from `.env`. The API server, which runs dashboard-started assessments and readiness checks, reads no secrets from `.env`, so export them before starting it, the same as `MOBSF_API_KEY`.
+- `CORELLIUM_API_URL` (for example `https://app.corellium.com/api`; the site URL without `/api` also works) and `CORELLIUM_API_TOKEN` in the repository-root `.env`. The Corellium client reads these keys directly for CLI runs, dashboard assessments, readiness checks and installs. No shell exports or startup wrapper are needed, and reading them does not copy file values into `os.environ`. Existing process values remain optional overrides.
 - This host connected to the VPN of the project in `project`. Corellium's VPN is per project, and projects can reuse the same addresses, so another project's VPN can reach the wrong instance.
 - `app_store: "apk"` in most cases, because Corellium Android images do not include Google Play.
 
@@ -301,4 +301,4 @@ The real tools/apk_static_analysis/repackaging/screen_capture/app-roster content
 
 ## Environment Files
 
-The CLI loads `.env` from the project root and from the directory containing the selected config file, the same as for iOS. Existing shell environment variables are not overwritten. `android-feature-01-risk-01` reads the MobSF API key from `MOBSF_API_KEY` (or the variable `analyzer.api_key_env` names) when neither `analyzer.api_key` nor `tools.mobsf_api_key` sets one; no other Android risk needs an environment variable. `device.provider: corellium` needs `CORELLIUM_API_URL` and `CORELLIUM_API_TOKEN`; see [Corellium virtual device](#corellium-virtual-device).
+The CLI loads `.env` from the project root and from the directory containing the selected config file, the same as for iOS. Existing shell environment variables are not overwritten. `android-feature-01-risk-01` reads the MobSF API key from `MOBSF_API_KEY` (or the variable `analyzer.api_key_env` names) from the repository `.env` when neither `analyzer.api_key` nor `tools.mobsf_api_key` sets one. The Corellium client also reads its two settings directly from that file without exporting them. `device.provider: corellium` needs `CORELLIUM_API_URL` and `CORELLIUM_API_TOKEN`; see [Corellium virtual device](#corellium-virtual-device).

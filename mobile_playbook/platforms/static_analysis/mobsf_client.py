@@ -20,6 +20,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
+from mobile_playbook.common.env_file import env_value
 from mobile_playbook.common.logging_setup import redacted
 from mobile_playbook.platforms.static_analysis.findings import sort_flags_by_severity
 
@@ -100,14 +101,17 @@ def mobsf_scan(package_path: Path, analyzer_config: dict[str, Any]) -> dict[str,
             terminate_process(process)
 
 
-# Return the configured MobSF API key, else the one from its environment variable.
+# Return the configured MobSF API key, else its named setting from the environment or repository .env.
 def mobsf_api_key(analyzer_config: dict[str, Any]) -> str:
     if analyzer_config.get("api_key"):
         logger.debug("mobsf: using API key from analyzer.api_key")
         return str(analyzer_config["api_key"])
     env_name = str(analyzer_config.get("api_key_env") or "MOBSF_API_KEY")
-    logger.debug("mobsf: reading API key from environment variable %s (set=%s)", env_name, bool(os.environ.get(env_name)))
-    return os.environ.get(env_name, "")
+    if env_name in {"SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_URL", "DASHBOARD_SUPABASE_URL"}:
+        raise ValueError("MobSF api_key_env must not name a worker-only database setting.")
+    value = env_value(env_name) or ""
+    logger.debug("mobsf: reading API key setting %s (set=%s)", env_name, bool(value))
+    return value
 
 
 # Launch MobSF with the API key when it is down and auto_start is enabled, waiting until reachable.

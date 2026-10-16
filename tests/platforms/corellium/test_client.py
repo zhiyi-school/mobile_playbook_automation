@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import urllib.error
 
 import pytest
 
+from mobile_playbook.common import env_file
 from mobile_playbook.platforms.corellium import client as corellium
 from mobile_playbook.platforms.corellium.client import (
     CorelliumClient,
@@ -65,6 +67,57 @@ def test_from_env_names_every_missing_variable(monkeypatch):
 
     with pytest.raises(CorelliumError, match="CORELLIUM_API_URL and CORELLIUM_API_TOKEN"):
         CorelliumClient.from_env()
+
+
+def test_from_env_reads_the_file_without_exporting_credentials(tmp_path, monkeypatch, caplog):
+    monkeypatch.delenv(corellium.API_URL_ENV, raising=False)
+    monkeypatch.delenv(corellium.API_TOKEN_ENV, raising=False)
+    path = tmp_path / ".env"
+    path.write_text('CORELLIUM_API_URL="https://corellium.example.com"\nCORELLIUM_API_TOKEN="synthetic-token"\nSUPABASE_SERVICE_ROLE_KEY=worker-only-secret\n')
+    monkeypatch.setattr(env_file, "ENV_FILE", path)
+    monkeypatch.chdir(tmp_path / "..")
+    before = os.environ.copy()
+
+    with caplog.at_level("DEBUG"):
+        client = CorelliumClient.from_env()
+
+    assert client.api_url == "https://corellium.example.com/api"
+    assert client.token == "synthetic-token"
+    assert os.environ == before
+    assert "synthetic-token" not in caplog.text
+    assert "worker-only-secret" not in caplog.text
+
+
+def test_from_env_uses_an_explicit_file_and_rereads_rotated_credentials(tmp_path, monkeypatch):
+    monkeypatch.delenv(corellium.API_URL_ENV, raising=False)
+    monkeypatch.delenv(corellium.API_TOKEN_ENV, raising=False)
+    path = tmp_path / ".env"
+    path.write_text('CORELLIUM_API_URL=https://corellium.example.com\nCORELLIUM_API_TOKEN=first-token\n')
+    assert CorelliumClient.from_env(path).token == "first-token"
+    path.write_text('CORELLIUM_API_URL=https://corellium.example.com\nCORELLIUM_API_TOKEN=second-token\n')
+    assert CorelliumClient.from_env(path).token == "second-token"
+
+
+def test_from_env_preserves_existing_process_overrides(tmp_path, monkeypatch):
+    path = tmp_path / ".env"
+    path.write_text('CORELLIUM_API_URL=https://file.example.com\nCORELLIUM_API_TOKEN=file-token\n')
+    monkeypatch.setenv(corellium.API_URL_ENV, "https://override.example.com")
+    monkeypatch.setenv(corellium.API_TOKEN_ENV, "override-token")
+
+    client = CorelliumClient.from_env(path)
+
+    assert client.api_url == "https://override.example.com/api"
+    assert client.token == "override-token"
+
+
+def test_from_env_missing_file_names_settings_without_disclosing_existing_values(tmp_path, monkeypatch):
+    monkeypatch.setenv(corellium.API_URL_ENV, "https://corellium.example.com")
+    monkeypatch.delenv(corellium.API_TOKEN_ENV, raising=False)
+
+    with pytest.raises(CorelliumError, match="CORELLIUM_API_TOKEN.*repository .env") as raised:
+        CorelliumClient.from_env(tmp_path / "absent.env")
+
+    assert "https://corellium.example.com" not in str(raised.value)
 
 
 def test_get_instance_sends_the_bearer_token_and_parses_the_instance(monkeypatch):

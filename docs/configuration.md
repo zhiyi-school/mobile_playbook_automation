@@ -140,6 +140,13 @@ processes in deliberately different ways.
   non-secret; any other key raises `DisallowedSettingError`. The API package
   does not import `load_env_file`, so it has no path to whole-file loading.
 
+The Corellium and MobSF integrations use `env_value()` in
+`mobile_playbook/common/env_file.py` to read only their requested keys directly
+from the repository `.env`. Dashboard assessments, readiness and installs need
+no shell exports. These reads do not mutate `os.environ`, cache credentials,
+or load the whole file into the process. A custom MobSF `api_key_env` may name
+another MobSF key, but cannot name a worker-only database setting.
+
 Putting `SUPABASE_SERVICE_ROLE_KEY` in `.env` does not load it into the
 API process. An exported shell variable is still inherited by that process,
 so start the API without the service-role key in its environment.

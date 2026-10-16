@@ -1,5 +1,5 @@
 """
-Loads KEY=VALUE environment files without overriding variables already set.
+Reads individual KEY=VALUE settings without changing the process environment, and loads files for CLI and worker startup.
 """
 
 from __future__ import annotations
@@ -9,6 +9,32 @@ import os
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
+ENV_FILE = Path(__file__).resolve().parents[2] / ".env"
+
+
+# Resolve a requested setting from the environment or repository .env without exporting any file values.
+def env_value(name: str, env_path: Path | None = None) -> str | None:
+    value = os.environ.get(name)
+    if value is not None:
+        return value
+    path = env_path if env_path is not None else ENV_FILE
+    try:
+        lines = Path(path).read_text().splitlines()
+    except OSError as exc:
+        logger.debug("env file: %s unreadable while looking up %s (%s).", path, name, type(exc).__name__)
+        return None
+    for line in lines:
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        key, value = stripped.split("=", 1)
+        if key.strip() != name:
+            continue
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+            value = value[1:-1]
+        return value
+    return None
 
 
 # Sets unset environment variables from a KEY=VALUE file, stripping matching quotes; missing files are ignored.

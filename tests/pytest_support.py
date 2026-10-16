@@ -14,7 +14,10 @@ _SESSION_ENVIRONMENT = pytest.StashKey[tuple[TemporaryDirectory, pytest.MonkeyPa
 
 # Point runtime storage and optional playbook discovery at one synthetic root.
 def isolate_environment(root: Path, patch: pytest.MonkeyPatch) -> None:
+    from mobile_playbook.common import env_file
+
     root = root.resolve()
+    patch.setattr(env_file, "ENV_FILE", root / ".env")
     artifacts = root / "artifacts"
     locations = {
         "ARTIFACTS_DIR": artifacts,

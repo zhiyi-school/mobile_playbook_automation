@@ -242,16 +242,19 @@ file because they use `SUPABASE_SERVICE_ROLE_KEY` — a key that bypasses
 row-level security — and `SUPABASE_URL`. The CLI loads the whole `.env` as well,
 although a run does not use the service-role key.
 
-The **API** must not. `mobile_playbook/api/settings.py` reads one allowlisted
-key at a time instead. `env_setting()` checks `ALLOWED_ENV_KEYS` (the eight
-non-secret settings listed in [configuration.md](configuration.md#who-may-read-what))
-and raises `DisallowedSettingError` for anything else. Its parser returns a
-single requested key rather than importing the file
-into `os.environ`. It deliberately does not reuse `load_env_file()` and does not
-import that module at all, so there is no code path from the API package to
-whole-file loading — the same trade-off `dashboard_sync/trigger.py` already made
-for reading `DASHBOARD_SYNC_AUTO_TRIGGER`. The small duplicated parser is the
-price of that guarantee.
+The **API settings loader** reads one allowlisted key at a time instead.
+`env_setting()` in `mobile_playbook/api/settings.py` checks `ALLOWED_ENV_KEYS`
+(the non-secret settings listed in [configuration.md](configuration.md#who-may-read-what))
+and raises `DisallowedSettingError` for anything else. It never calls
+`load_env_file()` and returns a single requested value without importing file
+values into `os.environ`. `dashboard_sync/trigger.py` likewise reads only
+`DASHBOARD_SYNC_AUTO_TRIGGER`.
+
+The Corellium and MobSF clients independently resolve their requested settings
+through the read-only `env_value()` helper in `common/env_file.py`. They read
+from the repository `.env` on demand without copying file values into
+`os.environ`; no shell export is required. The API settings allowlist remains
+unchanged, and MobSF refuses worker-only database names as `api_key_env` values.
 
 Precedence is shell environment → `.env` → application default, so an operator's
 explicit export always wins. Resolution is lazy, inside `cors_allowed_origins()`,

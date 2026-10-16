@@ -7,13 +7,14 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
+from mobile_playbook.common.env_file import env_value
 from mobile_playbook.common.logging_setup import safe_url
 
 logger = logging.getLogger(__name__)
@@ -100,14 +101,14 @@ class CorelliumClient:
         self.token = token
         self.timeout = timeout
 
-    # Build a client from CORELLIUM_API_URL and CORELLIUM_API_TOKEN in the process environment.
+    # Read the Corellium settings directly from the repository .env, with optional process overrides and no exports.
     @classmethod
-    def from_env(cls) -> CorelliumClient:
-        api_url = os.environ.get(API_URL_ENV, "").strip()
-        token = os.environ.get(API_TOKEN_ENV, "").strip()
+    def from_env(cls, env_path: Path | None = None) -> CorelliumClient:
+        api_url = (env_value(API_URL_ENV, env_path) or "").strip()
+        token = (env_value(API_TOKEN_ENV, env_path) or "").strip()
         missing = [name for name, value in ((API_URL_ENV, api_url), (API_TOKEN_ENV, token)) if not value]
         if missing:
-            raise CorelliumError(f"{' and '.join(missing)} must be set to use a Corellium device.")
+            raise CorelliumError(f"{' and '.join(missing)} must be set in the repository .env file to use a Corellium device.")
         return cls(api_url, token)
 
     # Return every project the token can see.

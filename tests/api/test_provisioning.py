@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import asyncio
+import os
+
 import pytest
 
 from mobile_playbook.api import config_editing as ce
@@ -409,4 +412,45 @@ def test_a_corellium_device_that_cannot_be_looked_up_is_unreachable(config_root,
 
     assert report["device_ready"] is False
     assert report["blocker_code"] == "device_unreachable"
+    _assert_discloses_nothing(report)
+
+
+def test_http_readiness_reads_corellium_dotenv_without_exports_or_device_actions(config_root, monkeypatch, tmp_path):
+    from mobile_playbook.api.app import app
+    from mobile_playbook.common import env_file
+    from mobile_playbook.platforms.corellium.client import CorelliumClient
+    from tests.asgi_helpers import call
+
+    config = config_root / "configs/android.yaml"
+    config.write_text(config.read_text().replace(
+        "device:\n", "device:\n  provider: corellium\n  corellium:\n    project: testing\n    rooted: false\n    auto_start: true\n"
+    ))
+    env_file.ENV_FILE.write_text('CORELLIUM_API_URL=https://corellium.example.com\nCORELLIUM_API_TOKEN=synthetic-api-token\nSUPABASE_SERVICE_ROLE_KEY=worker-only-secret\n')
+    for key in ("CORELLIUM_API_URL", "CORELLIUM_API_TOKEN", "SUPABASE_SERVICE_ROLE_KEY"):
+        monkeypatch.delenv(key, raising=False)
+    before = os.environ.copy()
+    calls = []
+
+    def fake_request(self, method, path, body=None):
+        assert self.api_url == "https://corellium.example.com/api"
+        assert self.token == "synthetic-api-token"
+        assert method == "GET", "Readiness must never start or stop a device"
+        calls.append(path)
+        if path == "/v1/projects":
+            return [{"id": "p1", "name": "testing"}]
+        assert path == "/v1/instances"
+        return [{"id": "i1", "name": "test-device", "project": "p1", "type": "android", "state": "off", "osbuild": "r2 user", "serviceIp": "10.11.1.1"}]
+
+    monkeypatch.setattr(CorelliumClient, "_request", fake_request)
+
+    status, report = asyncio.run(call(app, "GET", "/config/android/apps/one/provisioning"))
+
+    assert status == 200
+    assert report["runnable"] is True
+    assert report["device_ready"] is True
+    assert calls
+    assert os.environ == before
+    assert "synthetic-api-token" not in str(report)
+    assert "worker-only-secret" not in str(report)
+    assert report["blocker_code"] is None
     _assert_discloses_nothing(report)
