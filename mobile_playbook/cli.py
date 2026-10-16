@@ -31,8 +31,8 @@ from mobile_playbook.platforms.android.config import load_config as load_android
 from mobile_playbook.platforms.android.results import normalize_android_result
 from mobile_playbook.platforms.android.risks import known_risks as known_android_risks
 from mobile_playbook.platforms.android.risks import list_risks as list_android_risks
-from mobile_playbook.platforms.android.device.adb import AdbClient
-from mobile_playbook.platforms.android.device.client import AndroidDeviceClient
+from mobile_playbook.platforms.android.device.client import open_device
+from mobile_playbook.platforms.corellium.client import CorelliumError
 from mobile_playbook.platforms.android.runner import AndroidPlatformRunner
 from mobile_playbook.platforms.ios.config import ConfigError, load_config
 from mobile_playbook.platforms.ios.ipa.encryption import inspect_main_executable
@@ -454,8 +454,12 @@ def _install_apps(config) -> int:
     if appium.status in ("FAILED", "DISABLED"):
         print(f"FAILED: Appium is not available at {config.device.appium_server_url}: {appium.error or appium.status}", file=sys.stderr)
         return 1
-    adb = AdbClient(config.device.adb_path, config.device.adb_serial)
-    client = AndroidDeviceClient(config, adb)
+    try:
+        client = open_device(config)
+    except CorelliumError as exc:
+        print(f"FAILED: {exc}", file=sys.stderr)
+        return 1
+    adb = client.adb
     exit_code = 0
     for app in config.apps:
         outcome = store.install_and_read_version(adb, client.make_driver, app.package_name, work / "diagnostics")

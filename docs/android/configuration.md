@@ -39,6 +39,58 @@ default when unset) or `aurora_store`. Any other value fails config validation. 
 changing it in the file. See
 [Installing missing apps](README.md#installing-missing-apps).
 
+### Corellium virtual device
+
+`provider` chooses what is tested: `physical` (the default when unset) uses the phone `adb_serial` selects, and `corellium` uses an Android virtual device on Corellium instead. Any other value fails config validation.
+
+```yaml
+device:
+  provider: "corellium"
+  corellium:
+    project: "testing"
+    rooted: false
+    os_version: null
+    instance: null
+    auto_start: true
+    auto_stop: true
+    adb_port: 5001
+    # adb_address: "10.11.1.1:5001"
+    boot_timeout_seconds: 600
+```
+
+- `project` (required): the Corellium project's name, or its id when several projects share a name.
+- `rooted` (required): `true` picks a rooted instance, `false` a stock one, whatever the instance is named. For Android this comes from the build variant Corellium reports (`osbuild`, for example `r2 user`): `userdebug` and `eng` builds count as rooted and `user` builds as stock. Corellium lists a `jailbroken` patch on every Android instance, so that patch is not used for Android; for iOS it marks a jailbroken instance.
+- `os_version`: only instances whose Android version is this one or starts with it, so `"16"` matches `16.0.0`; unset accepts any version.
+- `instance`: an instance name or id, to use only that instance. It must still be an Android instance in `project` that matches `rooted`.
+- `auto_start` (default `true`): power the instance on, or resume it, when testing needs it. With `false`, a run fails when the instance is off or paused.
+- `auto_stop` (default `false`): power the instance off once a run's tests are done.
+- `adb_port`: the port adb listens on at the instance's services address, used when Corellium does not report one (it reports `port-adb` while the instance is on); default `5001`.
+- `adb_address`: an explicit `host:port`, as the instance's **Connect** tab shows it. Set, it replaces the address built from the instance and `adb_port`.
+- `boot_timeout_seconds`: how long to wait for the instance to power on and for Android to finish booting; default `600`.
+
+`adb_serial` is ignored while `provider` is `corellium`; the instance's adb address takes its place for adb and as the Appium session's `udid`.
+
+#### Which instance is used
+
+Each time the framework connects, it lists the project's instances and keeps the Android ones that match `rooted`, `os_version` and `instance` and are in a usable state. It prefers one that is already on, then one that is starting, then a paused one, then one that is off, so a running instance is used before another is powered on; equal candidates are taken in name order. When none matches, the error lists every instance in the project with its platform, version, rooted state and power state.
+
+#### Starting and stopping
+
+- A run, `install-app` and `POST /config/android/apps/{app_id}/install` start the instance when `auto_start` allows, then connect adb and wait until Android reports `sys.boot_completed`.
+- With `auto_stop`, the instance is powered off when the run's last queued test finishes, whether the tests passed, failed or the run was aborted, and whoever started the instance. Reconnecting after an Appium failure mid-run does not stop it. Installs do not stop it, because a run normally follows.
+- When the instance was started for a connection that then fails, for example because adb never reaches it, it is powered off again if `auto_stop` is set.
+- Each run starts and stops the instance on its own, so several dashboard assessments in a row each wait for it to boot. Set `auto_stop: false` while you use the instance by hand or run many assessments back to back.
+
+The readiness check (`GET /config/android/apps/{app_id}/provisioning`) is polled, so it only reads the instance's state and never starts it. An instance that is off or paused counts as ready when `auto_start` is set, because the run starts it, and the app's install state then reads as unknown until the instance is on. Without `auto_start`, such an instance reads as no device connected.
+
+#### Requirements
+
+- `CORELLIUM_API_URL` (for example `https://app.corellium.com/api`; the site URL without `/api` also works) and `CORELLIUM_API_TOKEN` in the environment. The CLI loads them from `.env`. The API server, which runs dashboard-started assessments and readiness checks, reads no secrets from `.env`, so export them before starting it, the same as `MOBSF_API_KEY`.
+- This host connected to the VPN of the project in `project`. Corellium's VPN is per project, and projects can reuse the same addresses, so another project's VPN can reach the wrong instance.
+- `app_store: "apk"` in most cases, because Corellium Android images do not include Google Play.
+
+The Corellium client in `mobile_playbook/platforms/corellium/` lists projects and instances, chooses one and powers it on and off without depending on Android, so iOS can reuse it.
+
 ### Appium auto-start
 
 If `appium_server_url` isn't reachable, the framework normally fails preflight with a one-line error asking you to run `appium` yourself. Set `device.appium_auto_start` to have it launch Appium instead and wait for it to come up:
@@ -249,4 +301,4 @@ The real tools/apk_static_analysis/repackaging/screen_capture/app-roster content
 
 ## Environment Files
 
-The CLI loads `.env` from the project root and from the directory containing the selected config file, the same as for iOS. Existing shell environment variables are not overwritten. `android-feature-01-risk-01` reads the MobSF API key from `MOBSF_API_KEY` (or the variable `analyzer.api_key_env` names) when neither `analyzer.api_key` nor `tools.mobsf_api_key` sets one; no other Android risk needs an environment variable.
+The CLI loads `.env` from the project root and from the directory containing the selected config file, the same as for iOS. Existing shell environment variables are not overwritten. `android-feature-01-risk-01` reads the MobSF API key from `MOBSF_API_KEY` (or the variable `analyzer.api_key_env` names) when neither `analyzer.api_key` nor `tools.mobsf_api_key` sets one; no other Android risk needs an environment variable. `device.provider: corellium` needs `CORELLIUM_API_URL` and `CORELLIUM_API_TOKEN`; see [Corellium virtual device](#corellium-virtual-device).

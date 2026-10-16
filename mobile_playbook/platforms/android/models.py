@@ -12,6 +12,10 @@ from mobile_playbook.common.storage_paths import android_work_dir
 
 from mobile_playbook.reporting.serialization import SerializableDataclass
 
+PHYSICAL_PROVIDER = "physical"
+CORELLIUM_PROVIDER = "corellium"
+DEVICE_PROVIDERS = (PHYSICAL_PROVIDER, CORELLIUM_PROVIDER)
+
 
 @dataclass
 class AndroidDeviceConfig(SerializableDataclass):
@@ -21,6 +25,9 @@ class AndroidDeviceConfig(SerializableDataclass):
     app_store: str = "play_store"
     # See docs/android/configuration.md#appium-auto-start.
     appium_auto_start: dict[str, Any] = field(default_factory=dict)
+    # See docs/android/configuration.md#corellium-virtual-device.
+    provider: str = PHYSICAL_PROVIDER
+    corellium: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass

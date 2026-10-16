@@ -123,14 +123,44 @@ def test_keep_screen_on_is_applied_when_connecting_only_if_configured(monkeypatc
         lambda *a: SimpleNamespace(status="ALREADY_RUNNING", error=None, log_tail=None),
     )
     monkeypatch.setattr("mobile_playbook.platforms.android.runner.appium_start_message", lambda *a: None)
-    monkeypatch.setattr("mobile_playbook.platforms.android.runner.AndroidDeviceClient.connect", lambda self: self)
     applied = []
     monkeypatch.setattr("mobile_playbook.platforms.android.runner.keep_screen_on_while_charging", lambda adb: applied.append(adb) or True)
     config = SimpleNamespace(
-        device=SimpleNamespace(appium_server_url="http://127.0.0.1:4723", adb_path="adb", adb_serial=None, appium_auto_start={}),
+        device=SimpleNamespace(appium_server_url="http://127.0.0.1:4723", adb_path="adb", adb_serial=None, appium_auto_start={}, provider="physical"),
         runner=SimpleNamespace(keep_screen_on=keep_screen_on),
     )
 
     AndroidPlatformRunner().connect_device(config, tmp_path)
 
     assert len(applied) == (1 if keep_screen_on else 0)
+
+
+class _TrackedClient:
+    def __init__(self):
+        self.calls = []
+
+    def quit(self):
+        self.calls.append("quit")
+
+    def release(self):
+        self.calls.append("release")
+
+
+def test_close_device_releases_the_device_so_auto_stop_can_power_it_off():
+    client = _TrackedClient()
+
+    AndroidPlatformRunner().close_device(client)
+
+    assert client.calls == ["release"]
+
+
+def test_appium_recovery_only_quits_the_broken_session(monkeypatch, tmp_path):
+    runner = AndroidPlatformRunner()
+    broken = _TrackedClient()
+    monkeypatch.setattr("mobile_playbook.orchestration.platform_runner.append_event", lambda *a, **k: None)
+    monkeypatch.setattr("mobile_playbook.platforms.android.runner.tcp_reachable", lambda url, timeout: False)
+    monkeypatch.setattr(runner, "connect_device", lambda config, run_dir: "reconnected")
+    config = SimpleNamespace(device=SimpleNamespace(appium_server_url="http://127.0.0.1:4723"))
+
+    assert runner.ensure_device_healthy(config, broken, tmp_path) == "reconnected"
+    assert broken.calls == ["quit"]

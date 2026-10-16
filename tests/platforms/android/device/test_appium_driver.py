@@ -39,3 +39,10 @@ def test_without_an_adb_serial_appium_chooses_the_device(created):
 
     assert "appium:udid" not in created[0]
     assert created[0]["appium:appPackage"] == "com.example.app"
+
+
+def test_sessions_allow_a_slow_link_to_install_the_uiautomator2_server(created):
+    make_client("10.11.1.3:5001").make_driver()
+
+    assert created[0]["appium:uiautomator2ServerInstallTimeout"] == 300_000
+    assert created[0]["appium:adbExecTimeout"] == 120_000

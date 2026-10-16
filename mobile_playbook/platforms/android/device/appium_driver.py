@@ -11,6 +11,12 @@ from mobile_playbook.common.logging_setup import redacted
 
 logger = logging.getLogger(__name__)
 
+# Appium installs its UiAutomator2 server (about 18 MB) on a device the first time, within 20 s by default. Over a
+# high-latency link, such as a Corellium VPN, that install takes over a minute, so these limits are raised. They are
+# upper bounds, so a fast USB or Wi-Fi phone is unaffected.
+SERVER_INSTALL_TIMEOUT_MS = 300_000
+ADB_EXEC_TIMEOUT_MS = 120_000
+
 try:
     from appium import webdriver
     from appium.options.android import UiAutomator2Options
@@ -37,6 +43,8 @@ def create_appium_driver(server_url: str, app_package: str | None = None, app_ac
     options.automation_name = "UiAutomator2"
     options.no_reset = True
     options.new_command_timeout = 120
+    options.uiautomator2_server_install_timeout = SERVER_INSTALL_TIMEOUT_MS
+    options.adb_exec_timeout = ADB_EXEC_TIMEOUT_MS
     # Without a udid, UiAutomator2 takes the first device adb lists, which may be another transport to the same phone.
     if udid:
         options.udid = udid

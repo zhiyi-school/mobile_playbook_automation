@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from types import SimpleNamespace
 
-from mobile_playbook.platforms.android.config import parse_config
+from mobile_playbook.platforms.android.config import collect_config_errors, parse_config
 from mobile_playbook.platforms.android.results import normalize_android_result
 from mobile_playbook.common.storage_paths import REPOSITORY_ROOT, android_work_dir
 from mobile_playbook.platforms.android.risks import get_risk, known_risks
@@ -112,3 +112,44 @@ def test_android_unset_runner_work_dir_follows_the_work_root(tmp_path, monkeypat
 def test_keep_screen_on_defaults_off_and_reads_the_runner_setting():
     assert parse_config({"apps": ["com.example.parking"]}).runner.keep_screen_on is False
     assert parse_config({"apps": ["com.example.parking"], "runner": {"keep_screen_on": True}}).runner.keep_screen_on is True
+
+
+def test_android_device_provider_defaults_to_physical():
+    config = parse_config({"apps": ["com.example.parking"]})
+
+    assert config.device.provider == "physical"
+    assert collect_config_errors(config) == []
+
+
+def test_android_corellium_provider_needs_a_project_rooted_and_valid_numbers():
+    config = parse_config(
+        {
+            "device": {"provider": "Corellium", "corellium": {"adb_port": "5001", "boot_timeout_seconds": 0}},
+            "apps": ["com.example.parking"],
+        }
+    )
+
+    assert config.device.provider == "corellium"
+    assert collect_config_errors(config) == [
+        "device.corellium.project is required",
+        "device.corellium.rooted must be true or false",
+        "device.corellium.boot_timeout_seconds must be a positive number",
+        "device.corellium.adb_port must be a positive whole number",
+    ]
+
+
+def test_android_corellium_provider_with_a_project_and_rooted_is_valid():
+    config = parse_config(
+        {
+            "device": {"provider": "corellium", "corellium": {"project": "testing", "rooted": False, "auto_stop": True}},
+            "apps": ["com.example.parking"],
+        }
+    )
+
+    assert collect_config_errors(config) == []
+
+
+def test_android_unknown_device_provider_is_refused():
+    config = parse_config({"device": {"provider": "emulator"}, "apps": ["com.example.parking"]})
+
+    assert collect_config_errors(config) == ["device.provider must be one of: physical, corellium"]

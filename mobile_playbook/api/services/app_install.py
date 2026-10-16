@@ -17,8 +17,8 @@ from mobile_playbook.orchestration.appium_server import ensure_appium_running
 from mobile_playbook.platforms.android.acquisition.store import app_store_for
 from mobile_playbook.platforms.android.config import ConfigError as AndroidConfigError
 from mobile_playbook.platforms.android.config import load_config as load_android_config
-from mobile_playbook.platforms.android.device.adb import AdbClient
-from mobile_playbook.platforms.android.device.client import AndroidDeviceClient
+from mobile_playbook.platforms.android.device.client import open_device
+from mobile_playbook.platforms.corellium.client import CorelliumError
 
 logger = logging.getLogger(__name__)
 
@@ -60,9 +60,13 @@ def install_app(platform: str, app_id: str) -> dict:
         if appium.status in ("FAILED", "DISABLED"):
             outcome = store.failure("error", f"Appium is not available: {appium.error or appium.status}")
         else:
-            adb = AdbClient(config.device.adb_path, config.device.adb_serial)
-            client = AndroidDeviceClient(config, adb)
-            outcome = store.install_and_read_version(adb, client.make_driver, package, work / "diagnostics")
+            try:
+                client = open_device(config)
+            except CorelliumError as exc:
+                logger.warning("Corellium device unavailable for install of %s: %s", app_id, exc)
+                outcome = store.failure("error", f"The Corellium test device is not available: {exc}")
+            else:
+                outcome = store.install_and_read_version(client.adb, client.make_driver, package, work / "diagnostics")
     finally:
         registry.release_platform("android")
     logger.info(

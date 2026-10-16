@@ -348,3 +348,65 @@ def test_no_device_keeps_its_own_message(config_root, no_device):
 
     assert _stage(report, "configuration_applied")["detail"] == "No test device is currently connected."
     assert report["detail"] == provisioning.BLOCKERS["no_device"][1]
+
+
+def _corellium_device(monkeypatch, state: str, auto_start: bool = True):
+    from types import SimpleNamespace
+
+    from mobile_playbook.platforms.android.device.corellium import CorelliumConnection
+    from mobile_playbook.platforms.corellium.client import CorelliumInstance
+
+    calls = []
+    instance = CorelliumInstance(id="abc", name="pixel", state=state, service_ip="10.11.1.1", type="android")
+    connection = CorelliumConnection(instance=instance, serial="10.11.1.1:5001", auto_stop=True)
+    config = SimpleNamespace(device=SimpleNamespace(corellium={"auto_start": auto_start}))
+
+    def fake_open_device(loaded_config, start):
+        calls.append(start)
+        return provisioning.AndroidDeviceClient(config, provisioning.AdbClient("adb", connection.serial), corellium=connection)
+
+    monkeypatch.setattr(provisioning, "open_device", fake_open_device)
+    return calls
+
+
+def test_readiness_never_starts_a_corellium_device_and_treats_an_off_one_as_standby(config_root, monkeypatch):
+    calls = _corellium_device(monkeypatch, "off")
+
+    report = provisioning.describe("android", "one")
+
+    assert calls and set(calls) == {False}
+    assert report["device_ready"] is True
+    assert report["blocker_code"] is None
+    assert _stage(report, "configuration_applied")["state"] == "unknown"
+    _assert_discloses_nothing(report)
+
+
+def test_an_off_corellium_device_without_auto_start_is_not_ready(config_root, monkeypatch):
+    _corellium_device(monkeypatch, "off", auto_start=False)
+
+    report = provisioning.describe("android", "one")
+
+    assert report["device_ready"] is False
+    assert report["blocker_code"] == "no_device"
+
+
+def test_a_running_corellium_device_is_checked_over_adb(config_root, monkeypatch, device_with):
+    _corellium_device(monkeypatch, "on")
+    device_with(["com.example.one"])
+
+    report = provisioning.describe("android", "one")
+
+    assert report["device_ready"] is True
+
+
+def test_a_corellium_device_that_cannot_be_looked_up_is_unreachable(config_root, monkeypatch):
+    def fail(config, start):
+        raise provisioning.CorelliumError("Corellium API not reachable")
+
+    monkeypatch.setattr(provisioning, "open_device", fail)
+
+    report = provisioning.describe("android", "one")
+
+    assert report["device_ready"] is False
+    assert report["blocker_code"] == "device_unreachable"
+    _assert_discloses_nothing(report)

@@ -21,9 +21,8 @@ from mobile_playbook.orchestration.platform_runner import (
     iter_enabled_tests,
     requires_device,
 )
-from mobile_playbook.platforms.android.device.adb import AdbClient
 from mobile_playbook.platforms.android.device.app_version import installed_version
-from mobile_playbook.platforms.android.device.client import AndroidDeviceClient
+from mobile_playbook.platforms.android.device.client import open_device
 from mobile_playbook.platforms.android.models import AndroidRiskRunResult
 from mobile_playbook.platforms.android.device.permissions import grant_all
 from mobile_playbook.platforms.android.device.screen import keep_screen_on_while_charging, wake_and_unlock
@@ -55,19 +54,18 @@ class AndroidPlatformRunner:
             logger.debug("android runner: Appium start failed: %s (log tail %s chars)", getattr(outcome, "error", None), len(getattr(outcome, "log_tail", None) or ""))
             detail = f" Appium log tail:\n{outcome.log_tail}" if outcome.log_tail else ""
             raise RuntimeError(f"android: {outcome.error}{detail}")
-        adb = AdbClient(config.device.adb_path, config.device.adb_serial)
-        client = AndroidDeviceClient(config, adb).connect()
+        client = open_device(config).connect()
         if config.runner.keep_screen_on:
-            kept_on = keep_screen_on_while_charging(adb)
+            kept_on = keep_screen_on_while_charging(client.adb)
             logger.debug("android runner: keep screen on while charging -> %s", kept_on)
             if not kept_on:
                 logger.warning("Could not set the device to keep its screen on while charging; tests still wake it first.")
         return client
 
-    # Release the device client.
+    # Release the device client at the end of a run, which powers off a Corellium instance when auto_stop is set.
     def close_device(self, device_client) -> None:
         logger.debug("android runner: closing device client %s", type(device_client).__name__)
-        device_client.quit()
+        device_client.release()
 
     # Return the device client, reconnecting when Appium has become unreachable mid-run.
     def ensure_device_healthy(self, config, device_client, run_dir: Path | None = None):
@@ -77,7 +75,8 @@ class AndroidPlatformRunner:
             device_client=device_client,
             run_dir=run_dir,
             fallback_dir=android_work_dir(),
-            close_device=self.close_device,
+            # Only quit the broken session: releasing would power off a Corellium instance the run still needs.
+            close_device=lambda client: client.quit(),
             connect_device=lambda: self.connect_device(config, run_dir),
             is_reachable=lambda url, timeout: tcp_reachable(url, timeout=timeout),
         )

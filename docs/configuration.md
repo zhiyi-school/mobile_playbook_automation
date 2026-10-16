@@ -112,6 +112,7 @@ processes in deliberately different ways.
 | Variable | Read by | Purpose |
 | --- | --- | --- |
 | `MOBSF_API_KEY` | run process | authenticates to a local MobSF instance for the iOS and Android static-analysis risks |
+| `CORELLIUM_API_URL`, `CORELLIUM_API_TOKEN` | run process, API readiness and installs | Corellium API root and token, needed only with `device.provider: corellium`; see [Android configuration](android/configuration.md#corellium-virtual-device) |
 | `SUPABASE_URL` | dashboard sync, assessment, and icon backfill workers | dashboard project URL |
 | `SUPABASE_SERVICE_ROLE_KEY` | dashboard sync, assessment, and icon backfill workers | bypasses row-level security |
 | `DASHBOARD_SYNC_AUTO_TRIGGER` | API and CLI | `false` disables the post-run worker launch |

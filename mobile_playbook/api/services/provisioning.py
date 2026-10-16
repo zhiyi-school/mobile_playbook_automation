@@ -13,6 +13,7 @@ from mobile_playbook.api.config_editing.shared import ENTRY_FILES
 from mobile_playbook.platforms.android.device.adb import AdbClient
 from mobile_playbook.platforms.android.config import ConfigError as AndroidConfigError
 from mobile_playbook.platforms.android.config import load_config as load_android_config
+from mobile_playbook.platforms.android.device.client import AndroidDeviceClient, open_device
 from mobile_playbook.platforms.android.device.permissions import is_installed as android_is_installed
 from mobile_playbook.api.run_registry import registry
 from mobile_playbook.common.storage_paths import config_path, ios_intake_dir
@@ -22,6 +23,7 @@ from mobile_playbook.platforms.ios.acquisition.intake_ipa import resolve_intake_
 from mobile_playbook.platforms.ios.config import load_config as load_ios_config
 from mobile_playbook.platforms.ios.preflight import connected_device_udids
 from mobile_playbook.platforms.ios.risks import get_risk as get_ios_risk
+from mobile_playbook.platforms.corellium.client import CorelliumError
 
 logger = logging.getLogger(__name__)
 
@@ -107,18 +109,33 @@ def _ios_configuration(app: dict) -> tuple[str, str | None, str | None]:
     return "failed", "This app's test configuration is incomplete.", bundle_id
 
 
-# Build an adb client from the Android config, or a default client when it is unavailable.
-def _android_adb() -> AdbClient:
+# Open the configured Android device without starting it: a default client when the config is unavailable, or None
+# when the configured Corellium device cannot be looked up.
+def _android_device_client() -> AndroidDeviceClient | None:
     try:
         config = load_android_config(config_path(ENTRY_FILES["android"]), dry_run=True)
-        return AdbClient(adb_path=config.device.adb_path, serial=config.device.adb_serial)
     except (AndroidConfigError, OSError) as exc:
         logger.debug("api: Android config unavailable for adb (%s); using the default client.", type(exc).__name__)
-        return AdbClient()
+        return AndroidDeviceClient(None, AdbClient())
+    try:
+        # Readiness is polled, so it only reads a Corellium instance's state and never powers it on.
+        return open_device(config, start=False)
+    except CorelliumError as exc:
+        logger.warning("The Corellium test device could not be looked up: %s", exc)
+        return None
 
 
-# Return connected, no_device, ambiguous or unreachable for the Android device, never the serial.
-def _android_device(adb: AdbClient) -> str:
+# Return connected, standby, no_device, ambiguous or unreachable for the Android device, never the serial.
+def _android_device(device: AndroidDeviceClient | None) -> str:
+    if device is None:
+        return "unreachable"
+    corellium = device.corellium
+    if corellium is not None and corellium.instance.state != "on":
+        # A run starts an off or paused instance itself when auto_start allows, and waits for one already starting.
+        startable = corellium.instance.state not in ("off", "paused") or device.config.device.corellium.get("auto_start", True)
+        logger.debug("api: Corellium instance is %s (startable=%s).", corellium.instance.state, startable)
+        return "standby" if startable else "no_device"
+    adb = device.adb
     if not adb.is_available():
         logger.debug("api: adb is not available; Android device unreachable.")
         return "unreachable"
@@ -143,8 +160,8 @@ def _android_configuration(app: dict) -> tuple[str, str | None, str | None]:
     if not package_name:
         return "failed", "This app's test configuration is incomplete.", None
 
-    adb = _android_adb()
-    device = _android_device(adb)
+    client = _android_device_client()
+    device = _android_device(client)
     logger.debug("api: Android device state for app %r is %s.", app.get("id"), device)
     if device == "unreachable":
         return "unknown", "The test device could not be reached.", package_name
@@ -152,8 +169,10 @@ def _android_configuration(app: dict) -> tuple[str, str | None, str | None]:
         return "unknown", "No test device is currently connected.", package_name
     if device == "ambiguous":
         return "unknown", AMBIGUOUS_DEVICE_DETAIL, package_name
+    if device == "standby":
+        return "unknown", "The test device is off; it is started when testing begins.", package_name
 
-    if android_is_installed(adb, package_name):
+    if android_is_installed(client.adb, package_name):
         logger.debug("api: package %s is installed on the device.", package_name)
         return "done", None, package_name
     logger.debug("api: package %s is not installed on the device yet.", package_name)
@@ -299,8 +318,8 @@ def _readiness(platform: str, app: dict | None, stages: list[Stage]) -> dict:
     if not device_needed:
         device_ready, device_blocker = True, None
     elif platform == "android":
-        state = _android_device(_android_adb())
-        device_ready = state == "connected"
+        state = _android_device(_android_device_client())
+        device_ready = state in ("connected", "standby")
         device_blocker = None if device_ready else ("device_unreachable" if state == "unreachable" else "no_device")
         # Several devices keep the no_device code, so consumers are unchanged, with a detail saying why.
         device_detail = AMBIGUOUS_DEVICE_DETAIL if state == "ambiguous" else None

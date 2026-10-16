@@ -1,9 +1,22 @@
 # Example Android entry config. Copy to configs/android.yaml and fill local values; see docs/android/configuration.md.
 
 device:
+  # "physical" (default) tests the phone adb_serial names; "corellium" tests the virtual device under corellium.
+  provider: "physical"
   appium_server_url: "http://127.0.0.1:4723"
   adb_path: "adb"
-  adb_serial: null    # A serial from "adb devices", or "wifi" to follow the phone's Wi-Fi address.
+  adb_serial: null    # A serial from "adb devices", or "wifi" to follow the phone's Wi-Fi address. Unused for corellium.
+  # Used only when provider is "corellium"; needs CORELLIUM_API_URL, CORELLIUM_API_TOKEN and the project's VPN.
+  corellium:
+    project: "REPLACE_WITH_CORELLIUM_PROJECT_NAME"  # Name or id; an Android instance in it is picked for testing.
+    rooted: false                # true picks a rooted instance, false a stock one.
+    os_version: null             # Optional, e.g. "16" to require Android 16.
+    instance: null               # Optional instance name or id, to use that one instance.
+    auto_start: true             # Power the instance on when testing needs it.
+    auto_stop: true              # Power it off once a run's tests are done.
+    adb_port: 5001               # adb port on the instance's services address.
+    # adb_address: "10.11.1.1:5001"  # Overrides the address taken from the instance, as its Connect tab shows it.
+    boot_timeout_seconds: 600
   # How missing apps are installed: "apk" (adb, from the app's APK in artifacts/intake/android/apks/),
   # "play_store" (default) or "aurora_store".
   app_store: "play_store"

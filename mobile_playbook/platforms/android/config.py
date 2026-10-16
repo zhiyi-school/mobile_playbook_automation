@@ -14,6 +14,9 @@ from mobile_playbook.common.logging_setup import REDACTED, redacted
 from mobile_playbook.common.config_loader import load_yaml_config
 from mobile_playbook.platforms.android.acquisition.store import APP_STORES, DEFAULT_APP_STORE
 from mobile_playbook.platforms.android.models import (
+    CORELLIUM_PROVIDER,
+    DEVICE_PROVIDERS,
+    PHYSICAL_PROVIDER,
     AndroidAppConfig,
     AndroidDeviceConfig,
     AndroidGlobalConfig,
@@ -21,6 +24,7 @@ from mobile_playbook.platforms.android.models import (
     CisoConfig,
 )
 from mobile_playbook.platforms.android.risks.registry import known_risks
+from mobile_playbook.platforms.corellium.client import settings_errors as corellium_settings_errors
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +81,8 @@ def parse_config(raw: dict[str, Any], config_path: Path | None = None) -> Androi
             adb_serial=device_raw.get("adb_serial") or device_raw.get("serial"),
             app_store=device_raw.get("app_store") or DEFAULT_APP_STORE,
             appium_auto_start=device_raw.get("appium_auto_start") or {},
+            provider=str(device_raw.get("provider") or PHYSICAL_PROVIDER).strip().lower(),
+            corellium=device_raw.get("corellium") or {},
         ),
         runner=AndroidRunnerConfig(
             work_dir=_configured_work_dir(runner_raw.get("work_dir") or paths_raw.get("work_dir")),
@@ -111,6 +117,10 @@ def collect_config_errors(config: AndroidGlobalConfig, dry_run: bool = False) ->
         errors.append("device.appium_server_url is required")
     if config.device.app_store not in APP_STORES:
         errors.append(f"device.app_store must be one of: {', '.join(APP_STORES)}")
+    if config.device.provider not in DEVICE_PROVIDERS:
+        errors.append(f"device.provider must be one of: {', '.join(DEVICE_PROVIDERS)}")
+    elif config.device.provider == CORELLIUM_PROVIDER:
+        errors.extend(_corellium_errors(config.device.corellium))
     if not config.apps:
         errors.append("apps list must not be empty")
     known = known_risks()
@@ -125,6 +135,15 @@ def collect_config_errors(config: AndroidGlobalConfig, dry_run: bool = False) ->
                 errors.append(f"{label}.risks.{risk_id} is unknown")
             elif not isinstance(risk_config, dict):
                 errors.append(f"{label}.risks.{risk_id} must be a mapping")
+    return errors
+
+
+# Return the problems in the device.corellium settings used when device.provider is corellium.
+def _corellium_errors(settings: Any) -> list[str]:
+    errors = corellium_settings_errors(settings)
+    value = settings.get("adb_port") if isinstance(settings, dict) else None
+    if value is not None and (isinstance(value, bool) or not isinstance(value, int) or value <= 0):
+        errors.append("device.corellium.adb_port must be a positive whole number")
     return errors
 
 

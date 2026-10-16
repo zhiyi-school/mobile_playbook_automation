@@ -26,6 +26,7 @@ def _android_config():
         adb_path="adb",
         adb_serial=None,
         appium_auto_start={"enabled": True, "command": ["appium"]},
+        provider="physical",
     )
     return SimpleNamespace(device=device, runner=SimpleNamespace(work_dir="work/android", keep_screen_on=False))
 

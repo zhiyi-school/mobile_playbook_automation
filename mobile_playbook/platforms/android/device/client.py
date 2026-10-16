@@ -8,17 +8,30 @@ import logging
 
 from mobile_playbook.platforms.android.device.adb import AdbClient
 from mobile_playbook.platforms.android.device.appium_driver import create_appium_driver
+from mobile_playbook.platforms.android.device.corellium import CorelliumConnection, connect_corellium, stop_corellium
+from mobile_playbook.platforms.android.models import CORELLIUM_PROVIDER
 
 logger = logging.getLogger(__name__)
+
+
+# Return a device client for the configured device: the physical phone's serial, or the selected Corellium instance.
+def open_device(config, *, start: bool = True) -> AndroidDeviceClient:
+    device = config.device
+    if device.provider == CORELLIUM_PROVIDER:
+        # start=False only reads the instance's state, for checks that must not start a virtual device.
+        corellium = connect_corellium(device.adb_path, device.corellium, start=start)
+        return AndroidDeviceClient(config, AdbClient(device.adb_path, corellium.serial), corellium=corellium)
+    return AndroidDeviceClient(config, AdbClient(device.adb_path, device.adb_serial))
 
 
 class AndroidDeviceClient:
     """Device handle that Android risk checks use for adb access and Appium sessions."""
 
-    # Store the device config and an adb client, creating a default one when omitted.
-    def __init__(self, config=None, adb: AdbClient | None = None):
+    # Store the device config, an adb client (a default one when omitted) and the Corellium instance behind it, if any.
+    def __init__(self, config=None, adb: AdbClient | None = None, corellium: CorelliumConnection | None = None):
         self.config = config
         self.adb = adb or AdbClient()
+        self.corellium = corellium
 
     # Return this client; adb needs no explicit connection.
     def connect(self):
@@ -39,3 +52,9 @@ class AndroidDeviceClient:
     def quit(self) -> None:
         logger.debug("android device: quit")
         return None
+
+    # Release the device once testing is done, powering off its Corellium instance when auto_stop is set.
+    def release(self) -> None:
+        self.quit()
+        if self.corellium is not None:
+            stop_corellium(self.corellium)
