@@ -44,21 +44,22 @@ class ForegroundDriver:
     ("foreground", "expected"),
     [
         ("com.android.vending", "INCONCLUSIVE"),
-        ("com.android.chrome", "BLOCKED (Redirected to Browser"),
-        ("com.google.android.apps.nexuslauncher", "BLOCKED (App exited to Home Screen"),
-        ("com.huawei.android.launcher", "BLOCKED (App exited to Home Screen"),
-        ("com.example.other", "BLOCKED (Switched to unknown app"),
+        ("com.android.chrome", "INCONCLUSIVE (Redirected to Browser"),
+        ("com.google.android.apps.nexuslauncher", "INCONCLUSIVE (App exited to Home Screen"),
+        ("com.huawei.android.launcher", "INCONCLUSIVE (App exited to Home Screen"),
+        ("com.example.other", "INCONCLUSIVE (Switched to unknown app"),
         ("com.android.permissioncontroller", "INCONCLUSIVE (A system prompt covered the app"),
         ("com.google.android.permissioncontroller", "INCONCLUSIVE (A system prompt covered the app"),
         ("com.example.app", "Unknown"),
     ],
 )
-def test_only_a_real_hand_off_counts_as_blocking_screen_capture(foreground, expected):
+def test_foreground_hand_offs_do_not_prove_capture_was_blocked(foreground, expected):
     driver = ForegroundDriver(foreground)
 
     verdict = AndroidScreenCaptureRisk()._check_app_switch(driver, "com.example.app")
 
     assert verdict.startswith(expected)
+    assert driver.terminated == []
 
 
 def test_a_store_redirect_is_inconclusive_not_reduced_risk():
@@ -77,7 +78,7 @@ def test_a_redirect_to_any_store_app_is_inconclusive(store_package, store_name):
     verdict = risk._check_app_switch(ForegroundDriver(store_package), "com.example.app")
 
     assert verdict.startswith(f"INCONCLUSIVE (Redirected to {store_name}")
-    assert risk._check_app_switch(ForegroundDriver("com.huawei.appmarket"), "com.example.app").startswith("BLOCKED (Switched to unknown app")
+    assert risk._check_app_switch(ForegroundDriver("com.huawei.appmarket"), "com.example.app").startswith("INCONCLUSIVE (Switched to unknown app")
 
 
 def test_a_permission_prompt_is_inconclusive_and_left_open():
@@ -169,7 +170,7 @@ class FakeHelper:
         self.calls.append("stop")
 
 
-def run_with(tmp_path, monkeypatch, helper, *, flags="HARDWARE_ACCELERATED", foreground="com.example.app"):
+def run_with(tmp_path, monkeypatch, helper, *, flags="HARDWARE_ACCELERATED", foreground="com.example.app", driver=None):
     monkeypatch.setattr(screen_capture, "CaptureHelper", helper)
 
     def adb_run(args, timeout=None):
@@ -179,7 +180,7 @@ def run_with(tmp_path, monkeypatch, helper, *, flags="HARDWARE_ACCELERATED", for
             return 0, f"{'c' * 64}  /data/app/x/base.apk\n", ""
         return 0, window_dump(("com.example.app", flags)), ""
 
-    device_client = SimpleNamespace(make_driver=lambda: AppDriver(foreground), adb=SimpleNamespace(run=adb_run))
+    device_client = SimpleNamespace(make_driver=lambda: driver if driver is not None else AppDriver(foreground), adb=SimpleNamespace(run=adb_run))
     app_config = SimpleNamespace(id="example", name="Example", package_name="com.example.app", risks={})
     global_config = SimpleNamespace(screen_capture={"launch_wait": 0, "record_lead_in": 0})
     return AndroidScreenCaptureRisk().run(app_config, global_config, device_client, FakeReportWriter(tmp_path))
@@ -223,13 +224,89 @@ def test_a_recording_blank_before_launch_cannot_judge_the_app(tmp_path, monkeypa
     assert "already blank on the home screen" in result.metadata["verdict"]
 
 
-def test_a_redirect_is_judged_by_the_app_switch_and_its_frame_kept(tmp_path, monkeypatch):
-    result = run_with(tmp_path, monkeypatch, FakeHelper([CONTENT, CONTENT]), foreground="com.android.chrome")
+@pytest.mark.parametrize("foreground", ["com.android.chrome", "com.android.launcher3", "com.example.other"])
+def test_a_redirect_is_inconclusive_and_its_frame_kept(tmp_path, monkeypatch, foreground):
+    result = run_with(tmp_path, monkeypatch, FakeHelper([CONTENT, CONTENT]), foreground=foreground)
 
-    assert result.final_status == "SCREEN_CAPTURE_BLOCKED"
-    assert result.metadata["verdict"] == "BLOCKED (Redirected to Browser: com.android.chrome)"
+    assert result.final_status == "SCREEN_CAPTURE_NOT_TESTED"
+    assert result.verdict == "Inconclusive"
+    assert result.metadata["verdict"].startswith("INCONCLUSIVE")
     assert "flag_secure" not in result.metadata
     assert len(result.evidence) == 2
+
+
+@pytest.mark.parametrize("foreground", ["com.example.app", "com.android.chrome"])
+def test_a_broken_recording_cannot_be_overridden_by_a_redirect_or_warning(tmp_path, monkeypatch, foreground):
+    driver = AppDriver(foreground)
+    driver.page_source = '<Text text="USB debugging detected. Screen recording is prohibited."/>'
+
+    result = run_with(tmp_path, monkeypatch, FakeHelper([BLANK, CONTENT]), driver=driver)
+
+    assert result.final_status == "FAILED"
+    assert result.verdict == "Inconclusive"
+    assert "already blank on the home screen" in result.metadata["verdict"]
+    assert len(result.evidence) == 2
+
+
+@pytest.mark.parametrize(
+    ("source", "observation", "keyword"),
+    [
+        ('<Text text="USB debugging detected"/>', "debugging_keywords", "usb debugging"),
+        ('<Text text="Screen recording detected"/>', "capture_keywords", "screen recording"),
+        ('<Text text="Screen sharing is prohibited"/>', "capture_keywords", "screen sharing"),
+    ],
+)
+@pytest.mark.parametrize(("frame", "status", "verdict"), [(CONTENT, "SCREEN_CAPTURE_ALLOWED", "At Risk"), (BLANK, "SCREEN_CAPTURE_BLOCKED", "Reduced Risk")])
+def test_warning_keywords_are_observations_and_the_recording_decides(tmp_path, monkeypatch, source, observation, keyword, frame, status, verdict):
+    driver = AppDriver("com.example.app")
+    driver.page_source = source
+
+    result = run_with(tmp_path, monkeypatch, FakeHelper([CONTENT, frame]), driver=driver)
+
+    assert result.final_status == status
+    assert result.verdict == verdict
+    assert keyword in result.metadata["ui_observations"][observation]
+    assert len(result.evidence) == 2
+
+
+def test_visible_content_is_at_risk_even_when_flag_secure_is_reported(tmp_path, monkeypatch):
+    result = run_with(tmp_path, monkeypatch, FakeHelper([CONTENT, CONTENT]), flags="SECURE")
+
+    assert result.final_status == "SCREEN_CAPTURE_ALLOWED"
+    assert result.verdict == "At Risk"
+    assert result.metadata["flag_secure"] is True
+
+
+class UnreadableForegroundDriver(AppDriver):
+    def __init__(self):
+        self.terminated = []
+
+    @property
+    def current_package(self):
+        raise RuntimeError("foreground query failed")
+
+
+def test_an_unreadable_foreground_cannot_classify_an_unattributed_frame(tmp_path, monkeypatch):
+    result = run_with(tmp_path, monkeypatch, FakeHelper([CONTENT, CONTENT]), driver=UnreadableForegroundDriver())
+
+    assert result.final_status == "FAILED"
+    assert result.verdict == "Inconclusive"
+    assert "foreground query failed" in result.metadata["verdict"]
+    assert len(result.evidence) == 2
+
+
+class UnreadableSourceDriver(AppDriver):
+    @property
+    def page_source(self):
+        raise RuntimeError("UI query failed")
+
+
+def test_unavailable_ui_keywords_do_not_override_capture_evidence(tmp_path, monkeypatch):
+    result = run_with(tmp_path, monkeypatch, FakeHelper([CONTENT, CONTENT]), driver=UnreadableSourceDriver("com.example.app"))
+
+    assert result.final_status == "SCREEN_CAPTURE_ALLOWED"
+    assert result.verdict == "At Risk"
+    assert "UI query failed" in result.metadata["ui_observations"]["error"]
 
 
 def test_a_helper_that_cannot_start_fails_the_run_and_stops_nothing(tmp_path, monkeypatch):

@@ -53,9 +53,9 @@ Each test's `report.json` (and `logs.txt`) carries one of these precise statuses
 
 - `APK_ANALYSIS_COMPLETE`: the APK was analysed; reported as At Risk, since the analysis itself shows the APK's contents are exposed.
 - `APK_NOT_FOUND`: no APK in `artifacts/intake/android/apks/` has the app's package name, or `aapt`/`aapt2` is not on `PATH` to read it. Reported as Inconclusive.
-- `SCREEN_CAPTURE_ALLOWED`: UI was visible and no secure-window signal was detected.
-- `SCREEN_CAPTURE_BLOCKED`: app redirected to a browser or another app, warned, exited, or set `FLAG_SECURE`.
-- `SCREEN_CAPTURE_NOT_TESTED`: app redirected to the app store instead of opening, or a system permission prompt covered it, so screen capture was not tested. Reported as Inconclusive. For a store redirect, reinstall the app from that store and run the test again; for a permission prompt, set `runner.auto_grant_permissions: true` (or grant the permission on the device) and run it again.
+- `SCREEN_CAPTURE_ALLOWED`: the recording captured content while the target app remained in the foreground; UI warnings and `FLAG_SECURE` do not override the recording.
+- `SCREEN_CAPTURE_BLOCKED`: the target app remained in the foreground and its recorded frame was blank, with a working pre-launch recording.
+- `SCREEN_CAPTURE_NOT_TESTED`: the app exited, redirected to another app, or a system permission prompt covered it. Reported as Inconclusive because these observations do not prove capture protection. Check that the app works on this device and inspect the captured frame. For a store redirect, check its installation requirements; for a permission prompt, set `runner.auto_grant_permissions: true` (or grant the permission on the device) and run it again.
 - `REPACKAGING_SURVIVED`: repackaged app installed and passed basic launch validation.
 - `REPACKAGING_BLOCKED`: repackaged app installed but failed validation.
 - `REPACKAGING_FAILED`: backup, decode, patch, rebuild, sign, or install failed.

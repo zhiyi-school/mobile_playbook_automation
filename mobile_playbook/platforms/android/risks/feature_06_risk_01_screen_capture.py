@@ -112,8 +112,8 @@ class AndroidScreenCaptureRisk(AndroidRisk):
             report_writer.write_result(result, report_dir)
         return result
 
-    # Launch the app while recording, save a frame, and return the first conclusive observation from the app switch
-    # and UI keyword checks, else whether the recording captured the app, with the frame; FLAG_SECURE is recorded alongside.
+    # Classify the recorded frame only when recording works and the target remains in the foreground.
+    # Record UI keywords and FLAG_SECURE as observations, since neither proves capture was prevented.
     def _test_app(self, driver, device_client, helper: CaptureHelper, before_launch: Frame, package_name: str, cfg: dict, result: AndroidRiskRunResult) -> tuple[str, Frame | None]:
         try:
             logger.debug("%s[%s]: activating app", self.risk_id, package_name)
@@ -122,9 +122,12 @@ class AndroidScreenCaptureRisk(AndroidRisk):
             logger.debug("%s[%s]: activate_app failed: %s", self.risk_id, package_name, exc, exc_info=True)
             return f"ERROR: failed to launch app - {exc}", None
         time.sleep(float(cfg.get("launch_wait", 4)))
-        # Snap before the checks, which close any app the target handed the screen to.
+        # Preserve the recorded screen even when the target has exited or redirected.
         app_open = helper.snap("app_open")
 
+        capture_verdict = _capture_verdict(before_launch, app_open)
+        if capture_verdict.startswith("ERROR"):
+            return capture_verdict, app_open
         verdict = self._check_app_switch(driver, package_name)
         logger.debug("%s[%s]: app switch check -> %s", self.risk_id, package_name, verdict)
         if verdict != "Unknown":
@@ -132,15 +135,9 @@ class AndroidScreenCaptureRisk(AndroidRisk):
         flag_check = self._check_flag_secure(device_client, package_name)
         result.metadata["flag_secure"] = True if flag_check.startswith("BLOCKED") else False if flag_check.startswith("ALLOWED") else None
         logger.debug("%s[%s]: FLAG_SECURE check -> %s", self.risk_id, package_name, flag_check)
-        verdict = self._check_ui_keywords(driver, DEBUGGING_KEYWORDS, "BLOCKED (USB debugging detected in UI)")
-        logger.debug("%s[%s]: debugging keyword check -> %s", self.risk_id, package_name, verdict)
-        if verdict == "Unknown":
-            verdict = self._check_ui_keywords(driver, CAPTURE_KEYWORDS, "BLOCKED (Screen capture warning detected in UI)")
-            logger.debug("%s[%s]: capture keyword check -> %s", self.risk_id, package_name, verdict)
-        if verdict == "Unknown":
-            verdict = _capture_verdict(before_launch, app_open)
-            logger.debug("%s[%s]: recorded frames before=%s app=%s -> %s", self.risk_id, package_name, before_launch, app_open, verdict)
-        return verdict, app_open
+        result.metadata["ui_observations"] = self._read_ui_observations(driver)
+        logger.debug("%s[%s]: recorded frames before=%s app=%s -> %s", self.risk_id, package_name, before_launch, app_open, capture_verdict)
+        return capture_verdict, app_open
 
     # Copy the recorded frames into the report as evidence and record how blank each was.
     def _record_frames(self, helper: CaptureHelper, frames: list[Frame | None], report_dir: Path, result: AndroidRiskRunResult) -> None:
@@ -163,14 +160,14 @@ class AndroidScreenCaptureRisk(AndroidRisk):
         except Exception as exc:
             logger.debug("%s[%s]: terminate_app failed: %s", self.risk_id, package_name, exc, exc_info=True)
 
-    # Return a BLOCKED observation when the app hands the foreground to a browser, launcher or other app; an app
-    # store redirect or a system prompt over the app is INCONCLUSIVE, since the app's screen was never examined.
+    # Treat every foreground hand-off as inconclusive, since an exit or redirect does not establish capture protection.
+    # Leave other apps open, and report a failed foreground query as an automation error.
     def _check_app_switch(self, driver, package_name: str) -> str:
         try:
             current_package = driver.current_package
         except Exception as exc:
             logger.debug("%s[%s]: reading current_package failed: %s", self.risk_id, package_name, exc, exc_info=True)
-            return "Unknown"
+            return f"ERROR (Could not determine the foreground app: {exc})"
         logger.debug("%s[%s]: foreground package after launch is %s", self.risk_id, package_name, current_package)
         if current_package == package_name:
             return "Unknown"
@@ -179,24 +176,26 @@ class AndroidScreenCaptureRisk(AndroidRisk):
         if current_package in STORE_APPS:
             verdict = f"INCONCLUSIVE (Redirected to {STORE_APPS[current_package]} - the app did not open, so screen capture was not tested)"
         elif current_package in BROWSER_PACKAGES:
-            verdict = f"BLOCKED (Redirected to Browser: {current_package})"
+            verdict = f"INCONCLUSIVE (Redirected to Browser: {current_package} - screen capture was not tested)"
         elif current_package in LAUNCHER_PACKAGES:
-            verdict = "BLOCKED (App exited to Home Screen - likely security check)"
+            verdict = "INCONCLUSIVE (App exited to Home Screen - the cause was not established, so screen capture was not tested)"
         else:
-            verdict = f"BLOCKED (Switched to unknown app: {current_package})"
-        self._close_app(driver, current_package)
+            verdict = f"INCONCLUSIVE (Switched to unknown app: {current_package} - screen capture was not tested)"
         return verdict
 
-    # Return the block message when the page source contains any keyword, else Unknown.
-    def _check_ui_keywords(self, driver, keywords: list[str], block_message: str) -> str:
+    # Preserve warning-keyword matches as supporting evidence without changing the frame-based verdict.
+    def _read_ui_observations(self, driver) -> dict:
         try:
             source = driver.page_source.lower()
         except Exception as exc:
             logger.debug("%s: reading page_source failed: %s", self.risk_id, exc, exc_info=True)
-            return "Unknown"
-        matched = [keyword for keyword in keywords if keyword in source]
-        logger.debug("%s: page_source %s chars, keywords matched=%s of %s", self.risk_id, len(source), matched, keywords)
-        return block_message if any(keyword in source for keyword in keywords) else "Unknown"
+            return {"error": f"Could not read the app UI: {exc}"}
+        observations = {
+            "debugging_keywords": [keyword for keyword in DEBUGGING_KEYWORDS if keyword in source],
+            "capture_keywords": [keyword for keyword in CAPTURE_KEYWORDS if keyword in source],
+        }
+        logger.debug("%s: page_source %s chars, keyword observations=%s", self.risk_id, len(source), observations)
+        return observations
 
     # Check the app's own windows in the window dump for FLAG_SECURE and report BLOCKED, ALLOWED or an error.
     def _check_flag_secure(self, device_client, package_name: str) -> str:
