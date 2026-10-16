@@ -3,6 +3,8 @@ from __future__ import annotations
 import pytest
 
 from mobile_playbook.platforms.android.acquisition.apk import install_from_apk
+from mobile_playbook.platforms.android.device.install import STAGING_DIR
+from tests.platforms.android.install_helpers import answer_apk_copy, is_pm_install
 
 PACKAGE = "com.example.app"
 
@@ -14,21 +16,24 @@ class FakeAdb:
         self.install_result = install_result
         self.installed: set[str] = set()
         self.commands: list[list[str]] = []
+        self.copied: dict[str, int] = {}
 
     def run(self, args, timeout=None):
         self.commands.append(list(args))
+        if copy := answer_apk_copy(args, self.copied):
+            return copy
         if args[:4] == ["shell", "pm", "list", "packages"] and "-i" not in args:
             return (0, f"package:{args[4]}", "") if args[4] in self.installed else (0, "", "")
         if args[:4] == ["shell", "settings", "get", "secure"]:
             return 0, self.confirm, ""
-        if args[0] in ("install", "install-multiple"):
+        if is_pm_install(args):
             if self.install_result[0] == 0 and self.installs:
                 self.installed.add(self.installs)
             return self.install_result
         return 0, "", ""
 
     def install_commands(self):
-        return [command for command in self.commands if command[0].startswith("install")]
+        return [command for command in self.commands if is_pm_install(command)]
 
 
 APK_NAME = "Example_App_1.0.apk"
@@ -55,7 +60,8 @@ def test_the_intake_apk_is_installed(tmp_path, write_apk):
     outcome = install(adb, tmp_path)
 
     assert outcome.status == "installed"
-    assert adb.install_commands() == [["install", "-r", str(tmp_path / APK_NAME)]]
+    assert ["push", str(tmp_path / APK_NAME), f"{STAGING_DIR}/0.apk"] in adb.commands
+    assert adb.install_commands() == [["shell", "pm", "install", "-r", f"{STAGING_DIR}/0.apk"]]
 
 
 def test_split_apk_folders_are_not_installed(tmp_path, apk_metadata):

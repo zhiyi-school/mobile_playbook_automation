@@ -17,7 +17,9 @@ from mobile_playbook.platforms.android.device.capture_helper import (
     Frame,
     helper_apk_path,
 )
+from mobile_playbook.platforms.android.device.install import STAGING_DIR
 from mobile_playbook.platforms.android.preflight import check_requirements
+from tests.platforms.android.install_helpers import answer_apk_copy, is_pm_install
 
 
 class HelperAdb:
@@ -29,6 +31,7 @@ class HelperAdb:
         self.on_command = on_command
         self.install_result = install_result
         self.commands: list[list[str]] = []
+        self.copied: dict[str, int] = {}
 
     def run(self, args, timeout=None):
         self.commands.append(list(args))
@@ -36,7 +39,9 @@ class HelperAdb:
             self.on_command(self, args)
         if args[:3] == ["shell", "dumpsys", "package"]:
             return (0, f"  versionCode=1\n  versionName={self.version}\n", "") if self.version else (0, "", "")
-        if args[0] in {"install", "install-multiple"}:
+        if copy := answer_apk_copy(args, self.copied):
+            return copy
+        if is_pm_install(args):
             return self.install_result
         if args[:2] == ["shell", "cat"]:
             name = args[2].rsplit("/", 1)[1]
@@ -116,7 +121,7 @@ def test_the_current_helper_is_not_reinstalled(tmp_path):
 
     CaptureHelper(adb, tmp_path / "missing.apk").ensure_installed()
 
-    assert not any(command[0] == "install" for command in adb.commands)
+    assert not any(is_pm_install(command) for command in adb.commands)
 
 
 def test_a_missing_or_old_helper_is_installed_from_the_apk(tmp_path):
@@ -126,7 +131,8 @@ def test_a_missing_or_old_helper_is_installed_from_the_apk(tmp_path):
 
     CaptureHelper(adb, apk).ensure_installed()
 
-    assert ["install", "-r", "-g", str(apk)] in adb.commands
+    assert ["push", str(apk), f"{STAGING_DIR}/0.apk"] in adb.commands
+    assert ["shell", "pm", "install", "-r", "-g", f"{STAGING_DIR}/0.apk"] in adb.commands
 
 
 def test_a_helper_that_is_neither_installed_nor_built_says_how_to_build_it(tmp_path):

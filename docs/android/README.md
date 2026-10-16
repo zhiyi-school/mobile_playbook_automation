@@ -126,7 +126,8 @@ Restart the API and the assessment worker after changing it.
 
 ### APKs over adb
 
-The `apk` method installs the app's intake APK with `adb install -r`; no
+The `apk` method copies the app's intake APK to the device with `adb push`
+and installs it with `pm install -r`; no
 runtime permissions are granted. It needs no Appium session and no store
 account. It does not check who signed the APK, so put only APKs from a trusted
 source in the intake folder. An app pulled from a device that installed it from

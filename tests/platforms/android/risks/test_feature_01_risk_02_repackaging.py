@@ -10,6 +10,7 @@ from mobile_playbook.platforms.android.acquisition.store import APP_STORES
 from mobile_playbook.platforms.android.models import AndroidDeviceConfig, AndroidRiskRunResult
 from mobile_playbook.platforms.android.risks import feature_01_risk_02_repackaging as repackaging
 from mobile_playbook.platforms.android.risks.feature_01_risk_02_repackaging import AndroidRepackagingRisk, StageFailure
+from tests.platforms.android.install_helpers import answer_apk_copy, is_pm_install
 
 PACKAGE = "com.example.app"
 
@@ -18,10 +19,13 @@ class FakeAdb:
     def __init__(self, install_result=(0, "Success", "")):
         self.install_result = install_result
         self.commands: list[list[str]] = []
+        self.copied: dict[str, int] = {}
 
     def run(self, args, timeout=None):
         self.commands.append(args)
-        if args[0] in {"install", "install-multiple"}:
+        if copy := answer_apk_copy(args, self.copied):
+            return copy
+        if is_pm_install(args):
             return self.install_result
         return 0, "Success", ""
 
@@ -136,7 +140,9 @@ class DeviceAdb(FakeAdb):
 
     def run(self, args, timeout=None):
         self.commands.append(args)
-        if args[0] in {"install", "install-multiple"}:
+        if copy := answer_apk_copy(args, self.copied):
+            return copy
+        if is_pm_install(args):
             return (1, "", "Failure [INSTALL_FAILED_REFUSED]") if self.refuse_install(args) else (0, "Success", "")
         if args[:3] == ["shell", "pm", "path"]:
             return 0, f"package:/data/app/{PACKAGE}/base.apk\n", ""
@@ -160,7 +166,7 @@ def store_that(outcome, calls):
 
 
 def installs(adb):
-    return [command for command in adb.commands if command[0].startswith("install")]
+    return [command for command in adb.commands if is_pm_install(command)]
 
 
 def test_restore_reinstalls_the_backed_up_build_with_its_installer(tmp_path):
@@ -179,7 +185,7 @@ def test_restore_reinstalls_the_backed_up_build_with_its_installer(tmp_path):
         "base_apk_sha256": ORIGINAL_SHA,
         "matches_original": True,
     }
-    assert ["-i", "com.android.vending"] == installs(adb)[0][3:5]
+    assert ["-i", "com.android.vending"] == installs(adb)[0][5:7]
     assert store_calls == []
     assert result.errors == []
 
