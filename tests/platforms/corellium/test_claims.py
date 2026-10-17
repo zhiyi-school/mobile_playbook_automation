@@ -194,6 +194,11 @@ class BlockAndroid(importlib.abc.MetaPathFinder):
         if fullname.startswith(('mobile_playbook.platforms.android', 'appium', 'selenium')):
             raise AssertionError('Platform dependency imported: ' + fullname)
 sys.meta_path.insert(0, BlockAndroid())
-from mobile_playbook.platforms.corellium import client, selection, claims, lifecycle
+import importlib, pkgutil
+import mobile_playbook.platforms.corellium as package
+names = [info.name for info in pkgutil.iter_modules(package.__path__)]
+assert {'client', 'selection', 'claims', 'lifecycle', 'profile'} <= set(names), names
+for name in names:
+    importlib.import_module(f'{package.__name__}.{name}')
 """
     subprocess.run([sys.executable, "-c", script], check=True, capture_output=True, text=True, timeout=10)

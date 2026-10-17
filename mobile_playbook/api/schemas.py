@@ -9,6 +9,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, RootModel
 
 Platform = Literal["ios", "android"]
+DeviceRole = Literal["non_rooted", "rooted"]
 
 
 class FeatureUpdateRequest(BaseModel):

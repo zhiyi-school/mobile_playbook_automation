@@ -202,3 +202,29 @@ def test_no_worker_leaves_the_worker_alone(monkeypatch, tmp_path, worker_agent):
 
     assert events == ["start", "uvicorn"]
     assert worker_agent == []
+
+
+def test_startup_recovers_abandoned_corellium_devices_off_the_serving_thread(monkeypatch, tmp_path):
+    import threading
+
+    events = []
+    recovered = threading.Event()
+    _configure_launcher(monkeypatch, tmp_path, AppiumStartResult(status="ALREADY_RUNNING"), events,
+                        lambda *args, **kwargs: events.append("uvicorn"))
+    monkeypatch.setattr(api_main, "recover_abandoned", lambda: recovered.set() or events.append("recover") or [])
+
+    api_main.main()
+
+    assert recovered.wait(5)
+    assert "uvicorn" in events and "recover" in events
+
+
+def test_a_failed_startup_recovery_is_logged_and_never_stops_the_server(monkeypatch, caplog):
+    def broken():
+        raise OSError("claim store unreadable")
+
+    monkeypatch.setattr(api_main, "recover_abandoned", broken)
+
+    api_main._recover_corellium_devices()
+
+    assert "Could not recover abandoned Corellium devices at startup" in caplog.text

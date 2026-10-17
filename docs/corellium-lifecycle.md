@@ -7,10 +7,18 @@ The existing authenticated REST client also retrieves PNG/JPEG screenshots and
 sends touch input. Platform adapters own debugging approval and device readiness;
 the Android adapter is described in [Android role connections](#android-role-connections).
 
-CLI, API and worker runs use the single-device integration described in
-[Android configuration](android/configuration.md#corellium-virtual-device);
-they do not call this baseline lifecycle. Physical-device behavior does not
-depend on it.
+An Android config with `device.corellium.roles` runs every CLI, API and worker
+assessment and every standalone install through this lifecycle; see
+[Runs, installs and readiness](#runs-installs-and-readiness) and
+[Baseline role devices](android/configuration.md#baseline-role-devices). A config
+without `roles` keeps the single-instance integration described in
+[Android configuration](android/configuration.md#corellium-virtual-device).
+Physical-device behavior does not depend on either.
+
+`profile.py` parses and validates the role-based profile from plain mappings:
+role selectors, the automation inventory keyed by exact instance ID, per-role
+settings the platform adapter reads, and lifecycle budgets. It reads no platform
+configuration classes, so another platform can reuse it.
 
 ## Resolve before claiming
 
@@ -235,6 +243,88 @@ Recovery returns the same pool: it never selects, restores, reinstalls, starts,
 stops or releases a device. The single-instance integration likewise reconnects
 adb to the instance it already uses instead of choosing one again.
 
+## Runs, installs and readiness
+
+`platforms/android/baseline_devices.py` ties the lifecycle to Android runs. The
+shared scan runner calls the platform's `connect_planned_device()` with the
+planned risks when any of them needs a device, so a static-only run claims,
+restores, starts and installs nothing. For a run that needs devices, in order:
+
+1. The runner derives the required roles from the selected apps and risks and
+   finds each app's intake APK (`intake_apk.find_intake_apk`) with its version
+   and SHA-256. A missing APK fails the run before any VM is touched.
+2. The profile is loaded; a required role it does not list fails the run
+   without substituting the other role. `resolve_roles()` resolves only the
+   required roles to exact instance and snapshot IDs.
+3. `claim_all()` claims every required VM under a fresh claim run ID
+   (`android-<run timestamp>-<random>`), and `prepare()` restores each baseline
+   once and starts it.
+4. `connect_claimed()` connects adb to each prepared VM, approving the debugging
+   prompt if needed.
+5. Each app's APK is installed with `install_apks()` on every role device whose
+   risks test it, before any risk runs. The package must then be installed and
+   report the APK's `versionName` and `versionCode`; otherwise setup fails. The
+   run's `artifacts` digest for the app is the installed APK's SHA-256, even
+   when an older pulled copy exists in the work folder.
+6. Risks run in their planned order, each on its role's device. Each result
+   written on a role device carries `metadata.device` with the role, instance
+   ID, baseline ID and the installed build's SHA-256, version and build number.
+   Risks write their evidence into the run folder as they go.
+7. At the end of the run, whether it passed, failed or was cancelled, the pool
+   quits its sessions and disconnects adb, then `cleanup()` confirms every VM
+   off independently. A failure to close sessions never skips the shutdown.
+
+A failure at any setup step after claiming, including before a device client
+exists, closes whatever connected and confirms every claimed VM off before the
+error propagates. A VM that does not confirm off keeps its claim as
+`cleanup_pending`; the other VM is still shut down and released. Shutdown
+outcomes are recorded apart from results and never change a verdict or the
+run's manifest status.
+
+Appium recovery reconnects each role's adb to its own instance and never
+restores, reinstalls, starts, stops, releases or selects a device.
+
+**Run events.** `events.jsonl` records `device_claimed` (role, instance,
+baseline, claim run ID), `device_prepared`, `device_connected`, `app_installed`
+(app, role, instance, package, version, build number, `artifact_sha256`, APK
+file name) and `device_cleanup` (role, instance, baseline, `off` or
+`cleanup_pending` with the error) alongside the existing `app_version` events.
+The claim store keeps the same identities and every phase in `history()`.
+
+**Standalone installs.** `install-app` and
+`POST /config/android/apps/{app_id}/install` claim one role device (`non_rooted`
+unless `--role rooted` or `?role=rooted` is given), restore and start it,
+install and verify the intake APK, and confirm it off, on success and on
+failure. An app without an intake APK fails as `app_unavailable` without touching
+a VM. The next assessment still restores its own baseline and installs its own
+build. Events and debugging-prompt diagnostics go to
+`<work>/android/apk/diagnostics/`.
+
+**Readiness.** `GET /config/android/apps/{app_id}/provisioning` checks only the
+roles the app's enabled risks need, with read-only calls: the profile,
+`resolve_roles()` (projects, instances and snapshots) and `pending()` from the
+claim store. It never claims, restores, starts, approves debugging or installs.
+The configuration stage is done once the app's intake APK exists, so a missing
+APK reads as `app_build_missing` and the assessment worker never runs its
+pre-run install for these configs. A required role reads as:
+
+| Role state | Readiness |
+| --- | --- |
+| Eligible VM on, or off/paused and startable | `device_ready: true` |
+| Role not configured, or the profile is invalid | `configuration_incomplete`, not retryable |
+| No eligible instance with a compatible baseline | `no_device`, naming the rooted or non-rooted device |
+| VM claimed by a run or awaiting cleanup | `platform_busy` |
+| Corellium API unreachable or credentials missing | `device_unreachable` |
+
+An unavailable rooted VM therefore blocks only apps with a risk that needs root.
+
+**Recovery.** `lifecycle.recover_abandoned()` reads Corellium credentials from
+the repository `.env`, returns at once without credentials or pending claims,
+and otherwise runs `recover()`. The API server calls it once on a background
+thread at startup, and the assessment worker calls it every five minutes from
+its polling loop with three-minute power budgets, so an outage delays polling
+briefly and leaves cleanup pending for the next pass. Both log each outcome.
+
 ## Tests
 
 ```bash
@@ -242,6 +332,8 @@ python -m pytest -q tests/platforms/corellium
 python -m pytest -q tests/platforms/android/test_device_roles.py \
   tests/platforms/android/test_runner_roles.py tests/platforms/android/device/test_adb_connection.py \
   tests/platforms/android/device/test_debugging_prompt.py tests/platforms/android/device/test_pool.py
+python -m pytest -q tests/platforms/android/test_baseline_runs.py tests/api/test_corellium_baselines.py \
+  tests/platforms/android/test_config.py tests/test_cli.py tests/workers/test_assessment_worker.py
 ```
 
 Tests use fake APIs, synthetic snapshots, temporary stores and separate Python
@@ -261,3 +353,14 @@ boot and root-state checks, recognised and unfamiliar prompts in both
 orientations, approval timeouts with diagnostics, and Appium recovery on the same
 instances without preparation. These checks do not qualify actual Android images
 or debugging dialogs.
+
+The run, install and readiness tests use `tests/platforms/android/baseline_fakes.py`:
+the synthetic Corellium API, a synthetic adb server that installs APKs, a
+synthetic intake APK and a real baseline config. They cover non-rooted-only,
+rooted-only, mixed and static-only runs, installation after restoration and
+before the first risk, version verification, recorded artifact digests and result
+metadata, missing APKs and roles, an unavailable VM without substitution, setup
+failures after preparation, one failed shutdown, failed session closing,
+cancellation and Appium recovery without restoration, through `run_platform`,
+the CLI, `POST /runs`, the install endpoint and CLI command, readiness and the
+assessment worker, plus recovery at API startup and in the worker loop.

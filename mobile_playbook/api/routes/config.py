@@ -15,6 +15,7 @@ from mobile_playbook.api.dependencies import load_config_or_400
 from mobile_playbook.api.services import artifacts as artifact_service
 from mobile_playbook.api.schemas import (
     ConfigAppRequest,
+    DeviceRole,
     DeviceUpdateRequest,
     Platform,
     RiskSettingsUpdateRequest,
@@ -109,11 +110,12 @@ def get_app_provisioning(platform: Platform, app_id: str) -> dict:
     return provisioning.describe(platform, app_id)
 
 
-# Install an Android app with the configured install method if it is missing, holding the device while it does.
+# Install an Android app with the configured install method if it is missing, holding the device while it does;
+# with Corellium baselines, role picks the device to restore, install on and shut down.
 @router.post("/config/{platform}/apps/{app_id}/install")
-def install_config_app(platform: Platform, app_id: str) -> dict:
-    logger.debug("api: POST /config/%s/apps/%s/install.", platform, app_id)
-    return app_install.install_app(platform, app_id)
+def install_config_app(platform: Platform, app_id: str, role: DeviceRole | None = None) -> dict:
+    logger.debug("api: POST /config/%s/apps/%s/install (role=%s).", platform, app_id, role)
+    return app_install.install_app(platform, app_id, role)
 
 
 # List an iOS app's intake builds, highest version first, with the version a run uses by default.

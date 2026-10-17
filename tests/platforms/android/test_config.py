@@ -153,3 +153,41 @@ def test_android_unknown_device_provider_is_refused():
     config = parse_config({"device": {"provider": "emulator"}, "apps": ["com.example.parking"]})
 
     assert collect_config_errors(config) == ["device.provider must be one of: physical, corellium"]
+
+
+def _baseline_device(**overrides):
+    corellium = {
+        "auto_start": True,
+        "auto_stop": True,
+        "roles": {"non_rooted": {"project": "automation", "instance": "stock-id", "adb_port": 5001}},
+        "baselines": {"stock-id": {"rooted": False, "os_version": "16.0.0", "osbuild": "r2 user", "snapshot_id": "snap"}},
+    }
+    return {"provider": "corellium", "app_store": "apk", "corellium": corellium, **overrides}
+
+
+def test_android_corellium_baseline_roles_are_valid_with_apk_installs():
+    config = parse_config({"device": _baseline_device(), "apps": ["com.example.parking"]})
+
+    assert collect_config_errors(config) == []
+
+
+def test_android_corellium_baseline_roles_need_apk_installs_and_valid_adb_overrides():
+    device = _baseline_device(app_store="play_store")
+    device["corellium"]["roles"]["non_rooted"].update(adb_port="5001", adb_address=5001)
+    config = parse_config({"device": device, "apps": ["com.example.parking"]})
+
+    assert collect_config_errors(config) == [
+        "device.corellium.roles.non_rooted.adb_port must be a positive whole number",
+        "device.corellium.roles.non_rooted.adb_address must be host:port text",
+        "device.app_store must be apk when device.corellium.roles is set, because each run installs the intake APK on its restored devices",
+    ]
+
+
+def test_android_baseline_roles_are_ignored_while_the_provider_stays_physical():
+    device = _baseline_device(provider="physical", app_store="play_store")
+    device["corellium"].pop("auto_stop")
+
+    config = parse_config({"device": device, "apps": ["com.example.parking"]})
+
+    assert config.device.provider == "physical"
+    assert collect_config_errors(config) == []

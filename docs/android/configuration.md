@@ -43,6 +43,8 @@ changing it in the file. See
 
 `provider` chooses what is tested: `physical` (the default when unset) uses the phone `adb_serial` selects, and `corellium` uses an Android virtual device on Corellium instead. Any other value fails config validation.
 
+`device.corellium` takes one of two forms. Without `roles`, it selects one instance that runs every risk and is used as it is, as described in this section. With `roles`, each run restores a non-rooted and, when a risk needs root, a rooted VM from known baselines and installs the build under test on them; see [Baseline role devices](#baseline-role-devices).
+
 ```yaml
 device:
   provider: "corellium"
@@ -90,6 +92,62 @@ The readiness check (`GET /config/android/apps/{app_id}/provisioning`) is polled
 - `app_store: "apk"` in most cases, because Corellium Android images do not include Google Play.
 
 The Corellium client in `mobile_playbook/platforms/corellium/` lists projects and instances, chooses one and powers it on and off without depending on Android, so iOS can reuse it.
+
+#### Baseline role devices
+
+With `roles`, a run claims each VM its selected risks need, restores the VM's baseline snapshot once, starts it, connects adb, installs the app's intake APK, runs the risks on their own VM and confirms every VM off at the end. A risk that lists `root` in its requirements runs on the `rooted` VM and every other device risk on the `non_rooted` VM; a run whose risks need no device touches no VM. The lifecycle is described in [shared Corellium lifecycle](../corellium-lifecycle.md#runs-installs-and-readiness).
+
+```yaml
+device:
+  provider: "corellium"
+  app_store: "apk"
+  corellium:
+    auto_start: true
+    auto_stop: true
+    boot_timeout_seconds: 600
+    restore_timeout_seconds: 600
+    roles:
+      non_rooted:
+        project: "android"
+        instance: "<NON_ROOTED_INSTANCE_ID>"
+        # os_version: "16"
+        # adb_address: "10.11.1.1:5001"
+      rooted:
+        project: "android"
+        instance: "<ROOTED_INSTANCE_ID>"
+    baselines:
+      "<NON_ROOTED_INSTANCE_ID>":
+        rooted: false
+        os_version: "16.0.0"
+        osbuild: "r2 user"
+        snapshot_id: "<SNAPSHOT_ID>"
+      "<ROOTED_INSTANCE_ID>":
+        rooted: true
+        os_version: "16.0.0"
+        osbuild: "r2 userdebug"
+        snapshot_id: "<SNAPSHOT_ID>"
+```
+
+- `roles.<role>`: `non_rooted` and/or `rooted`, each with a required `project` (name or id), an optional `instance` (exact id preferred; a name must be unique), an optional `os_version` prefix, and optional `adb_address` or `adb_port` overrides for that VM. Two roles never pin the same instance. A role that is not listed blocks only the runs whose risks need it.
+- `baselines`: the automation inventory, keyed by **exact instance id**. Only instances listed here can be selected, pinned or not. Each entry declares `rooted`, the instance's exact `os_version` and `osbuild` as Corellium reports them, and exactly one of `snapshot_id` or `snapshot_name`. `rooted` must match the build variant in `osbuild` (`userdebug` and `eng` are rooted), and every listed role needs at least one baseline of its rooted state. A name must match one snapshot of that instance; identical names on two instances are fine.
+- `auto_start` and `auto_stop` must both be written out as `true`: every run starts what it restores and confirms it off.
+- `boot_timeout_seconds` bounds each power-on and shutdown and `restore_timeout_seconds` each restore; both default to `600`.
+- `app_store` must be `apk`. Target apps stay outside the baselines, so each run installs the app's highest-version APK from `artifacts/intake/android/apks/` on every VM that tests it.
+- `project`, `rooted`, `instance` and `os_version` at the top of `device.corellium` belong to the single-instance form and are rejected next to `roles`.
+
+A role's VM is chosen only from the `baselines` entries whose snapshot exists, belongs to that instance and matches it. When the role's `instance` is unset, an idle running instance is preferred, then a paused one, then one that is off; a pinned `instance` never falls back to another VM.
+
+**Moving from a single instance.** Prepare and record a baseline for the instance (below), move its `project`, `instance` and `os_version` under `roles.non_rooted` (or `roles.rooted` when `rooted: true`), drop the top-level `rooted`, add the instance to `baselines`, set `auto_stop: true` and `app_store: "apk"`, and put each app's APK in the intake folder. Add a `rooted` role with its own VM and baseline when risks that need root should run. `device.provider: physical` ignores `device.corellium` entirely, so physical runs are unchanged by either form.
+
+**Preparing a baseline.** A baseline is a snapshot of one specific VM, taken after:
+
+- Android setup is complete, with a consistent language and orientation and no screen-lock credential;
+- USB debugging is enabled and this host's adb key (`$ANDROID_USER_HOME/adbkey.pub`, else `~/.android/adbkey.pub`) is authorized, so no prompt appears;
+- required companion apps, stable test certificates and supporting configuration are installed;
+- recordings, collected input and earlier test data are cleared;
+- no Appium, capture or interception session is active, and the target apps are not installed.
+
+An existing snapshot such as `automation-ready-v1` can serve its own instance once it has been checked against this list; the second VM needs its own snapshot. Creating or replacing a baseline is maintenance work done by hand in Corellium: keep the original snapshot, the active prepared baseline and the previous prepared baseline for each instance, and update `baselines` only after the replacement has passed a run. Runs restore snapshots and never create or delete them.
 
 ### Appium auto-start
 

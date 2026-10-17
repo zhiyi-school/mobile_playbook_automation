@@ -22,6 +22,8 @@ from mobile_playbook.orchestration.platform_runner import (
     iter_enabled_tests,
     requires_device,
 )
+from mobile_playbook.platforms.android import baseline_devices
+from mobile_playbook.platforms.android.baseline_devices import TaggedReportWriter, claim_run_id, intended_builds, uses_baselines
 from mobile_playbook.platforms.android.device.app_version import installed_version
 from mobile_playbook.platforms.android.device.client import open_device
 from mobile_playbook.platforms.android.device.corellium import reconnect_corellium
@@ -42,6 +44,15 @@ class AndroidPlatformRunner:
 
     platform = "android"
     acquires_builds_during_tests = True
+
+    # Keep the injectable Corellium boundaries; unset ones come from the repository .env and the host claim store.
+    def __init__(self, *, corellium_client=None, claim_store=None, lifecycle_policy=None, adb_policy=None, recognizer=None):
+        self.corellium_client = corellium_client
+        self.claim_store = claim_store
+        self.lifecycle_policy = lifecycle_policy
+        self.adb_policy = adb_policy
+        self.recognizer = recognizer
+        self._sessions: dict[int, baseline_devices.BaselineSession] = {}
 
     # Report whether any planned Android risk needs a connected device.
     def requires_device(self, config, selected_tests: set[str] | None, selected_apps: set[str] | None = None) -> bool:
@@ -89,9 +100,45 @@ class AndroidPlatformRunner:
                     logger.warning("Could not set the %s device to keep its screen on while charging; tests still wake it first.", role)
         return pool
 
-    # Release the device client at the end of a run, which powers off a Corellium instance when auto_stop is set.
+    # Connect the device the planned risks need. With Corellium baselines, claim, restore and start each required role
+    # device once, connect it and install the intended builds; a failure shuts the claimed devices down before raising.
+    def connect_planned_device(self, config, planned, run_dir: Path, run_timestamp: str):
+        if not uses_baselines(config):
+            return self.connect_device(config, run_dir)
+        plan = plan_risk_roles(planned, get_risk)
+        builds = intended_builds(plan)
+        session = baseline_devices.open_session(
+            config, required_roles(plan), builds, run_dir, claim_run_id(run_timestamp),
+            partial(self._connect_claimed, config, run_dir),
+            client=self.corellium_client, store=self.claim_store, policy=self.lifecycle_policy,
+        )
+        # The run's artifact digest then names the installed intake APK rather than an older pulled copy.
+        for build in {build.app_id: build for role_builds in builds.values() for build in role_builds}.values():
+            app = next(item for item, _ in planned if str(item.id) == build.app_id)
+            app.artifact = {**(app.artifact or {}), "apk": str(build.apk)}
+        self._sessions[id(session.pool)] = session
+        return session.pool
+
+    # Install apps on one role's restored Corellium device and shut it down, returning each app's install outcome.
+    def install_on_baseline(self, config, apps, role: str, work_dir: Path):
+        return baseline_devices.install_apps(
+            config, apps, role, work_dir, partial(self._connect_claimed, config, work_dir),
+            client=self.corellium_client, store=self.claim_store, policy=self.lifecycle_policy,
+        )
+
+    # Connect claimed and prepared role devices with this runner's adb policy and prompt recogniser.
+    def _connect_claimed(self, config, run_dir: Path, devices, prepared, client, role_settings) -> AndroidDevicePool:
+        return self.connect_role_devices(config, run_dir, devices, prepared, client, role_settings=role_settings,
+                                         policy=self.adb_policy, recognizer=self.recognizer)
+
+    # Release the device client at the end of a run: role devices are closed and confirmed off, and a single
+    # Corellium instance is powered off when auto_stop is set.
     def close_device(self, device_client) -> None:
         logger.debug("android runner: closing device client %s", type(device_client).__name__)
+        session = self._sessions.pop(id(device_client), None)
+        if session is not None:
+            session.close()
+            return
         device_client.release()
 
     # Return the device client, reconnecting when Appium has become unreachable mid-run. A Corellium device is
@@ -162,7 +209,10 @@ class AndroidPlatformRunner:
         started = time.monotonic()
         try:
             role = risk_role(risk)
+            session = self._sessions.get(id(device_client))
             device_client = self._route(device_client, role)
+            if session is not None and role is not None:
+                report_writer = TaggedReportWriter(report_writer, session.result_device(role, app.id))
             logger.debug("android runner: preflight for %s/%s requires=%s role=%s", app.id, test_id, getattr(risk, "requires", []), role)
             # The scan runner connects no device when no planned risk needs one, so device_client can be None here.
             adb = device_client.adb if device_client is not None else None

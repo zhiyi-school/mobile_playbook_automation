@@ -218,6 +218,24 @@ is installed by the worker; the install outcomes are listed in
 [Installing missing apps](android/README.md#installing-missing-apps). `configuration_incomplete` and
 `no_tests_enabled` will not clear on their own and need a config change.
 
+With Corellium baseline role devices (`device.corellium.roles`), `no_device`
+names the rooted or non-rooted VM that has no eligible instance with a
+compatible baseline, `platform_busy` also covers a VM still claimed by a run or
+awaiting shutdown cleanup, and a missing intake APK reads as
+`app_build_missing`. See
+[Runs, installs and readiness](corellium-lifecycle.md#runs-installs-and-readiness).
+
+### Corellium VMs awaiting cleanup
+
+A run, install or crashed process that could not confirm a Corellium VM off
+leaves its claim pending, which blocks reuse of that VM. The API server retries
+the shutdown once at startup and the assessment worker every five minutes, so
+nothing has to be done once Corellium is reachable again. Read the log for
+`Recovered Corellium instance` or `still awaits cleanup`. A claim made on another
+machine, or held by a process that is still running, is left alone. Never delete
+the claim store to clear a pending VM; see
+[Exclusive durable ownership](corellium-lifecycle.md#exclusive-durable-ownership).
+
 ### Shutting it down safely
 
 Send `SIGINT`/`SIGTERM`. The worker only ever holds a lease while deciding

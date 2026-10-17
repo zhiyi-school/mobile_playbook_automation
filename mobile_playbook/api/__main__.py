@@ -17,6 +17,7 @@ from uvicorn.config import LOGGING_CONFIG
 
 from mobile_playbook.api.settings import env_setting
 from mobile_playbook.orchestration.appium_server import ensure_appium_running, stop_appium
+from mobile_playbook.platforms.corellium.lifecycle import recover_abandoned
 from mobile_playbook.platforms.ios.config import load_config
 from mobile_playbook.common.storage_paths import config_path, ios_work_dir, resolve_under_repository
 from mobile_playbook.workers.launch_agent import (
@@ -70,6 +71,14 @@ def api_log_config(log_file: Path | None = None) -> dict[str, Any]:
     return config
 
 
+# Recover Corellium VMs whose owning process ended, logging rather than raising when recovery fails.
+def _recover_corellium_devices() -> None:
+    try:
+        recover_abandoned()
+    except Exception as exc:
+        logger.warning("Could not recover abandoned Corellium devices at startup: %s", exc)
+
+
 # Parse CLI options, ensure Appium is running, serve the API with the assessment worker, then stop what it started.
 def main() -> None:
     parser = argparse.ArgumentParser(prog="python -m mobile_playbook.api")
@@ -103,6 +112,8 @@ def main() -> None:
     if result.status == "FAILED":
         raise RuntimeError(result.error)
 
+    # Shutting down VMs abandoned by an earlier process can wait on Corellium, so it never delays serving.
+    threading.Thread(target=_recover_corellium_devices, name="corellium-recovery", daemon=True).start()
     cancel_worker_start = threading.Event()
     worker_start = None
     if not args.no_worker:

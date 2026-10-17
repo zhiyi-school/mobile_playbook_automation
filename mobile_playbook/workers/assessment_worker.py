@@ -21,6 +21,7 @@ from mobile_playbook.dashboard_sync.contracts import SupabaseRestError
 from mobile_playbook.dashboard_sync.supabase_store import SupabaseRestStore
 from mobile_playbook.common.env_file import load_env_file
 from mobile_playbook.common.logging_setup import log_level
+from mobile_playbook.platforms.corellium.lifecycle import LifecyclePolicy, recover_abandoned
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +31,10 @@ DEFAULT_POLL_SECONDS = 15.0
 BACKOFF_BASE_SECONDS = 30
 BACKOFF_MAX_SECONDS = 900
 MAX_ATTEMPTS = 20
+# How often the polling loop retries shutting down Corellium VMs that an ended run left pending cleanup.
+CORELLIUM_RECOVERY_SECONDS = 300.0
+# Shorter than a run's budgets, so an outage delays polling by minutes rather than ten; unfinished cleanup stays pending.
+CORELLIUM_RECOVERY_POLICY = LifecyclePolicy(restore_timeout=180, power_timeout=180, poll=5)
 # An install waits up to five minutes for the download or adb transfer, plus Appium start-up and page loads.
 INSTALL_REQUEST_TIMEOUT_SECONDS = 480.0
 
@@ -428,6 +433,16 @@ def process_once(
     return "started"
 
 
+# Retries cleanup of Corellium VMs abandoned by ended runs on this host, logging rather than raising on failure.
+def recover_corellium_devices() -> list[dict]:
+    try:
+        return recover_abandoned(CORELLIUM_RECOVERY_POLICY)
+    except Exception as exc:
+        logger.debug("assessment worker: Corellium recovery failed.", exc_info=True)
+        logger.warning("assessment worker: could not recover abandoned Corellium devices: %s", exc)
+        return []
+
+
 # Parses worker options, builds the Supabase store and polls for requests until stopped or --once completes.
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run queued assessment execution requests.")
@@ -476,7 +491,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         args.once,
     )
 
+    next_recovery = 0.0
     while True:
+        if time.monotonic() >= next_recovery:
+            recover_corellium_devices()
+            next_recovery = time.monotonic() + CORELLIUM_RECOVERY_SECONDS
         try:
             outcome = process_once(
                 store,

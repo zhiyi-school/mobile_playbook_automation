@@ -26,6 +26,8 @@ from mobile_playbook.orchestration.selection import (
 )
 from mobile_playbook.orchestration.appium_server import ensure_appium_running
 from mobile_playbook.platforms.android.acquisition.store import app_store_for
+from mobile_playbook.platforms.android.baseline_devices import uses_baselines
+from mobile_playbook.platforms.android.device_roles import NON_ROOTED
 from mobile_playbook.platforms.android.config import ConfigError as AndroidConfigError
 from mobile_playbook.platforms.android.config import load_config as load_android_config
 from mobile_playbook.platforms.android.results import normalize_android_result
@@ -102,6 +104,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     install_app.add_argument("--config", required=True)
     install_app.add_argument("--apps", default=None, help="Comma-separated app IDs; omit for every configured app")
+    install_app.add_argument(
+        "--role",
+        choices=("non_rooted", "rooted"),
+        default=None,
+        help="With device.corellium.roles: the role device to restore, install on and shut down (default non_rooted).",
+    )
 
     inspect = sub.add_parser("inspect-ipa")
     inspect.add_argument("--ipa", required=True)
@@ -288,7 +296,7 @@ def main(argv: list[str] | None = None) -> int:
             config = load_android_config(Path(args.config), dry_run=True)
             validate_app_selection(config.apps, selected_app_csv(args.apps))
             narrow_to_app_selection(config, args.apps)
-            return _install_apps(config)
+            return _install_apps(config, args.role)
         if args.command == "acquire":
             config = load_config(Path(args.config), dry_run=False)
             selected_apps = selected_app_csv(args.apps)
@@ -444,10 +452,16 @@ def _acquire(config, selected_apps: set[str] | None, out_dir: Path) -> int:
     return 0
 
 
-# Installs each missing app in the config with the configured install method, printing each outcome; 1 when any is not installed.
-def _install_apps(config) -> int:
+# Installs each missing app in the config with the configured install method, printing each outcome; 1 when any is not
+# installed. With Corellium baselines it restores the role device, installs each intake APK and shuts the device down.
+def _install_apps(config, role: str | None = None) -> int:
     store = app_store_for(config)
     work = android_work_dir() / store.key
+    if role is not None and not uses_baselines(config):
+        print("FAILED: --role needs device.corellium.roles in the Android config.", file=sys.stderr)
+        return 2
+    if uses_baselines(config):
+        return _print_installs(AndroidPlatformRunner().install_on_baseline(config, config.apps, role or NON_ROOTED, work / "diagnostics"))
     appium = ensure_appium_running(
         config.device.appium_server_url, getattr(config.device, "appium_auto_start", None), work / "appium.log"
     )
@@ -460,9 +474,16 @@ def _install_apps(config) -> int:
         print(f"FAILED: {exc}", file=sys.stderr)
         return 1
     adb = client.adb
+    return _print_installs(
+        (app, store.install_and_read_version(adb, client.make_driver, app.package_name, work / "diagnostics"))
+        for app in config.apps
+    )
+
+
+# Prints each app's install outcome with its version, detail and diagnostics; 1 when any app is not installed.
+def _print_installs(outcomes) -> int:
     exit_code = 0
-    for app in config.apps:
-        outcome = store.install_and_read_version(adb, client.make_driver, app.package_name, work / "diagnostics")
+    for app, outcome in outcomes:
         print(f"{app.id} ({app.package_name}): {outcome.blocker_code or outcome.status}")
         version = f"Version {outcome.version_name} (build {outcome.version_code or 'unknown'})" if outcome.version_name else None
         for line in (version, outcome.detail, f"Diagnostics: {outcome.diagnostics}" if outcome.diagnostics else None):

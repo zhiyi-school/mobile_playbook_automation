@@ -17,6 +17,28 @@ device:
     adb_port: 5001               # adb port on the instance's services address.
     # adb_address: "10.11.1.1:5001"  # Overrides the address taken from the instance, as its Connect tab shows it.
     boot_timeout_seconds: 600
+    # Alternatively, restore a non-rooted and a rooted VM from known baselines in every run. Replace the keys above
+    # from project to adb_address with the block below, set app_store to "apk" and keep auto_start and auto_stop true;
+    # see docs/android/configuration.md#baseline-role-devices.
+    # restore_timeout_seconds: 600
+    # roles:
+    #   non_rooted:
+    #     project: "REPLACE_WITH_CORELLIUM_PROJECT_NAME"
+    #     instance: "REPLACE_WITH_NON_ROOTED_INSTANCE_ID"
+    #   rooted:
+    #     project: "REPLACE_WITH_CORELLIUM_PROJECT_NAME"
+    #     instance: "REPLACE_WITH_ROOTED_INSTANCE_ID"
+    # baselines:                   # Exact instance ID -> the prepared snapshot restored before each run.
+    #   REPLACE_WITH_NON_ROOTED_INSTANCE_ID:
+    #     rooted: false
+    #     os_version: "16.0.0"     # Exactly as Corellium reports the instance.
+    #     osbuild: "r2 user"
+    #     snapshot_id: "REPLACE_WITH_SNAPSHOT_ID"
+    #   REPLACE_WITH_ROOTED_INSTANCE_ID:
+    #     rooted: true
+    #     os_version: "16.0.0"
+    #     osbuild: "r2 userdebug"
+    #     snapshot_id: "REPLACE_WITH_SNAPSHOT_ID"
   # How missing apps are installed: "apk" (adb, from the app's APK in artifacts/intake/android/apks/),
   # "play_store" (default) or "aurora_store".
   app_store: "play_store"

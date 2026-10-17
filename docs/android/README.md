@@ -115,6 +115,13 @@ Omit `--apps` to install every configured app that is missing. The command
 exits `1` when any app was not installed. An app already installed is left as
 it is, including an older version.
 
+With Corellium baseline role devices (`device.corellium.roles`), the worker
+never installs before a run: each run restores its VMs and installs the app's
+intake APK on them. `install-app` then restores the non-rooted VM, or the
+rooted one with `--role rooted`, installs each selected app's intake APK, checks
+its version and shuts the VM down again; see
+[Runs, installs and readiness](../corellium-lifecycle.md#runs-installs-and-readiness).
+
 `device.app_store` in `configs/android.yaml` chooses the install method.
 Restart the API and the assessment worker after changing it.
 

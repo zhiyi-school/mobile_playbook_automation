@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -17,6 +18,8 @@ from .client import (
     retry_read,
 )
 from .selection import ResolvedDevice, validate_snapshot
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -215,3 +218,25 @@ class CorelliumLifecycle:
     def _check_store(self, claims: ClaimSet) -> None:
         if claims.store.path != self.store.path:
             raise CorelliumError("Claims belong to a different Corellium ownership store")
+
+
+# Shut down and release claims that ended processes on this host left behind, logging each outcome; without
+# Corellium credentials or pending claims nothing is contacted.
+def recover_abandoned(policy: LifecyclePolicy | None = None) -> list[dict]:
+    try:
+        client = CorelliumClient.from_env()
+    except CorelliumError:
+        logger.debug("corellium recovery: no Corellium credentials; nothing to recover.")
+        return []
+    store = ClaimStore(client.api_url)
+    if not store.pending():
+        return []
+    outcomes = CorelliumLifecycle(client, store, policy).recover()
+    for outcome in outcomes:
+        if outcome["status"] == "off":
+            logger.info("Recovered Corellium instance %s: confirmed off and released.", outcome["instance_id"])
+        elif outcome["status"] == "cleanup_pending":
+            logger.warning("Corellium instance %s still awaits cleanup: %s", outcome["instance_id"], outcome.get("error"))
+        else:
+            logger.info("Left Corellium instance %s alone (%s).", outcome["instance_id"], outcome["status"])
+    return outcomes

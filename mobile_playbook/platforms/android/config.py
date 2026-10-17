@@ -25,6 +25,7 @@ from mobile_playbook.platforms.android.models import (
 )
 from mobile_playbook.platforms.android.risks.registry import known_risks
 from mobile_playbook.platforms.corellium.client import settings_errors as corellium_settings_errors
+from mobile_playbook.platforms.corellium.profile import is_baseline_profile, profile_errors
 
 logger = logging.getLogger(__name__)
 
@@ -121,6 +122,8 @@ def collect_config_errors(config: AndroidGlobalConfig, dry_run: bool = False) ->
         errors.append(f"device.provider must be one of: {', '.join(DEVICE_PROVIDERS)}")
     elif config.device.provider == CORELLIUM_PROVIDER:
         errors.extend(_corellium_errors(config.device.corellium))
+        if is_baseline_profile(config.device.corellium) and config.device.app_store != "apk":
+            errors.append("device.app_store must be apk when device.corellium.roles is set, because each run installs the intake APK on its restored devices")
     if not config.apps:
         errors.append("apps list must not be empty")
     known = known_risks()
@@ -140,10 +143,29 @@ def collect_config_errors(config: AndroidGlobalConfig, dry_run: bool = False) ->
 
 # Return the problems in the device.corellium settings used when device.provider is corellium.
 def _corellium_errors(settings: Any) -> list[str]:
+    if is_baseline_profile(settings):
+        errors = profile_errors(settings, "android")
+        roles = settings.get("roles")
+        for role, selector in (roles.items() if isinstance(roles, dict) else ()):
+            if isinstance(selector, dict):
+                errors.extend(_adb_errors(selector, f"device.corellium.roles.{role}"))
+        return errors
     errors = corellium_settings_errors(settings)
     value = settings.get("adb_port") if isinstance(settings, dict) else None
     if value is not None and (isinstance(value, bool) or not isinstance(value, int) or value <= 0):
         errors.append("device.corellium.adb_port must be a positive whole number")
+    return errors
+
+
+# Return the problems in a role device's optional adb_port and adb_address overrides.
+def _adb_errors(settings: dict, label: str) -> list[str]:
+    errors = []
+    value = settings.get("adb_port")
+    if value is not None and (isinstance(value, bool) or not isinstance(value, int) or value <= 0):
+        errors.append(f"{label}.adb_port must be a positive whole number")
+    address = settings.get("adb_address")
+    if address is not None and not isinstance(address, str):
+        errors.append(f"{label}.adb_address must be host:port text")
     return errors
 
 

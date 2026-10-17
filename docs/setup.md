@@ -66,7 +66,7 @@ without exporting file values. The CLI and database workers load the whole file:
 | Key | Used by | Notes |
 | --- | --- | --- |
 | `MOBSF_API_KEY` | the run, when a static-analysis risk (iOS or Android) uses the MobSF provider | |
-| `CORELLIUM_API_URL`, `CORELLIUM_API_TOKEN` | the run, readiness and installs, when `device.provider` is `corellium` | read directly from the repository `.env`; no exports required; see [Android configuration](android/configuration.md#corellium-virtual-device) |
+| `CORELLIUM_API_URL`, `CORELLIUM_API_TOKEN` | the run, readiness and installs, when `device.provider` is `corellium`, and Corellium recovery in the API server and assessment worker | read directly from the repository `.env`; no exports required; see [Android configuration](android/configuration.md#corellium-virtual-device) |
 | `SUPABASE_URL` | dashboard sync, assessment, and icon backfill workers | dashboard project URL |
 | `SUPABASE_SERVICE_ROLE_KEY` | dashboard sync, assessment, and icon backfill workers | bypasses row-level security; never expose it to a browser |
 | `DASHBOARD_SYNC_AUTO_TRIGGER` | the API and CLI, to decide whether to launch a post-run worker | |

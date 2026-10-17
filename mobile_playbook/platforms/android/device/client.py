@@ -10,6 +10,8 @@ from mobile_playbook.platforms.android.device.adb import AdbClient
 from mobile_playbook.platforms.android.device.appium_driver import create_appium_driver
 from mobile_playbook.platforms.android.device.corellium import CorelliumConnection, connect_corellium, stop_corellium
 from mobile_playbook.platforms.android.models import CORELLIUM_PROVIDER
+from mobile_playbook.platforms.corellium.client import CorelliumError
+from mobile_playbook.platforms.corellium.profile import is_baseline_profile
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +19,9 @@ logger = logging.getLogger(__name__)
 # Return a device client for the configured device: the physical phone's serial, or the selected Corellium instance.
 def open_device(config, *, start: bool = True) -> AndroidDeviceClient:
     device = config.device
+    if device.provider == CORELLIUM_PROVIDER and is_baseline_profile(device.corellium):
+        raise CorelliumError("device.corellium.roles selects role devices that each run restores from its baseline; "
+                             "they are prepared by the run or install, never opened as one device.")
     if device.provider == CORELLIUM_PROVIDER:
         # start=False only reads the instance's state, for checks that must not start a virtual device.
         corellium = connect_corellium(device.adb_path, device.corellium, start=start)

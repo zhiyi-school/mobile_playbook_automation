@@ -586,3 +586,65 @@ def test_an_install_request_waits_long_enough_for_a_store_download(monkeypatch):
         assessment_worker.INSTALL_REQUEST_TIMEOUT_SECONDS,
     )
     assert seen[1][2] == api.timeout
+
+
+def baseline_readiness(tmp_path, monkeypatch, *, apk: bool) -> dict:
+    from mobile_playbook.api.services import provisioning
+    from tests.platforms.android.baseline_fakes import PLAIN, BaselineBench
+
+    bench = BaselineBench(tmp_path, monkeypatch, risks=(PLAIN,))
+    monkeypatch.setattr(provisioning, "get_android_risk", bench.risks.get)
+    if not apk:
+        bench.apk.unlink()
+    return provisioning.describe("android", "one")
+
+
+def test_a_corellium_baseline_app_without_its_apk_waits_and_is_never_installed_by_the_worker(tmp_path, monkeypatch):
+    store = android_store()
+    api = FakeApi(baseline_readiness(tmp_path, monkeypatch, apk=False))
+
+    assert run(store, api) == "waiting"
+
+    assert store.request["blocker_code"] == "app_build_missing"
+    assert api.installs == [] and api.started == []
+
+
+def test_a_ready_corellium_baseline_app_starts_its_run_without_a_pre_run_install(tmp_path, monkeypatch):
+    store = android_store()
+    api = FakeApi(baseline_readiness(tmp_path, monkeypatch, apk=True))
+
+    assert run(store, api) == "started"
+
+    assert api.installs == []
+    assert api.started[0]["apps"] == "example_app"
+
+
+def test_the_worker_loop_shuts_down_and_releases_vms_an_ended_run_left_pending(tmp_path, monkeypatch):
+    from mobile_playbook.workers import assessment_worker
+    from tests.platforms.android.baseline_fakes import PLAIN, STOCK_VM, BaselineBench
+    from tests.platforms.corellium.helpers import device
+
+    bench = BaselineBench(tmp_path, monkeypatch, risks=(PLAIN,))
+    bench.store.claim_all("ended-run", (device(STOCK_VM, "non_rooted"),)).detach()
+    bench.turn_on(STOCK_VM)
+    monkeypatch.setattr(assessment_worker, "load_env_file", lambda path: None)
+    monkeypatch.setattr(assessment_worker.SupabaseRestStore, "from_env", staticmethod(lambda: object()))
+    monkeypatch.setattr(assessment_worker, "process_once", lambda *args, **kwargs: "idle")
+    monkeypatch.setattr(assessment_worker, "CORELLIUM_RECOVERY_POLICY", assessment_worker.LifecyclePolicy(poll=0.001))
+
+    assert assessment_worker.main(["--once"]) == 0
+
+    assert bench.instance_state(STOCK_VM) == "off"
+    assert bench.store.pending() == []
+    assert bench.actions(STOCK_VM, "restore", "start") == []
+
+
+def test_a_failed_corellium_recovery_never_stops_the_worker(monkeypatch):
+    from mobile_playbook.workers import assessment_worker
+
+    def broken(policy):
+        raise OSError("claim store unreadable")
+
+    monkeypatch.setattr(assessment_worker, "recover_abandoned", broken)
+
+    assert assessment_worker.recover_corellium_devices() == []

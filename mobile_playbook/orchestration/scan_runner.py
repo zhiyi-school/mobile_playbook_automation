@@ -122,7 +122,12 @@ def run_platform(
         if platform_runner.requires_device(config, options.selected_tests, options.selected_apps):
             logger.debug("%s: connecting device", platform_name)
             connect_started = time.monotonic()
-            client = platform_runner.connect_device(config, writer.run_dir)
+            # A platform that plans per-risk devices connects from the plan; others connect their one device.
+            connect_planned = getattr(platform_runner, "connect_planned_device", None)
+            if connect_planned is not None:
+                client = connect_planned(config, planned_tests, writer.run_dir, run_timestamp)
+            else:
+                client = platform_runner.connect_device(config, writer.run_dir)
             logger.debug("%s: device connected in %.2fs (%s)", platform_name, time.monotonic() - connect_started, type(client).__name__)
         else:
             logger.debug("%s: no device needed for this run", platform_name)

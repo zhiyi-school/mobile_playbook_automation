@@ -26,6 +26,7 @@ async def call(app: FastAPI, method: str, path: str, body: dict | None = None):
         sent.append(message)
 
     headers = [(b"content-type", b"application/json")] if body is not None else []
+    path, _, query = path.partition("?")
     await app(
         {
             "type": "http",
@@ -35,7 +36,7 @@ async def call(app: FastAPI, method: str, path: str, body: dict | None = None):
             "scheme": "http",
             "path": path,
             "raw_path": path.encode(),
-            "query_string": b"",
+            "query_string": query.encode(),
             "headers": headers,
             "client": ("test", 1),
             "server": ("testserver", 80),

@@ -15,9 +15,12 @@ from mobile_playbook.platforms.android.config import ConfigError as AndroidConfi
 from mobile_playbook.platforms.android.config import load_config as load_android_config
 from mobile_playbook.platforms.android.device.client import AndroidDeviceClient, open_device
 from mobile_playbook.platforms.android.device.permissions import is_installed as android_is_installed
+from mobile_playbook.platforms.android.acquisition.intake_apk import find_intake_apk
+from mobile_playbook.platforms.android.baseline_devices import role_readiness, uses_baselines
+from mobile_playbook.platforms.android.device_roles import plan_risk_roles, required_roles
 from mobile_playbook.api.run_registry import registry
 from mobile_playbook.common.storage_paths import config_path, ios_intake_dir
-from mobile_playbook.orchestration.platform_runner import requires_device
+from mobile_playbook.orchestration.platform_runner import iter_enabled_tests, requires_device
 from mobile_playbook.platforms.android.risks import get_risk as get_android_risk
 from mobile_playbook.platforms.ios.acquisition.intake_ipa import resolve_intake_ipa
 from mobile_playbook.platforms.ios.config import load_config as load_ios_config
@@ -109,13 +112,26 @@ def _ios_configuration(app: dict) -> tuple[str, str | None, str | None]:
     return "failed", "This app's test configuration is incomplete.", bundle_id
 
 
+# Return the Android config, or None when it cannot be read.
+def _android_config():
+    try:
+        return load_android_config(config_path(ENTRY_FILES["android"]), dry_run=True)
+    except (AndroidConfigError, OSError) as exc:
+        logger.debug("api: Android config unavailable (%s).", type(exc).__name__)
+        return None
+
+
+# Report whether the Android config prepares Corellium role devices from baselines inside each run.
+def _android_uses_baselines() -> bool:
+    config = _android_config()
+    return config is not None and uses_baselines(config)
+
+
 # Open the configured Android device without starting it: a default client when the config is unavailable, or None
 # when the configured Corellium device cannot be looked up.
 def _android_device_client() -> AndroidDeviceClient | None:
-    try:
-        config = load_android_config(config_path(ENTRY_FILES["android"]), dry_run=True)
-    except (AndroidConfigError, OSError) as exc:
-        logger.debug("api: Android config unavailable for adb (%s); using the default client.", type(exc).__name__)
+    config = _android_config()
+    if config is None:
         return AndroidDeviceClient(None, AdbClient())
     try:
         # Readiness is polled, so it only reads a Corellium instance's state and never powers it on.
@@ -159,6 +175,12 @@ def _android_configuration(app: dict) -> tuple[str, str | None, str | None]:
     logger.debug("api: checking Android configuration for app %r (package=%r).", app.get("id"), package_name)
     if not package_name:
         return "failed", "This app's test configuration is incomplete.", None
+    if _android_uses_baselines():
+        # Each run installs the intake APK on its restored devices, so the build on disk is what must be ready.
+        if find_intake_apk(package_name) is None:
+            logger.debug("api: no intake APK of %s for baseline installs yet.", package_name)
+            return "in_progress", "Waiting for the app build to be provided.", package_name
+        return "done", None, package_name
 
     client = _android_device_client()
     device = _android_device(client)
@@ -256,6 +278,30 @@ _CONFIG_BLOCKER_BY_STAGE_STATE = {
 }
 
 
+# Return the device readiness, blocker and detail of the Corellium role devices an Android app's enabled risks need,
+# from read-only lookups; a role the app does not need is never checked.
+def _baseline_device(app: dict) -> tuple[bool, str | None, str | None]:
+    config = _android_config()
+    enabled = {risk for risk, settings in (app.get("risks") or {}).items() if (settings or {}).get("enabled")}
+    try:
+        roles = required_roles(plan_risk_roles(iter_enabled_tests(config, enabled, {app.get("id")}, get_android_risk), get_android_risk))
+    except Exception:
+        logger.debug("api: device roles for app %r could not be planned.", app.get("id"), exc_info=True)
+        return False, "configuration_incomplete", None
+    for role in role_readiness(config, roles):
+        logger.debug("api: %s device for app %r is %s (%s).", role.role, app.get("id"), role.state, role.detail)
+        kind = "rooted" if role.role == "rooted" else "non-rooted"
+        if role.state == "unconfigured":
+            return False, "configuration_incomplete", None
+        if role.state == "unreachable":
+            return False, "device_unreachable", None
+        if role.state == "busy":
+            return False, "platform_busy", None
+        if role.state == "unavailable":
+            return False, "no_device", f"Waiting for a compatible {kind} test device to become available."
+    return True, None, None
+
+
 # Return whether the configured iOS device is attached, treating an empty probe as ready.
 def _ios_device_ready() -> bool:
     try:
@@ -309,14 +355,18 @@ def _readiness(platform: str, app: dict | None, stages: list[Stage]) -> dict:
     )
     if app is not None and _enabled_risk_count(app) == 0:
         configuration_ready, config_blocker = False, "no_tests_enabled"
-    # An Android app in progress is one not yet installed, which the worker installs.
-    if platform == "android" and config_blocker == "app_build_missing":
+    baselines = platform == "android" and _android_uses_baselines()
+    # An Android app in progress is one not yet installed, which the worker installs; with baselines the run installs
+    # the intake APK itself, so a missing build stays a missing build.
+    if platform == "android" and config_blocker == "app_build_missing" and not baselines:
         config_blocker = "app_not_installed"
 
     device_needed = _device_required(platform, app)
     device_detail = None
     if not device_needed:
         device_ready, device_blocker = True, None
+    elif baselines and app is not None:
+        device_ready, device_blocker, device_detail = _baseline_device(app)
     elif platform == "android":
         state = _android_device(_android_device_client())
         device_ready = state in ("connected", "standby")

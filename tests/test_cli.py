@@ -278,3 +278,37 @@ def test_install_app_stops_when_appium_is_not_available(config_root, monkeypatch
 
     assert cli_module.main(["install-app", "--config", str(config_root / "configs/android.yaml")]) == 1
     assert "Appium is not available" in capsys.readouterr().err
+
+
+def test_an_android_cli_run_prepares_each_baseline_vm_once_and_confirms_both_off(tmp_path, monkeypatch, capsys):
+    from tests.platforms.android.baseline_fakes import PLAIN, ROOT, ROOTED_SERIAL, ROOTED_VM, STOCK_SERIAL, STOCK_VM, BaselineBench
+
+    bench = BaselineBench(tmp_path, monkeypatch, risks=(PLAIN, ROOT))
+    monkeypatch.setattr(cli_module, "trigger_dashboard_sync", lambda *args: None)
+
+    code = cli_module.main(["run", "--platform", "android", "--config", str(bench.config_path), "--out", str(tmp_path / "reports")])
+
+    assert code == 0, capsys.readouterr().err
+    assert bench.risks[PLAIN].used == [STOCK_SERIAL] and bench.risks[ROOT].used == [ROOTED_SERIAL]
+    for vm in (STOCK_VM, ROOTED_VM):
+        assert bench.actions(vm, "restore", "start", "stop") == ["restore", "start", "stop"]
+    assert bench.store.pending() == []
+
+
+@pytest.mark.parametrize(("role", "used", "untouched"), [(None, "stock-vm", "rooted-vm"), ("rooted", "rooted-vm", "stock-vm")])
+def test_install_app_restores_the_chosen_baseline_vm_installs_and_shuts_it_down(tmp_path, monkeypatch, capsys, role, used, untouched):
+    from tests.platforms.android.baseline_fakes import PLAIN, ROOT, BaselineBench
+
+    bench = BaselineBench(tmp_path, monkeypatch, risks=(PLAIN, ROOT))
+    args = ["install-app", "--config", str(bench.config_path)] + (["--role", role] if role else [])
+
+    assert cli_module.main(args) == 0
+    assert "one (com.example.one): installed\n  Version 3.2.1 (build 321)" in capsys.readouterr().out
+    assert bench.actions(used, "restore", "start", "stop") == ["restore", "start", "stop"]
+    assert bench.actions(untouched) == []
+    assert bench.store.pending() == []
+
+
+def test_install_app_refuses_a_role_without_baseline_roles(config_root, capsys):
+    assert cli_module.main(["install-app", "--config", str(config_root / "configs/android.yaml"), "--role", "rooted"]) == 2
+    assert "--role needs device.corellium.roles" in capsys.readouterr().err
