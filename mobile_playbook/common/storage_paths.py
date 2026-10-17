@@ -8,6 +8,8 @@ import logging
 import os
 from pathlib import Path
 
+from mobile_playbook.common import env_file
+
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 CONFIG_ROOT = REPOSITORY_ROOT / "configs"
 
@@ -22,6 +24,7 @@ LOCATION_ENV = {
 }
 
 LOCATION_NAMES = tuple(LOCATION_ENV)
+CORELLIUM_STATE_DIR_ENV = "CORELLIUM_STATE_DIR"
 logger = logging.getLogger(__name__)
 
 
@@ -93,6 +96,20 @@ def reports_root() -> Path:
 # Returns the work location.
 def work_root() -> Path:
     return location("work")
+
+
+# Keep VM ownership host-wide and outside prunable work/report trees, even across repository checkouts.
+def corellium_state_dir() -> Path:
+    # The CLI and workers export the whole .env but the API does not, so a .env value would split the store.
+    if env_file.file_value(CORELLIUM_STATE_DIR_ENV) is not None:
+        raise ValueError(f"{CORELLIUM_STATE_DIR_ENV} must be set in the process environment, not in .env")
+    configured = os.environ.get(CORELLIUM_STATE_DIR_ENV)
+    if configured:
+        path = Path(configured).expanduser()
+        if not path.is_absolute():
+            raise ValueError(f"{CORELLIUM_STATE_DIR_ENV} must be an absolute host-shared path")
+        return path.resolve()
+    return Path.home() / ".local" / "state" / "mobile-playbook" / "corellium"
 
 
 # Returns the directory for intake iOS IPAs.

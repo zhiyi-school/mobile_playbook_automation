@@ -6,6 +6,11 @@ not part of this layout.
 
 ## Layout
 
+Corellium lifecycle ownership is an exception to the runtime artifact tree:
+its host-wide SQLite store defaults to `~/.local/state/mobile-playbook/corellium/`
+and must survive report/work pruning. See [shared Corellium lifecycle](corellium-lifecycle.md#exclusive-durable-ownership)
+for process sharing, the absolute `CORELLIUM_STATE_DIR` override and recovery.
+
 ```text
 artifacts/
   intake/

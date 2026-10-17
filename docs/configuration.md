@@ -124,6 +124,7 @@ processes in deliberately different ways.
 | `ARTIFACT_STORE_DIR` | API, sync worker, backfill | derived artifact metadata and icons; default `<ARTIFACTS_DIR>/derived` |
 | `IOS_PLAYBOOK_DIR` | API | where the iOS developer remediation playbook lives |
 | `ANDROID_PLAYBOOK_DIR` | API | where the Android developer remediation playbook lives |
+| `CORELLIUM_STATE_DIR` | API, CLI, workers; process environment only | absolute host-shared Corellium ownership store; default `~/.local/state/mobile-playbook/corellium`. A `.env` value is rejected — see [shared Corellium lifecycle](corellium-lifecycle.md#exclusive-durable-ownership) |
 | `PLAYBOOK_SOURCE_DOWNLOAD_ENABLED` | API process environment only | exported `false` refuses implemented-control archive downloads; `.env` is ignored |
 | `LOG_LEVEL` | API, CLI, workers | `DEBUG` enables verbose logging; default `INFO` — see [`LOG_LEVEL`](#log_level) |
 

@@ -27,6 +27,7 @@ def isolate_environment(root: Path, patch: pytest.MonkeyPatch) -> None:
         "ARTIFACT_STORE_DIR": artifacts / "derived",
         "IOS_PLAYBOOK_DIR": root / "playbooks" / "ios",
         "ANDROID_PLAYBOOK_DIR": root / "playbooks" / "android",
+        "CORELLIUM_STATE_DIR": root / "corellium-state",
     }
     for name, location in locations.items():
         patch.setenv(name, str(location))

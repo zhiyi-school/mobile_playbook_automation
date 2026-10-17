@@ -116,6 +116,14 @@ App/risk selection (`--apps`, `--risks`) is implemented in `mobile_playbook/orch
 
 A risk's actual settings are resolved from two layers, not stored per app: a global, risk-scoped section on `GlobalConfig` (iOS: `ipa_static_analysis`, `keystroke_collection`; Android: `apk_static_analysis`, `screen_capture`, `repackaging`) holds the shared defaults used by every app that enables that risk, and an app's own `risks.<risk_id>` entry only needs `enabled: true` plus whatever it wants to override for itself. iOS merges the two with `mobile_playbook.common.config_loader.merge_dicts`, which recurses into nested dicts so an app can override one nested field (say, `collection.auto_navigation.accessibility_ids`) without repeating everything else; this is exposed through `effective_risk_config()` in `platforms/ios/config.py`, keyed by `RISK_GLOBAL_SETTINGS_FIELD`. Android's screen-capture and repackaging settings are flat, so those risks merge inline with a one-level `{**global_config.screen_capture, **app_override}` spread instead; `android-feature-01-risk-01` nests its `analyzer` block like iOS and merges `apk_static_analysis` with `merge_dicts`.
 
+### Shared Corellium lifecycle
+
+The [shared Corellium lifecycle](corellium-lifecycle.md) provides role/baseline
+selection, durable exclusive claims, restoration and safe recovery under
+`platforms/corellium/`. It imports no platform connection/configuration classes
+or drivers. CLI, API and worker runs use the single-device integration described
+below.
+
 ### Registries auto-discover their plugins, they don't list them
 
 Risks (`mobile_playbook/platforms/ios/risks/registry.py`, `mobile_playbook/platforms/android/risks/registry.py`) and iOS artifact providers (`mobile_playbook/platforms/ios/acquisition/registry.py`) are all built the same way, through the shared `discover_plugins()` helper in `mobile_playbook/common/plugin_discovery.py`: it scans a package's folder on disk (`pkgutil.iter_modules`), imports each module independently inside its own `try`/`except`, and registers a class when it's a concrete subclass of the relevant base (`Risk`, `AndroidRisk`, `ArtifactProvider`) with its own `risk_id`/`source` set — which is what naturally excludes shared/abstract helper classes like `Feature04KeyboardRiskBase` without any filename-based exclusion list.

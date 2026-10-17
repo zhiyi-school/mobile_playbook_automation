@@ -12,6 +12,7 @@ HTTP, and optionally publishes completed results to a Supabase dashboard.
 | [configuration.md](configuration.md) | Every YAML setting, environment variable and the secret boundary |
 | [storage.md](storage.md) | Where intake, derived, report and work data live, and how to relocate them |
 | [architecture.md](architecture.md) | How a run executes end to end, and what each layer owns |
+| [corellium-lifecycle.md](corellium-lifecycle.md) | Shared Corellium VM selection, baseline restoration, exclusive claims and recovery |
 | [api.md](api.md) | Every HTTP endpoint, run lifecycle, SARIF, sync status |
 | [developer-playbook.md](developer-playbook.md) | The external remediation playbook: terminology, format, status, caching |
 | [operations.md](operations.md) | The sync and assessment workers, log files, and pruning old run data |

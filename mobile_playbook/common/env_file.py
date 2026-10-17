@@ -17,6 +17,11 @@ def env_value(name: str, env_path: Path | None = None) -> str | None:
     value = os.environ.get(name)
     if value is not None:
         return value
+    return file_value(name, env_path)
+
+
+# Read one setting from the repository .env alone, ignoring the process environment.
+def file_value(name: str, env_path: Path | None = None) -> str | None:
     path = env_path if env_path is not None else ENV_FILE
     try:
         lines = Path(path).read_text().splitlines()
