@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from mobile_playbook.platforms.android.device.adb import AdbClient
+from mobile_playbook.platforms.android.device.adb_connection import boot_completed
 from mobile_playbook.platforms.corellium.client import (
     DEFAULT_BOOT_TIMEOUT_SECONDS,
     CorelliumClient,
@@ -88,6 +89,12 @@ def stop_corellium(connection: CorelliumConnection, client: CorelliumClient | No
     stop_instance(client, connection.instance)
 
 
+# Reconnect adb to the connection's own instance and wait for it to boot, without selecting or starting an instance.
+def reconnect_corellium(adb_path: str, connection: CorelliumConnection, settings: dict[str, Any], *, poll: float = POLL_SECONDS) -> None:
+    timeout = float(settings.get("boot_timeout_seconds") or DEFAULT_BOOT_TIMEOUT_SECONDS)
+    _connect_adb(adb_path, connection.serial, time.monotonic() + timeout, wait=True, poll=poll)
+
+
 # Return the adb address to use: device.corellium.adb_address, else the instance's services address with the adb
 # port it reports, device.corellium.adb_port, or the default port, in that order.
 def adb_serial(instance: CorelliumInstance, settings: dict[str, Any]) -> str:
@@ -110,7 +117,7 @@ def _connect_adb(adb_path: str, serial: str, deadline: float, *, wait: bool, pol
         if serial not in host.connected_devices():
             code, out, err = host.run(["connect", serial])
             logger.debug("android corellium: connect %s exited %s (%s)", serial, code, (out or err)[:200])
-        if serial in host.connected_devices() and _boot_completed(phone):
+        if serial in host.connected_devices() and boot_completed(phone):
             logger.debug("android corellium: adb connected to %s", serial)
             return
         if not wait:
@@ -121,9 +128,3 @@ def _connect_adb(adb_path: str, serial: str, deadline: float, *, wait: bool, pol
                 "Check that this host is connected to the VPN of the instance's project."
             )
         time.sleep(poll)
-
-
-# Report whether Android on the device has finished booting.
-def _boot_completed(phone: AdbClient) -> bool:
-    code, out, _ = phone.run(["shell", "getprop", "sys.boot_completed"])
-    return code == 0 and out.strip() == "1"

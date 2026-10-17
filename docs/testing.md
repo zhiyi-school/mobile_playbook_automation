@@ -88,6 +88,7 @@ the matching path. Paths below are relative to `tests/`.
 | Individual risks | `platforms/ios/risks/`, `platforms/android/risks/`, `platforms/android/test_apk_tools.py` |
 | iOS capabilities | `platforms/ios/keyboard/`, `platforms/ios/traffic_interception/`, `platforms/ios/screen_capture/` |
 | Appium session handling and recovery | `platforms/ios/test_device_client.py`, `orchestration/test_appium_server.py`, `orchestration/test_*_appium_recovery.py` |
+| Corellium lifecycle and Android role devices | `platforms/corellium/`, `platforms/android/test_device_roles.py`, `platforms/android/test_runner_roles.py`, `platforms/android/device/test_adb_connection.py`, `platforms/android/device/test_debugging_prompt.py`, `platforms/android/device/test_pool.py` |
 | Run orchestration, manifests, events | `orchestration/`, `reporting/` |
 | CLI | `test_cli.py` |
 | API routes, schemas, CORS, logging | `api/` |

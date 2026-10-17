@@ -77,7 +77,7 @@ Each time the framework connects, it lists the project's instances and keeps the
 #### Starting and stopping
 
 - A run, `install-app` and `POST /config/android/apps/{app_id}/install` start the instance when `auto_start` allows, then connect adb and wait until Android reports `sys.boot_completed`.
-- With `auto_stop`, the instance is powered off when the run's last queued test finishes, whether the tests passed, failed or the run was aborted, and whoever started the instance. Reconnecting after an Appium failure mid-run does not stop it. Installs do not stop it, because a run normally follows.
+- With `auto_stop`, the instance is powered off when the run's last queued test finishes, whether the tests passed, failed or the run was aborted, and whoever started the instance. Reconnecting after an Appium failure mid-run does not stop it, and reconnects adb to the same instance instead of choosing one again. Installs do not stop it, because a run normally follows.
 - When the instance was started for a connection that then fails, for example because adb never reaches it, it is powered off again if `auto_stop` is set.
 - Each run starts and stops the instance on its own, so several dashboard assessments in a row each wait for it to boot. Set `auto_stop: false` while you use the instance by hand or run many assessments back to back.
 

@@ -83,17 +83,23 @@ class AdbClient:
         logger.debug("android adb: available=%s (exit %s)", code == 0, code)
         return code == 0
 
-    # Return the serials that `adb devices` lists in the ready state.
-    def connected_devices(self) -> list[str]:
+    # Return each serial `adb devices` lists with its state, such as device, unauthorized or offline.
+    def device_states(self) -> dict[str, str]:
         code, out, _ = self.run(["devices"])
         if code != 0:
             logger.debug("android adb: 'devices' exited %s; reporting no devices", code)
-            return []
-        devices = []
+            return {}
+        states = {}
         for line in out.splitlines()[1:]:
             parts = line.split()
-            if len(parts) == 2 and parts[1] == "device":
-                devices.append(parts[0])
+            if len(parts) >= 2:
+                states[parts[0]] = " ".join(parts[1:])
+        logger.debug("android adb: device states %s", states)
+        return states
+
+    # Return the serials that `adb devices` lists in the ready state.
+    def connected_devices(self) -> list[str]:
+        devices = [serial for serial, state in self.device_states().items() if state == "device"]
         logger.debug("android adb: %s connected devices: %s", len(devices), devices)
         return devices
 

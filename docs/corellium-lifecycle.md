@@ -4,10 +4,11 @@ The shared package in `mobile_playbook/platforms/corellium/` provides VM
 selection, baseline restoration, durable ownership and confirmed shutdown.
 It imports no Android connection/configuration classes or Appium drivers.
 The existing authenticated REST client also retrieves PNG/JPEG screenshots and
-sends touch input. Platform adapters own debugging approval and device readiness.
+sends touch input. Platform adapters own debugging approval and device readiness;
+the Android adapter is described in [Android role connections](#android-role-connections).
 
-CLI, API, worker and Android connection paths use the single-device
-integration described in [Android configuration](android/configuration.md#corellium-virtual-device);
+CLI, API and worker runs use the single-device integration described in
+[Android configuration](android/configuration.md#corellium-virtual-device);
 they do not call this baseline lifecycle. Physical-device behavior does not
 depend on it.
 
@@ -165,10 +166,82 @@ Maintain original, active prepared and previous prepared snapshots explicitly.
 Update manifests only after qualifying replacements; another VM needs its own
 snapshot ID even when baseline names match.
 
+## Android role connections
+
+The Android adapter connects claimed, prepared instances by role and routes each
+risk to its role. It lives in `mobile_playbook/platforms/android/`; the shared
+package never imports it.
+
+**Risk routing.** `device_roles.risk_role()` reads each risk's existing `requires`
+and `requires_device` metadata. A risk that lists `root` in `requires` runs on the
+`rooted` device; any other device risk runs on the `non_rooted` device, and a risk
+without a device has no role. A `requires` value that is not a list of names,
+repeats a name, or asks for root without a device, and a non-boolean
+`requires_device`, are rejected. `AndroidPlatformRunner.required_device_roles()`
+derives the roles a run needs from its selected apps and risks before anything is
+claimed, so a non-rooted-only run never needs the rooted VM and a static-only run
+needs neither. Risks keep their planned order; the runner routes each one to its
+role's device. A missing role fails that risk with a clear error and is never
+replaced by the other role's device. A single physical or single-instance
+Corellium device still runs every risk, as before.
+
+**Connecting.** `AndroidPlatformRunner.connect_role_devices()` starts Appium when
+needed and calls `device/corellium_roles.connect_claimed()` with the claim's
+`devices` and `prepared` instances. Each prepared instance must be the claimed ID,
+be on and have the role's rooted state. Its adb address is the services address
+with the reported adb port (or a per-role `adb_address`/`adb_port` override), and
+two roles never share an address. `device/adb_connection.connect_ready()` then:
+
+- reads `adb devices` and tells `device`, `unauthorized`, `offline` and absent
+  apart;
+- connects an absent device, disconnects and reconnects an offline one, and fails
+  after a bounded number of attempts;
+- treats `unauthorized` as a debugging prompt only after a short grace period,
+  because adb briefly reports it during the key handshake;
+- waits for `sys.boot_completed`, then requires `ro.build.type` to match the role:
+  `userdebug` and `eng` builds are rooted, `user` builds are not.
+
+If a later role fails, every role's adb address is disconnected and the error
+propagates; the caller's lifecycle cleanup still shuts the VMs down. The result is
+an `AndroidDevicePool` holding each role's exact instance ID, serial and client.
+Releasing the pool quits sessions and disconnects adb; powering off stays with
+the lifecycle.
+
+**Debugging approval.** The preferred baseline already authorizes this host's
+stable adb key (`$ANDROID_USER_HOME/adbkey.pub`, else `~/.android/adbkey.pub`), so
+no prompt appears. When adb stays unauthorized, `device/debugging_prompt.py`
+takes a PNG screenshot through the shared client, reads its dimensions from the
+PNG header, and recognises words with Tesseract (`tesseract … --psm 11 tsv`).
+The screen counts as the supported prompt only when it shows exactly one "Allow
+USB debugging" title, the "RSA key fingerprint" message and exactly one Allow
+button in a button row below the title. The tap goes to the centre of that
+button in the screenshot's own pixel coordinates, in portrait or landscape,
+through the shared touch input. adb must then list the device as ready and booted
+within the approval budget.
+
+An unfamiliar screen (polled until the prompt budget expires), a recogniser
+failure, a screenshot or touch failure, or an approval timeout fails the
+connection. The screenshot and a JSON description (instance, serial, reason,
+dimensions, orientation, recognised lines, tap point and host key fingerprint) go
+to `debug-authorization/` in the run folder. Recognition matches the stock
+English prompt text; an image is supported only after its prompt has been
+approved this way on the actual image.
+
+**Appium recovery.** When Appium becomes unreachable, the runner quits the role
+sessions, restarts Appium and reconnects every role's adb to its own serial,
+rechecking boot and root state and approving the prompt again if needed. Before
+each risk, a role whose adb is no longer `device` is reconnected the same way.
+Recovery returns the same pool: it never selects, restores, reinstalls, starts,
+stops or releases a device. The single-instance integration likewise reconnects
+adb to the instance it already uses instead of choosing one again.
+
 ## Tests
 
 ```bash
 python -m pytest -q tests/platforms/corellium
+python -m pytest -q tests/platforms/android/test_device_roles.py \
+  tests/platforms/android/test_runner_roles.py tests/platforms/android/device/test_adb_connection.py \
+  tests/platforms/android/device/test_debugging_prompt.py tests/platforms/android/device/test_pool.py
 ```
 
 Tests use fake APIs, synthetic snapshots, temporary stores and separate Python
@@ -179,4 +252,12 @@ claims, process exclusion/termination, forked children, persisted intent, restor
 progress and completion, startup/resume, outages, shutdown timeouts, independent
 cleanup, stale and foreign-host recovery and active-owner protection. A fresh
 interpreter blocks Android/Appium imports while loading every shared module.
-These checks do not qualify actual Android images or debugging dialogs.
+
+The Android tests use a synthetic adb server, synthetic PNG headers and recognised
+words, and fake Corellium clients that fail on any lifecycle call. They cover role
+derivation and malformed declarations, routing in plan order through the shared
+runner, missing roles without substitution, adb states and bounded reconnection,
+boot and root-state checks, recognised and unfamiliar prompts in both
+orientations, approval timeouts with diagnostics, and Appium recovery on the same
+instances without preparation. These checks do not qualify actual Android images
+or debugging dialogs.

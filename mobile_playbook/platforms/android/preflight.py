@@ -44,6 +44,8 @@ def check_requirements(requires: list[str], adb: AdbClient | None, config) -> li
             results.append((name, *_check_adb(adb)))
         elif name == "appium":
             results.append((name, *_check_appium(config)))
+        elif name == "root":
+            results.append((name, *_check_root(adb)))
         elif name in {"apktool", "apksigner", "keytool"}:
             results.append((name, *_check_executable(name)))
         elif name == "mobsf":
@@ -66,6 +68,18 @@ def _check_adb(adb: AdbClient) -> tuple[bool, str]:
     if not adb.is_device_connected():
         return False, "No Android device connected. Run 'adb devices' and ensure one shows 'device'."
     return True, "adb OK, device connected"
+
+
+# Check that the device grants root, through a root adbd or the su binary of userdebug and rooted images.
+def _check_root(adb: AdbClient | None) -> tuple[bool, str]:
+    if adb is None:
+        return False, "No Android device connected to check for root."
+    for command in (["shell", "id", "-u"], ["shell", "su", "0", "id", "-u"], ["shell", "su", "-c", "id -u"]):
+        code, out, _ = adb.run(command)
+        logger.debug("android preflight: root probe %s exited %s (%r)", command, code, (out or "")[:40])
+        if code == 0 and out.strip() == "0":
+            return True, "device grants root"
+    return False, "The device does not grant root; risks that require root need a rooted device."
 
 
 # Check that the Appium client is installed and the configured server is reachable.
