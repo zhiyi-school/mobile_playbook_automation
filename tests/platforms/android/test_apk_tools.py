@@ -168,3 +168,20 @@ def test_without_aapt2_the_layers_are_unknown(monkeypatch, tmp_path):
     monkeypatch.setattr(apk_tools, "_run_first_available", unavailable)
 
     assert apk_tools.adaptive_icon_layers(tmp_path / "app.apk", "res/mipmap-anydpi-v26/ic_launcher.xml") is None
+
+
+def test_adaptive_icon_resource_lookup_includes_density_splits(monkeypatch, tmp_path):
+    from mobile_playbook.platforms.android import apk_tools
+    base = tmp_path / "base.apk"
+    split = tmp_path / "split_config.xhdpi.apk"
+    calls = []
+    def inspect(commands):
+        argv = commands[0]
+        calls.append(argv)
+        if argv[2] == "xmltree":
+            return XMLTREE
+        return RESOURCES if argv[-1] == str(split) else ""
+    monkeypatch.setattr(apk_tools, "_run_first_available", inspect)
+    layers = apk_tools.adaptive_icon_layers(base, "res/icon.xml", resource_apks=[base, split])
+    assert layers["foreground"]["files"] == ["res/mipmap-xxxhdpi-v4/ic_launcher_foreground.png"]
+    assert any(argv[-1] == str(split) for argv in calls)

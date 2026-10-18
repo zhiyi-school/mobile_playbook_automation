@@ -64,7 +64,7 @@ class AndroidApkExposureRisk(AndroidRisk):
                 result.final_status = "APK_NOT_FOUND"
                 result.errors.append(
                     f"No APK of {app_config.package_name} is in the intake folder. Put the app's installable APK in "
-                    "artifacts/intake/android/apks/, named <App_Name>_<version>.apk, then retry. "
+                    "artifacts/intake/android/apks/, named <App_Name>_<version>.apk, or add a complete split set with apk-set.json, then retry. "
                     "Finding it needs aapt or aapt2 on PATH."
                 )
                 return result
@@ -74,7 +74,7 @@ class AndroidApkExposureRisk(AndroidRisk):
             analysis = run_configured_analysis(
                 self.risk_id,
                 risk_config,
-                builtin=lambda: analyze_apk([apk.path], apk_info, risk_config),
+                builtin=lambda: analyze_apk(apk.paths, apk_info, risk_config),
                 mobsf=lambda: analyze_apk_with_mobsf(apk.path, apk_info, risk_config),
             )
             report_paths = write_analysis_reports(report_dir, analysis, "apk_analysis.json", critical_markdown(analysis["critical_findings"]))
@@ -131,7 +131,7 @@ class AndroidApkExposureRisk(AndroidRisk):
         return {
             "base_apk": str(apk.path),
             "apk_sha256": sha256,
-            "apks": [{"name": apk.path.name, "path": str(apk.path), "size": apk.path.stat().st_size, "sha256": sha256}],
+            "apks": [{"name": path.name, "path": str(path), "size": path.stat().st_size, "sha256": sha256_file(path)} for path in apk.paths],
             "package_name": apk.package_name,
             "version_code": apk.version_code,
             "version_name": apk.version_name,

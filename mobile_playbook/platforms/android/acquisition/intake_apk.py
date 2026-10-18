@@ -1,13 +1,15 @@
 """
-Finds an app's installable APK in the intake folder by the package name read from each APK.
+Find installable standalone APKs and verified, complete split APK sets by their manifest package names.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass
 from pathlib import Path
 
+from mobile_playbook.common.hashing import sha256_file
 from mobile_playbook.platforms.android.apk_tools import inspect_apk_metadata
 
 logger = logging.getLogger(__name__)
@@ -21,6 +23,12 @@ class IntakeApk:
     version_name: str | None
     version_code: str | None
     modified_at: float
+    split_paths: tuple[Path, ...] = ()
+
+    # Return every original APK in install order, with the base first.
+    @property
+    def paths(self) -> list[Path]:
+        return [self.path, *self.split_paths]
 
     # Return the APK as a JSON-compatible dict for the artifacts listing.
     def as_dict(self) -> dict:
@@ -44,17 +52,61 @@ def _default_intake_dir() -> Path:
 _scan_cache: dict[str, tuple[tuple, list[IntakeApk]]] = {}
 
 
-# Return the name, mtime and size of each APK in a directory as a cache signature.
+# Include set manifests and every APK so replacing or removing a split invalidates the scan cache.
 def _dir_signature(directory: Path) -> tuple:
     entries = []
-    for path in sorted(directory.glob("*.apk")):
+    paths = [*directory.glob("*.apk"), *directory.glob("*/apk-set.json"), *directory.glob("*/*.apk")]
+    for path in sorted(paths):
         try:
             stat = path.stat()
         except OSError as exc:
             logger.debug("android intake: cannot stat %s for signature: %s", path, exc, exc_info=True)
             continue
-        entries.append((path.name, stat.st_mtime, stat.st_size))
+        entries.append((str(path.relative_to(directory)), stat.st_mtime_ns, stat.st_ctime_ns, stat.st_size, path.is_symlink(), path.parent.is_symlink()))
     return tuple(entries)
+
+
+# Read a declared set only when all its files, hashes and manifest identities still match.
+def _read_apk_set(folder: Path) -> IntakeApk:
+    manifest = folder / "apk-set.json"
+    if folder.is_symlink() or manifest.is_symlink():
+        raise ValueError("APK set must contain local regular files")
+    record = json.loads(manifest.read_text())
+    if record.get("schema_version") != 1:
+        raise ValueError("Unsupported APK set manifest version")
+    files = record["files"]
+    names = [item["name"] for item in files]
+    if (len(names) < 2 or len(set(names)) != len(names) or "base.apk" not in names
+            or any(not isinstance(name, str) or Path(name).name != name or not name.endswith(".apk") for name in names)):
+        raise ValueError("APK set needs a base and distinct local split filenames")
+    if set(names) != {path.name for path in folder.glob("*.apk")}:
+        raise ValueError("APK set files differ from its manifest")
+    metadata = {}
+    for item in files:
+        path = folder / item["name"]
+        if path.is_symlink() or not path.is_file() or sha256_file(path) != item["sha256"]:
+            raise ValueError(f"APK set file is missing or changed: {path.name}")
+        identity = inspect_apk_metadata(path)
+        if (not record.get("package_name") or not record.get("version_code")
+                or identity.get("package_name") != record["package_name"]
+                or identity.get("version_code") != record["version_code"]):
+            raise ValueError(f"APK set package/version mismatch: {path.name}")
+        metadata[path.name] = identity
+    base = metadata["base.apk"]
+    return IntakeApk(
+        path=folder / "base.apk", package_name=base["package_name"],
+        display_name=base.get("display_name"), version_name=base.get("version_name"),
+        version_code=base.get("version_code"),
+        modified_at=max((folder / name).stat().st_mtime for name in names),
+        split_paths=tuple(folder / name for name in sorted(names) if name != "base.apk"),
+    )
+
+
+# Resolve a base APK's declared companion splits without accepting incomplete or changed sets.
+def apk_set_paths(base_apk: Path) -> list[Path]:
+    if base_apk.name != "base.apk" or not (base_apk.parent / "apk-set.json").exists():
+        return [base_apk]
+    return _read_apk_set(base_apk.parent).paths
 
 
 # Order APKs highest version code first, then newest file.
@@ -98,6 +150,11 @@ def list_intake_apks(intake_dir: Path | None = None) -> list[IntakeApk]:
                 modified_at=candidate.stat().st_mtime,
             )
         )
+    for manifest in sorted(directory.glob("*/apk-set.json")):
+        try:
+            apks.append(_read_apk_set(manifest.parent))
+        except Exception as exc:
+            logger.warning("Skipping intake APK set %s: %s", manifest.parent.name, exc)
     apks.sort(key=_apk_order, reverse=True)
     _scan_cache[str(directory)] = (signature, apks)
     logger.debug("android intake: scan of %s found %s APKs", directory, len(apks))

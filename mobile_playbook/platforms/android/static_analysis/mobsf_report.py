@@ -79,6 +79,9 @@ def analyze_apk_with_mobsf(base_apk: Path, apk_info: dict[str, Any], risk_config
         "mobsf_findings": findings,
         **sensitive_fields,
     }
+    summary["analysis_scope"] = "base_apk"
+    if len(apk_info.get("apks", [])) > 1:
+        summary["findings"].append("Split APKs were preserved unchanged; MobSF scanned only the base APK. Use the built-in analyzer to scan every split.")
     if findings:
         high_or_medium = sum(1 for item in findings if item.get("severity") in {"HIGH", "MEDIUM"})
         summary["findings"].append(f"MobSF reported {len(findings)} normalized finding(s), including {high_or_medium} high/medium finding(s).")

@@ -148,3 +148,12 @@ def test_apks_for_another_app_are_reported(tmp_path, write_apk):
 
     assert outcome.status == "failed"
     assert "installed a different app" in outcome.detail
+
+
+def test_verified_split_set_is_copied_and_installed_as_one_app(tmp_path, write_apk_set):
+    paths = write_apk_set(tmp_path / PACKAGE)
+    adb = FakeAdb()
+    outcome = install(adb, tmp_path)
+    assert outcome.status == "installed"
+    assert [command[1] for command in adb.commands if command[0] == "push"] == [str(path) for path in paths]
+    assert adb.install_commands() == [["shell", "pm", "install", "-r", f"{STAGING_DIR}/0.apk", f"{STAGING_DIR}/1.apk"]]

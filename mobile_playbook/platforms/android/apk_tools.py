@@ -129,7 +129,7 @@ def _parse_icon_resources(text: str) -> list[str]:
 
 # Return an adaptive icon XML's background and foreground layers, each as {"files": [...], "color": ...}, using
 # aapt2; None when aapt2 is unavailable or a layer is not a plain resource reference.
-def adaptive_icon_layers(apk_path: Path, icon_xml: str) -> dict[str, dict] | None:
+def adaptive_icon_layers(apk_path: Path, icon_xml: str, *, resource_apks: list[Path] | None = None) -> dict[str, dict] | None:
     try:
         tree = _run_first_available([["aapt2", "dump", "xmltree", "--file", icon_xml, str(apk_path)]])
         layer_ids = _adaptive_layer_ids(tree)
@@ -137,7 +137,8 @@ def adaptive_icon_layers(apk_path: Path, icon_xml: str) -> dict[str, dict] | Non
             logger.debug("android apk tools: %s does not name both layers as resources: %s", icon_xml, layer_ids)
             return None
         resources = _resource_entries(
-            _run_first_available([["aapt2", "dump", "resources", str(apk_path)]]), set(layer_ids.values())
+            "\n".join(_run_first_available([["aapt2", "dump", "resources", str(path)]]) for path in (resource_apks or [apk_path])),
+            set(layer_ids.values())
         )
     except (RuntimeError, OSError):
         logger.debug("android apk tools: adaptive icon layers of %s unreadable", apk_path, exc_info=True)

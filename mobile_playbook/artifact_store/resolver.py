@@ -112,15 +112,17 @@ def _resolve_android(app: dict[str, Any]) -> Path | None:
     package_name = app.get("package_name") or ""
     if not package_name:
         return None
+    # Intake is the selected run input; a historical repackaging backup can belong to an older build.
+    intake = find_intake_apk(package_name, Path(artifact.get("intake_dir") or _android_intake_dir()).expanduser())
+    if intake is not None:
+        logger.debug("artifact store: Android app %r intake APK %s.", app.get("id"), intake.path)
+        return intake.path
     acquired = ANDROID_WORKFLOW_APK_DIR / package_name.replace(".", "_") / "original" / "base.apk"
     if acquired.is_file():
         logger.debug("artifact store: Android app %r uses acquired APK %s.", app.get("id"), acquired)
         return acquired
-    logger.debug("artifact store: no acquired APK at %s.", acquired)
-
-    intake = find_intake_apk(package_name, Path(artifact.get("intake_dir") or _android_intake_dir()).expanduser())
-    logger.debug("artifact store: Android app %r intake APK %s.", app.get("id"), intake.path if intake else None)
-    return intake.path if intake else None
+    logger.debug("artifact store: no acquired or intake APK for %s.", package_name)
+    return None
 
 
 # Returns the build a configured app would be tested from, if one is on disk.

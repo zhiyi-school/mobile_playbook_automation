@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import json
 import zipfile
 from pathlib import Path
@@ -277,3 +278,41 @@ def test_a_failed_mobsf_scan_without_fallback_fails_the_run(monkeypatch, tmp_pat
     assert result.final_status == "FAILED"
     assert result.verdict == "Inconclusive"
     assert result.errors == ["MobSF is not reachable"]
+
+
+def test_builtin_analysis_includes_code_and_libraries_from_splits(monkeypatch, tmp_path, write_apk_set):
+    def archive(entries):
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w") as output:
+            for name, data in entries.items():
+                output.writestr(name, data)
+        return buffer.getvalue()
+    paths = write_apk_set(android_intake_dir() / PACKAGE, files={
+        "base.apk": archive({"AndroidManifest.xml": b"manifest"}),
+        "split_feature.apk": archive({"classes.dex": b"dex" + GOOGLE_KEY.encode(), "lib/arm64-v8a/libsplit.so": b"ELF"}),
+    })
+    stub_sdk_tools(monkeypatch)
+    result, report_dir = run(*make_configs(), tmp_path)
+    assert result.final_status == "APK_ANALYSIS_COMPLETE"
+    assert [item["path"] for item in result.metadata["apks"]] == [str(path) for path in paths]
+    inventory = json.loads((report_dir / "package_inventory.json").read_text())
+    assert inventory["counts"]["apks"] == 2
+    assert inventory["native_libraries"] == ["libsplit.so"]
+    assert "SENSITIVE_INFORMATION_EXPOSURE" in flag_ids(report_dir)
+
+
+def test_mobsf_keeps_split_set_unchanged_and_declares_base_only_scope(monkeypatch, tmp_path, write_apk_set):
+    paths = write_apk_set(android_intake_dir() / PACKAGE)
+    original = [path.read_bytes() for path in paths]
+    scans = []
+    def scan(path, config):
+        scans.append(path)
+        return {"base_url": "", "hash": "h", "scan_type": "apk", "file_name": path.name, "report": {}}
+    monkeypatch.setattr("mobile_playbook.platforms.static_analysis.mobsf_client.mobsf_scan", scan)
+    result, report_dir = run(*make_configs(apk_static_analysis={"analyzer": {"provider": "mobsf"}}), tmp_path)
+    assert result.final_status == "APK_ANALYSIS_COMPLETE"
+    assert scans == [paths[0]]
+    assert [path.read_bytes() for path in paths] == original
+    summary = json.loads((report_dir / "apk_analysis.json").read_text())
+    assert summary["analysis_scope"] == "base_apk"
+    assert any("only the base APK" in finding for finding in summary["findings"])

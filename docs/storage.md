@@ -15,8 +15,8 @@ for process sharing, the absolute `CORELLIUM_STATE_DIR` override and recovery.
 artifacts/
   intake/
     ios/ipas/            IPA inputs
-    android/apks/        APK inputs, one <package name>/ folder of base and
-                         split APKs per app
+    android/apks/        standalone APK inputs, or one child folder per split
+                         build containing base.apk, splits and apk-set.json
   companion/
     ios/ipas/            tester-owned helper apps a risk installs next to
                          the target (LocalKeyboard, ReplayConsentRecorder)
@@ -33,6 +33,9 @@ artifacts/
     android/play_store/, android/aurora_store/
                          Appium log and screen diagnostics from store installs
 ```
+
+For the split-set manifest and acquisition requirements, see
+[Android APK requirements](android/README.md#apk-requirements).
 
 `work/` is **not** disposable: report evidence references files inside it, and
 interrupted runs resume from it.

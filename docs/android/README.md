@@ -88,15 +88,40 @@ apps:
 ```
 
 An older flat package-list shape is still accepted; see
-[Configuration](configuration.md). An app's own build goes in
-`artifacts/intake/android/apks/` as one installable APK, named
-`<App_Name>_<version>.apk` like the iOS IPAs (for example
-`Example_App_1.2.3.apk`). The file name is for people: the app's APK is found by
-the package name read from each APK with `aapt` or `aapt2`, so one of them must
-be on `PATH`. When several APKs have the app's package, the highest
-`versionCode` is used. Split APKs (`base.apk` plus `split_*.apk`) are not read
-from the intake folder; merge them into one APK first. The `apk` install method
-installs from there, and the app's icon and version are read from that APK.
+[Configuration](configuration.md). A standalone build goes in
+`artifacts/intake/android/apks/` as `<App_Name>_<version>.apk`.
+A split build goes in its own immediate child directory, for example
+`artifacts/intake/android/apks/com.example.android.placeholder/`, containing
+`base.apk`, every split delivered together by the store, and `apk-set.json`:
+
+```json
+{
+  "schema_version": 1,
+  "package_name": "com.example.android.placeholder",
+  "version_code": "7",
+  "files": [
+    {"name": "base.apk", "sha256": "<base SHA-256>"},
+    {"name": "split_config.arm64_v8a.apk", "sha256": "<split SHA-256>"}
+  ]
+}
+```
+
+Export all paths returned by `pm path <package>` after the store installation
+finishes. Verify each APK's vendor signature with `apksigner verify
+--print-certs`, and retain the acquisition provenance separately. Keep those
+bytes unchanged. Do not merge or re-sign intake APKs. Stage complete sets
+outside the active intake directory, then move them into place together.
+
+The scanner requires every declared file and hash to match, rejects extra
+APKs and symlinks, and checks that all APK manifests identify the same package
+and version code. An unmarked split directory is ignored. The SDK tools
+`aapt` or `aapt2` must be on `PATH` to read package metadata. Discovery uses
+the manifest package name, selects the highest `versionCode`, and lists a
+split set as one artifact identified by its base APK. Icon extraction reads
+resources across the validated set, including density splits. Current intake
+takes precedence over older repackaging backups for dashboard artifacts.
+These integrity checks do not establish that an arbitrary input came from a
+trusted publisher; verify signatures when acquiring it.
 
 ## Installing missing apps
 
@@ -133,16 +158,19 @@ Restart the API and the assessment worker after changing it.
 
 ### APKs over adb
 
-The `apk` method copies the app's intake APK to the device with `adb push`
-and installs it with `pm install -r`; no
-runtime permissions are granted. It needs no Appium session and no store
-account. It does not check who signed the APK, so put only APKs from a trusted
-source in the intake folder. An app pulled from a device that installed it from
-Google Play is usually split; merge the pulled APKs into one (for example with
-the vendored APKEditor, `java -jar APKEditor.jar m -i <folder> -o <app>.apk`)
-and sign the result before putting it in the intake folder. A re-signed APK is
-no longer the vendor's build: it cannot be installed over a copy installed from
-a store, and apps that check their own signature may refuse to run.
+The `apk` method copies every APK in the selected intake build with `adb
+push`, checks each copied size, then installs the complete set together with
+`pm install -r <base> <splits...>`. It grants no runtime permissions and needs
+no Appium session or store account. Baseline role preparation uses the same
+installer and complete set. Neither path merges or signs the inputs.
+
+A set exported from Google Play retains its original signatures, but contains
+the ABI, density, language and feature selections delivered to the source
+device. Acquire a suitable set for a different target device. Sideloading the
+files does not transfer the source account's Play licence or Play Integrity
+status; an app may still require installation through Play on the target.
+The repackaging risk deliberately modifies separate working copies as part of
+its attack test; it never changes the intake set.
 
 Some devices, such as Huawei phones with **Monitor apps installed via ADB**
 turned on in Developer options (`settings get secure adb_install_need_confirm`

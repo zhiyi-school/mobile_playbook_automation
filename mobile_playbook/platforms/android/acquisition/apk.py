@@ -28,7 +28,8 @@ FAILURES: dict[str, tuple[str, bool, str]] = {
         "app_unavailable",
         False,
         "No APK of this app is in the intake folder. Put the app's installable APK in "
-        "artifacts/intake/android/apks/, named <App_Name>_<version>.apk, then retry.",
+        "artifacts/intake/android/apks/, named <App_Name>_<version>.apk, or add a complete split set "
+        "with apk-set.json (see docs/android/README.md), then retry.",
     ),
     "confirmation_required": (
         "app_install_failed",
@@ -96,7 +97,7 @@ def install_from_apk(
 
     started = time.monotonic()
     logger.info("Installing %s from intake APK %s.", package, apk.path.name)
-    installed, reason = install_apks(adb, [apk.path], grant_permissions=False, timeout=install_timeout)
+    installed, reason = install_apks(adb, apk.paths, grant_permissions=False, timeout=install_timeout)
     seconds = time.monotonic() - started
     if not installed:
         state = "rejected" if reason.startswith("Failure [") else "error"

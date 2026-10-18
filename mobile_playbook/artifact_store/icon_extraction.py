@@ -10,6 +10,7 @@ import posixpath
 import re
 import tempfile
 import zipfile
+from contextlib import ExitStack
 from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
 from typing import Any, Iterable
@@ -32,7 +33,7 @@ _IOS_FALLBACK_STEM = re.compile(r"^(appicon|icon)", re.IGNORECASE)
 _ANDROID_ICON_STEM = re.compile(r"(ic_launcher|ic_app|app_icon)", re.IGNORECASE)
 _ANDROID_LAYER_STEM = re.compile(r"_(foreground|background|monochrome)$", re.IGNORECASE)
 # Bumped when Android icon selection changes, so icons cached under older rules are extracted again.
-ANDROID_ICON_REVISION = 2
+ANDROID_ICON_REVISION = 3
 _ANDROID_DENSITY = ("xxxhdpi", "xxhdpi", "xhdpi", "hdpi", "mdpi", "ldpi", "nodpi", "anydpi")
 
 
@@ -354,12 +355,14 @@ def _conventional_layers(zf: zipfile.ZipFile, stem: str) -> dict[str, dict] | No
 
 
 # Composes the declared adaptive icon from its foreground and background layers, or returns None when it cannot.
-def _compose_adaptive_icon(artifact_path: Path, zf: zipfile.ZipFile, declared: Iterable[str]) -> png.NormalizedPng | None:
+def _compose_adaptive_icon(artifact_path: Path, zf: zipfile.ZipFile, declared: Iterable[str], *, resource_apks: list[Path] | None = None) -> png.NormalizedPng | None:
     from mobile_playbook.platforms.android import apk_tools
 
     for icon_xml in dict.fromkeys(name for name in declared if name.lower().endswith(".xml")):
         stem = PurePosixPath(icon_xml).stem.lower()
-        layers = apk_tools.adaptive_icon_layers(artifact_path, icon_xml) or _conventional_layers(zf, stem)
+        layers = (apk_tools.adaptive_icon_layers(artifact_path, icon_xml, resource_apks=resource_apks)
+                  if resource_apks else apk_tools.adaptive_icon_layers(artifact_path, icon_xml))
+        layers = layers or _conventional_layers(zf, stem)
         if not layers:
             continue
         foreground = _densest_member(zf, layers["foreground"]["files"])
@@ -387,11 +390,41 @@ def _android_density_rank(name: str) -> int:
     return 0
 
 
+class _ApkIconResources:
+    # Index resources across original APK archives without rewriting any archive bytes.
+    def __init__(self, archives: list[zipfile.ZipFile]):
+        self.members = {}
+        for archive in archives:
+            for info in archive.infolist():
+                self.members.setdefault(info.filename, (archive, info))
+
+    # Return the unique archive entries, preferring the base when names overlap.
+    def infolist(self):
+        return [info for archive, info in self.members.values()]
+
+    # Return resource names visible across the set.
+    def namelist(self):
+        return list(self.members)
+
+    # Return the selected entry's ZIP metadata.
+    def getinfo(self, name):
+        return self.members[name][1]
+
+    # Read an entry from its owning original archive.
+    def open(self, info):
+        return self.members[info.filename][0].open(info)
+
+
 # Extracts an APK's launcher icon: the declared adaptive icon composed from its layers, else the best complete
 # icon PNG, else a lone adaptive layer; or returns why none is usable.
 def _extract_android_icon(artifact_path: Path) -> tuple[png.NormalizedPng | None, str]:
+    from mobile_playbook.platforms.android.acquisition.intake_apk import apk_set_paths
+
     declared = _android_declared_icons(artifact_path)
-    with zipfile.ZipFile(artifact_path) as zf:
+    paths = apk_set_paths(artifact_path)
+    with ExitStack() as stack:
+        archives = [stack.enter_context(zipfile.ZipFile(path)) for path in paths]
+        zf = _ApkIconResources(archives)
         members = set(zf.namelist())
         direct = [
             _Candidate(name, zf.getinfo(name).file_size)
@@ -400,7 +433,7 @@ def _extract_android_icon(artifact_path: Path) -> tuple[png.NormalizedPng | None
         ]
         only_xml = bool(declared) and all(name.lower().endswith(".xml") for name in declared)
         if not direct and only_xml:
-            composed = _compose_adaptive_icon(artifact_path, zf, declared)
+            composed = _compose_adaptive_icon(artifact_path, zf, declared, resource_apks=paths if len(paths) > 1 else None)
             if composed is not None:
                 return composed, STATUS_AVAILABLE
         candidates = direct or _android_zip_candidates(zf, declared)

@@ -58,6 +58,7 @@ class IntendedBuild:
     version_name: str | None
     version_code: str | None
     sha256: str
+    split_apks: tuple[Path, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -93,7 +94,7 @@ def intended_build(app: Any) -> IntendedBuild:
         raise BuildUnavailable(f"No APK of {app.package_name} is in the intake folder, so {app.id} cannot be installed "
                                "on the restored test devices.")
     return IntendedBuild(app.id, app.package_name, found.path, found.version_name, found.version_code,
-                         artifact_digest(found.path))
+                         artifact_digest(found.path), found.split_paths)
 
 
 # Return each role's builds in plan order, one per app that has a risk on that role, before any device is touched.
@@ -140,7 +141,7 @@ class BaselineSession:
             raise BuildInstallError(apk_install.FAILURES["confirmation_required"][2], "confirmation_required")
         started = time.monotonic()
         logger.info("Installing %s from %s on the %s device (instance %s).", build.package, build.apk.name, role, device.instance_id)
-        installed, reason = install_apks(adb, [build.apk], grant_permissions=False, timeout=apk_install.INSTALL_TIMEOUT_SECONDS)
+        installed, reason = install_apks(adb, [build.apk, *build.split_apks], grant_permissions=False, timeout=apk_install.INSTALL_TIMEOUT_SECONDS)
         if not installed:
             raise BuildInstallError(f"Could not install {build.apk.name} on the {role} device: {reason}",
                                     "rejected" if reason.startswith("Failure [") else "error")
