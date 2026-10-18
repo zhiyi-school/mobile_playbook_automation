@@ -134,12 +134,21 @@ after that counts as complete, matching Corellium's own SDK, which waits for
 before the restore budget expires fails preparation without starting the VM.
 Snapshot task failures and instance error states also fail preparation.
 
+An expired restore budget fails as the restore stage: the instance "did not
+finish restoring" (busy was seen) or "did not report restore progress" (it never
+was) before the deadline. Each status read keeps the client's full request
+timeout even when little of the restore budget remains, so a slow last read is
+not reported as an API outage; the wait can therefore overrun the restore budget
+by at most one request timeout. An API outage during the wait is retried until
+the budget expires and then fails as a transient Corellium error.
+
 Snapshot compatibility compares the snapshot `model` with the instance `model`
 field; `flavorName` is a display label and is not used.
 
 Reads retry transient transport failures and HTTP 408/429/500/502/503/504.
 Power retries reconcile observed state. Monotonic deadlines bound operations;
-individual HTTP timeouts are capped by the remaining budget. Permanent errors
+individual HTTP timeouts are capped by the remaining budget, except restore
+status reads as described above. Permanent errors
 fail promptly. `LifecyclePolicy` configures independent restore/power budgets and
 a poll interval; budgets and intervals must be positive and finite, so polling
 never loops without a pause. Screenshot reads have bounded retries. Touch sends

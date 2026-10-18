@@ -42,14 +42,20 @@ def wait_restore_complete(client: CorelliumClient, device: ResolvedDevice, *, ti
     deadline = deadline if deadline is not None else polling_deadline(timeout, poll)
     # The restore request only returns 204 Accepted, so an idle VM is indistinguishable from one not yet restoring.
     progressed = False
+
+    # A read near the deadline keeps the client's full request timeout, so an expired budget reports the restore
+    # stage below instead of a read cut short; a sustained outage still fails as a transient error.
+    def read(operation):
+        return retry_read(client, operation, max(deadline, time.monotonic() + client.timeout), poll)
+
     while True:
-        snapshot = retry_read(client, lambda api: api.get_snapshot(device.instance.id, device.baseline_id), deadline, poll)
+        snapshot = read(lambda api: api.get_snapshot(device.instance.id, device.baseline_id))
         status = snapshot.get("status") or {}
         if snapshot.get("id") != device.baseline_id or snapshot.get("instance") != device.instance.id:
             raise CorelliumError("Restore completion returned a different snapshot identity")
         if status.get("task") in {"error", "failed"}:
             raise CorelliumError(f"Snapshot restoration failed for {device.instance.id}")
-        instance = retry_read(client, lambda api: api.get_instance(device.instance.id), deadline, poll)
+        instance = read(lambda api: api.get_instance(device.instance.id))
         if instance.id != device.instance.id:
             raise CorelliumError("Restore completion returned a different instance identity")
         if instance.state in {"error", "deleted", "deleting"}:

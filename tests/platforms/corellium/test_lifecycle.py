@@ -264,6 +264,32 @@ def test_wait_checks_task_state_and_snapshot_timeout(environment):
         wait_restore_complete(api, devices[0], timeout=0.01, poll=0.001)
 
 
+def test_a_restore_that_outlasts_its_budget_reports_the_restore_not_a_starved_read(environment):
+    devices, api, _, _ = environment
+    api.data["restore_busy"]["stock"] = ["restoring"] * 10_000
+    api.data["latency"] = 0.05
+    with pytest.raises(CorelliumError, match="did not finish restoring before the deadline") as error:
+        wait_restore_complete(api, devices[0], timeout=0.2, poll=0.001)
+    assert not error.value.transient
+
+
+def test_an_outage_during_the_restore_wait_still_surfaces_as_a_transient_error(environment, monkeypatch):
+    devices, api, _, _ = environment
+    api.timeout = 0.05
+    api.data["restore_busy"]["stock"] = ["restoring"]
+    original = api.get_snapshot
+    def snapshot_then_outage(instance_id, snapshot_id):
+        if api.data["calls"].count(("snapshot", instance_id)):
+            api.call("snapshot", instance_id)
+            raise CorelliumError("Corellium API not reachable: connection refused", transient=True)
+        return original(instance_id, snapshot_id)
+    monkeypatch.setattr(api, "get_snapshot", snapshot_then_outage)
+    with pytest.raises(CorelliumError, match="connection refused") as error:
+        wait_restore_complete(api, devices[0], timeout=0.2, poll=0.001)
+    assert error.value.transient
+    assert api.data["calls"].count(("snapshot", "stock")) > 2
+
+
 def test_wrong_instance_response_never_confirms_shutdown(environment):
     devices, api, store, lifecycle = environment
     claims = store.claim_all("wrong-response", devices[:1])

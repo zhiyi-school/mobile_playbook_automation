@@ -1,5 +1,6 @@
 """Synthetic Corellium API with shared state across bounded client copies."""
 
+import time
 from dataclasses import replace
 
 from mobile_playbook.platforms.corellium.client import CorelliumError, CorelliumInstance, CorelliumProject
@@ -25,13 +26,20 @@ class FakeAPI:
                                               "instance": item.instance.id, "status": {"created": True, "task": "none"},
                                               "type": item.instance.type, "model": "Generic Android"}] for item in devices},
             "calls": [], "failures": {}, "stuck": set(), "assert_mutation": None, "restore_busy": {},
-            "restore_delay": {}, "restore_reads": {}, "screens": {},
+            "restore_delay": {}, "restore_reads": {}, "screens": {}, "latency": 0,
         }
 
     def call(self, action, instance_id):
         self.data["calls"].append((action, instance_id))
         if self.data["assert_mutation"] and action in {"restore", "start", "stop", "unpause"}:
             self.data["assert_mutation"]()
+        latency = self.data["latency"]
+        if latency:
+            # Like urllib, a request whose bounded timeout is shorter than the API's latency times out.
+            time.sleep(min(latency, self.timeout))
+            if self.timeout < latency:
+                raise CorelliumError(f"Corellium API not reachable at {self.api_url}: The read operation timed out",
+                                     transient=True)
         failures = self.data["failures"].get((action, instance_id), [])
         if failures:
             raise failures.pop(0)
