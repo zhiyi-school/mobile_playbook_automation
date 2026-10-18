@@ -31,6 +31,7 @@ from tests.platforms.corellium.helpers import FakeAPI, device
 
 STOCK_VM, ROOTED_VM = "stock-vm", "rooted-vm"
 STOCK_SERIAL, ROOTED_SERIAL = "10.11.1.1:5001", "10.11.1.2:5001"
+PHONE_SERIAL = "PHONE0001"
 PLAIN, ROOT, STATIC = "android-feature-06-risk-01", "android-feature-01-risk-02", "android-feature-01-risk-01"
 PACKAGE = "com.example.one"
 APK_NAME = "One_3.2.1.apk"
@@ -71,7 +72,7 @@ class EvidenceRisk:
         ), report_dir)
 
 
-def baseline_device_yaml(roles=("non_rooted", "rooted")) -> str:
+def baseline_device_yaml(roles=("non_rooted", "rooted"), physical_roles=(), phone_serial=PHONE_SERIAL) -> str:
     selectors = {
         "non_rooted": f"      non_rooted:\n        project: automation\n        instance: {STOCK_VM}\n        adb_address: \"{STOCK_SERIAL}\"\n",
         "rooted": f"      rooted:\n        project: automation\n        instance: {ROOTED_VM}\n        adb_address: \"{ROOTED_SERIAL}\"\n",
@@ -81,11 +82,12 @@ def baseline_device_yaml(roles=("non_rooted", "rooted")) -> str:
         "  provider: corellium\n"
         "  app_store: apk\n"
         "  appium_server_url: \"http://127.0.0.1:4723\"\n"
-        "  corellium:\n"
+        + (f"  adb_serial: \"{phone_serial}\"\n  physical_roles: [{', '.join(physical_roles)}]\n" if physical_roles else "")
+        + "  corellium:\n"
         "    auto_start: true\n"
         "    auto_stop: true\n"
         "    roles:\n"
-        + "".join(selectors[role] for role in roles)
+        + "".join(selectors[role] for role in roles if role not in physical_roles)
         + "    baselines:\n"
         f"      {STOCK_VM}:\n        rooted: false\n        os_version: \"16.0.0\"\n        osbuild: \"r2 user\"\n"
         f"        snapshot_id: baseline-{STOCK_VM}\n"
@@ -94,7 +96,7 @@ def baseline_device_yaml(roles=("non_rooted", "rooted")) -> str:
     )
 
 
-def write_config(root: Path, risks, roles=("non_rooted", "rooted")) -> Path:
+def write_config(root: Path, risks, roles=("non_rooted", "rooted"), physical_roles=()) -> Path:
     configs = root / "configs"
     (configs / "split/android").mkdir(parents=True, exist_ok=True)
     (configs / "split/android/apps.yaml").write_text(
@@ -102,7 +104,7 @@ def write_config(root: Path, risks, roles=("non_rooted", "rooted")) -> Path:
         + "".join(f"      {risk}:\n        enabled: true\n" for risk in risks)
     )
     (configs / "android.yaml").write_text(
-        baseline_device_yaml(roles) + "\nrunner:\n  auto_grant_permissions: false\n\ninclude:\n  apps: split/android/apps.yaml\n"
+        baseline_device_yaml(roles, physical_roles) + "\nrunner:\n  auto_grant_permissions: false\n\ninclude:\n  apps: split/android/apps.yaml\n"
     )
     return configs / "android.yaml"
 
@@ -110,7 +112,7 @@ def write_config(root: Path, risks, roles=("non_rooted", "rooted")) -> Path:
 class BaselineBench:
     """Wires the fakes together; CLI and API code paths reach the same fakes through the default constructors."""
 
-    def __init__(self, root: Path, monkeypatch, *, risks=(PLAIN, ROOT), roles=("non_rooted", "rooted")):
+    def __init__(self, root: Path, monkeypatch, *, risks=(PLAIN, ROOT), roles=("non_rooted", "rooted"), physical_roles=()):
         self.root = root
         self.api = FakeAPI(device(STOCK_VM, "non_rooted"), device(ROOTED_VM, "rooted"))
         monkeypatch.setenv("CORELLIUM_STATE_DIR", str(root / "corellium-state"))
@@ -150,7 +152,9 @@ class BaselineBench:
         self.appium_reachable: list[bool] = []
         monkeypatch.setattr(runner_module, "tcp_reachable",
                             lambda url, timeout: self.appium_reachable.pop(0) if self.appium_reachable else True)
-        self.config_path = write_config(root, risks, roles)
+        self.config_path = write_config(root, risks, roles, physical_roles)
+        if physical_roles:
+            self.phone = self.adb.add(PHONE_SERIAL, state="device", build_type="user")
 
     def runner(self, recognizer=None) -> AndroidPlatformRunner:
         return AndroidPlatformRunner(corellium_client=self.api, claim_store=self.store, lifecycle_policy=FAST,

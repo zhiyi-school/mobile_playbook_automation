@@ -68,6 +68,8 @@ come from that file.
 | Standalone install | `python -m mobile_playbook install-app --config configs/android.yaml --apps <APP_ID>`, then the same command with `--role rooted` | Each install reports `installed` and then confirms that VM off. The next run restores the VM and installs the build again. |
 | Appium recovery | With `device.appium_auto_start` enabled, stop the Appium process during a run's device risk | The run logs one `appium_recovery` event and continues on the same instance. `device_prepared` and `app_installed` are not repeated. |
 | Cancellation | Press Ctrl-C during a run's device risk | Every claimed VM is confirmed off and the pending-claims check prints `[]`. |
+| Phone-only run (with `physical_roles`) | `... run ... --risks <NON_ROOT_RISK_ID>` | `device_connected` shows `physical_phone` and no VM is claimed or restored. Afterwards `adb shell pm list packages -3` on the phone matches its list from before the run, and `device_cleanup` reads `cleaned`. |
+| Mixed run with the phone | `... run ... --risks <NON_ROOT_RISK_ID>,<ROOT_RISK_ID>` | The phone is connected before the rooted VM is claimed, each `report.json` names its `device_type`, the phone ends with its original apps and the VM ends `off`. |
 
 A run uses the rooted VM only when a selected risk lists `root` in its `requires`.
 `python -m mobile_playbook list-risks --platform android` prints each risk's

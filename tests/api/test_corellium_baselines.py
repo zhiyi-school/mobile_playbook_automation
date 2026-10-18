@@ -16,6 +16,7 @@ from mobile_playbook.reporting.run_events import read_events
 from tests.asgi_helpers import call
 from tests.platforms.android.baseline_fakes import (
     PACKAGE,
+    PHONE_SERIAL,
     PLAIN,
     ROOT,
     ROOTED_SERIAL,
@@ -29,8 +30,8 @@ from tests.platforms.android.baseline_fakes import (
 MUTATIONS = {"restore", "start", "stop", "unpause"}
 
 
-def bench_for(tmp_path, monkeypatch, *risks, roles=("non_rooted", "rooted")) -> BaselineBench:
-    bench = BaselineBench(tmp_path, monkeypatch, risks=risks, roles=roles)
+def bench_for(tmp_path, monkeypatch, *risks, roles=("non_rooted", "rooted"), physical_roles=()) -> BaselineBench:
+    bench = BaselineBench(tmp_path, monkeypatch, risks=risks, roles=roles, physical_roles=physical_roles)
     monkeypatch.setattr(provisioning, "get_android_risk", bench.risks.get)
     return bench
 
@@ -210,3 +211,88 @@ def test_an_unknown_role_is_rejected_at_the_http_boundary(tmp_path, monkeypatch,
     status, _ = asyncio.run(call(api(), "POST", "/config/android/apps/one/install?role=admin"))
 
     assert status == 422
+
+
+def phone_bench(tmp_path, monkeypatch, *risks):
+    return bench_for(tmp_path, monkeypatch, *(risks or (PLAIN, ROOT)), physical_roles=("non_rooted",))
+
+
+def readiness_for(app_risk, bench) -> dict:
+    apps = bench.config_path.parent / "split/android/apps.yaml"
+    text = apps.read_text()
+    for risk in (PLAIN, ROOT):
+        if risk != app_risk:
+            text = text.replace(f"      {risk}:\n        enabled: true\n", f"      {risk}:\n        enabled: false\n")
+    apps.write_text(text)
+    return readiness()
+
+
+def test_an_app_tested_only_on_the_phone_is_ready_without_contacting_corellium(tmp_path, monkeypatch, registry):
+    bench = phone_bench(tmp_path, monkeypatch)
+
+    def no_credentials(cls, env_path=None):
+        raise CorelliumError("Corellium credentials are not configured")
+
+    monkeypatch.setattr(CorelliumClient, "from_env", classmethod(no_credentials))
+
+    body = readiness_for(PLAIN, bench)
+
+    assert (body["runnable"], body["device_ready"], body["blocker_code"]) == (True, True, None)
+    assert bench.api.data["calls"] == []
+    assert {tuple(args) for _, args in bench.adb.commands} <= {("version",), ("devices",), ("shell", "getprop", "ro.build.type")}
+
+
+@pytest.mark.parametrize("state", ["absent", "unauthorized"])
+def test_a_phone_that_is_missing_or_unapproved_blocks_only_apps_tested_on_it(tmp_path, monkeypatch, registry, state):
+    bench = phone_bench(tmp_path, monkeypatch)
+    bench.phone.state = state
+
+    body = readiness()
+
+    assert (body["runnable"], body["blocker_code"], body["retryable"]) == (False, "no_device", True)
+    assert body["detail"] == "Waiting for the non-rooted test phone to be connected and to approve USB debugging."
+    assert readiness_for(ROOT, bench)["runnable"] is True
+
+
+def test_a_phone_in_use_by_another_process_reads_as_busy(tmp_path, monkeypatch, registry, phone_held_by_another_process):
+    bench = phone_bench(tmp_path, monkeypatch)
+
+    body = readiness()
+
+    assert (body["runnable"], body["blocker_code"]) == (False, "platform_busy")
+    assert readiness_for(ROOT, bench)["runnable"] is True
+
+
+def test_a_standalone_install_on_the_phone_keeps_the_app_and_never_touches_a_vm(tmp_path, monkeypatch, registry):
+    from mobile_playbook.platforms.android.device.phone_lock import phone_lock_holder
+
+    bench = phone_bench(tmp_path, monkeypatch)
+    bench.phone.packages[PACKAGE] = ("3.0.0", "300")
+
+    status, body = asyncio.run(call(api(), "POST", "/config/android/apps/one/install"))
+
+    assert status == 200, body
+    assert (body["status"], body["version_name"], body["version_code"]) == ("installed", "3.2.1", "321")
+    assert bench.phone.packages[PACKAGE] == ("3.2.1", "321")
+    assert bench.api.data["calls"] == []
+    assert phone_lock_holder() is None and not registry.is_platform_busy("android")
+
+
+def test_a_standalone_install_on_a_phone_in_use_is_refused_as_busy(tmp_path, monkeypatch, registry, phone_held_by_another_process):
+    bench = phone_bench(tmp_path, monkeypatch)
+
+    status, body = asyncio.run(call(api(), "POST", "/config/android/apps/one/install"))
+
+    assert status == 409
+    assert body["detail"] == {"blocker_code": "platform_busy", "message": "Another run is already using the test device."}
+    assert PACKAGE not in bench.phone.packages and not registry.is_platform_busy("android")
+
+
+def test_a_standalone_install_can_still_choose_the_rooted_vm_beside_a_phone(tmp_path, monkeypatch, registry):
+    bench = phone_bench(tmp_path, monkeypatch)
+
+    status, body = asyncio.run(call(api(), "POST", "/config/android/apps/one/install?role=rooted"))
+
+    assert status == 200, body
+    assert bench.actions(ROOTED_VM, "restore", "start", "stop") == ["restore", "start", "stop"]
+    assert not [args for serial, args in bench.adb.commands if serial == PHONE_SERIAL]

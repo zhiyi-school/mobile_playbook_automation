@@ -39,6 +39,8 @@ device:
     #     os_version: "16.0.0"
     #     osbuild: "r2 userdebug"
     #     snapshot_id: "REPLACE_WITH_SNAPSHOT_ID"
+    # To test the non-rooted role on the physical phone in adb_serial instead of a VM, add
+    # physical_roles: ["non_rooted"] under device (not under corellium) and drop roles.non_rooted above.
   # How missing apps are installed: "apk" (adb, from the app's APK in artifacts/intake/android/apks/),
   # "play_store" (default) or "aurora_store".
   app_store: "play_store"

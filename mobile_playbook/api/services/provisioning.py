@@ -308,6 +308,8 @@ def _baseline_device(app: dict) -> tuple[bool, str | None, str | None]:
             return False, "device_unreachable", None
         if role.state == "busy":
             return False, "platform_busy", None
+        if role.state == "unavailable" and role.role in config.device.physical_roles:
+            return False, "no_device", f"Waiting for the {kind} test phone to be connected and to approve USB debugging."
         if role.state == "unavailable":
             return False, "no_device", f"Waiting for a compatible {kind} test device to become available."
     return True, None, None

@@ -20,8 +20,10 @@ from mobile_playbook.platforms.android.device.adb_connection import (
     connect_ready,
 )
 from mobile_playbook.platforms.android.device.client import AndroidDeviceClient
+from mobile_playbook.platforms.android.device.permissions import is_installed
 from mobile_playbook.platforms.android.device.pool import PHYSICAL_PHONE, RoleDevice
 from mobile_playbook.platforms.android.device.wifi import WIFI_SERIAL, connect_over_wifi, is_network_serial
+from mobile_playbook.platforms.corellium.client import ROOTED_ANDROID_BUILDS
 from mobile_playbook.platforms.corellium.selection import ROLES
 
 logger = logging.getLogger(__name__)
@@ -79,3 +81,58 @@ def connect_phone(config: Any, role: str, *, exclude: Collection[str] = (), poli
     return RoleDevice(role, serial, serial, ROLES[role], AndroidDeviceClient(config, AdbClient(adb_path, serial)),
                       device_type=PHYSICAL_PHONE, reconnect=ready)
 
+
+# Return the phone's third-party (user-installed) packages; anything not listed before a run was installed for it.
+def third_party_packages(adb: AdbClient) -> set[str]:
+    code, out, err = adb.run(["shell", "pm", "list", "packages", "-3"])
+    if code != 0:
+        raise AdbConnectionError(f"Could not list the phone's packages: {(err or out).strip()}", serial=adb.serial or "",
+                                 state=ABSENT)
+    return {line.strip().removeprefix("package:") for line in out.splitlines() if line.strip().startswith("package:")}
+
+
+# Uninstall a package from the phone, returning whether it is gone, including when it was not installed.
+def uninstall(adb: AdbClient, package: str) -> bool:
+    code, out, err = adb.run(["uninstall", package], timeout=60)
+    output = f"{out}\n{err}".lower()
+    # Android 12 answers DELETE_FAILED_INTERNAL_ERROR for a package that is not installed, so a failure is rechecked.
+    gone = (code == 0 and "failure" not in output) or not is_installed(adb, package)
+    logger.debug("android phone: uninstall %s exited %s gone=%s (%s)", package, code, gone, output.strip()[:200])
+    return gone
+
+
+# Return the phone's model name, to tell several test phones apart in reports.
+def phone_model(adb: AdbClient) -> str | None:
+    code, out, _ = adb.run(["shell", "getprop", "ro.product.model"])
+    model = out.strip() if code == 0 else ""
+    return model or None
+
+
+# Return the configured phone's readiness and why, from read-only adb calls that never connect, switch the phone to
+# Wi-Fi or install anything: ready, unavailable or unreachable.
+def phone_readiness(adb_path: str, configured: str | None, exclude: Collection[str] = ()) -> tuple[str, str]:
+    host = AdbClient(adb_path)
+    if not host.is_available():
+        return "unreachable", "adb is not available on this host"
+    states = {serial: state for serial, state in host.device_states().items() if serial not in exclude}
+    configured = (configured or "").strip()
+    if configured == WIFI_SERIAL:
+        # A phone on USB alone still counts: the run switches it to Wi-Fi itself.
+        network = [serial for serial in states if is_network_serial(serial)]
+        candidates = network or [serial for serial in states if not is_network_serial(serial)]
+        if len(candidates) != 1:
+            return "unavailable", "no phone is connected" if not candidates else "several phones are connected"
+        serial = candidates[0]
+    else:
+        serial = configured
+    state = states.get(serial)
+    if state is None:
+        return "unavailable", "the phone is not connected"
+    if state == UNAUTHORIZED:
+        return "unavailable", "the phone has not approved USB debugging for this host"
+    if state != "device":
+        return "unavailable", f"the phone is {state}"
+    code, out, _ = AdbClient(adb_path, serial).run(["shell", "getprop", "ro.build.type"])
+    if code == 0 and out.strip() in ROOTED_ANDROID_BUILDS:
+        return "unavailable", f"the phone runs a rooted {out.strip()} build"
+    return "ready", ""

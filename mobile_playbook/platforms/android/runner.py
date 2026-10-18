@@ -29,7 +29,8 @@ from mobile_playbook.platforms.android.device.client import open_device
 from mobile_playbook.platforms.android.device.corellium import reconnect_corellium
 from mobile_playbook.platforms.android.device.corellium_roles import connect_claimed
 from mobile_playbook.platforms.android.device.phone_lock import PhoneLock, acquire_phone_lock
-from mobile_playbook.platforms.android.device.pool import AndroidDevicePool
+from mobile_playbook.platforms.android.device.phone_role import connect_phone
+from mobile_playbook.platforms.android.device.pool import PHYSICAL_PHONE, AndroidDevicePool, RoleDevice
 from mobile_playbook.platforms.android.device_roles import plan_risk_roles, required_roles, risk_role
 from mobile_playbook.platforms.android.models import PHYSICAL_PROVIDER, AndroidRiskRunResult
 from mobile_playbook.platforms.android.play_services import play_services_problem
@@ -125,6 +126,7 @@ class AndroidPlatformRunner:
             config, required_roles(plan), builds, run_dir, claim_run_id(run_timestamp),
             partial(self._connect_claimed, config, run_dir),
             client=self.corellium_client, store=self.claim_store, policy=self.lifecycle_policy,
+            phone=partial(self._connect_phone, config, run_dir),
         )
         # The run's artifact digest then names the installed intake APK rather than an older pulled copy.
         for build in {build.app_id: build for role_builds in builds.values() for build in role_builds}.values():
@@ -139,6 +141,14 @@ class AndroidPlatformRunner:
             config, apps, role, work_dir, partial(self._connect_claimed, config, work_dir),
             client=self.corellium_client, store=self.claim_store, policy=self.lifecycle_policy,
         )
+
+    # Ensure Appium is running and connect the physical phone serving a role, never one of the excluded VM addresses.
+    def _connect_phone(self, config, run_dir: Path, role: str, exclude) -> RoleDevice:
+        self._ensure_appium(config, run_dir or android_work_dir())
+        device = connect_phone(config, role, exclude=exclude, policy=self.adb_policy)
+        if config.runner.keep_screen_on and not keep_screen_on_while_charging(device.client.adb):
+            logger.warning("Could not set the phone to keep its screen on while charging; tests still wake it first.")
+        return device
 
     # Connect claimed and prepared role devices with this runner's adb policy and prompt recogniser.
     def _connect_claimed(self, config, run_dir: Path, devices, prepared, client, role_settings) -> AndroidDevicePool:
@@ -190,7 +200,8 @@ class AndroidPlatformRunner:
         self._ensure_appium(config, run_dir or android_work_dir())
         for role in pool.roles:
             device = pool.recover(role)
-            logger.info("android: reconnected the %s device to Corellium instance %s.", role, device.instance_id)
+            where = f"the phone {device.serial}" if device.device_type == PHYSICAL_PHONE else f"Corellium instance {device.instance_id}"
+            logger.info("android: reconnected the %s device to %s.", role, where)
         return pool
 
     # Restart Appium and reconnect adb to the Corellium instance the client already uses, returning the same client.

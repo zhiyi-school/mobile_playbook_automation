@@ -465,7 +465,12 @@ def _install_apps(config, role: str | None = None) -> int:
         print("FAILED: --role needs device.corellium.roles in the Android config.", file=sys.stderr)
         return 2
     if uses_baselines(config):
-        return _print_installs(AndroidPlatformRunner().install_on_baseline(config, config.apps, role or NON_ROOTED, work / "diagnostics"))
+        try:
+            outcomes = AndroidPlatformRunner().install_on_baseline(config, config.apps, role or NON_ROOTED, work / "diagnostics")
+        except PhoneBusy as exc:
+            print(f"FAILED: {exc}", file=sys.stderr)
+            return 1
+        return _print_installs(outcomes)
     if config.device.provider != PHYSICAL_PROVIDER:
         return _install_on_device(config, store, work)
     try:

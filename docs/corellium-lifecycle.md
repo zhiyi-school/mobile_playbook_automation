@@ -289,8 +289,9 @@ restores, starts and installs nothing. For a run that needs devices, in order:
    run's `artifacts` digest for the app is the installed APK's SHA-256, even
    when an older pulled copy exists in the work folder.
 6. Risks run in their planned order, each on its role's device. Each result
-   written on a role device carries `metadata.device` with the role, instance
-   ID, baseline ID and the installed build's SHA-256, version and build number.
+   written on a role device carries `metadata.device` with the role,
+   `device_type` (`corellium_vm`), instance ID, baseline ID, adb `serial` and
+   the installed build's SHA-256, version and build number.
    Risks write their evidence into the run folder as they go.
 7. At the end of the run, whether it passed, failed or was cancelled, the pool
    quits its sessions and disconnects adb, then `cleanup()` confirms every VM
@@ -307,17 +308,32 @@ Appium recovery reconnects each role's adb to its own instance and never
 restores, reinstalls, starts, stops, releases or selects a device.
 
 **Run events.** `events.jsonl` records `device_claimed` (role, instance,
-baseline, claim run ID), `device_prepared`, `device_connected`, `app_installed`
-(app, role, instance, package, version, build number, `artifact_sha256`, APK
-file name) and `device_cleanup` (role, instance, baseline, `off` or
+baseline, claim run ID), `device_prepared`, `device_connected` (role,
+`device_type`, instance, adb `serial`), `app_installed` (app, role,
+`device_type`, instance, adb `serial`, package, version, build number,
+`artifact_sha256`, APK file name) and `device_cleanup` (role, instance, baseline, `off` or
 `cleanup_pending` with the error) alongside the existing `app_version` events.
 The claim store keeps the same identities and every phase in `history()`.
+
+**Physical phone roles.** A role listed in `device.physical_roles` is served by
+the configured phone instead of a VM; see
+[A physical phone with a rooted VM](android/configuration.md#baseline-role-devices).
+`open_session()` takes the phone lock and connects the phone through
+`device/phone_role.connect_phone()` before claiming any VM, excluding every VM adb
+address, and records its third-party packages. Only VM roles are resolved, claimed
+and prepared. `BaselineSession.close()` quits sessions, uninstalls every package
+the run added or replaced on the phone, disconnects only the VMs, confirms each VM
+off and releases the phone lock; a failure on one device never skips another.
+`device_connected`, `app_installed` and `device_cleanup` for the phone carry
+`device_type: physical_phone`, its `serial` and model, and the cleanup status
+`cleaned` or `cleanup_incomplete` with the packages `removed` and `left`.
 
 **Standalone installs.** `install-app` and
 `POST /config/android/apps/{app_id}/install` claim one role device (`non_rooted`
 unless `--role rooted` or `?role=rooted` is given), restore and start it,
 install and verify the intake APK, and confirm it off, on success and on
-failure. An app without an intake APK fails as `app_unavailable` without touching
+failure. On a physical phone role the earlier copy is uninstalled, the app stays
+installed afterwards, and a phone in use is `409` `platform_busy` (the CLI exits 1). An app without an intake APK fails as `app_unavailable` without touching
 a VM. The next assessment still restores its own baseline and installs its own
 build. Events and debugging-prompt diagnostics go to
 `<work>/android/apk/diagnostics/`.
@@ -337,8 +353,14 @@ pre-run install for these configs. A required role reads as:
 | No eligible instance with a compatible baseline | `no_device`, naming the rooted or non-rooted device |
 | VM claimed by a run or awaiting cleanup | `platform_busy` |
 | Corellium API unreachable or credentials missing | `device_unreachable` |
+| Physical phone connected, approved and on a `user` build | `device_ready: true` |
+| Physical phone missing, unapproved, offline or rooted | `no_device`, asking for the phone to be connected and approve USB debugging |
+| Physical phone held by another run or install on this host | `platform_busy` |
 
 An unavailable rooted VM therefore blocks only apps with a risk that needs root.
+A physical phone role is checked with read-only adb calls (`adb version`,
+`adb devices` and `getprop ro.build.type`), never through Corellium, so an app
+tested only on the phone needs neither Corellium credentials nor a VM.
 
 **Recovery.** `lifecycle.recover_abandoned()` reads Corellium credentials from
 the repository `.env`, returns at once without credentials or pending claims,

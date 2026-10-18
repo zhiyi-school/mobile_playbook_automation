@@ -1,5 +1,6 @@
 """
-Prepares a run's Corellium role devices from their baselines, installs the intended builds and confirms shutdown.
+Prepares a run's role devices, Corellium VMs restored from their baselines and a physical phone where configured,
+installs the intended builds, and afterwards removes what the run installed on the phone and confirms each VM off.
 """
 
 from __future__ import annotations
@@ -7,7 +8,7 @@ from __future__ import annotations
 import logging
 import time
 import uuid
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
@@ -18,8 +19,23 @@ from mobile_playbook.platforms.android.acquisition.intake_apk import find_intake
 from mobile_playbook.platforms.android.acquisition.play_store import InstallOutcome, installer_of
 from mobile_playbook.platforms.android.device.app_version import installed_version
 from mobile_playbook.platforms.android.device.install import install_apks
+from mobile_playbook.platforms.android.device.corellium import adb_serial
 from mobile_playbook.platforms.android.device.permissions import is_installed
-from mobile_playbook.platforms.android.device.pool import AndroidDevicePool, RoleUnavailable
+from mobile_playbook.platforms.android.device.phone_lock import PhoneBusy, PhoneLock, acquire_phone_lock, phone_lock_holder
+from mobile_playbook.platforms.android.device.phone_role import (
+    connect_phone,
+    phone_model,
+    phone_readiness,
+    third_party_packages,
+    uninstall,
+)
+from mobile_playbook.platforms.android.device.pool import (
+    CORELLIUM_VM,
+    PHYSICAL_PHONE,
+    AndroidDevicePool,
+    RoleDevice,
+    RoleUnavailable,
+)
 from mobile_playbook.platforms.android.device_roles import PlannedRisk
 from mobile_playbook.platforms.android.models import CORELLIUM_PROVIDER
 from mobile_playbook.platforms.corellium.claims import ClaimSet, ClaimStore
@@ -33,6 +49,7 @@ logger = logging.getLogger(__name__)
 
 PLATFORM = "android"
 Connect = Callable[[Sequence[ResolvedDevice], Mapping[str, Any], CorelliumClient, Mapping[str, Mapping[str, Any]]], AndroidDevicePool]
+ConnectPhone = Callable[[str, Collection[str]], RoleDevice]
 
 
 class BuildUnavailable(RuntimeError):
@@ -113,34 +130,54 @@ def intended_builds(plan: Iterable[PlannedRisk]) -> dict[str, list[IntendedBuild
 
 
 class BaselineSession:
-    """One run's claimed and prepared role devices; closing it quits sessions and then confirms every VM off."""
+    """One run's role devices; closing it quits sessions, removes what the run installed on the phone, confirms every
+    VM off and frees the phone."""
 
-    # Hold the lifecycle and claims; the pool is set once the prepared devices connect.
-    def __init__(self, lifecycle: CorelliumLifecycle, claims: ClaimSet, event_dir: Path):
+    # Hold the event folder; the VM lifecycle and claims, the phone and the pool are set as setup reaches them.
+    def __init__(self, lifecycle: CorelliumLifecycle | None, claims: ClaimSet | None, event_dir: Path):
         self.lifecycle = lifecycle
         self.claims = claims
         self.event_dir = event_dir
         self.pool: AndroidDevicePool | None = None
+        self.phones: dict[str, RoleDevice] = {}
+        self.phone_lock: PhoneLock | None = None
+        self.phone_packages: dict[str, set[str]] = {}
+        self.phone_models: dict[str, str | None] = {}
+        self.replaced: dict[str, set[str]] = {}
+        self.clean_phone = True
         self.installed: dict[tuple[str, str], InstalledBuild] = {}
         self.outcomes: dict[str, dict] | None = None
 
-    # Return the claimed identity of a role device and the build installed on it for an app, for result metadata.
+    # Return a role device's type and identity and the build installed on it for an app, for result metadata.
     def result_device(self, role: str, app_id: str) -> dict[str, Any]:
-        device = next(item for item in self.claims.devices if item.role == role)
-        identity: dict[str, Any] = {"role": role, "instance_id": device.instance.id, "baseline_id": device.baseline_id}
+        phone = self.phones.get(role)
+        if phone is not None:
+            identity: dict[str, Any] = {"role": role, "device_type": PHYSICAL_PHONE, "serial": phone.serial,
+                                        "model": self.phone_models.get(role)}
+        else:
+            device = next(item for item in self.claims.devices if item.role == role)
+            identity = {"role": role, "device_type": CORELLIUM_VM, "instance_id": device.instance.id,
+                        "baseline_id": device.baseline_id, "serial": self.pool.device(role).serial if self.pool else None}
         build = self.installed.get((role, app_id))
         if build is not None:
             identity.update(artifact_sha256=build.sha256, version=build.version_name, build_number=build.version_code)
         return identity
 
-    # Install the intended build on the role device, replacing any copy, and verify its package and version.
+    # Install the intended build on the role device and verify its package and version; on a phone any copy already
+    # there is uninstalled first.
     def install(self, build: IntendedBuild, role: str) -> InstalledBuild:
         device = self.pool.device(role)
         adb = device.client.adb
         if apk_install.adb_installs_need_confirmation(adb):
             raise BuildInstallError(apk_install.FAILURES["confirmation_required"][2], "confirmation_required")
+        if device.device_type == PHYSICAL_PHONE and is_installed(adb, build.package):
+            self.replaced.setdefault(role, set()).add(build.package)
+            logger.info("Uninstalling the copy of %s already on the phone %s before installing the intended build.",
+                        build.package, device.serial)
+            if not uninstall(adb, build.package):
+                raise BuildInstallError(f"Could not uninstall the copy of {build.package} already on the phone {device.serial}")
         started = time.monotonic()
-        logger.info("Installing %s from %s on the %s device (instance %s).", build.package, build.apk.name, role, device.instance_id)
+        logger.info("Installing %s from %s on the %s device (%s).", build.package, build.apk.name, role, device.instance_id)
         installed, reason = install_apks(adb, [build.apk, *build.split_apks], grant_permissions=False, timeout=apk_install.INSTALL_TIMEOUT_SECONDS)
         if not installed:
             raise BuildInstallError(f"Could not install {build.apk.name} on the {role} device: {reason}",
@@ -157,58 +194,137 @@ class BaselineSession:
         record = InstalledBuild(build.app_id, role, device.instance_id, build.package, reported[0], reported[1],
                                 build.sha256, installer_of(adb, build.package) or None, time.monotonic() - started)
         self.installed[(role, build.app_id)] = record
-        append_event(self.event_dir, "app_installed", app_id=build.app_id, role=role, instance_id=device.instance_id,
-                     package=build.package, version=record.version_name, build_number=record.version_code,
-                     artifact_sha256=build.sha256, apk=build.apk.name)
+        append_event(self.event_dir, "app_installed", app_id=build.app_id, role=role, device_type=device.device_type,
+                     instance_id=device.instance_id, serial=device.serial, package=build.package,
+                     version=record.version_name, build_number=record.version_code, artifact_sha256=build.sha256,
+                     apk=build.apk.name)
         return record
 
-    # Quit sessions and disconnect adb, then confirm every VM off independently; idempotent, never raises for a
-    # shutdown failure, which stays recorded as pending cleanup for recovery.
+    # Quit sessions, remove what the run installed on the phone, disconnect the VMs and confirm each VM off
+    # independently, then free the phone; idempotent, and a failure on one device never skips another.
     def close(self) -> dict[str, dict]:
         if self.outcomes is not None:
             return self.outcomes
+        outcomes: dict[str, dict] = {}
         try:
+            if self.pool is not None:
+                try:
+                    # Sessions end first, so removing Appium's own apps from the phone cannot break a live session.
+                    self.pool.quit()
+                except Exception as exc:
+                    logger.warning("Could not close the role device sessions: %s", exc)
+            for role, phone in self.phones.items() if self.clean_phone else ():
+                outcomes[role] = self._clean_phone(role, phone)
             if self.pool is not None:
                 try:
                     self.pool.release()
                 except Exception as exc:
                     logger.warning("Could not close the role device sessions before shutdown: %s", exc)
         finally:
-            self.outcomes = self.lifecycle.cleanup(self.claims)
-        for role, outcome in self.outcomes.items():
+            try:
+                if self.claims is not None:
+                    outcomes.update(self.lifecycle.cleanup(self.claims))
+            finally:
+                if self.phone_lock is not None:
+                    self.phone_lock.release()
+                self.outcomes = outcomes
+        for role, outcome in outcomes.items():
             append_event(self.event_dir, "device_cleanup", role=role, **outcome)
-            if outcome["status"] != "off":
+            if outcome["status"] == "cleanup_pending":
                 logger.error("The %s device (instance %s) did not confirm shutdown and stays pending cleanup: %s",
                              role, outcome["instance_id"], outcome.get("error"))
-        return self.outcomes
+            elif outcome["status"] == "cleanup_incomplete":
+                logger.error("Could not remove %s from the phone %s after the run: %s", ", ".join(outcome["left"]),
+                             outcome["serial"], outcome.get("error"))
+        return outcomes
+
+    # Uninstall every package the run installed on the phone, including builds it replaced; never raises.
+    def _clean_phone(self, role: str, phone: RoleDevice) -> dict:
+        adb = phone.client.adb
+        outcome: dict[str, Any] = {"device_type": PHYSICAL_PHONE, "serial": phone.serial}
+        wanted = {build.package for (built_role, _), build in self.installed.items() if built_role == role}
+        wanted |= self.replaced.get(role, set())
+        try:
+            wanted |= third_party_packages(adb) - self.phone_packages.get(role, set())
+        except Exception as exc:
+            outcome["error"] = f"could not list the phone's packages: {exc}"
+        left = []
+        for package in sorted(wanted):
+            try:
+                removed = uninstall(adb, package)
+            except Exception as exc:
+                logger.debug("android phone: uninstall of %s failed: %s", package, exc, exc_info=True)
+                removed = False
+            if not removed:
+                left.append(package)
+        outcome.update(status="cleanup_incomplete" if left or "error" in outcome else "cleaned",
+                       removed=sorted(set(wanted) - set(left)), left=left)
+        return outcome
 
 
-# Resolve, claim, restore and start every required role device once, connect it and install its builds; any failure
-# shuts down what was claimed before the error propagates.
+# Return every adb address a Corellium VM of the run could use, so the phone is never resolved to one of them.
+def _vm_addresses(devices: Sequence[ResolvedDevice], role_settings: Mapping[str, Mapping[str, Any]]) -> set[str]:
+    addresses = {str(settings.get("adb_address")).strip() for settings in role_settings.values()
+                 if isinstance(settings, Mapping) and settings.get("adb_address")}
+    for device in devices:
+        try:
+            addresses.add(adb_serial(device.instance, dict(role_settings.get(device.role) or {})))
+        except CorelliumError:
+            logger.debug("android baseline: %s has no adb address yet", device.instance.id)
+    return addresses
+
+
+# Prepare every required role device once: the phone for physical roles, checked before any VM is touched, and for
+# the others resolve, claim, restore and start each Corellium VM, connect it and install the builds. Any failure
+# cleans up what was set up before the error propagates.
 def open_session(config: Any, roles: Sequence[str], builds: Mapping[str, Sequence[IntendedBuild]], event_dir: Path,
                  run_id: str, connect: Connect, *, client: CorelliumClient | None = None, store: ClaimStore | None = None,
-                 policy: LifecyclePolicy | None = None) -> BaselineSession:
+                 policy: LifecyclePolicy | None = None, phone: ConnectPhone | None = None,
+                 clean_phone: bool = True) -> BaselineSession:
     profile = load_profile(config.device.corellium, PLATFORM)
-    missing = [role for role in roles if role not in profile.roles]
+    phone_roles = [role for role in roles if role in config.device.physical_roles]
+    vm_roles = [role for role in roles if role not in phone_roles]
+    missing = [role for role in vm_roles if role not in profile.roles]
     if missing:
         raise RoleUnavailable(f"This run needs the {' and '.join(missing)} device, but device.corellium.roles has no "
                               "entry for it; another role's device is never used instead.")
-    client = client or CorelliumClient.from_env()
-    devices = resolve_roles(client, {role: profile.roles[role] for role in roles}, profile.baselines, platform=PLATFORM)
-    lifecycle = CorelliumLifecycle(client, store or ClaimStore(client.api_url), policy or profile.policy)
-    claims = lifecycle.store.claim_all(run_id, devices)
-    session = BaselineSession(lifecycle, claims, event_dir)
-    for device in devices:
-        append_event(event_dir, "device_claimed", role=device.role, instance_id=device.instance.id,
-                     baseline_id=device.baseline_id, claim_run_id=run_id)
+    devices: tuple[ResolvedDevice, ...] = ()
+    if vm_roles:
+        client = client or CorelliumClient.from_env()
+        devices = resolve_roles(client, {role: profile.roles[role] for role in vm_roles}, profile.baselines, platform=PLATFORM)
+    session = BaselineSession(None, None, event_dir)
+    session.clean_phone = clean_phone
+    if phone_roles:
+        session.phone_lock = acquire_phone_lock(f"Android run {run_id}")
     try:
-        prepared = lifecycle.prepare(claims)
-        for device in devices:
-            append_event(event_dir, "device_prepared", role=device.role, instance_id=device.instance.id,
-                         baseline_id=device.baseline_id)
-        session.pool = connect(claims.devices, prepared, client, profile.role_settings)
-        for role, identity in session.pool.identities().items():
-            append_event(event_dir, "device_connected", role=role, instance_id=identity["instance_id"])
+        exclude = _vm_addresses(devices, profile.role_settings)
+        for role in phone_roles:
+            device = phone(role, exclude) if phone else connect_phone(config, role, exclude=exclude)
+            session.phones[role] = device
+            session.phone_packages[role] = third_party_packages(device.client.adb)
+            session.phone_models[role] = phone_model(device.client.adb)
+            append_event(event_dir, "device_connected", role=role, device_type=PHYSICAL_PHONE, serial=device.serial,
+                         model=session.phone_models[role])
+        pool_devices = dict(session.phones)
+        if devices:
+            session.lifecycle = CorelliumLifecycle(client, store or ClaimStore(client.api_url), policy or profile.policy)
+            session.claims = session.lifecycle.store.claim_all(run_id, devices)
+            for device in devices:
+                append_event(event_dir, "device_claimed", role=device.role, instance_id=device.instance.id,
+                             baseline_id=device.baseline_id, claim_run_id=run_id)
+            prepared = session.lifecycle.prepare(session.claims)
+            for device in devices:
+                append_event(event_dir, "device_prepared", role=device.role, instance_id=device.instance.id,
+                             baseline_id=device.baseline_id)
+            vm_pool = connect(session.claims.devices, prepared, client, profile.role_settings)
+            for role in vm_pool.roles:
+                pool_devices[role] = vm_pool.device(role)
+                append_event(event_dir, "device_connected", role=role, device_type=CORELLIUM_VM,
+                             instance_id=vm_pool.device(role).instance_id, serial=vm_pool.device(role).serial)
+            session.pool = AndroidDevicePool({role: pool_devices[role] for role in roles}, adb_path=vm_pool.adb_path,
+                                             policy=vm_pool.policy)
+        else:
+            session.pool = AndroidDevicePool({role: pool_devices[role] for role in roles}, adb_path=config.device.adb_path)
         for role in roles:
             for build in builds.get(role, ()):
                 session.install(build, role)
@@ -217,13 +333,14 @@ def open_session(config: Any, roles: Sequence[str], builds: Mapping[str, Sequenc
         try:
             session.close()
         except Exception as cleanup_error:
-            logger.error("Could not shut down the role devices after a setup failure: %s", cleanup_error)
+            logger.error("Could not clean up the role devices after a setup failure: %s", cleanup_error)
         raise
     return session
 
 
-# Install apps on one role's freshly restored device and shut it down again, returning each app's outcome; the
-# next assessment still restores its own baseline and installs its own build.
+# Install apps on one role's device and return each app's outcome: a VM is restored first and shut down again, and a
+# phone keeps the installed apps. The next assessment still prepares its own devices and installs its own build;
+# PhoneBusy propagates so callers can report the phone as busy.
 def install_apps(config: Any, apps: Sequence[Any], role: str, event_dir: Path, connect: Connect, *,
                  client: CorelliumClient | None = None, store: ClaimStore | None = None,
                  policy: LifecyclePolicy | None = None) -> list[tuple[Any, InstallOutcome]]:
@@ -237,9 +354,11 @@ def install_apps(config: Any, apps: Sequence[Any], role: str, event_dir: Path, c
     if builds:
         try:
             session = open_session(config, (role,), {}, event_dir, claim_run_id("install"), connect,
-                                   client=client, store=store, policy=policy)
+                                   client=client, store=store, policy=policy, clean_phone=False)
+        except PhoneBusy:
+            raise
         except Exception as exc:
-            logger.warning("The %s Corellium device could not be prepared for installs: %s", role, exc)
+            logger.warning("The %s device could not be prepared for installs: %s", role, exc)
             for build in builds:
                 outcomes[build.app_id] = apk_install.failure("error", f"The {role} test device is not available: {exc}")
         else:
@@ -295,14 +414,18 @@ def role_readiness(config: Any, roles: Sequence[str], *, client: CorelliumClient
         profile = load_profile(config.device.corellium, PLATFORM)
     except CorelliumError as exc:
         return [RoleReadiness(role, "unconfigured", str(exc)) for role in roles]
+    phone_roles = [role for role in roles if role in config.device.physical_roles]
+    readiness = [_phone_role_readiness(config, profile, role) for role in phone_roles]
+    vm_roles = [role for role in roles if role not in phone_roles]
+    if not vm_roles:
+        return readiness
     try:
         client = client or CorelliumClient.from_env()
         pending = (store or ClaimStore(client.api_url)).pending()
     except (CorelliumError, OSError) as exc:
-        return [RoleReadiness(role, "unreachable", str(exc)) for role in roles]
+        return readiness + [RoleReadiness(role, "unreachable", str(exc)) for role in vm_roles]
     owned = {row["instance_id"] for row in pending}
-    readiness = []
-    for role in roles:
+    for role in vm_roles:
         selection = profile.roles.get(role)
         if selection is None:
             readiness.append(RoleReadiness(role, "unconfigured", f"device.corellium.roles has no {role} entry"))
@@ -322,6 +445,15 @@ def role_readiness(config: Any, roles: Sequence[str], *, client: CorelliumClient
         else:
             readiness.append(RoleReadiness(role, "ready" if device.instance.state == "on" else "startable"))
     return readiness
+
+
+# Report the phone serving a role: busy while another run or install holds it, otherwise its read-only adb state.
+def _phone_role_readiness(config: Any, profile: Any, role: str) -> RoleReadiness:
+    holder = phone_lock_holder()
+    if holder is not None:
+        return RoleReadiness(role, "busy", f"the phone is in use by {holder.get('purpose')}")
+    state, detail = phone_readiness(config.device.adb_path, config.device.adb_serial, _vm_addresses((), profile.role_settings))
+    return RoleReadiness(role, state, detail)
 
 
 # Report whether an inventory instance is one the role could select, so its ownership explains an empty selection.

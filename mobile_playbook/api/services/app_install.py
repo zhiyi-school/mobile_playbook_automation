@@ -71,9 +71,16 @@ def install_app(platform: str, app_id: str, role: str | None = None) -> dict:
         work = android_work_dir() / store.key
         if baselines:
             configured = next(item for item in config.apps if item.id == app_id)
-            [(_, outcome)] = AndroidPlatformRunner().install_on_baseline(
-                config, [configured], role or NON_ROOTED, work / "diagnostics"
-            )
+            try:
+                [(_, outcome)] = AndroidPlatformRunner().install_on_baseline(
+                    config, [configured], role or NON_ROOTED, work / "diagnostics"
+                )
+            except PhoneBusy as exc:
+                logger.info("api: install of %s refused: %s", app_id, exc)
+                raise HTTPException(
+                    status_code=409,
+                    detail={"blocker_code": "platform_busy", "message": "Another run is already using the test device."},
+                ) from exc
         elif config.device.provider == PHYSICAL_PROVIDER:
             try:
                 phone = acquire_phone_lock(f"Android install of {app_id}")

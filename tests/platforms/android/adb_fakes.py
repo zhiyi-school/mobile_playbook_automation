@@ -23,6 +23,7 @@ class FakeDevice:
     packages: dict[str, tuple[str, str]] = field(default_factory=dict)
     files: dict[str, Path] = field(default_factory=dict)
     play_services: bool = True
+    uninstall_fails: set[str] = field(default_factory=set)
 
 
 class FakeAdbHost:
@@ -47,6 +48,8 @@ class FakeAdbHost:
         return subprocess.CompletedProcess(argv, *self._answer(serial, args))
 
     def _answer(self, serial, args):
+        if args == ["version"]:
+            return 0, "Android Debug Bridge version 1.0.41\n", ""
         if args == ["devices"]:
             rows = []
             for name, device in self.devices.items():
@@ -101,6 +104,13 @@ class FakeAdbHost:
             return 0, "Failure [INSTALL_FAILED_INVALID_APK]\n", ""
         if args == ["shell", "pm", "list", "packages", "-e", "com.google.android.gms"]:
             return 0, "package:com.google.android.gms\npackage:com.google.android.gms.policy_sidecar_aps\n" if device.play_services else "", ""
+        if args == ["shell", "pm", "list", "packages", "-3"]:
+            return 0, "".join(f"package:{name}\n" for name in device.packages), ""
+        if args[:1] == ["uninstall"]:
+            if args[1] in device.uninstall_fails or args[1] not in device.packages:
+                return 1, "Failure [DELETE_FAILED_INTERNAL_ERROR]\n", ""
+            del device.packages[args[1]]
+            return 0, "Success\n", ""
         if args[:4] == ["shell", "pm", "list", "packages"] and len(args) == 5:
             return 0, f"package:{args[4]}\n" if args[4] in device.packages else "", ""
         return 0, "", ""

@@ -143,6 +143,41 @@ A role's VM is chosen only from the `baselines` entries whose snapshot exists, b
 
 **Moving from a single instance.** Prepare and record a baseline for the instance (below), move its `project`, `instance` and `os_version` under `roles.non_rooted` (or `roles.rooted` when `rooted: true`), drop the top-level `rooted`, add the instance to `baselines`, set `auto_stop: true` and `app_store: "apk"`, and put each app's APK in the intake folder. Add a `rooted` role with its own VM and baseline when risks that need root should run. `device.provider: physical` ignores `device.corellium` entirely, so physical runs are unchanged by either form.
 
+**A physical phone with a rooted VM.** A physical phone can serve the `non_rooted` role while a Corellium VM serves `rooted`, so every risk that does not need root runs on the phone, for example because the app needs Google Play services, which stock non-rooted VMs lack. List the role in `device.physical_roles`, name the phone in `adb_serial`, and keep only the VM's role under `corellium.roles`:
+
+```yaml
+device:
+  provider: "corellium"
+  app_store: "apk"
+  adb_serial: "wifi"              # or the phone's USB serial, or host:port
+  physical_roles: ["non_rooted"]
+  corellium:
+    auto_start: true
+    auto_stop: true
+    roles:
+      rooted:
+        project: "android"
+        instance: "<ROOTED_INSTANCE_ID>"
+    baselines:
+      "<ROOTED_INSTANCE_ID>":
+        rooted: true
+        os_version: "16.0.0"
+        osbuild: "r2 userdebug"
+        snapshot_id: "<SNAPSHOT_ID>"
+```
+
+`physical_roles` accepts only `non_rooted`, needs `provider: corellium` with `corellium.roles`, and a role is served by the phone or a VM, never both. `adb_serial` is required and must not be a VM's `adb_address`. With `wifi`, the phone's Wi-Fi connection is found as described under [Device](#device), and a Corellium VM's adb address is never taken for it.
+
+For each run, in order:
+
+1. The run takes the [phone lock](#one-user-of-the-phone-at-a-time) and connects the phone. It must be authorized, booted and on a `user` build. A missing, unapproved, rooted or busy phone fails the run before any VM is claimed or restored.
+2. The run records the apps already on the phone. Only the rooted VM is claimed, restored and started; a run whose risks all run on the phone never contacts Corellium.
+3. A copy of the app already on the phone is uninstalled, which deletes its data. The intake APK is then installed on the phone and the VM, and each must report the APK's version.
+4. Risks run on their own device. Each result's `metadata.device` names `device_type` (`physical_phone` or `corellium_vm`) and the adb `serial`, plus the phone's model or the VM's instance and baseline.
+5. At the end, even after a failure or Ctrl-C, every app that was not on the phone before the run is uninstalled: the test build, a replaced copy, the screen-capture helper and Appium's helper apps. Apps that were already there stay. The phone is never disconnected. The VM is confirmed off independently.
+
+`install-app` and `POST /config/android/apps/{app_id}/install` install on the phone by default and keep the app there, after uninstalling any earlier copy; `--role rooted` or `?role=rooted` uses the VM. Readiness checks the phone with read-only adb calls and never connects it, switches it to Wi-Fi or installs on it. Use a dedicated test phone: risks drive its screen, record it and can grant permissions, and the screen recordings and evidence stay on this host.
+
 **Preparing a baseline.** A baseline is a snapshot of one specific VM, taken after:
 
 - Android setup is complete, with a consistent language and orientation and no screen-lock credential;

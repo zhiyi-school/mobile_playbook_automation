@@ -333,6 +333,28 @@ def test_install_app_restores_the_chosen_baseline_vm_installs_and_shuts_it_down(
     assert bench.store.pending() == []
 
 
+def test_install_app_installs_on_the_phone_beside_a_rooted_vm_and_keeps_the_app(tmp_path, monkeypatch, capsys):
+    from mobile_playbook.platforms.android.device.phone_lock import phone_lock_holder
+    from tests.platforms.android.baseline_fakes import PACKAGE, PLAIN, ROOT, BaselineBench
+
+    bench = BaselineBench(tmp_path, monkeypatch, risks=(PLAIN, ROOT), physical_roles=("non_rooted",))
+
+    assert cli_module.main(["install-app", "--config", str(bench.config_path)]) == 0
+    assert "one (com.example.one): installed\n  Version 3.2.1 (build 321)" in capsys.readouterr().out
+    assert bench.phone.packages[PACKAGE] == ("3.2.1", "321")
+    assert bench.api.data["calls"] == [] and phone_lock_holder() is None
+
+
+def test_install_app_on_a_phone_in_use_fails_clearly(tmp_path, monkeypatch, capsys, phone_held_by_another_process):
+    from tests.platforms.android.baseline_fakes import PACKAGE, PLAIN, ROOT, BaselineBench
+
+    bench = BaselineBench(tmp_path, monkeypatch, risks=(PLAIN, ROOT), physical_roles=("non_rooted",))
+
+    assert cli_module.main(["install-app", "--config", str(bench.config_path)]) == 1
+    assert "The physical test phone is in use by Android run in another process" in capsys.readouterr().err
+    assert PACKAGE not in bench.phone.packages
+
+
 def test_install_app_refuses_a_role_without_baseline_roles(config_root, capsys):
     assert cli_module.main(["install-app", "--config", str(config_root / "configs/android.yaml"), "--role", "rooted"]) == 2
     assert "--role needs device.corellium.roles" in capsys.readouterr().err

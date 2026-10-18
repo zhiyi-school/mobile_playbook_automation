@@ -3,6 +3,7 @@ from types import SimpleNamespace
 import pytest
 
 from mobile_playbook.platforms.android.device import phone_role
+from mobile_playbook.platforms.android.device.adb import AdbClient
 from mobile_playbook.platforms.android.device.adb_connection import AdbConnectionError, AdbConnectPolicy, connect_ready
 from mobile_playbook.platforms.android.device.phone_role import connect_phone, resolve_phone_serial
 from mobile_playbook.platforms.android.device.pool import AndroidDevicePool, RoleDevice
@@ -116,3 +117,82 @@ def test_wait_only_connection_never_connects_or_disconnects_an_offline_device(ad
         connect_ready("adb", USB_PHONE, rooted=False, policy=POLICY, connect=False)
 
     assert not [args for _, args in adb_host.commands if args[:1] in (["connect"], ["disconnect"])]
+
+
+def test_the_phones_user_installed_packages_are_listed(adb_host):
+    adb_host.add(USB_PHONE, state="device", packages={"com.example.one": ("1", "1"), "com.example.two": ("1", "1")})
+
+    assert phone_role.third_party_packages(AdbClient("adb", USB_PHONE)) == {"com.example.one", "com.example.two"}
+
+
+def test_listing_packages_on_an_unreachable_phone_fails_rather_than_reading_as_empty(adb_host):
+    with pytest.raises(AdbConnectionError, match="Could not list the phone's packages"):
+        phone_role.third_party_packages(AdbClient("adb", USB_PHONE))
+
+
+def test_uninstall_counts_a_package_that_is_not_installed_as_gone(adb_host):
+    device = adb_host.add(USB_PHONE, state="device", packages={"com.example.one": ("1", "1")})
+    adb = AdbClient("adb", USB_PHONE)
+
+    assert phone_role.uninstall(adb, "com.example.one") is True and device.packages == {}
+    assert phone_role.uninstall(adb, "com.example.one") is True
+
+
+def test_uninstall_reports_a_package_the_phone_keeps(adb_host):
+    adb_host.add(USB_PHONE, state="device", packages={"com.example.one": ("1", "1")}, uninstall_fails={"com.example.one"})
+
+    assert phone_role.uninstall(AdbClient("adb", USB_PHONE), "com.example.one") is False
+
+
+READ_ONLY = {("version",), ("devices",), ("shell", "getprop", "ro.build.type")}
+
+
+def assert_read_only(adb_host):
+    assert {tuple(args) for _, args in adb_host.commands} <= READ_ONLY
+
+
+@pytest.mark.parametrize(("settings", "expected"), [
+    ({"state": "device", "build_type": "user"}, ("ready", "")),
+    ({"state": "unauthorized"}, ("unavailable", "the phone has not approved USB debugging for this host")),
+    ({"state": "offline"}, ("unavailable", "the phone is offline")),
+    ({"state": "device", "build_type": "userdebug"}, ("unavailable", "the phone runs a rooted userdebug build")),
+])
+def test_phone_readiness_reads_the_phones_adb_state(adb_host, settings, expected):
+    adb_host.add(USB_PHONE, **settings)
+
+    assert phone_role.phone_readiness("adb", USB_PHONE) == expected
+    assert_read_only(adb_host)
+
+
+def test_a_phone_that_is_not_connected_is_unavailable(adb_host):
+    assert phone_role.phone_readiness("adb", USB_PHONE) == ("unavailable", "the phone is not connected")
+
+
+def test_without_adb_the_phone_is_unreachable(adb_host, monkeypatch):
+    monkeypatch.setattr(AdbClient, "is_available", lambda self: False)
+
+    assert phone_role.phone_readiness("adb", USB_PHONE)[0] == "unreachable"
+
+
+def test_wifi_readiness_finds_the_phone_without_connecting_or_switching_it(adb_host):
+    adb_host.add(USB_PHONE, state="device", build_type="user")
+    adb_host.add(VM, state="device", build_type="userdebug")
+
+    assert phone_role.phone_readiness("adb", "wifi", {VM}) == ("ready", "")
+    assert_read_only(adb_host)
+
+    adb_host.add(WIFI_PHONE, state="device", build_type="user")
+    assert phone_role.phone_readiness("adb", "wifi", {VM}) == ("ready", "")
+
+
+def test_wifi_readiness_never_counts_a_vm_as_the_phone(adb_host):
+    adb_host.add(VM, state="device", build_type="user")
+
+    assert phone_role.phone_readiness("adb", "wifi", {VM}) == ("unavailable", "no phone is connected")
+
+
+def test_wifi_readiness_refuses_to_guess_between_phones(adb_host):
+    adb_host.add(WIFI_PHONE, state="device")
+    adb_host.add("192.168.1.21:5555", state="device")
+
+    assert phone_role.phone_readiness("adb", "wifi") == ("unavailable", "several phones are connected")

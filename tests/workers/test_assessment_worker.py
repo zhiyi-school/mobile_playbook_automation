@@ -588,11 +588,11 @@ def test_an_install_request_waits_long_enough_for_a_store_download(monkeypatch):
     assert seen[1][2] == api.timeout
 
 
-def baseline_readiness(tmp_path, monkeypatch, *, apk: bool) -> dict:
+def baseline_readiness(tmp_path, monkeypatch, *, apk: bool, physical_roles=()) -> dict:
     from mobile_playbook.api.services import provisioning
     from tests.platforms.android.baseline_fakes import PLAIN, BaselineBench
 
-    bench = BaselineBench(tmp_path, monkeypatch, risks=(PLAIN,))
+    bench = BaselineBench(tmp_path, monkeypatch, risks=(PLAIN,), physical_roles=physical_roles)
     monkeypatch.setattr(provisioning, "get_android_risk", bench.risks.get)
     if not apk:
         bench.apk.unlink()
@@ -617,6 +617,15 @@ def test_a_ready_corellium_baseline_app_starts_its_run_without_a_pre_run_install
 
     assert api.installs == []
     assert api.started[0]["apps"] == "example_app"
+
+
+def test_an_app_tested_on_the_phone_beside_a_vm_starts_its_run_without_a_pre_run_install(tmp_path, monkeypatch):
+    store = android_store()
+    api = FakeApi(baseline_readiness(tmp_path, monkeypatch, apk=True, physical_roles=("non_rooted",)))
+
+    assert run(store, api) == "started"
+
+    assert api.installs == []
 
 
 def test_the_worker_loop_shuts_down_and_releases_vms_an_ended_run_left_pending(tmp_path, monkeypatch):
