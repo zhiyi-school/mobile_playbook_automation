@@ -28,6 +28,7 @@ class AndroidDeviceConfig(SerializableDataclass):
     # See docs/android/configuration.md#corellium-virtual-device.
     provider: str = PHYSICAL_PROVIDER
     corellium: dict[str, Any] = field(default_factory=dict)
+    physical_roles: tuple[str, ...] = ()
 
 
 @dataclass

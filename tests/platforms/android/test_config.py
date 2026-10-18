@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from types import SimpleNamespace
 
+import pytest
+
 from mobile_playbook.platforms.android.config import collect_config_errors, parse_config
 from mobile_playbook.platforms.android.results import normalize_android_result
 from mobile_playbook.common.storage_paths import REPOSITORY_ROOT, android_work_dir
@@ -210,3 +212,77 @@ def test_a_requires_play_services_setting_that_is_not_true_or_false_is_rejected(
     config = parse_config({"apps": [{"id": "one", "package_name": "com.example.one", "requires_play_services": "yes"}]})
 
     assert "apps[one].requires_play_services must be true or false" in collect_config_errors(config)
+
+
+def _hybrid_device(physical_roles=("non_rooted",), adb_serial="wifi", **overrides):
+    device = _baseline_device(adb_serial=adb_serial, **overrides)
+    device["corellium"]["roles"] = {"rooted": {"project": "automation", "instance": "root-id", "adb_address": "10.11.1.1:5001"}}
+    device["corellium"]["baselines"] = {
+        "root-id": {"rooted": True, "os_version": "16.0.0", "osbuild": "r2 userdebug", "snapshot_id": "snap"}}
+    if physical_roles is not None:
+        device["physical_roles"] = list(physical_roles) if isinstance(physical_roles, tuple) else physical_roles
+    return device
+
+
+def _errors(device):
+    return collect_config_errors(parse_config({"device": device, "apps": ["com.example.parking"]}))
+
+
+def test_a_phone_can_serve_the_non_rooted_role_beside_a_rooted_vm():
+    config = parse_config({"device": _hybrid_device(), "apps": ["com.example.parking"]})
+
+    assert config.device.physical_roles == ("non_rooted",)
+    assert config.device.adb_serial == "wifi"
+    assert collect_config_errors(config) == []
+
+
+@pytest.mark.parametrize("serial", ["R5CT1234ABC", "192.168.1.20:5555"])
+def test_a_phone_can_be_named_by_serial_or_address(serial):
+    assert _errors(_hybrid_device(adb_serial=serial)) == []
+
+
+def test_configs_without_physical_roles_keep_an_empty_tuple():
+    assert parse_config({"device": _baseline_device(), "apps": ["com.example.parking"]}).device.physical_roles == ()
+    assert parse_config({}).device.physical_roles == ()
+    assert _errors(_hybrid_device(physical_roles=[])) == []
+
+
+@pytest.mark.parametrize(("physical_roles", "message"), [
+    (("rooted",), "device.physical_roles cannot include rooted: rooted risks need a Corellium VM"),
+    (("tablet",), "device.physical_roles has unknown role 'tablet'; use non_rooted"),
+    (("non_rooted", "non_rooted"), "device.physical_roles lists a role more than once"),
+    ("non_rooted", "device.physical_roles must be a list of device roles, such as [non_rooted]"),
+    ([1], "device.physical_roles must be a list of device roles, such as [non_rooted]"),
+])
+def test_malformed_physical_roles_are_rejected(physical_roles, message):
+    assert message in _errors(_hybrid_device(physical_roles=physical_roles))
+
+
+def test_a_role_cannot_be_served_by_both_the_phone_and_a_vm():
+    device = _hybrid_device()
+    device["corellium"]["roles"]["non_rooted"] = {"project": "automation", "instance": "stock-id"}
+    device["corellium"]["baselines"]["stock-id"] = {"rooted": False, "os_version": "16.0.0", "osbuild": "r2 user",
+                                                    "snapshot_id": "snap"}
+
+    assert _errors(device) == [
+        "device.physical_roles and device.corellium.roles both list non_rooted; each role is served by the phone or a VM, not both"]
+
+
+@pytest.mark.parametrize("serial", [None, "", "  "])
+def test_the_phone_must_be_named_when_it_serves_a_role(serial):
+    assert "device.adb_serial must name the phone (a serial, host:port or wifi) when device.physical_roles is set" in _errors(
+        _hybrid_device(adb_serial=serial))
+
+
+def test_the_phone_serial_cannot_be_a_vm_address():
+    assert _errors(_hybrid_device(adb_serial="10.11.1.1:5001")) == [
+        "device.adb_serial '10.11.1.1:5001' is the adb_address of the rooted VM; it must name the phone"]
+
+
+@pytest.mark.parametrize("device", [
+    {"provider": "physical", "adb_serial": "wifi", "physical_roles": ["non_rooted"]},
+    {"provider": "corellium", "adb_serial": "wifi", "physical_roles": ["non_rooted"], "corellium": {"project": "android", "rooted": True}},
+], ids=["physical provider", "single-instance corellium"])
+def test_physical_roles_need_corellium_baseline_roles(device):
+    assert ("device.physical_roles needs device.provider corellium with device.corellium.roles; with provider physical "
+            "the phone already runs every risk") in _errors(device)

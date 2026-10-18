@@ -29,6 +29,9 @@ from mobile_playbook.platforms.corellium.profile import is_baseline_profile, pro
 
 logger = logging.getLogger(__name__)
 
+PHYSICAL_ROLES = ("non_rooted",)
+
+
 class ConfigError(Exception):
     """Raised with every problem found in an Android config."""
 
@@ -84,6 +87,7 @@ def parse_config(raw: dict[str, Any], config_path: Path | None = None) -> Androi
             appium_auto_start=device_raw.get("appium_auto_start") or {},
             provider=str(device_raw.get("provider") or PHYSICAL_PROVIDER).strip().lower(),
             corellium=device_raw.get("corellium") or {},
+            physical_roles=_physical_roles(device_raw.get("physical_roles")),
         ),
         runner=AndroidRunnerConfig(
             work_dir=_configured_work_dir(runner_raw.get("work_dir") or paths_raw.get("work_dir")),
@@ -124,6 +128,7 @@ def collect_config_errors(config: AndroidGlobalConfig, dry_run: bool = False) ->
         errors.extend(_corellium_errors(config.device.corellium))
         if is_baseline_profile(config.device.corellium) and config.device.app_store != "apk":
             errors.append("device.app_store must be apk when device.corellium.roles is set, because each run installs the intake APK on its restored devices")
+    errors.extend(_physical_role_errors(config.device))
     if not config.apps:
         errors.append("apps list must not be empty")
     known = known_risks()
@@ -157,6 +162,44 @@ def _corellium_errors(settings: Any) -> list[str]:
     if value is not None and (isinstance(value, bool) or not isinstance(value, int) or value <= 0):
         errors.append("device.corellium.adb_port must be a positive whole number")
     return errors
+
+
+# Return the problems with device.physical_roles: the roles a physical phone serves beside Corellium baseline VMs.
+def _physical_role_errors(device: AndroidDeviceConfig) -> list[str]:
+    roles = device.physical_roles
+    if roles == ():
+        return []
+    label = "device.physical_roles"
+    if not isinstance(roles, tuple) or any(not isinstance(role, str) for role in roles):
+        return [f"{label} must be a list of device roles, such as [non_rooted]"]
+    if device.provider != CORELLIUM_PROVIDER or not is_baseline_profile(device.corellium):
+        return [f"{label} needs device.provider corellium with device.corellium.roles; with provider physical the phone already runs every risk"]
+    errors = []
+    if len(set(roles)) != len(roles):
+        errors.append(f"{label} lists a role more than once")
+    for role in dict.fromkeys(roles):
+        if role == "rooted":
+            errors.append(f"{label} cannot include rooted: rooted risks need a Corellium VM")
+        elif role not in PHYSICAL_ROLES:
+            errors.append(f"{label} has unknown role {role!r}; use non_rooted")
+    vm_roles = device.corellium.get("roles")
+    for role in sorted(set(roles) & set(vm_roles if isinstance(vm_roles, dict) else ())):
+        errors.append(f"{label} and device.corellium.roles both list {role}; each role is served by the phone or a VM, not both")
+    serial = device.adb_serial
+    if not isinstance(serial, str) or not serial.strip():
+        errors.append(f"device.adb_serial must name the phone (a serial, host:port or wifi) when {label} is set")
+    else:
+        for role, selector in (vm_roles.items() if isinstance(vm_roles, dict) else ()):
+            if isinstance(selector, dict) and selector.get("adb_address") == serial.strip():
+                errors.append(f"device.adb_serial {serial!r} is the adb_address of the {role} VM; it must name the phone")
+    return errors
+
+
+# Return physical_roles as a tuple when it is a list, keeping any other value for validation to report.
+def _physical_roles(value: Any) -> Any:
+    if value is None:
+        return ()
+    return tuple(value) if isinstance(value, list) else value
 
 
 # Return the problems in a role device's optional adb_port and adb_address overrides.
