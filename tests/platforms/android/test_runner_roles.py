@@ -183,8 +183,9 @@ def test_appium_recovery_reconnects_each_role_to_its_own_instance_without_prepar
     recovered = AndroidPlatformRunner().ensure_device_healthy(config(), pool, tmp_path)
 
     assert recovered is pool
-    assert recovered.identities() == {"non_rooted": {"instance_id": "non_rooted-vm", "serial": STOCK},
-                                      "rooted": {"instance_id": "rooted-vm", "serial": ROOTED}}
+    assert recovered.identities() == {
+        "non_rooted": {"instance_id": "non_rooted-vm", "serial": STOCK, "device_type": "corellium_vm"},
+        "rooted": {"instance_id": "rooted-vm", "serial": ROOTED, "device_type": "corellium_vm"}}
     assert len(started) == 1
     assert adb_host.devices[STOCK].state == adb_host.devices[ROOTED].state == "device"
     assert corellium.calls == [("screenshot", "rooted-vm"), ("touch", "rooted-vm")]

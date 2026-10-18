@@ -15,7 +15,8 @@ ADDRESS = "10.0.0.5"
 class FakePhone:
     """Simulates adb on the host and one phone that can be switched from USB to Wi-Fi."""
 
-    def __init__(self, *, usb=True, wifi_connected=False, tcp_port="", address=ADDRESS):
+    def __init__(self, *, usb=True, wifi_connected=False, tcp_port="", address=ADDRESS, vms=()):
+        self.vms = list(vms)
         self.usb = usb
         self.wifi_connected = wifi_connected
         self.tcp_port = tcp_port
@@ -31,6 +32,7 @@ class FakePhone:
         target, args = (argv[1], argv[2:]) if argv[:1] == ["-s"] else (None, argv)
         if args == ["devices"]:
             rows = ([f"{USB}\tdevice"] if self.usb else []) + ([f"{ADDRESS}:5555\tdevice"] if self.wifi_connected else [])
+            rows += [f"{vm}\tdevice" for vm in self.vms]
             return 0, "List of devices attached\n" + "\n".join(rows), ""
         if args[0] == "version":
             return 0, "Android Debug Bridge version 1.0.41", ""
@@ -111,3 +113,26 @@ def test_an_unresolved_wifi_client_reports_no_device_instead_of_using_usb(phone)
     assert adb.run(["get-state"])[0] != 0
     assert not adb.is_device_connected()
     assert ["-s", USB, "get-state"] not in fake.commands
+
+
+VM = "10.11.1.3:5001"
+
+
+def test_a_corellium_vm_is_never_taken_for_the_phones_wifi_connection(phone):
+    phone(wifi_connected=True, tcp_port="5555", vms=[VM])
+
+    assert wifi.connect_over_wifi(exclude={VM}) == f"{ADDRESS}:5555"
+
+
+def test_with_only_a_vm_on_the_network_the_phone_on_usb_is_switched_to_wifi(phone):
+    fake = phone(vms=[VM])
+
+    assert wifi.connect_over_wifi(wait=0, poll=0, exclude={VM}) == f"{ADDRESS}:5555"
+    assert ["-s", USB, "tcpip", "5555"] in fake.commands
+
+
+def test_without_exclusions_a_lone_vm_would_be_mistaken_for_the_phone(phone):
+    phone(usb=False, vms=[VM])
+
+    assert wifi.connect_over_wifi() == VM
+    assert wifi.connect_over_wifi(exclude={VM}) is None

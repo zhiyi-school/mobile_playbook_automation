@@ -76,7 +76,8 @@ def verify_root_state(phone: AdbClient, serial: str, rooted: bool) -> str:
 
 
 # Connect adb to the serial and wait until it is an authorized, booted device whose root state matches rooted,
-# reconnecting an absent or offline device until the timeout and authorizing an unauthorized one once.
+# reconnecting an absent or offline device until the timeout and authorizing an unauthorized one once. With connect
+# false, as for a phone on USB, an absent or offline device is only waited for.
 def connect_ready(
     adb_path: str,
     serial: str,
@@ -84,6 +85,7 @@ def connect_ready(
     rooted: bool,
     policy: AdbConnectPolicy | None = None,
     authorize: Authorizer | None = None,
+    connect: bool = True,
 ) -> str:
     policy = policy or AdbConnectPolicy()
     host = AdbClient(adb_path)
@@ -121,7 +123,7 @@ def connect_ready(
             unauthorized_since = None
             # A Corellium VM stays unreachable until the project's VPN carries traffic, which can outlast many
             # attempts, so only the time budget ends reconnection; each connect is capped by what remains of it.
-            if time.monotonic() >= next_connect:
+            if connect and time.monotonic() >= next_connect:
                 attempts += 1
                 if state == OFFLINE:
                     host.run(["disconnect", serial])
@@ -130,6 +132,13 @@ def connect_ready(
                 logger.debug("android adb: connect %s (attempt %s) exited %s (%s)", serial, attempts, code, (out or err)[:200])
                 next_connect = time.monotonic() + policy.reconnect_pause
         if time.monotonic() >= deadline:
+            if state in (ABSENT, OFFLINE) and not connect:
+                raise AdbConnectionError(
+                    f"adb did not list {serial} as a ready device within {policy.timeout:g}s; it is {state}. "
+                    "Check that the phone is connected and that USB debugging is on.",
+                    serial=serial,
+                    state=state,
+                )
             if state in (ABSENT, OFFLINE):
                 raise AdbConnectionError(
                     f"adb could not connect to {serial} after {attempts} attempts in {policy.timeout:g}s; it is {state}. "

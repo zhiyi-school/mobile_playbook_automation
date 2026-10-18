@@ -41,8 +41,8 @@ def test_each_claimed_role_connects_to_its_own_instance(adb_host, tmp_path):
 
     assert pool.roles == ("non_rooted", "rooted")
     assert pool.identities() == {
-        "non_rooted": {"instance_id": "non_rooted-vm", "serial": STOCK},
-        "rooted": {"instance_id": "rooted-vm", "serial": ROOTED},
+        "non_rooted": {"instance_id": "non_rooted-vm", "serial": STOCK, "device_type": "corellium_vm"},
+        "rooted": {"instance_id": "rooted-vm", "serial": ROOTED, "device_type": "corellium_vm"},
     }
     assert pool.device("rooted").client.adb.serial == ROOTED
     assert pool.device("non_rooted").client.corellium is None

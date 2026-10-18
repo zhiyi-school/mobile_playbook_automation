@@ -7,6 +7,7 @@ from __future__ import annotations
 import logging
 import re
 import time
+from collections.abc import Collection
 
 from mobile_playbook.platforms.android.device.adb import AdbClient
 
@@ -21,10 +22,12 @@ _IPV4_RE = re.compile(r"\binet (\d{1,3}(?:\.\d{1,3}){3})/")
 
 
 # Return the serial of the phone's Wi-Fi adb connection, enabling and connecting it through USB when needed, or None.
-def connect_over_wifi(adb_path: str = "adb", *, wait: float = CONNECT_WAIT_SECONDS, poll: float = POLL_SECONDS) -> str | None:
+# Serials in exclude, such as Corellium VM addresses, are never taken for the phone.
+def connect_over_wifi(adb_path: str = "adb", *, wait: float = CONNECT_WAIT_SECONDS, poll: float = POLL_SECONDS,
+                      exclude: Collection[str] = ()) -> str | None:
     host = AdbClient(adb_path)
     devices = host.connected_devices()
-    network = sorted(serial for serial in devices if is_network_serial(serial))
+    network = sorted(serial for serial in devices if is_network_serial(serial) and serial not in exclude)
     if len(network) == 1:
         logger.debug("android wifi: using existing Wi-Fi connection %s", network[0])
         return network[0]

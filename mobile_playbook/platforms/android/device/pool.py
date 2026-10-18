@@ -5,7 +5,7 @@ Holds a run's Android device clients by role, each bound to one exact claimed in
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
 from mobile_playbook.platforms.android.device.adb import AdbClient
@@ -14,6 +14,9 @@ from mobile_playbook.platforms.android.device.client import AndroidDeviceClient
 
 logger = logging.getLogger(__name__)
 
+CORELLIUM_VM = "corellium_vm"
+PHYSICAL_PHONE = "physical_phone"
+
 
 class RoleUnavailable(RuntimeError):
     """The run has no prepared device for a role, and another role's device never stands in for it."""
@@ -21,7 +24,7 @@ class RoleUnavailable(RuntimeError):
 
 @dataclass(frozen=True)
 class RoleDevice:
-    """One role's device: its exact instance, adb serial, expected root state and client."""
+    """One role's device: its exact instance (a phone's serial), adb serial, expected root state, client and type."""
 
     role: str
     instance_id: str
@@ -29,6 +32,8 @@ class RoleDevice:
     rooted: bool
     client: AndroidDeviceClient
     authorize: Authorizer | None = None
+    device_type: str = CORELLIUM_VM
+    reconnect: Callable[[], object] | None = None
 
 
 class AndroidDevicePool:
@@ -74,12 +79,16 @@ class AndroidDevicePool:
     # Reconnect adb to the role's own serial and recheck readiness; this never selects, restores or stops a device.
     def recover(self, role: str) -> RoleDevice:
         device = self.device(role)
-        connect_ready(self.adb_path, device.serial, rooted=device.rooted, policy=self.policy, authorize=device.authorize)
+        if device.reconnect is not None:
+            device.reconnect()
+        else:
+            connect_ready(self.adb_path, device.serial, rooted=device.rooted, policy=self.policy, authorize=device.authorize)
         return device
 
-    # Return each role's (instance_id, serial), for events and reports.
+    # Return each role's instance_id, serial and device type, for events and reports.
     def identities(self) -> dict[str, dict[str, str]]:
-        return {role: {"instance_id": device.instance_id, "serial": device.serial} for role, device in self._devices.items()}
+        return {role: {"instance_id": device.instance_id, "serial": device.serial, "device_type": device.device_type}
+                for role, device in self._devices.items()}
 
     # Quit every role's session, continuing past failures so one role cannot block another.
     def quit(self) -> None:
@@ -89,10 +98,13 @@ class AndroidDevicePool:
             except Exception as exc:
                 logger.warning("Could not quit the %s device session: %s", role, exc)
 
-    # Quit every session and disconnect adb from every role's serial; powering off belongs to the VM lifecycle.
+    # Quit every session and disconnect adb from every VM's serial; a phone stays connected for its next user, and
+    # powering off belongs to the VM lifecycle.
     def release(self) -> None:
         self.quit()
         host = AdbClient(self.adb_path)
         for role, device in self._devices.items():
+            if device.device_type == PHYSICAL_PHONE:
+                continue
             code, out, err = host.run(["disconnect", device.serial])
             logger.debug("android pool: disconnect %s (%s) exited %s (%s)", device.serial, role, code, (out or err)[:200])
