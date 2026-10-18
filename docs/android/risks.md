@@ -100,6 +100,15 @@ Generated work files (backed-up, decoded, and rebuilt APKs) are left under `arti
 
 `requires` names the tools and services a risk checks before it runs (`adb`, `appium`, `apktool`, `apksigner`, `keytool`, `mobsf`, `burp`, `screen_capture_helper`) and `root` when it needs a rooted device. The `root` check passes when the device runs shell commands as root or its `su` grants root. With Corellium role devices, a risk that requires root runs on the rooted VM and every other device risk on the non-rooted VM; a malformed declaration fails the risk. See [Android role connections](../corellium-lifecycle.md#android-role-connections). A single physical device runs every risk.
 
+### Google Play services
+
+Many apps stop at a "Google Play services" error dialog on a device without Play services, so a device risk would judge the dialog rather than the app. Before each risk that uses the device, the runner checks both sides:
+
+- **The app.** `requires_play_services` in the app's entry decides when it is set (see [Apps](configuration.md#apps)). Otherwise, the app's intake APK decides: an app needs Play services when its manifest declares the `com.google.android.gms.version` meta-data, which every Play services client library adds. An app with neither an intake APK nor the setting is not checked.
+- **The device.** `adb shell pm list packages -e com.google.android.gms` must list the package, meaning it is installed and enabled.
+
+When the app needs Play services and the device lacks them, the risk is not run. Its result is `FAILED` with verdict `Inconclusive`, and an error naming the device (its role and adb serial on Corellium role devices) and the app. Static risks are never affected. Corellium images without Google Play, such as stock `user` builds, and phones sold without Google Play (for example, recent Huawei models) produce this result for such apps. An app whose manifest declares Play services but works without them can set `requires_play_services: false`.
+
 There is no Android playbook yet, so the current entries carry over what the risk classes used to say; once one exists its `### Title` and `### Description` take over automatically and these entries become the fallback. `tactic` is `null` for the screen-capture and repackaging risks until they're mapped; the APK static-analysis entry carries `Discovery`, the tactic its playbook entry names.
 
 Both halves of an entry are editable over HTTP without a code change: `PUT /platforms/android/risks/{risk_id}` replaces the metadata fields, and `PUT /platforms/android/risks/{risk_id}/demonstration` replaces the demonstration. Neither touches the run.

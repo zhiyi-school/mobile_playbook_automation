@@ -191,3 +191,22 @@ def test_android_baseline_roles_are_ignored_while_the_provider_stays_physical():
 
     assert config.device.provider == "physical"
     assert collect_config_errors(config) == []
+
+
+def test_an_app_can_say_whether_it_needs_google_play_services():
+    apps = [
+        {"id": "needs", "package_name": "com.example.needs", "requires_play_services": True},
+        {"id": "works_without", "package_name": "com.example.without", "requires_play_services": False},
+        {"id": "unset", "package_name": "com.example.unset"},
+    ]
+
+    config = parse_config({"apps": apps})
+
+    assert [app.requires_play_services for app in config.apps] == [True, False, None]
+    assert not [error for error in collect_config_errors(config) if "requires_play_services" in error]
+
+
+def test_a_requires_play_services_setting_that_is_not_true_or_false_is_rejected():
+    config = parse_config({"apps": [{"id": "one", "package_name": "com.example.one", "requires_play_services": "yes"}]})
+
+    assert "apps[one].requires_play_services must be true or false" in collect_config_errors(config)

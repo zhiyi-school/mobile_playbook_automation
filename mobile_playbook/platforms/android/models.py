@@ -55,6 +55,7 @@ class AndroidAppConfig(SerializableDataclass):
     agency: str = ""
     version: str = ""
     cisos: list[CisoConfig] = field(default_factory=list)
+    requires_play_services: bool | None = None
 
 
 @dataclass

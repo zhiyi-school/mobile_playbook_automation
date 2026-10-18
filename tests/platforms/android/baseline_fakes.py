@@ -12,6 +12,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from mobile_playbook.orchestration.appium_server import AppiumStartResult
+from mobile_playbook.platforms.android import play_services
 from mobile_playbook.platforms.android import runner as runner_module
 from mobile_playbook.platforms.android.acquisition import intake_apk
 from mobile_playbook.platforms.android.device import adb as adb_module
@@ -25,6 +26,7 @@ from mobile_playbook.platforms.corellium.claims import ClaimStore
 from mobile_playbook.platforms.corellium.client import CorelliumClient
 from mobile_playbook.platforms.corellium.lifecycle import LifecyclePolicy
 from tests.platforms.android.adb_fakes import FakeAdbHost
+from tests.platforms.android.manifest_fakes import manifest_tree
 from tests.platforms.corellium.helpers import FakeAPI, device
 
 STOCK_VM, ROOTED_VM = "stock-vm", "rooted-vm"
@@ -133,6 +135,9 @@ class BaselineBench:
         metadata = {APK_NAME: {"package_name": PACKAGE, "version_name": "3.2.1", "version_code": "321"}}
         monkeypatch.setattr(intake_apk, "inspect_apk_metadata", lambda path: metadata[Path(path).name])
         monkeypatch.setattr(intake_apk, "_scan_cache", {})
+        self.declares_play_services = False
+        monkeypatch.setattr(play_services, "manifest_tree",
+                            lambda path: manifest_tree(play_services=self.declares_play_services, package=PACKAGE))
 
         self.risks = {PLAIN: EvidenceRisk(PLAIN, ["adb"]), ROOT: EvidenceRisk(ROOT, ["adb", "root"]),
                       STATIC: EvidenceRisk(STATIC, requires_device=False)}

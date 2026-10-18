@@ -31,6 +31,7 @@ from mobile_playbook.platforms.android.device.corellium_roles import connect_cla
 from mobile_playbook.platforms.android.device.pool import AndroidDevicePool
 from mobile_playbook.platforms.android.device_roles import plan_risk_roles, required_roles, risk_role
 from mobile_playbook.platforms.android.models import AndroidRiskRunResult
+from mobile_playbook.platforms.android.play_services import play_services_problem
 from mobile_playbook.platforms.android.device.permissions import grant_all
 from mobile_playbook.platforms.android.device.screen import keep_screen_on_while_charging, wake_and_unlock
 from mobile_playbook.platforms.android.device.sdk import appium_environment
@@ -213,6 +214,7 @@ class AndroidPlatformRunner:
         try:
             role = risk_role(risk)
             session = self._sessions.get(id(device_client))
+            role_device = role if isinstance(device_client, AndroidDevicePool) else None
             device_client = self._route(device_client, role)
             if session is not None and role is not None:
                 report_writer = TaggedReportWriter(report_writer, session.result_device(role, app.id))
@@ -223,6 +225,10 @@ class AndroidPlatformRunner:
             logger.debug("android runner: preflight for %s/%s ok=%s errors=%s warnings=%s", app.id, test_id, getattr(preflight, "ok", None), getattr(preflight, "errors", None), getattr(preflight, "warnings", None))
             if not preflight.ok:
                 raise RuntimeError("; ".join(preflight.errors))
+            if getattr(risk, "requires_device", True) and adb is not None:
+                problem = play_services_problem(app, adb, role_device)
+                if problem:
+                    raise RuntimeError(problem)
             if getattr(risk, "requires_device", True):
                 # The screen may have timed out since the last test; a risk that uses the device drives its UI.
                 wake_and_unlock(adb)

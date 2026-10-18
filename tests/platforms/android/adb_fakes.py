@@ -22,6 +22,7 @@ class FakeDevice:
     root_uid: bool = False
     packages: dict[str, tuple[str, str]] = field(default_factory=dict)
     files: dict[str, Path] = field(default_factory=dict)
+    play_services: bool = True
 
 
 class FakeAdbHost:
@@ -98,6 +99,8 @@ class FakeAdbHost:
                     device.packages[package[0]] = package[1:]
                     return 0, "Success\n", ""
             return 0, "Failure [INSTALL_FAILED_INVALID_APK]\n", ""
+        if args == ["shell", "pm", "list", "packages", "-e", "com.google.android.gms"]:
+            return 0, "package:com.google.android.gms\npackage:com.google.android.gms.policy_sidecar_aps\n" if device.play_services else "", ""
         if args[:4] == ["shell", "pm", "list", "packages"] and len(args) == 5:
             return 0, f"package:{args[4]}\n" if args[4] in device.packages else "", ""
         return 0, "", ""

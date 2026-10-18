@@ -133,6 +133,8 @@ def collect_config_errors(config: AndroidGlobalConfig, dry_run: bool = False) ->
             errors.append(f"{label}.id is required")
         if not app.package_name:
             errors.append(f"{label}.package_name is required")
+        if app.requires_play_services is not None and not isinstance(app.requires_play_services, bool):
+            errors.append(f"{label}.requires_play_services must be true or false")
         for risk_id, risk_config in app.risks.items():
             if risk_id not in known:
                 errors.append(f"{label}.risks.{risk_id} is unknown")
@@ -216,6 +218,7 @@ def _parse_app(item: Any) -> AndroidAppConfig:
         agency=item.get("agency", ""),
         version=item.get("version", ""),
         cisos=cisos,
+        requires_play_services=item.get("requires_play_services"),
     )
 
 

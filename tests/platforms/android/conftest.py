@@ -3,8 +3,16 @@ import json
 
 import pytest
 
+from mobile_playbook.platforms.android import play_services
 from mobile_playbook.platforms.android.device import adb as adb_module
 from tests.platforms.android.adb_fakes import FakeAdbHost
+
+
+@pytest.fixture(autouse=True)
+def fresh_play_services_cache():
+    play_services._apk_declares_play_services.cache_clear()
+    yield
+    play_services._apk_declares_play_services.cache_clear()
 
 
 @pytest.fixture

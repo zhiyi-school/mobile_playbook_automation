@@ -226,6 +226,8 @@ dashboard keeps one application per `id` and platform.
 
 Each app can also carry `sector`, `agency`, `version`, and `cisos` (a list of `{name, email}`) — organizational metadata a dashboard displays alongside an app's findings. None of this is read by the automation run itself; all four are optional and default to blank/empty, and can be set here directly or through `GET`/`PUT /config/android/apps/{app_id}` (see [HTTP API](../api.md#editing-config)).
 
+`requires_play_services` (`true` or `false`, optional) says whether the app needs Google Play services. When it is unset, the app's intake APK manifest decides. A device risk for an app that needs them is not run on a device without them; see [Google Play services](risks.md#google-play-services).
+
 See the one app entry under `apps:` in [configs/split/android/apps.example.yaml](../../configs/split/android/apps.example.yaml) for a full, copyable app block including per-app risk overrides.
 
 ## Risk Blocks

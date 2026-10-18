@@ -4,6 +4,9 @@ apps:
   - id: "example_app"
     name: "Example App"
     package_name: "com.example.app"
+    # Optional: whether the app needs Google Play services. Unset, the app's intake APK manifest decides; device risks
+    # for an app that needs them are not run on a device without them.
+    # requires_play_services: false
     risks:
       android-feature-01-risk-01:
         enabled: true

@@ -13,6 +13,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 COMPONENT_TAGS = ("activity", "activity-alias", "service", "receiver", "provider")
+PLAY_SERVICES_VERSION_METADATA = "com.google.android.gms.version"
 
 # Runtime ("dangerous") permissions from the Android platform manifest; the user must grant each one explicitly.
 DANGEROUS_PERMISSIONS = frozenset(
@@ -85,6 +86,20 @@ def parse_manifest_tree(text: str) -> dict[str, Any]:
         len(components), summary["exported_counts"], summary["application"],
     )
     return summary
+
+
+# Report whether the manifest declares the Google Play services client version meta-data, which every Play services
+# client library adds to the application.
+def declares_play_services(text: str) -> bool:
+    root = _parse_elements(text)
+    manifest = next((element for element in root.children if element.tag == "manifest"), None)
+    if manifest is None:
+        raise ValueError("The manifest dump has no <manifest> element")
+    application = _first_child(manifest, "application")
+    return any(
+        child.tag == "meta-data" and child.attributes.get("name") == PLAY_SERVICES_VERSION_METADATA
+        for child in (application.children if application else [])
+    )
 
 
 # Count, per component type, the exported components other apps can reach without holding a permission; launcher

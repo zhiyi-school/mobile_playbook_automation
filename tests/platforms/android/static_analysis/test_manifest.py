@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import pytest
 
-from mobile_playbook.platforms.android.static_analysis.manifest import parse_manifest_tree, unprotected_exported_components
+from mobile_playbook.platforms.android.static_analysis.manifest import (
+    declares_play_services,
+    parse_manifest_tree,
+    unprotected_exported_components,
+)
 
 AAPT_TREE = """N: android=http://schemas.android.com/apk/res/android
   E: manifest (line=2)
@@ -105,3 +109,28 @@ def test_aapt2_literals_parse_like_aapt_typed_values():
 def test_a_dump_without_a_manifest_is_rejected():
     with pytest.raises(ValueError):
         parse_manifest_tree("N: android=http://schemas.android.com/apk/res/android\n")
+
+
+def test_the_play_services_version_metadata_on_the_application_is_detected():
+    from tests.platforms.android.manifest_fakes import manifest_tree
+
+    assert declares_play_services(manifest_tree(play_services=True)) is True
+    assert declares_play_services(manifest_tree(play_services=False)) is False
+    assert declares_play_services(AAPT_TREE) is False
+
+
+def test_play_services_metadata_is_detected_in_an_aapt2_dump():
+    tree = AAPT2_TREE.replace(
+        "      E: activity (line=20)\n",
+        "      E: meta-data (line=18)\n"
+        '        A: http://schemas.android.com/apk/res/android:name(0x01010003)="com.google.android.gms.version" '
+        '(Raw: "com.google.android.gms.version")\n'
+        "      E: activity (line=20)\n",
+    )
+
+    assert declares_play_services(tree) is True
+
+
+def test_a_dump_without_a_manifest_cannot_say_whether_play_services_are_needed():
+    with pytest.raises(ValueError, match="no <manifest>"):
+        declares_play_services("N: android=http://schemas.android.com/apk/res/android\n")

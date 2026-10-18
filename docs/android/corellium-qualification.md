@@ -84,9 +84,10 @@ For every run and install, also check:
   on this host.
 - `device_cleanup` reads `off` for every claimed role, and Corellium shows each
   VM off.
-- The screen captured by a device risk shows the app itself. An app that needs
-  Google Play services stops at an error dialog on a baseline without them, and
-  that risk's verdict then describes the dialog rather than the app.
+- The screen captured by a device risk shows the app itself. A device risk for an
+  app that needs Google Play services is not run on a VM without them and reads
+  `FAILED` with an error naming the device (see
+  [Google Play services](risks.md#google-play-services)).
 
 ## Debugging approval
 
