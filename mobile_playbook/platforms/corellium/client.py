@@ -256,13 +256,19 @@ def retry_read(client: CorelliumClient, operation, deadline: float, poll: float)
             time.sleep(min(poll, max(0, deadline - time.monotonic())))
 
 
+# Retry a status read that keeps the client's full request timeout even when the wait's deadline is near or past, so a
+# wait that outlasts its budget reports the observed state instead of a read cut short; it overruns by at most one timeout.
+def retry_status_read(client: CorelliumClient, operation, deadline: float, poll: float):
+    return retry_read(client, operation, max(deadline, time.monotonic() + client.timeout), poll)
+
+
 # Wait for a stable instance state and idle task, retrying temporary API outages.
 def wait_instance_state(client: CorelliumClient, instance_id: str, states: set[str], *,
                         timeout: float = DEFAULT_BOOT_TIMEOUT_SECONDS, poll: float = POLL_SECONDS,
                         deadline: float | None = None) -> CorelliumInstance:
     deadline = deadline if deadline is not None else polling_deadline(timeout, poll)
     while True:
-        instance = retry_read(client, lambda api: api.get_instance(instance_id), deadline, poll)
+        instance = retry_status_read(client, lambda api: api.get_instance(instance_id), deadline, poll)
         if instance.id != instance_id:
             raise CorelliumError(f"Corellium returned a different instance identity for {instance_id}")
         if instance.state in states and instance.task_state in {"none", ""}:
@@ -270,7 +276,8 @@ def wait_instance_state(client: CorelliumClient, instance_id: str, states: set[s
         if instance.state in {"error", "deleted", "deleting"}:
             raise CorelliumError(f"Corellium instance {instance_id} entered {instance.state}")
         if time.monotonic() >= deadline:
-            raise CorelliumError(f"Corellium instance {instance_id} did not reach {sorted(states)}")
+            raise CorelliumError(f"Corellium instance {instance_id} did not reach {sorted(states)} "
+                                 f"(last {instance.state}, task {instance.task_state})")
         time.sleep(min(poll, max(0, deadline - time.monotonic())))
 
 
@@ -281,13 +288,16 @@ def ensure_instance_state(client: CorelliumClient, instance_id: str, target: str
         raise ValueError("Power target must be on or off")
     deadline = polling_deadline(timeout, poll)
     while True:
-        instance = retry_read(client, lambda api: api.get_instance(instance_id), deadline, poll)
+        instance = retry_status_read(client, lambda api: api.get_instance(instance_id), deadline, poll)
         if instance.id != instance_id:
             raise CorelliumError(f"Corellium returned a different instance identity for {instance_id}")
         if instance.state == target and instance.task_state in {"none", ""}:
             return instance
         if instance.state in {"deleted", "deleting"} or (instance.state == "error" and target == "on"):
             raise CorelliumError(f"Corellium instance {instance_id} entered {instance.state}")
+        if time.monotonic() >= deadline:
+            raise CorelliumError(f"Corellium instance {instance_id} did not reach {[target]} "
+                                 f"(last {instance.state}, task {instance.task_state})")
         if instance.task_state in {"none", ""}:
             operation = None
             if target == "off" and instance.state not in TRANSITIONAL_STATES and instance.state != "off":

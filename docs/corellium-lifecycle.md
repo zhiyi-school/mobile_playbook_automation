@@ -148,7 +148,13 @@ field; `flavorName` is a display label and is not used.
 Reads retry transient transport failures and HTTP 408/429/500/502/503/504.
 Power retries reconcile observed state. Monotonic deadlines bound operations;
 individual HTTP timeouts are capped by the remaining budget, except restore
-status reads as described above. Permanent errors
+status reads as described above and the status reads of power waits. Each of
+those keeps the client's full request timeout, so an expired power budget fails
+as the instance that "did not reach" its target state, naming the last state and
+task, rather than as a read cut short and reported as an API outage. A power wait
+can therefore overrun its budget by at most one request timeout, and an API
+outage during it is retried until the budget expires and then fails as a
+transient Corellium error. Permanent errors
 fail promptly. `LifecyclePolicy` configures independent restore/power budgets and
 a poll interval; budgets and intervals must be positive and finite, so polling
 never loops without a pause. Screenshot reads have bounded retries. Touch sends
