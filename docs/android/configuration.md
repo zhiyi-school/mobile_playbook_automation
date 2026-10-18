@@ -32,6 +32,10 @@ device:
 
 Set `adb_serial: "wifi"` to use the phone's Wi-Fi connection without fixing its address. Each adb client finds it the first time it targets the device. An existing Wi-Fi connection is used as is. Otherwise, with exactly one phone attached by USB, its `wlan0` address is read, adb on the phone is switched to Wi-Fi on port 5555 if it is not listening already (`adb tcpip`, which lasts until the phone reboots), and the host connects to it. The phone must be on a network this host can reach. Without a Wi-Fi connection or a single USB phone to find one through, the device counts as not connected and the API log says why. Use this when USB transfers are unreliable, as on some Huawei phones, while keeping the cable attached for charging.
 
+#### One user of the phone at a time
+
+With `provider: physical`, every run whose risks use the device, `install-app`, and `POST /config/android/apps/{app_id}/install` hold a host-wide lock on the phone until they finish, whether they come from the CLI, the API or the assessment worker. A second one fails at once with "The physical test phone is in use by …", naming the run or install that holds it and its process. The API install answers `409` with `platform_busy`. Readiness reports `platform_busy` while another process holds the phone, so the worker waits rather than failing. Static-only runs never take the lock. The lock is released when the run or install ends, including on failure or Ctrl-C, and the operating system drops it if the process dies. The lock lives under `~/.local/state/mobile-playbook/device-locks/`, or the absolute `DEVICE_LOCK_DIR` from the process environment (see [Runtime storage](../storage.md#layout)).
+
 `app_store` chooses how missing apps are installed: `apk` (adb, from the app's
 APK in `artifacts/intake/android/apks/`), `play_store` (the
 default when unset) or `aurora_store`. Any other value fails config validation. It can also be set with

@@ -213,7 +213,9 @@ curl http://127.0.0.1:8080/config/<PLATFORM>/apps/<APP_ID>/provisioning
 
 Read `blocker_code`. `no_device` means nothing is attached; `device_unreachable`
 means the device tooling could not be reached at all; `platform_busy` means
-another run holds the device — check `GET /runs`. `app_not_installed` on Android
+another run holds the device — check `GET /runs` — or, with a physical phone,
+that a CLI run or install on this host holds the phone
+([One user of the phone at a time](android/configuration.md#one-user-of-the-phone-at-a-time)). `app_not_installed` on Android
 is installed by the worker; the install outcomes are listed in
 [Installing missing apps](android/README.md#installing-missing-apps). `configuration_incomplete` and
 `no_tests_enabled` will not clear on their own and need a config change.

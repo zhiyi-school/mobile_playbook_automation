@@ -13,6 +13,7 @@ from mobile_playbook.orchestration.appium_server import AppiumStartResult
 from mobile_playbook.platforms.android.acquisition.play_store import InstallOutcome, failure
 from mobile_playbook.platforms.android.acquisition import store
 from mobile_playbook.platforms.android.device.app_version import InstalledVersion
+from mobile_playbook.platforms.android.device.phone_lock import phone_lock_holder
 from tests.asgi_helpers import call
 
 
@@ -27,7 +28,8 @@ def installer(config_root, monkeypatch):
     outcome = {"value": InstallOutcome(status="installed", installer="com.android.vending", seconds=12.0)}
 
     def fake_install(adb, make_driver, package, diagnostics_root, **kwargs):
-        calls.append({"package": package, "diagnostics_root": diagnostics_root, "busy": registry.is_platform_busy("android")})
+        calls.append({"package": package, "diagnostics_root": diagnostics_root, "busy": registry.is_platform_busy("android"),
+                      "phone": (phone_lock_holder() or {}).get("purpose")})
         if isinstance(outcome["value"], Exception):
             raise outcome["value"]
         return outcome["value"]
@@ -49,8 +51,10 @@ def test_a_missing_app_is_installed_by_its_package_while_the_device_is_held(inst
     assert body["status"] == "installed"
     assert body["installer"] == "com.android.vending"
     assert (body["version_name"], body["version_code"]) == ("3.2.1", "321")
+    assert phone_lock_holder() is None
     assert calls == [
-        {"package": "com.example.one", "diagnostics_root": calls[0]["diagnostics_root"], "busy": True}
+        {"package": "com.example.one", "diagnostics_root": calls[0]["diagnostics_root"], "busy": True,
+         "phone": "Android install of one"}
     ]
     assert calls[0]["diagnostics_root"].parts[-2:] == ("play_store", "diagnostics")
     assert not registry.is_platform_busy("android")
@@ -129,6 +133,18 @@ def test_the_device_is_released_even_when_the_install_raises(installer):
     with pytest.raises(RuntimeError):
         asyncio.run(call(app, "POST", "/config/android/apps/one/install"))
 
+    assert not registry.is_platform_busy("android")
+    assert phone_lock_holder() is None
+
+
+def test_a_phone_held_by_another_process_refuses_the_install(installer, phone_held_by_another_process):
+    app, registry, calls, _ = installer
+
+    status, body = asyncio.run(call(app, "POST", "/config/android/apps/one/install"))
+
+    assert status == 409
+    assert body["detail"] == {"blocker_code": "platform_busy", "message": "Another run is already using the test device."}
+    assert calls == []
     assert not registry.is_platform_busy("android")
 
 

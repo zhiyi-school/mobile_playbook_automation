@@ -125,6 +125,7 @@ processes in deliberately different ways.
 | `IOS_PLAYBOOK_DIR` | API | where the iOS developer remediation playbook lives |
 | `ANDROID_PLAYBOOK_DIR` | API | where the Android developer remediation playbook lives |
 | `CORELLIUM_STATE_DIR` | API, CLI, workers; process environment only | absolute host-shared Corellium ownership store; default `~/.local/state/mobile-playbook/corellium`. A `.env` value is rejected — see [shared Corellium lifecycle](corellium-lifecycle.md#exclusive-durable-ownership) |
+| `DEVICE_LOCK_DIR` | API, CLI, workers; process environment only | absolute host-shared directory for the physical Android phone lock; default `~/.local/state/mobile-playbook/device-locks`. A `.env` value is rejected — see [One user of the phone at a time](android/configuration.md#one-user-of-the-phone-at-a-time) |
 | `PLAYBOOK_SOURCE_DOWNLOAD_ENABLED` | API process environment only | exported `false` refuses implemented-control archive downloads; `.env` is ignored |
 | `LOG_LEVEL` | API, CLI, workers | `DEBUG` enables verbose logging; default `INFO` — see [`LOG_LEVEL`](#log_level) |
 

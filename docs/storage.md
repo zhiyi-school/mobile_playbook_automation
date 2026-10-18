@@ -10,6 +10,10 @@ Corellium lifecycle ownership is an exception to the runtime artifact tree:
 its host-wide SQLite store defaults to `~/.local/state/mobile-playbook/corellium/`
 and must survive report/work pruning. See [shared Corellium lifecycle](corellium-lifecycle.md#exclusive-durable-ownership)
 for process sharing, the absolute `CORELLIUM_STATE_DIR` override and recovery.
+The physical Android phone lock is kept the same way, under
+`~/.local/state/mobile-playbook/device-locks/` or the absolute `DEVICE_LOCK_DIR`
+from the process environment; see
+[One user of the phone at a time](android/configuration.md#one-user-of-the-phone-at-a-time).
 
 ```text
 artifacts/

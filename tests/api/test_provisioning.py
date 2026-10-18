@@ -314,6 +314,27 @@ def test_a_platform_already_running_is_not_available(config_root, device_with):
     assert report["retryable"] is True
 
 
+def test_a_phone_held_by_another_process_is_not_available(config_root, device_with, phone_held_by_another_process):
+    device_with(["com.example.one"])
+
+    report = provisioning.describe("android", "one")
+
+    assert report["platform_available"] is False
+    assert report["runnable"] is False
+    assert (report["blocker_code"], report["retryable"]) == ("platform_busy", True)
+    assert "Android run in another process" not in str(report)
+
+
+def test_a_phone_freed_by_its_holder_is_available_again(config_root, device_with, phone_held_by_another_process):
+    device_with(["com.example.one"])
+    phone_held_by_another_process.kill()
+    phone_held_by_another_process.wait(timeout=10)
+
+    report = provisioning.describe("android", "one")
+
+    assert (report["platform_available"], report["runnable"]) == (True, True)
+
+
 def test_readiness_never_names_a_device_or_a_path(config_root, no_device):
     report = provisioning.describe("android", "one")
 

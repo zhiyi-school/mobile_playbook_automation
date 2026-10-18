@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import os
 import plistlib
+import select
+import subprocess
+import sys
 import zipfile
 from pathlib import Path
 
@@ -301,3 +304,25 @@ def fake_android_sdk(tmp_path, monkeypatch) -> Path:
     monkeypatch.delenv("ANDROID_HOME", raising=False)
     monkeypatch.delenv("ANDROID_SDK_ROOT", raising=False)
     return adb.parent.parent.resolve()
+
+
+# Holds the physical phone lock in a separate process, the way another run or install would, until the test ends.
+@pytest.fixture
+def phone_held_by_another_process():
+    script = (
+        "import sys\n"
+        "from mobile_playbook.platforms.android.device.phone_lock import acquire_phone_lock\n"
+        "lock = acquire_phone_lock('Android run in another process')\n"
+        "print('held', flush=True)\n"
+        "sys.stdin.readline()\n"
+    )
+    process = subprocess.Popen([sys.executable, "-c", script], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                               stderr=subprocess.PIPE, text=True)
+    try:
+        assert select.select([process.stdout], [], [], 10)[0], "the other process did not take the phone lock"
+        assert process.stdout.readline().strip() == "held"
+        yield process
+    finally:
+        if process.poll() is None:
+            process.kill()
+        process.communicate(timeout=10)

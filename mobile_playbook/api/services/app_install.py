@@ -18,10 +18,12 @@ from mobile_playbook.orchestration.appium_server import ensure_appium_running
 from mobile_playbook.platforms.android.acquisition.store import app_store_for
 from mobile_playbook.platforms.android.baseline_devices import uses_baselines
 from mobile_playbook.platforms.android.device_roles import NON_ROOTED
+from mobile_playbook.platforms.android.models import PHYSICAL_PROVIDER
 from mobile_playbook.platforms.android.runner import AndroidPlatformRunner
 from mobile_playbook.platforms.android.config import ConfigError as AndroidConfigError
 from mobile_playbook.platforms.android.config import load_config as load_android_config
 from mobile_playbook.platforms.android.device.client import open_device
+from mobile_playbook.platforms.android.device.phone_lock import PhoneBusy, acquire_phone_lock
 from mobile_playbook.platforms.android.device.sdk import appium_environment
 from mobile_playbook.platforms.corellium.client import CorelliumError
 
@@ -72,6 +74,19 @@ def install_app(platform: str, app_id: str, role: str | None = None) -> dict:
             [(_, outcome)] = AndroidPlatformRunner().install_on_baseline(
                 config, [configured], role or NON_ROOTED, work / "diagnostics"
             )
+        elif config.device.provider == PHYSICAL_PROVIDER:
+            try:
+                phone = acquire_phone_lock(f"Android install of {app_id}")
+            except PhoneBusy as exc:
+                logger.info("api: install of %s refused: %s", app_id, exc)
+                raise HTTPException(
+                    status_code=409,
+                    detail={"blocker_code": "platform_busy", "message": "Another run is already using the test device."},
+                ) from exc
+            try:
+                outcome = _install_on_device(config, store, app_id, package, work)
+            finally:
+                phone.release()
         else:
             outcome = _install_on_device(config, store, app_id, package, work)
     finally:

@@ -265,6 +265,30 @@ def test_install_app_installs_the_selected_missing_app_and_reports_it(config_roo
     assert "Someone must verify the purchase" in printed
 
 
+def test_install_app_refuses_a_phone_another_process_is_using(config_root, monkeypatch, capsys, phone_held_by_another_process):
+    monkeypatch.setattr(cli_module, "ensure_appium_running", lambda *args, **kwargs: pytest.fail("the phone is in use"))
+
+    assert cli_module.main(["install-app", "--config", str(config_root / "configs/android.yaml")]) == 1
+    assert "The physical test phone is in use by Android run in another process" in capsys.readouterr().err
+
+
+def test_install_app_releases_the_phone_when_it_finishes(config_root, monkeypatch, capsys):
+    from mobile_playbook.orchestration.appium_server import AppiumStartResult
+    from mobile_playbook.platforms.android.device.phone_lock import phone_lock_holder
+
+    held = []
+
+    def appium(*args, **kwargs):
+        held.append(phone_lock_holder()["purpose"])
+        return AppiumStartResult("FAILED", error="not installed")
+
+    monkeypatch.setattr(cli_module, "ensure_appium_running", appium)
+
+    assert cli_module.main(["install-app", "--config", str(config_root / "configs/android.yaml")]) == 1
+    assert held == ["Android install-app"]
+    assert phone_lock_holder() is None
+
+
 def test_install_app_stops_when_appium_is_not_available(config_root, monkeypatch, capsys):
     from mobile_playbook.orchestration.appium_server import AppiumStartResult
 

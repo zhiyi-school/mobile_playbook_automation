@@ -25,6 +25,7 @@ LOCATION_ENV = {
 
 LOCATION_NAMES = tuple(LOCATION_ENV)
 CORELLIUM_STATE_DIR_ENV = "CORELLIUM_STATE_DIR"
+DEVICE_LOCK_DIR_ENV = "DEVICE_LOCK_DIR"
 logger = logging.getLogger(__name__)
 
 
@@ -100,16 +101,26 @@ def work_root() -> Path:
 
 # Keep VM ownership host-wide and outside prunable work/report trees, even across repository checkouts.
 def corellium_state_dir() -> Path:
-    # The CLI and workers export the whole .env but the API does not, so a .env value would split the store.
-    if env_file.file_value(CORELLIUM_STATE_DIR_ENV) is not None:
-        raise ValueError(f"{CORELLIUM_STATE_DIR_ENV} must be set in the process environment, not in .env")
-    configured = os.environ.get(CORELLIUM_STATE_DIR_ENV)
+    return _host_state_dir(CORELLIUM_STATE_DIR_ENV, "corellium")
+
+
+# Keep physical device locks host-wide and outside prunable work/report trees, even across repository checkouts.
+def device_lock_dir() -> Path:
+    return _host_state_dir(DEVICE_LOCK_DIR_ENV, "device-locks")
+
+
+# Return a host-wide state directory, from its process-environment override or under ~/.local/state/mobile-playbook.
+def _host_state_dir(env_name: str, default_name: str) -> Path:
+    # The CLI and workers export the whole .env but the API does not, so a .env value would split the state.
+    if env_file.file_value(env_name) is not None:
+        raise ValueError(f"{env_name} must be set in the process environment, not in .env")
+    configured = os.environ.get(env_name)
     if configured:
         path = Path(configured).expanduser()
         if not path.is_absolute():
-            raise ValueError(f"{CORELLIUM_STATE_DIR_ENV} must be an absolute host-shared path")
+            raise ValueError(f"{env_name} must be an absolute host-shared path")
         return path.resolve()
-    return Path.home() / ".local" / "state" / "mobile-playbook" / "corellium"
+    return Path.home() / ".local" / "state" / "mobile-playbook" / default_name
 
 
 # Returns the directory for intake iOS IPAs.

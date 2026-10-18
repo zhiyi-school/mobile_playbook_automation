@@ -15,6 +15,8 @@ from mobile_playbook.platforms.android.config import ConfigError as AndroidConfi
 from mobile_playbook.platforms.android.config import load_config as load_android_config
 from mobile_playbook.platforms.android.device.client import AndroidDeviceClient, open_device
 from mobile_playbook.platforms.android.device.permissions import is_installed as android_is_installed
+from mobile_playbook.platforms.android.device.phone_lock import phone_lock_holder
+from mobile_playbook.platforms.android.models import PHYSICAL_PROVIDER
 from mobile_playbook.platforms.android.acquisition.intake_apk import find_intake_apk
 from mobile_playbook.platforms.android.baseline_devices import role_readiness, uses_baselines
 from mobile_playbook.platforms.android.device_roles import plan_risk_roles, required_roles
@@ -125,6 +127,15 @@ def _android_config():
 def _android_uses_baselines() -> bool:
     config = _android_config()
     return config is not None and uses_baselines(config)
+
+
+# Report whether a run or install in any process on this host holds the configured physical phone.
+def _android_phone_in_use() -> bool:
+    config = _android_config()
+    holder = phone_lock_holder() if config is not None and config.device.provider == PHYSICAL_PROVIDER else None
+    if holder is not None:
+        logger.debug("api: the physical phone is held by %s (process %s).", holder.get("purpose"), holder.get("pid"))
+    return holder is not None
 
 
 # Open the configured Android device without starting it: a default client when the config is unavailable, or None
@@ -381,7 +392,9 @@ def _readiness(platform: str, app: dict | None, stages: list[Stage]) -> dict:
     if device_blocker and config_blocker in ("app_build_missing", None) and config_state == "unknown":
         config_blocker = None
 
-    platform_available = not registry.is_platform_busy(platform)
+    platform_available = not registry.is_platform_busy(platform) and not (
+        platform == "android" and device_needed and _android_phone_in_use()
+    )
 
     blocker = config_blocker or device_blocker or (None if platform_available else "platform_busy")
     runnable = configuration_ready and device_ready and platform_available and blocker is None

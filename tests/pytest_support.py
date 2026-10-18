@@ -28,6 +28,7 @@ def isolate_environment(root: Path, patch: pytest.MonkeyPatch) -> None:
         "IOS_PLAYBOOK_DIR": root / "playbooks" / "ios",
         "ANDROID_PLAYBOOK_DIR": root / "playbooks" / "android",
         "CORELLIUM_STATE_DIR": root / "corellium-state",
+        "DEVICE_LOCK_DIR": root / "device-locks",
     }
     for name, location in locations.items():
         patch.setenv(name, str(location))

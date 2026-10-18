@@ -35,6 +35,8 @@ from mobile_playbook.platforms.android.results import normalize_android_result
 from mobile_playbook.platforms.android.risks import known_risks as known_android_risks
 from mobile_playbook.platforms.android.risks import list_risks as list_android_risks
 from mobile_playbook.platforms.android.device.client import open_device
+from mobile_playbook.platforms.android.device.phone_lock import PhoneBusy, acquire_phone_lock
+from mobile_playbook.platforms.android.models import PHYSICAL_PROVIDER
 from mobile_playbook.platforms.android.device.sdk import appium_environment
 from mobile_playbook.platforms.corellium.client import CorelliumError
 from mobile_playbook.platforms.android.runner import AndroidPlatformRunner
@@ -464,6 +466,21 @@ def _install_apps(config, role: str | None = None) -> int:
         return 2
     if uses_baselines(config):
         return _print_installs(AndroidPlatformRunner().install_on_baseline(config, config.apps, role or NON_ROOTED, work / "diagnostics"))
+    if config.device.provider != PHYSICAL_PROVIDER:
+        return _install_on_device(config, store, work)
+    try:
+        phone = acquire_phone_lock("Android install-app")
+    except PhoneBusy as exc:
+        print(f"FAILED: {exc}", file=sys.stderr)
+        return 1
+    try:
+        return _install_on_device(config, store, work)
+    finally:
+        phone.release()
+
+
+# Installs each missing app on the configured physical or single-instance Corellium device, printing each outcome.
+def _install_on_device(config, store, work) -> int:
     appium = ensure_appium_running(
         config.device.appium_server_url,
         getattr(config.device, "appium_auto_start", None),

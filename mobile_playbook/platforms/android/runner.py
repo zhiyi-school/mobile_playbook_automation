@@ -28,9 +28,10 @@ from mobile_playbook.platforms.android.device.app_version import installed_versi
 from mobile_playbook.platforms.android.device.client import open_device
 from mobile_playbook.platforms.android.device.corellium import reconnect_corellium
 from mobile_playbook.platforms.android.device.corellium_roles import connect_claimed
+from mobile_playbook.platforms.android.device.phone_lock import PhoneLock, acquire_phone_lock
 from mobile_playbook.platforms.android.device.pool import AndroidDevicePool
 from mobile_playbook.platforms.android.device_roles import plan_risk_roles, required_roles, risk_role
-from mobile_playbook.platforms.android.models import AndroidRiskRunResult
+from mobile_playbook.platforms.android.models import PHYSICAL_PROVIDER, AndroidRiskRunResult
 from mobile_playbook.platforms.android.play_services import play_services_problem
 from mobile_playbook.platforms.android.device.permissions import grant_all
 from mobile_playbook.platforms.android.device.screen import keep_screen_on_while_charging, wake_and_unlock
@@ -55,6 +56,7 @@ class AndroidPlatformRunner:
         self.adb_policy = adb_policy
         self.recognizer = recognizer
         self._sessions: dict[int, baseline_devices.BaselineSession] = {}
+        self._phone_lock: PhoneLock | None = None
 
     # Report whether any planned Android risk needs a connected device.
     def requires_device(self, config, selected_tests: set[str] | None, selected_apps: set[str] | None = None) -> bool:
@@ -108,7 +110,15 @@ class AndroidPlatformRunner:
     # device once, connect it and install the intended builds; a failure shuts the claimed devices down before raising.
     def connect_planned_device(self, config, planned, run_dir: Path, run_timestamp: str):
         if not uses_baselines(config):
-            return self.connect_device(config, run_dir)
+            if config.device.provider != PHYSICAL_PROVIDER:
+                return self.connect_device(config, run_dir)
+            # Held for the whole run and released by close_device, so Appium reconnects never contend with it.
+            self._phone_lock = acquire_phone_lock(f"Android run {run_timestamp}")
+            try:
+                return self.connect_device(config, run_dir)
+            except BaseException:
+                self._release_phone()
+                raise
         plan = plan_risk_roles(planned, get_risk)
         builds = intended_builds(plan)
         session = baseline_devices.open_session(
@@ -143,7 +153,16 @@ class AndroidPlatformRunner:
         if session is not None:
             session.close()
             return
-        device_client.release()
+        try:
+            device_client.release()
+        finally:
+            self._release_phone()
+
+    # Release the physical phone lock this run holds, if any.
+    def _release_phone(self) -> None:
+        if self._phone_lock is not None:
+            self._phone_lock.release()
+            self._phone_lock = None
 
     # Return the device client, reconnecting when Appium has become unreachable mid-run. A Corellium device is
     # reconnected to the same instance it already uses; recovery never selects, restores, starts or stops a device.
