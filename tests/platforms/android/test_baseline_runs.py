@@ -1,17 +1,24 @@
 import json
+from types import SimpleNamespace
 
 import pytest
 
 from mobile_playbook.artifact_store import resolver
 from mobile_playbook.orchestration.scan_runner import RunOptions, run_platform
 from mobile_playbook.platforms.android.config import load_config
+from mobile_playbook.platforms.android.device.debugging_prompt import DebuggingAuthorizationError
 from mobile_playbook.platforms.android.device.pool import AndroidDevicePool
+from mobile_playbook.platforms.android.runner import AndroidPlatformRunner
+from mobile_playbook.platforms.corellium.claims import ClaimBusy
+from mobile_playbook.platforms.corellium.client import CorelliumClient, CorelliumError
+from mobile_playbook.platforms.corellium.lifecycle import CorelliumLifecycle
 from mobile_playbook.platforms.android.results import normalize_android_result
 from mobile_playbook.reporting.report_writer import ReportWriter
 from mobile_playbook.reporting.run_events import read_events
 from mobile_playbook.reporting.run_manifest import read_manifest
 from tests.platforms.android.baseline_fakes import (
     APK_NAME,
+    FAST,
     PACKAGE,
     PLAIN,
     ROOT,
@@ -22,13 +29,16 @@ from tests.platforms.android.baseline_fakes import (
     STOCK_VM,
     BaselineBench,
 )
+from tests.platforms.android.prompt_fakes import line, png
+
+MUTATIONS = {"restore", "start", "stop", "unpause"}
 
 
-def run(bench, tmp_path, *risks):
+def run(bench, tmp_path, *risks, runner=None):
     config = load_config(bench.config_path)
     selected = set(risks) if risks else None
     return run_platform(
-        config, bench.runner(), RunOptions(out_dir=tmp_path / "reports", selected_tests=selected),
+        config, runner or bench.runner(), RunOptions(out_dir=tmp_path / "reports", selected_tests=selected),
         lambda out, ts: ReportWriter(out, ts, result_adapter=normalize_android_result, platform="android"),
     )
 
@@ -40,6 +50,18 @@ def events(run_dir, kind):
 
 def last_run_dir(tmp_path):
     return max((tmp_path / "reports").iterdir())
+
+
+def installs(bench, serial):
+    return sum(1 for target, args in bench.adb.commands if target == serial and args[:3] == ["shell", "pm", "install"])
+
+
+def report(run_dir, risk_id):
+    return json.loads((run_dir / "android/one" / risk_id / "synthetic/report.json").read_text())
+
+
+def recover(bench):
+    return CorelliumLifecycle(bench.api, bench.store, FAST).recover()
 
 
 @pytest.fixture
@@ -255,3 +277,207 @@ def test_the_recorded_artifact_is_the_installed_apk_even_when_an_older_pulled_co
 
     installed = events(outcome.run_dir, "app_installed")[0]["artifact_sha256"]
     assert read_manifest(outcome.run_dir)["artifacts"] == {"one": installed}
+
+
+def test_an_unknown_debugging_dialog_saves_diagnostics_fails_clearly_and_shuts_both_vms_down(bench, tmp_path):
+    bench.adb.devices[ROOTED_SERIAL].connects_to = "unauthorized"
+    bench.api.data["screens"][ROOTED_VM] = png(1080, 2400)
+    unfamiliar = line(1, 300, "Allow", "Files", "to", "access", "photos?")
+    runner = bench.runner(recognizer=SimpleNamespace(words=lambda image: unfamiliar))
+
+    with pytest.raises(DebuggingAuthorizationError, match=f"instance {ROOTED_VM}: an unfamiliar screen"):
+        run(bench, tmp_path, runner=runner)
+
+    folder = last_run_dir(tmp_path) / "debug-authorization"
+    details = json.loads(next(folder.glob("*.json")).read_text())
+    assert (details["instance_id"], details["serial"]) == (ROOTED_VM, ROOTED_SERIAL)
+    assert details["recognized_lines"] == ["Allow Files to access photos?"]
+    assert (folder / details["screenshot"]).read_bytes() == png(1080, 2400)
+    assert bench.actions(ROOTED_VM, "touch") == []
+    for vm in (STOCK_VM, ROOTED_VM):
+        assert bench.actions(vm, "restore", "start", "stop") == ["restore", "start", "stop"]
+    assert bench.store.pending() == []
+    assert bench.risks[PLAIN].used == bench.risks[ROOT].used == []
+    assert read_manifest(last_run_dir(tmp_path))["status"] == "failed"
+    cleanup = {event["role"]: event["status"] for event in events(last_run_dir(tmp_path), "device_cleanup")}
+    assert cleanup == {"non_rooted": "off", "rooted": "off"}
+
+
+def test_a_preparation_failure_shuts_down_the_vm_already_started_and_installs_nothing(bench, tmp_path):
+    bench.api.data["failures"][("restore", ROOTED_VM)] = [CorelliumError("snapshot is locked")]
+
+    with pytest.raises(CorelliumError, match="snapshot is locked"):
+        run(bench, tmp_path)
+
+    assert bench.actions(STOCK_VM, "restore", "start", "stop") == ["restore", "start", "stop"]
+    assert bench.actions(ROOTED_VM, *MUTATIONS) == ["restore"]
+    assert bench.instance_state(STOCK_VM) == bench.instance_state(ROOTED_VM) == "off"
+    assert bench.store.pending() == []
+    assert installs(bench, STOCK_SERIAL) == installs(bench, ROOTED_SERIAL) == 0
+    assert events(last_run_dir(tmp_path), "device_connected") == []
+    cleanup = {event["role"]: event["status"] for event in events(last_run_dir(tmp_path), "device_cleanup")}
+    assert cleanup == {"non_rooted": "off", "rooted": "off"}
+
+
+def test_a_preparation_failure_whose_shutdown_also_fails_stays_owned_until_recovery(bench, tmp_path):
+    restore = bench.api.restore_snapshot
+
+    def restore_or_lock(instance_id, snapshot_id):
+        if instance_id != ROOTED_VM:
+            return restore(instance_id, snapshot_id)
+        bench.api.call("restore", instance_id)
+        bench.stuck_off(STOCK_VM)
+        raise CorelliumError("snapshot is locked")
+
+    bench.api.restore_snapshot = restore_or_lock
+
+    with pytest.raises(CorelliumError, match="snapshot is locked"):
+        run(bench, tmp_path)
+
+    assert [(row["instance_id"], row["phase"]) for row in bench.store.pending()] == [(STOCK_VM, "cleanup_pending")]
+    assert bench.instance_state(ROOTED_VM) == "off"
+    bench.api.data["stuck"].clear()
+    assert recover(bench) == [{"instance_id": STOCK_VM, "status": "off"}]
+    assert bench.instance_state(STOCK_VM) == "off" and bench.store.pending() == []
+
+
+@pytest.mark.parametrize("step", ["restore", "connect", "install"])
+def test_cancelling_before_the_device_pool_exists_shuts_down_every_claimed_vm(bench, tmp_path, step):
+    answer = bench.adb._answer
+    trigger = {"connect": ["connect", ROOTED_SERIAL], "install": ["shell", "pm", "install"]}.get(step)
+
+    def interrupt(serial, args):
+        if trigger and args[:len(trigger)] == trigger:
+            raise KeyboardInterrupt
+        return answer(serial, args)
+
+    bench.adb._answer = interrupt
+    if step == "restore":
+        bench.api.data["failures"][("restore", ROOTED_VM)] = [KeyboardInterrupt()]
+
+    with pytest.raises(KeyboardInterrupt):
+        run(bench, tmp_path)
+
+    assert bench.instance_state(STOCK_VM) == bench.instance_state(ROOTED_VM) == "off"
+    assert bench.store.pending() == []
+    assert bench.risks[PLAIN].used == bench.risks[ROOT].used == []
+    assert read_manifest(last_run_dir(tmp_path))["status"] == "failed"
+
+
+def test_a_failed_evidence_pull_fails_only_its_risk_and_both_vms_still_shut_down(bench, tmp_path):
+    bench.risks[PLAIN].fail_with = RuntimeError("adb pull of the screen recording failed")
+    states = []
+    bench.risks[ROOT].on_run = lambda: states.append(bench.instance_state(ROOTED_VM))
+
+    outcome = run(bench, tmp_path, PLAIN, ROOT)
+
+    failed = report(outcome.run_dir, PLAIN)
+    assert failed["final_status"] == "FAILED"
+    assert "adb pull of the screen recording failed" in json.dumps(failed["errors"])
+    assert (failed["metadata"]["device"]["role"], failed["metadata"]["device"]["instance_id"]) == ("non_rooted", STOCK_VM)
+    assert bench.risks[ROOT].used == [ROOTED_SERIAL] and states == ["on"]
+    assert (outcome.run_dir / f"android/one/{ROOT}/synthetic/evidence.txt").read_text() == f"ran on {ROOTED_SERIAL}\n"
+    assert bench.instance_state(STOCK_VM) == bench.instance_state(ROOTED_VM) == "off"
+    assert bench.store.pending() == []
+
+
+def test_an_api_outage_at_shutdown_keeps_both_claims_pending_until_connectivity_returns(bench, tmp_path, monkeypatch):
+    outage = []
+    get_instance = bench.api.get_instance
+
+    def maybe_unreachable(instance_id):
+        if outage:
+            bench.api.call("get", instance_id)
+            raise CorelliumError("Corellium API unreachable", transient=True)
+        return get_instance(instance_id)
+
+    monkeypatch.setattr(bench.api, "get_instance", maybe_unreachable)
+    bench.risks[ROOT].on_run = lambda: outage.append(True)
+
+    outcome = run(bench, tmp_path, PLAIN, ROOT)
+
+    cleanup = {event["role"]: event for event in events(outcome.run_dir, "device_cleanup")}
+    assert {role: event["status"] for role, event in cleanup.items()} == {"non_rooted": "cleanup_pending",
+                                                                          "rooted": "cleanup_pending"}
+    assert all("unreachable" in event["error"] for event in cleanup.values())
+    assert read_manifest(outcome.run_dir)["status"] == "completed"
+    assert {item["verdict"] for item in json.loads((outcome.run_dir / "dashboard_results.json").read_text())} == {"Reduced Risk"}
+    assert {row["instance_id"] for row in bench.store.pending()} == {STOCK_VM, ROOTED_VM}
+    assert {item["status"] for item in recover(bench)} == {"cleanup_pending"}
+
+    outage.clear()
+    assert recover(bench) == [{"instance_id": ROOTED_VM, "status": "off"}, {"instance_id": STOCK_VM, "status": "off"}]
+    assert bench.instance_state(STOCK_VM) == bench.instance_state(ROOTED_VM) == "off"
+    assert bench.store.pending() == []
+    assert read_manifest(run(bench, tmp_path, PLAIN).run_dir)["status"] == "completed"
+
+
+def test_a_vm_left_pending_blocks_runs_that_need_it_until_recovery_but_not_other_runs(bench, tmp_path):
+    bench.risks[ROOT].on_run = lambda: bench.stuck_off(ROOTED_VM)
+    run(bench, tmp_path, PLAIN, ROOT)
+    assert [row["instance_id"] for row in bench.store.pending()] == [ROOTED_VM]
+    bench.risks[ROOT].on_run = None
+
+    mark = len(bench.api.data["calls"])
+    with pytest.raises(ClaimBusy, match="pending ownership"):
+        run(bench, tmp_path, PLAIN, ROOT)
+    assert not [call for call in bench.api.data["calls"][mark:] if call[0] in MUTATIONS]
+    assert bench.risks[PLAIN].used == [STOCK_SERIAL]
+
+    mark = len(bench.api.data["calls"])
+    assert read_manifest(run(bench, tmp_path, PLAIN).run_dir)["status"] == "completed"
+    assert {target for _, target in bench.api.data["calls"][mark:]} - {"all"} == {STOCK_VM}
+
+    bench.api.data["stuck"].clear()
+    assert recover(bench) == [{"instance_id": ROOTED_VM, "status": "off"}]
+    outcome = run(bench, tmp_path, PLAIN, ROOT)
+    assert read_manifest(outcome.run_dir)["status"] == "completed"
+    assert bench.risks[ROOT].used == [ROOTED_SERIAL, ROOTED_SERIAL]
+    assert bench.store.pending() == []
+
+
+def test_an_assessment_after_a_standalone_install_restores_and_installs_its_own_build_again(bench, tmp_path):
+    restore = bench.api.restore_snapshot
+
+    def restore_wipes_apps(instance_id, snapshot_id):
+        restore(instance_id, snapshot_id)
+        serial = STOCK_SERIAL if instance_id == STOCK_VM else ROOTED_SERIAL
+        bench.adb.devices[serial].packages.clear()
+
+    bench.api.restore_snapshot = restore_wipes_apps
+    config = load_config(bench.config_path)
+
+    outcomes = bench.runner().install_on_baseline(config, config.apps, "non_rooted", tmp_path / "install-work")
+
+    assert [outcome.status for _, outcome in outcomes] == ["installed"]
+    assert bench.instance_state(STOCK_VM) == "off" and bench.actions(ROOTED_VM) == []
+    outcome = run(bench, tmp_path, PLAIN)
+    assert bench.actions(STOCK_VM, "restore", "start", "stop") == ["restore", "start", "stop"] * 2
+    assert installs(bench, STOCK_SERIAL) == 2
+    assert events(outcome.run_dir, "app_installed")[0]["artifact_sha256"] == read_manifest(outcome.run_dir)["artifacts"]["one"]
+    assert bench.actions(ROOTED_VM) == []
+
+
+def test_a_physical_device_run_never_contacts_corellium_or_claims_a_vm(tmp_path, monkeypatch):
+    bench = BaselineBench(tmp_path, monkeypatch, risks=(PLAIN, ROOT))
+    text = bench.config_path.read_text()
+    device_block = text[:text.index("\nrunner:")]
+    bench.config_path.write_text(text.replace(device_block, (
+        "device:\n  provider: physical\n  adb_path: adb\n  adb_serial: \"phone-serial\"\n"
+        "  appium_server_url: \"http://127.0.0.1:4723\"\n"
+    )))
+    bench.adb.add("phone-serial", state="device", build_type="user", packages={"com.example.one": ("3.2.1", "321")})
+
+    def refuse(*args, **kwargs):
+        pytest.fail("a physical-device run must not use the Corellium lifecycle")
+
+    monkeypatch.setattr(CorelliumClient, "from_env", classmethod(refuse))
+    monkeypatch.setattr(CorelliumLifecycle, "__init__", refuse)
+
+    outcome = run(bench, tmp_path, runner=AndroidPlatformRunner())
+
+    assert bench.risks[PLAIN].used == bench.risks[ROOT].used == ["phone-serial"]
+    assert bench.api.data["calls"] == []
+    assert events(outcome.run_dir, "device_claimed") == []
+    assert read_manifest(outcome.run_dir)["status"] == "completed"
+    assert "device" not in report(outcome.run_dir, PLAIN)["metadata"]

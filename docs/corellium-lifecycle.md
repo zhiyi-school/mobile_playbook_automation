@@ -343,8 +343,13 @@ temporary directory, so no test touches the host store. Coverage includes
 selection/compatibility, off VMs, deterministic multi-device claims, failed second
 claims, process exclusion/termination, forked children, persisted intent, restore
 progress and completion, startup/resume, outages, shutdown timeouts, independent
-cleanup, stale and foreign-host recovery and active-owner protection. A fresh
-interpreter blocks Android/Appium imports while loading every shared module.
+cleanup, stale and foreign-host recovery and active-owner protection. They also
+cover a busy second instance failing a session before any API call, preparation
+failing on the second VM after the first started, recovery from every claim phase
+without restoring, and an outage during selection failing rather than switching
+VMs. A fresh interpreter blocks Android/Appium imports while loading every shared
+module, and `test_boundaries.py` parses every shared module so a function-local,
+relative or `importlib` import of Android, iOS, Appium or Selenium code fails too.
 
 The Android tests use a synthetic adb server, synthetic PNG headers and recognised
 words, and fake Corellium clients that fail on any lifecycle call. They cover role
@@ -364,4 +369,11 @@ metadata, missing APKs and roles, an unavailable VM without substitution, setup
 failures after preparation, one failed shutdown, failed session closing,
 cancellation and Appium recovery without restoration, through `run_platform`,
 the CLI, `POST /runs`, the install endpoint and CLI command, readiness and the
-assessment worker, plus recovery at API startup and in the worker loop.
+assessment worker, plus recovery at API startup and in the worker loop. Run-level
+cases also cover an unfamiliar debugging prompt (diagnostics in the run folder and
+both VMs off), a preparation failure with and without a failed shutdown,
+cancellation during restore, connection or installation, a risk whose evidence
+pull fails, a Corellium outage at shutdown followed by recovery, a pending VM
+blocking only the runs that need it, an assessment after a standalone install, and
+a physical-device run that never reaches the lifecycle. Real images are checked by
+[qualification](android/corellium-qualification.md), not by these tests.

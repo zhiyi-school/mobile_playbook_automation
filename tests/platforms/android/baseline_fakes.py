@@ -15,8 +15,9 @@ from mobile_playbook.orchestration.appium_server import AppiumStartResult
 from mobile_playbook.platforms.android import runner as runner_module
 from mobile_playbook.platforms.android.acquisition import intake_apk
 from mobile_playbook.platforms.android.device import adb as adb_module
-from mobile_playbook.platforms.android.device import adb_connection
+from mobile_playbook.platforms.android.device import adb_connection, corellium_roles
 from mobile_playbook.platforms.android.device.adb_connection import AdbConnectPolicy
+from mobile_playbook.platforms.android.device.debugging_prompt import DebuggingAuthorizer
 from mobile_playbook.platforms.android.models import AndroidRiskRunResult
 from mobile_playbook.platforms.android.runner import AndroidPlatformRunner
 from mobile_playbook.platforms.corellium import profile as profile_module
@@ -115,6 +116,8 @@ class BaselineBench:
         monkeypatch.setattr(CorelliumClient, "from_env", classmethod(lambda cls, env_path=None: self.api))
         monkeypatch.setattr(profile_module, "LifecyclePolicy", functools.partial(LifecyclePolicy, poll=0.001))
         monkeypatch.setattr(adb_connection, "AdbConnectPolicy", functools.partial(AdbConnectPolicy, poll=0.001))
+        monkeypatch.setattr(corellium_roles, "DebuggingAuthorizer", functools.partial(
+            DebuggingAuthorizer, prompt_timeout=0.02, approval_timeout=0.05, poll=0.001))
 
         self.adb = FakeAdbHost()
         monkeypatch.setattr(adb_module.subprocess, "run", self.adb.run)
@@ -144,9 +147,9 @@ class BaselineBench:
                             lambda url, timeout: self.appium_reachable.pop(0) if self.appium_reachable else True)
         self.config_path = write_config(root, risks, roles)
 
-    def runner(self) -> AndroidPlatformRunner:
+    def runner(self, recognizer=None) -> AndroidPlatformRunner:
         return AndroidPlatformRunner(corellium_client=self.api, claim_store=self.store, lifecycle_policy=FAST,
-                                     adb_policy=ADB_POLICY)
+                                     adb_policy=ADB_POLICY, recognizer=recognizer)
 
     def actions(self, instance_id: str, *names: str) -> list[str]:
         return [action for action, target in self.api.data["calls"] if target == instance_id and (not names or action in names)]

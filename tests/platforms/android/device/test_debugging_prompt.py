@@ -224,3 +224,15 @@ def test_a_screenshot_failure_records_why_without_an_image(adb_host, tmp_path):
 
     suffixes, details = diagnostics(tmp_path)
     assert suffixes == [".json"] and details["screenshot"] is None
+
+
+def test_an_approved_device_that_never_finishes_booting_times_out_with_diagnostics(adb_host, tmp_path):
+    device = adb_host.add(SERIAL, state="unauthorized", boots_after=10**6)
+    corellium = FakeCorellium([png(1080, 2400)], on_touch=lambda: setattr(device, "state", "device"))
+
+    with pytest.raises(DebuggingAuthorizationError, match="did not become ready"):
+        authorizer(corellium, FakeRecognizer(prompt_words()), tmp_path)(*adb_clients())
+
+    assert adb_host.sent(SERIAL, "shell", "getprop", "sys.boot_completed") > 0
+    _, details = diagnostics(tmp_path)
+    assert details["tap"] == {"x": 850, "y": 1250}

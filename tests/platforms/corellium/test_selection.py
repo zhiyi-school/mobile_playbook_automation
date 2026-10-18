@@ -107,3 +107,23 @@ def test_static_plan_performs_no_api_calls():
     api = FakeAPI()
     assert resolve_roles(api, {}, {}) == ()
     assert api.data["calls"] == []
+
+
+def test_an_outage_while_checking_a_candidate_fails_instead_of_switching_devices(monkeypatch):
+    preferred, fallback = device("preferred", state="on"), device("fallback")
+    api = FakeAPI(preferred, fallback)
+    listed = api.list_snapshots
+
+    def list_snapshots(instance_id):
+        if instance_id == "preferred":
+            api.call("snapshots", instance_id)
+            raise CorelliumError("HTTP 503", transient=True)
+        return listed(instance_id)
+
+    monkeypatch.setattr(api, "list_snapshots", list_snapshots)
+    inventory = {item.instance.id: item.baseline for item in (preferred, fallback)}
+    with pytest.raises(CorelliumError, match="503") as error:
+        resolve_roles(api, {"non_rooted": RoleSelection("project")}, inventory, timeout=0.05, poll=0.001)
+    assert error.value.transient
+    assert api.data["calls"].count(("snapshots", "preferred")) > 1
+    assert ("snapshots", "fallback") not in api.data["calls"]

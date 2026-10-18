@@ -25,7 +25,7 @@ class FakeAPI:
                                               "instance": item.instance.id, "status": {"created": True, "task": "none"},
                                               "type": item.instance.type, "model": "Generic Android"}] for item in devices},
             "calls": [], "failures": {}, "stuck": set(), "assert_mutation": None, "restore_busy": {},
-            "restore_delay": {}, "restore_reads": {},
+            "restore_delay": {}, "restore_reads": {}, "screens": {},
         }
 
     def call(self, action, instance_id):
@@ -84,3 +84,12 @@ class FakeAPI:
             raise CorelliumError("Restore requires off")
         assert snapshot_id == "baseline-" + instance_id
         self.data["restore_reads"][instance_id] = ["idle"] * self.data["restore_delay"].get(instance_id, 0) + ["busy"]
+
+    def screenshot(self, instance_id, format="png"):
+        self.call("screenshot", instance_id)
+        if instance_id not in self.data["screens"]:
+            raise CorelliumError(f"No synthetic screen for {instance_id}")
+        return self.data["screens"][instance_id]
+
+    def touch(self, instance_id, x, y):
+        self.call("touch", instance_id)

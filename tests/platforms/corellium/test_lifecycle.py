@@ -301,3 +301,47 @@ def test_concurrent_preparation_submits_only_one_restore(environment):
 def test_bounded_policy_validation(timeout, poll):
     with pytest.raises(ValueError):
         LifecyclePolicy(timeout, 1, poll)
+
+
+def test_a_busy_second_instance_fails_the_session_before_any_api_call(environment):
+    devices, api, store, lifecycle = environment
+    occupant = store.claim_all("occupant", devices[:1])
+    try:
+        with pytest.raises(ClaimBusy, match="active owner") as error:
+            with lifecycle.session("contender", devices):
+                pytest.fail("A partial claim set must not prepare")
+        assert api.data["calls"] == []
+        assert [(row["instance_id"], row["run_id"]) for row in store.pending()] == [("stock", "occupant")]
+        assert store.history("contender") == []
+        # The caller may still hold the error and its traceback; the lock taken on root must already be gone.
+        assert error.value.__traceback__ is not None
+        store.claim_all("root-only", devices[1:]).detach()
+    finally:
+        occupant.detach()
+
+
+def test_preparation_failing_on_the_second_device_shuts_down_the_first(environment):
+    devices, api, store, lifecycle = environment
+    api.data["failures"][("restore", "root")] = [CorelliumError("snapshot locked")]
+    with pytest.raises(CorelliumError, match="snapshot locked"):
+        with lifecycle.session("second-fails", devices):
+            pytest.fail("Preparation must not return")
+    assert mutations(api) == [("restore", "stock"), ("start", "stock"), ("stop", "root"), ("restore", "root"),
+                              ("stop", "stock")]
+    assert all(item.state == "off" for item in api.data["instances"].values())
+    assert store.pending() == []
+    root_phases = [row["phase"] for row in store.history("second-fails") if row["instance_id"] == "root"]
+    assert root_phases[-4:] == ["cleanup_pending", "cleanup_pending", "off", "released"]
+
+
+@pytest.mark.parametrize("phase", ["claimed", "preparing", "restore_requested", "restored", "prepared",
+                                   "cleanup_pending", "recovering"])
+def test_recovery_shuts_down_an_owner_that_ended_in_any_phase_without_restoring(environment, phase):
+    devices, api, store, lifecycle = environment
+    claims = store.claim_all("ended", devices[1:])
+    store.transition("root", claims.owner, phase)
+    claims.detach()
+    assert lifecycle.recover() == [{"instance_id": "root", "status": "off"}]
+    assert mutations(api) == [("stop", "root")]
+    assert store.pending() == []
+    assert [row["phase"] for row in store.history("ended")][-3:] == ["recovering", "off", "released"]
