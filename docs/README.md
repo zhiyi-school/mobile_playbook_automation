@@ -32,7 +32,8 @@ own pages:
 - **Android** ([android/](android/README.md)) —
   [Configuration](android/configuration.md),
   [Risk Catalog](android/risks.md),
-  [Reports And Troubleshooting](android/reports-and-troubleshooting.md)
+  [Reports And Troubleshooting](android/reports-and-troubleshooting.md),
+  [Corellium Image Qualification](android/corellium-qualification.md)
 
 Both platforms share the same CLI (`python -m mobile_playbook ...`), the same
 run orchestration, and the same report layout under `artifacts/reports/<RUN_TIMESTAMP>/`.

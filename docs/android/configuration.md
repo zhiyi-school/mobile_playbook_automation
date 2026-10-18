@@ -88,7 +88,7 @@ The readiness check (`GET /config/android/apps/{app_id}/provisioning`) is polled
 #### Requirements
 
 - `CORELLIUM_API_URL` (for example `https://app.corellium.com/api`; the site URL without `/api` also works) and `CORELLIUM_API_TOKEN` in the repository-root `.env`. The Corellium client reads these keys directly for CLI runs, dashboard assessments, readiness checks and installs. No shell exports or startup wrapper are needed, and reading them does not copy file values into `os.environ`. Existing process values remain optional overrides.
-- This host connected to the VPN of the project in `project`. Corellium's VPN is per project, and projects can reuse the same addresses, so another project's VPN can reach the wrong instance.
+- This host connected to the VPN of the project in `project`. Corellium's VPN is per project, and projects can reuse the same addresses, so another project's VPN can reach the wrong instance. The VPN carries traffic only while at least one VM in the project is on; with baseline role devices, every VM a run restores starts off, so keep another VM in the project on for adb to reach a restored VM promptly.
 - `app_store: "apk"` in most cases, because Corellium Android images do not include Google Play.
 
 The Corellium client in `mobile_playbook/platforms/corellium/` lists projects and instances, chooses one and powers it on and off without depending on Android, so iOS can reuse it.
@@ -143,11 +143,11 @@ A role's VM is chosen only from the `baselines` entries whose snapshot exists, b
 
 - Android setup is complete, with a consistent language and orientation and no screen-lock credential;
 - USB debugging is enabled and this host's adb key (`$ANDROID_USER_HOME/adbkey.pub`, else `~/.android/adbkey.pub`) is authorized, so no prompt appears;
-- required companion apps, stable test certificates and supporting configuration are installed;
+- required companion apps, stable test certificates and supporting configuration are installed, including Google Play services when the apps under test need them;
 - recordings, collected input and earlier test data are cleared;
 - no Appium, capture or interception session is active, and the target apps are not installed.
 
-An existing snapshot such as `automation-ready-v1` can serve its own instance once it has been checked against this list; the second VM needs its own snapshot. Creating or replacing a baseline is maintenance work done by hand in Corellium: keep the original snapshot, the active prepared baseline and the previous prepared baseline for each instance, and update `baselines` only after the replacement has passed a run. Runs restore snapshots and never create or delete them.
+An existing snapshot such as `automation-ready-v1` can serve its own instance once it has been checked against this list; the second VM needs its own snapshot. Creating or replacing a baseline is maintenance work done by hand in Corellium: keep the original snapshot, the active prepared baseline and the previous prepared baseline for each instance, and update `baselines` only after the replacement has passed [qualification](corellium-qualification.md). Runs restore snapshots and never create or delete them.
 
 ### Appium auto-start
 

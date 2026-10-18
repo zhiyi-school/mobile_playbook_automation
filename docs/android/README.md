@@ -259,6 +259,7 @@ kinds and per-test fields are in
 - [Configuration](configuration.md) — device, runner, tool and per-risk config shape, including the legacy package-list app shape
 - [Risks](risks.md) — what each Android risk tests, stages, statuses, adding new risks
 - [Reports And Troubleshooting](reports-and-troubleshooting.md) — Android report files, statuses and common failures
+- [Corellium Image Qualification](corellium-qualification.md) — checking baseline role VMs against real Corellium images
 - [configs/split/android/apps.example.yaml](../../configs/split/android/apps.example.yaml) — a copyable app entry
 
 Central: [setup.md](../setup.md) · [configuration.md](../configuration.md) ·

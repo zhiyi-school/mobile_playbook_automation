@@ -233,7 +233,8 @@ connection. The screenshot and a JSON description (instance, serial, reason,
 dimensions, orientation, recognised lines, tap point and host key fingerprint) go
 to `debug-authorization/` in the run folder. Recognition matches the stock
 English prompt text; an image is supported only after its prompt has been
-approved this way on the actual image.
+approved this way on the actual image, as described in
+[Corellium image qualification](android/corellium-qualification.md).
 
 **Appium recovery.** When Appium becomes unreachable, the runner quits the role
 sessions, restarts Appium and reconnects every role's adb to its own serial,
