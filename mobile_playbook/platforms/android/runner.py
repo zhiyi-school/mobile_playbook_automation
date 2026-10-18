@@ -33,6 +33,7 @@ from mobile_playbook.platforms.android.device_roles import plan_risk_roles, requ
 from mobile_playbook.platforms.android.models import AndroidRiskRunResult
 from mobile_playbook.platforms.android.device.permissions import grant_all
 from mobile_playbook.platforms.android.device.screen import keep_screen_on_while_charging, wake_and_unlock
+from mobile_playbook.platforms.android.device.sdk import appium_environment
 from mobile_playbook.platforms.android.preflight import check_android_preflight
 from mobile_playbook.platforms.android.risks import get_risk
 
@@ -62,9 +63,11 @@ class AndroidPlatformRunner:
     def required_device_roles(self, config, selected_tests: set[str] | None, selected_apps: set[str] | None = None) -> tuple[str, ...]:
         return required_roles(plan_risk_roles(self.iter_enabled_tests(config, selected_tests, selected_apps), get_risk))
 
-    # Start Appium when it is down and auto-start allows, failing with its log tail when it cannot start.
+    # Start Appium with the Android SDK path when it is down and auto-start allows, failing with its log tail when it
+    # cannot start.
     def _ensure_appium(self, config, log_dir: Path) -> None:
-        outcome = ensure_appium_running(config.device.appium_server_url, getattr(config.device, "appium_auto_start", None), log_dir / "appium.log")
+        outcome = ensure_appium_running(config.device.appium_server_url, getattr(config.device, "appium_auto_start", None),
+                                        log_dir / "appium.log", environment=partial(appium_environment, config.device.adb_path))
         message = appium_start_message(self.platform, config.device.appium_server_url, outcome)
         if message is not None:
             logger.info("%s", message)

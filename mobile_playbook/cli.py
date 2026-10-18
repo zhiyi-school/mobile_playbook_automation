@@ -11,6 +11,7 @@ import sys
 import threading
 import uuid
 from datetime import timedelta
+from functools import partial
 from pathlib import Path
 
 from mobile_playbook.common.storage_paths import REPOSITORY_ROOT, android_work_dir, ios_work_dir, reports_root, work_root
@@ -34,6 +35,7 @@ from mobile_playbook.platforms.android.results import normalize_android_result
 from mobile_playbook.platforms.android.risks import known_risks as known_android_risks
 from mobile_playbook.platforms.android.risks import list_risks as list_android_risks
 from mobile_playbook.platforms.android.device.client import open_device
+from mobile_playbook.platforms.android.device.sdk import appium_environment
 from mobile_playbook.platforms.corellium.client import CorelliumError
 from mobile_playbook.platforms.android.runner import AndroidPlatformRunner
 from mobile_playbook.platforms.ios.config import ConfigError, load_config
@@ -463,7 +465,10 @@ def _install_apps(config, role: str | None = None) -> int:
     if uses_baselines(config):
         return _print_installs(AndroidPlatformRunner().install_on_baseline(config, config.apps, role or NON_ROOTED, work / "diagnostics"))
     appium = ensure_appium_running(
-        config.device.appium_server_url, getattr(config.device, "appium_auto_start", None), work / "appium.log"
+        config.device.appium_server_url,
+        getattr(config.device, "appium_auto_start", None),
+        work / "appium.log",
+        environment=partial(appium_environment, config.device.adb_path),
     )
     if appium.status in ("FAILED", "DISABLED"):
         print(f"FAILED: Appium is not available at {config.device.appium_server_url}: {appium.error or appium.status}", file=sys.stderr)

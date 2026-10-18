@@ -21,7 +21,7 @@ def installer(config_root, monkeypatch):
     registry = JobRegistry(persist_path=None)
     monkeypatch.setattr(app_install, "registry", registry)
     monkeypatch.setattr(
-        app_install, "ensure_appium_running", lambda url, auto_start, log_path: AppiumStartResult("ALREADY_RUNNING")
+        app_install, "ensure_appium_running", lambda url, auto_start, log_path, environment: AppiumStartResult("ALREADY_RUNNING")
     )
     calls: list[dict] = []
     outcome = {"value": InstallOutcome(status="installed", installer="com.android.vending", seconds=12.0)}
@@ -137,7 +137,7 @@ def test_unavailable_appium_is_a_retryable_failure(installer, monkeypatch):
     monkeypatch.setattr(
         app_install,
         "ensure_appium_running",
-        lambda url, auto_start, log_path: AppiumStartResult("FAILED", error="appium exited"),
+        lambda url, auto_start, log_path, environment: AppiumStartResult("FAILED", error="appium exited"),
     )
 
     _, body = asyncio.run(call(app, "POST", "/config/android/apps/one/install"))

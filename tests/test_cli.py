@@ -242,7 +242,7 @@ def test_install_app_installs_the_selected_missing_app_and_reports_it(config_roo
         installed.append(package)
         return outcomes.get(package) or failure("paid")
 
-    monkeypatch.setattr(cli_module, "ensure_appium_running", lambda *args: AppiumStartResult("ALREADY_RUNNING"))
+    monkeypatch.setattr(cli_module, "ensure_appium_running", lambda *args, **kwargs: AppiumStartResult("ALREADY_RUNNING"))
     from dataclasses import replace
 
     from mobile_playbook.platforms.android.acquisition import store
@@ -268,7 +268,7 @@ def test_install_app_installs_the_selected_missing_app_and_reports_it(config_roo
 def test_install_app_stops_when_appium_is_not_available(config_root, monkeypatch, capsys):
     from mobile_playbook.orchestration.appium_server import AppiumStartResult
 
-    monkeypatch.setattr(cli_module, "ensure_appium_running", lambda *args: AppiumStartResult("DISABLED"))
+    monkeypatch.setattr(cli_module, "ensure_appium_running", lambda *args, **kwargs: AppiumStartResult("DISABLED"))
     from dataclasses import replace
 
     from mobile_playbook.platforms.android.acquisition import store

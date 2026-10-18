@@ -120,7 +120,7 @@ def test_a_risk_without_a_device_is_not_granted_permissions(monkeypatch):
 def test_keep_screen_on_is_applied_when_connecting_only_if_configured(monkeypatch, tmp_path, keep_screen_on):
     monkeypatch.setattr(
         "mobile_playbook.platforms.android.runner.ensure_appium_running",
-        lambda *a: SimpleNamespace(status="ALREADY_RUNNING", error=None, log_tail=None),
+        lambda *a, **k: SimpleNamespace(status="ALREADY_RUNNING", error=None, log_tail=None),
     )
     monkeypatch.setattr("mobile_playbook.platforms.android.runner.appium_start_message", lambda *a: None)
     applied = []

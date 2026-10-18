@@ -11,6 +11,7 @@ import signal
 import socket
 import subprocess
 import time
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -38,6 +39,10 @@ def tcp_reachable(url_or_hostport: str, timeout: float = 3.0) -> bool:
         return False
 
 
+class AppiumEnvironmentError(Exception):
+    """Raised when the environment an auto-started Appium needs cannot be prepared."""
+
+
 @dataclass(frozen=True)
 class AppiumStartResult:
     status: str  # "ALREADY_RUNNING" | "STARTED" | "DISABLED" | "FAILED"
@@ -48,7 +53,13 @@ class AppiumStartResult:
 
 
 # Start Appium when unreachable and auto-start is enabled, appending its output to log_path and polling until it is up.
-def ensure_appium_running(appium_server_url: str, auto_start_config: dict[str, Any] | None, log_path: Path) -> AppiumStartResult:
+# environment, when given, is called only before a launch and returns the complete environment for the Appium process.
+def ensure_appium_running(
+    appium_server_url: str,
+    auto_start_config: dict[str, Any] | None,
+    log_path: Path,
+    environment: Callable[[], Mapping[str, str]] | None = None,
+) -> AppiumStartResult:
     logger.debug("appium: ensuring server at %s is running (log_path=%s)", appium_server_url, log_path)
     if tcp_reachable(appium_server_url, timeout=2):
         logger.debug("appium: server at %s already reachable; not starting", appium_server_url)
@@ -63,6 +74,12 @@ def ensure_appium_running(appium_server_url: str, auto_start_config: dict[str, A
     if isinstance(command, str):
         command = shlex.split(command)
 
+    try:
+        env = dict(environment()) if environment is not None else None
+    except AppiumEnvironmentError as exc:
+        logger.debug("appium: could not prepare the launch environment: %s", exc, exc_info=True)
+        return AppiumStartResult(status="FAILED", error=f"Could not start Appium: {exc}", log_path=log_path)
+
     log_path.parent.mkdir(parents=True, exist_ok=True)
     with log_path.open("a") as log_handle:
         log_handle.write(f"\n--- launching {' '.join(command)} at {datetime.now().astimezone().isoformat()} ---\n")
@@ -73,6 +90,7 @@ def ensure_appium_running(appium_server_url: str, auto_start_config: dict[str, A
                 command,
                 stdout=log_handle,
                 stderr=subprocess.STDOUT,
+                env=env,
                 start_new_session=True,
             )
         except OSError as exc:

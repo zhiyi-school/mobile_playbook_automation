@@ -164,6 +164,8 @@ device:
 
 This is checked once when a run connects to the device, and again before every single test — if Appium was running fine but crashes partway through a run, the next test's check notices it's unreachable, restarts it, reconnects, and the run continues with the remaining apps/risks rather than every subsequent test failing the same way. Appium is started once and left running for the rest of the run (and afterward) — it is not stopped between tests. Every launch attempt (including restarts after a crash) is appended to `appium.log` in that run's report directory, so what happened and why is inspectable after the fact.
 
+UiAutomator2 sessions need `ANDROID_HOME` or `ANDROID_SDK_ROOT` in Appium's environment. When an Android run, `install-app` or the API's Android install starts Appium and neither variable is set, Appium gets both set to the SDK that holds `device.adb_path`: the path (or `adb` on `PATH`) is resolved through symlinks, and the SDK root is the parent of its `platform-tools/` directory. A variable that is already set is passed on unchanged. If neither is set and adb is missing or not inside a `platform-tools/` directory, Appium is not started and the run fails with a message saying so; export `ANDROID_HOME` or point `device.adb_path` at `<sdk>/platform-tools/adb`. An Appium that is already running keeps the environment it was started with, including one the API server starts from the iOS config.
+
 ## Runner
 
 ```yaml

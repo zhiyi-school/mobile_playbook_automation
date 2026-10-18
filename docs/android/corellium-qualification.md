@@ -29,9 +29,10 @@ no one is using them by hand.
   role's VM stays on.
 - `adb`, Appium and the tools the selected risks need are installed. `tesseract`
   is needed only when an image shows the debugging prompt.
-- `ANDROID_HOME` (or `ANDROID_SDK_ROOT`) is set in the environment that starts
-  each run. A run that restarts Appium passes on its own environment, and
-  UiAutomator2 sessions fail without the SDK path.
+- `device.adb_path` (or `adb` on `PATH`) resolves to the SDK's
+  `platform-tools/adb`, or `ANDROID_HOME` is exported. A run that starts or
+  restarts Appium takes the SDK path from adb when neither `ANDROID_HOME` nor
+  `ANDROID_SDK_ROOT` is set; see [Appium auto-start](configuration.md#appium-auto-start).
 - Each app under test has its APK in `artifacts/intake/android/apks/`.
 - Both role VMs are off in Corellium, and no claim is pending:
 

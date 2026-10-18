@@ -261,7 +261,7 @@ def test_android_connect_device_starts_appium_when_unreachable(monkeypatch, tmp_
     calls = {}
     monkeypatch.setattr(
         "mobile_playbook.platforms.android.runner.ensure_appium_running",
-        lambda url, cfg, log_path: (calls.setdefault("ensure_args", (url, cfg, log_path)), AppiumStartResult(status="STARTED"))[1],
+        lambda url, cfg, log_path, environment: (calls.setdefault("ensure_args", (url, cfg, log_path)), AppiumStartResult(status="STARTED"))[1],
     )
 
     client = AndroidPlatformRunner().connect_device(_android_config(), tmp_path)
@@ -270,10 +270,31 @@ def test_android_connect_device_starts_appium_when_unreachable(monkeypatch, tmp_
     assert calls["ensure_args"][2] == tmp_path / "appium.log"
 
 
+@pytest.mark.parametrize("start", ["connect", "restart"])
+def test_android_appium_start_gets_the_sdk_path_from_the_configured_adb(fake_android_sdk, monkeypatch, tmp_path, start):
+    environments = []
+    monkeypatch.setattr(
+        "mobile_playbook.platforms.android.runner.ensure_appium_running",
+        lambda url, cfg, log_path, environment: environments.append(environment()) or AppiumStartResult(status="STARTED"),
+    )
+    monkeypatch.setattr("mobile_playbook.platforms.android.runner.reconnect_corellium", lambda *args: None)
+    config = _android_config()
+    config.device.adb_path = str(fake_android_sdk / "platform-tools" / "adb")
+    config.device.corellium = {}
+
+    if start == "connect":
+        AndroidPlatformRunner().connect_device(config, tmp_path)
+    else:
+        AndroidPlatformRunner()._reconnect_corellium(config, SimpleNamespace(corellium=None), tmp_path)
+
+    [environment] = environments
+    assert environment["ANDROID_HOME"] == environment["ANDROID_SDK_ROOT"] == str(fake_android_sdk)
+
+
 def test_android_connect_device_raises_with_log_tail_when_appium_fails_to_start(monkeypatch, tmp_path):
     monkeypatch.setattr(
         "mobile_playbook.platforms.android.runner.ensure_appium_running",
-        lambda url, cfg, log_path: AppiumStartResult(status="FAILED", error="boom", log_tail="line1\nline2"),
+        lambda url, cfg, log_path, environment: AppiumStartResult(status="FAILED", error="boom", log_tail="line1\nline2"),
     )
 
     with pytest.raises(RuntimeError, match="boom"):

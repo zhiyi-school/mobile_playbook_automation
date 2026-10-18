@@ -289,3 +289,15 @@ class MockDevice:
     def page_source(self) -> str:
         return self.source
 
+
+
+# Builds a fake Android SDK whose platform-tools/adb is executable, and unsets ANDROID_HOME and ANDROID_SDK_ROOT.
+@pytest.fixture
+def fake_android_sdk(tmp_path, monkeypatch) -> Path:
+    adb = tmp_path / "android-sdk" / "platform-tools" / "adb"
+    adb.parent.mkdir(parents=True)
+    adb.write_text("#!/bin/sh\n")
+    adb.chmod(0o755)
+    monkeypatch.delenv("ANDROID_HOME", raising=False)
+    monkeypatch.delenv("ANDROID_SDK_ROOT", raising=False)
+    return adb.parent.parent.resolve()

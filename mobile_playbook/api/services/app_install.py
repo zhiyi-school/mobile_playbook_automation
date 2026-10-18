@@ -5,6 +5,7 @@ Installs a configured Android app on the test device with the configured install
 from __future__ import annotations
 
 import logging
+from functools import partial
 
 from fastapi import HTTPException
 
@@ -21,6 +22,7 @@ from mobile_playbook.platforms.android.runner import AndroidPlatformRunner
 from mobile_playbook.platforms.android.config import ConfigError as AndroidConfigError
 from mobile_playbook.platforms.android.config import load_config as load_android_config
 from mobile_playbook.platforms.android.device.client import open_device
+from mobile_playbook.platforms.android.device.sdk import appium_environment
 from mobile_playbook.platforms.corellium.client import CorelliumError
 
 logger = logging.getLogger(__name__)
@@ -93,7 +95,10 @@ def install_app(platform: str, app_id: str, role: str | None = None) -> dict:
 # Install the app on the configured physical or single-instance Corellium device, starting Appium when allowed.
 def _install_on_device(config, store, app_id: str, package: str, work):
     appium = ensure_appium_running(
-        config.device.appium_server_url, getattr(config.device, "appium_auto_start", None), work / "appium.log"
+        config.device.appium_server_url,
+        getattr(config.device, "appium_auto_start", None),
+        work / "appium.log",
+        environment=partial(appium_environment, config.device.adb_path),
     )
     if appium.status in ("FAILED", "DISABLED"):
         return store.failure("error", f"Appium is not available: {appium.error or appium.status}")

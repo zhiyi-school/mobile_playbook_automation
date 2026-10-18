@@ -153,7 +153,7 @@ def appium(monkeypatch, reachable):
     started = []
     monkeypatch.setattr("mobile_playbook.platforms.android.runner.tcp_reachable", lambda url, timeout: reachable)
     monkeypatch.setattr("mobile_playbook.platforms.android.runner.ensure_appium_running",
-                        lambda *args: started.append(args) or SimpleNamespace(status="STARTED", error=None, log_tail=None, log_path="appium.log"))
+                        lambda *args, **kwargs: started.append(args) or SimpleNamespace(status="STARTED", error=None, log_tail=None, log_path="appium.log"))
     return started
 
 
