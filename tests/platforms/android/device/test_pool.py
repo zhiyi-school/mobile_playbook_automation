@@ -11,7 +11,7 @@ from mobile_playbook.platforms.corellium.client import CorelliumError
 from tests.platforms.corellium.helpers import device
 
 STOCK, ROOTED = "10.11.1.1:5001", "10.11.1.2:5001"
-POLICY = AdbConnectPolicy(timeout=1, connect_attempts=2, unauthorized_grace=0, poll=0.001)
+POLICY = AdbConnectPolicy(timeout=1, reconnect_pause=0.001, unauthorized_grace=0, poll=0.001)
 CONFIG = SimpleNamespace(device=SimpleNamespace(adb_path="adb"))
 
 

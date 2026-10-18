@@ -39,19 +39,17 @@ class AdbConnectPolicy:
     """Bounds for connecting adb to one device and waiting until it is ready."""
 
     timeout: float = 600
-    connect_attempts: int = 5
+    reconnect_pause: float = 5
     unauthorized_grace: float = 5
     poll: float = 2
 
-    # Reject budgets that could wait forever or never try to connect.
+    # Reject budgets that could wait forever.
     def __post_init__(self):
-        numbers = (self.timeout, self.unauthorized_grace, self.poll)
+        numbers = (self.timeout, self.reconnect_pause, self.unauthorized_grace, self.poll)
         if any(isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) for value in numbers):
             raise ValueError("adb connection timeouts must be finite numbers")
-        if self.timeout <= 0 or self.poll <= 0 or self.unauthorized_grace < 0:
-            raise ValueError("adb connection timeout and poll must be positive and the grace nonnegative")
-        if isinstance(self.connect_attempts, bool) or not isinstance(self.connect_attempts, int) or self.connect_attempts < 1:
-            raise ValueError("adb connect_attempts must be a positive integer")
+        if self.timeout <= 0 or self.poll <= 0 or self.unauthorized_grace < 0 or self.reconnect_pause < 0:
+            raise ValueError("adb connection timeout and poll must be positive and the grace and pause nonnegative")
 
 
 # Report whether Android on the device has finished booting.
@@ -78,7 +76,7 @@ def verify_root_state(phone: AdbClient, serial: str, rooted: bool) -> str:
 
 
 # Connect adb to the serial and wait until it is an authorized, booted device whose root state matches rooted,
-# reconnecting an absent or offline device a bounded number of times and authorizing an unauthorized one once.
+# reconnecting an absent or offline device until the timeout and authorizing an unauthorized one once.
 def connect_ready(
     adb_path: str,
     serial: str,
@@ -92,6 +90,7 @@ def connect_ready(
     phone = AdbClient(adb_path, serial)
     deadline = time.monotonic() + policy.timeout
     attempts = 0
+    next_connect = 0.0
     unauthorized_since: float | None = None
     authorization_attempted = False
     while True:
@@ -120,19 +119,24 @@ def connect_ready(
                 continue
         elif state in (ABSENT, OFFLINE):
             unauthorized_since = None
-            if attempts >= policy.connect_attempts:
+            # A Corellium VM stays unreachable until the project's VPN carries traffic, which can outlast many
+            # attempts, so only the time budget ends reconnection; each connect is capped by what remains of it.
+            if time.monotonic() >= next_connect:
+                attempts += 1
+                if state == OFFLINE:
+                    host.run(["disconnect", serial])
+                remaining = max(0.1, deadline - time.monotonic())
+                code, out, err = host.run(["connect", serial], timeout=min(AdbClient.DEFAULT_TIMEOUT, remaining))
+                logger.debug("android adb: connect %s (attempt %s) exited %s (%s)", serial, attempts, code, (out or err)[:200])
+                next_connect = time.monotonic() + policy.reconnect_pause
+        if time.monotonic() >= deadline:
+            if state in (ABSENT, OFFLINE):
                 raise AdbConnectionError(
-                    f"adb could not connect to {serial} after {attempts} attempts; it is {state}. "
+                    f"adb could not connect to {serial} after {attempts} attempts in {policy.timeout:g}s; it is {state}. "
                     "Check that this host can reach the device (for Corellium, the project's VPN).",
                     serial=serial,
                     state=state,
                 )
-            attempts += 1
-            if state == OFFLINE:
-                host.run(["disconnect", serial])
-            code, out, err = host.run(["connect", serial])
-            logger.debug("android adb: connect %s (attempt %s) exited %s (%s)", serial, attempts, code, (out or err)[:200])
-        if time.monotonic() >= deadline:
             waiting = "booting" if state == READY else state
             raise AdbConnectionError(f"{serial} was still {waiting} after {policy.timeout:g}s.", serial=serial, state=state)
         time.sleep(min(policy.poll, max(0.0, deadline - time.monotonic())))

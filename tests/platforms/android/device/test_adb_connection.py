@@ -1,9 +1,11 @@
+import time
+
 import pytest
 
 from mobile_playbook.platforms.android.device.adb_connection import AdbConnectionError, AdbConnectPolicy, connect_ready
 
 SERIAL = "10.11.1.1:5001"
-FAST = AdbConnectPolicy(timeout=0.5, connect_attempts=3, unauthorized_grace=0, poll=0.001)
+FAST = AdbConnectPolicy(timeout=0.5, reconnect_pause=0.001, unauthorized_grace=0, poll=0.001)
 
 
 def test_a_ready_device_is_used_without_connecting_again(adb_host):
@@ -31,23 +33,64 @@ def test_an_offline_device_is_disconnected_before_reconnecting(adb_host):
     assert adb_host.commands.index((None, ["connect", SERIAL])) > disconnect
 
 
-def test_connection_attempts_are_bounded(adb_host):
-    adb_host.add(SERIAL, connects_to="absent")
+def test_a_device_unreachable_for_more_than_five_attempts_connects_within_the_budget(adb_host):
+    adb_host.add(SERIAL, unreachable_connects=7)
 
-    with pytest.raises(AdbConnectionError, match="after 3 attempts; it is absent") as error:
-        connect_ready("adb", SERIAL, rooted=False, policy=FAST)
+    connect_ready("adb", SERIAL, rooted=False, policy=FAST)
+
+    assert adb_host.sent(None, "connect", SERIAL) == 8
+
+
+def test_a_device_behind_a_reconnecting_vpn_connects_once_the_gap_ends(adb_host):
+    # Scaled from qualification: the VPN can stay down about 180s of the 600s budget after every VM was off.
+    adb_host.add(SERIAL, reachable_at=time.monotonic() + 0.18)
+    policy = AdbConnectPolicy(timeout=0.6, reconnect_pause=0.005, unauthorized_grace=0, poll=0.001)
+
+    connect_ready("adb", SERIAL, rooted=False, policy=policy)
+
+    assert adb_host.sent(None, "connect", SERIAL) > 5
+
+
+def test_reconnection_ends_with_the_time_budget_and_pauses_between_attempts(adb_host):
+    adb_host.add(SERIAL, connects_to="absent")
+    paced = AdbConnectPolicy(timeout=0.3, reconnect_pause=0.05, unauthorized_grace=0, poll=0.001)
+
+    with pytest.raises(AdbConnectionError, match=r"after \d+ attempts in 0.3s; it is absent") as error:
+        connect_ready("adb", SERIAL, rooted=False, policy=paced)
 
     assert error.value.state == "absent"
-    assert adb_host.sent(None, "connect", SERIAL) == 3
+    attempts = adb_host.sent(None, "connect", SERIAL)
+    assert f"after {attempts} attempts" in str(error.value)
+    assert 2 <= attempts <= 7
+
+
+def test_each_connect_is_capped_by_the_remaining_budget(adb_host, monkeypatch):
+    adb_host.add(SERIAL, connects_to="absent")
+    timeouts = []
+    run = adb_host.run
+
+    def record(argv, **kwargs):
+        if "connect" in argv:
+            timeouts.append(kwargs["timeout"])
+        return run(argv, **kwargs)
+
+    monkeypatch.setattr("mobile_playbook.platforms.android.device.adb.subprocess.run", record)
+
+    with pytest.raises(AdbConnectionError, match="it is absent"):
+        connect_ready("adb", SERIAL, rooted=False, policy=AdbConnectPolicy(timeout=0.2, reconnect_pause=0.05, poll=0.001))
+
+    assert timeouts and all(timeout <= 0.2 for timeout in timeouts)
 
 
 def test_a_device_that_stays_offline_exhausts_its_reconnections(adb_host):
     adb_host.add(SERIAL, state="offline", connects_to="offline")
 
-    with pytest.raises(AdbConnectionError, match="it is offline"):
+    with pytest.raises(AdbConnectionError, match="it is offline") as error:
         connect_ready("adb", SERIAL, rooted=False, policy=FAST)
 
-    assert adb_host.sent(None, "disconnect", SERIAL) == 3
+    reconnections = adb_host.sent(None, "disconnect", SERIAL)
+    assert reconnections > 1
+    assert f"after {reconnections} attempts" in str(error.value)
 
 
 def test_an_unauthorized_device_fails_clearly_without_an_authorizer(adb_host):
@@ -120,8 +163,8 @@ def test_userdebug_and_eng_builds_are_rooted(adb_host, build_type):
 
 @pytest.mark.parametrize(
     "settings",
-    [{"timeout": 0}, {"poll": 0}, {"timeout": float("inf")}, {"unauthorized_grace": -1}, {"connect_attempts": 0},
-     {"connect_attempts": True}],
+    [{"timeout": 0}, {"poll": 0}, {"timeout": float("inf")}, {"unauthorized_grace": -1}, {"reconnect_pause": -1},
+     {"reconnect_pause": float("nan")}, {"reconnect_pause": True}],
 )
 def test_unbounded_policies_are_rejected(settings):
     with pytest.raises(ValueError):

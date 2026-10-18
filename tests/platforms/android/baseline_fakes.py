@@ -33,7 +33,7 @@ PLAIN, ROOT, STATIC = "android-feature-06-risk-01", "android-feature-01-risk-02"
 PACKAGE = "com.example.one"
 APK_NAME = "One_3.2.1.apk"
 FAST = LifecyclePolicy(restore_timeout=2, power_timeout=0.5, poll=0.001)
-ADB_POLICY = AdbConnectPolicy(timeout=1, connect_attempts=2, unauthorized_grace=0, poll=0.001)
+ADB_POLICY = AdbConnectPolicy(timeout=1, reconnect_pause=0.001, unauthorized_grace=0, poll=0.001)
 
 
 class EvidenceRisk:

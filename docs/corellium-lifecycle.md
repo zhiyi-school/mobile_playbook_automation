@@ -211,8 +211,14 @@ two roles never share an address. `device/adb_connection.connect_ready()` then:
 
 - reads `adb devices` and tells `device`, `unauthorized`, `offline` and absent
   apart;
-- connects an absent device, disconnects and reconnects an offline one, and fails
-  after a bounded number of attempts;
+- connects an absent device and disconnects and reconnects an offline one,
+  pausing `reconnect_pause` (5 s) between attempts and capping each `adb connect`
+  at the time left. Only the `timeout` budget (600 s) ends reconnection, because
+  a VM restored from off is unreachable until the project's VPN carries traffic,
+  which needs a VM in the project to be on. With every VM off, the VPN client's
+  inactivity restart and handshake retries can keep the tunnel down for about
+  three minutes after a VM starts. The error names the attempts made and
+  whether the device was absent or offline;
 - treats `unauthorized` as a debugging prompt only after a short grace period,
   because adb briefly reports it during the key handshake;
 - waits for `sys.boot_completed`, then requires `ro.build.type` to match the role:
@@ -351,19 +357,20 @@ processes. The shared pytest setup points `CORELLIUM_STATE_DIR` at each session'
 temporary directory, so no test touches the host store. Coverage includes
 selection/compatibility, off VMs, deterministic multi-device claims, failed second
 claims, process exclusion/termination, forked children, persisted intent, restore
-progress and completion, startup/resume, outages, shutdown timeouts, independent
-cleanup, stale and foreign-host recovery and active-owner protection. They also
-cover a busy second instance failing a session before any API call, preparation
-failing on the second VM after the first started, recovery from every claim phase
-without restoring, and an outage during selection failing rather than switching
-VMs. A fresh interpreter blocks Android/Appium imports while loading every shared
-module, and `test_boundaries.py` parses every shared module so a function-local,
-relative or `importlib` import of Android, iOS, Appium or Selenium code fails too.
+progress, completion and budget expiry, startup/resume, outages, shutdown
+timeouts, independent cleanup, stale and foreign-host recovery and active-owner
+protection. They also cover a busy second instance failing a session before any
+API call, preparation failing on the second VM after the first started, recovery
+from every claim phase without restoring, and an outage during selection failing
+rather than switching VMs. A fresh interpreter blocks Android/Appium imports while
+loading every shared module, and `test_boundaries.py` parses every shared module
+so a function-local, relative or `importlib` import of Android, iOS, Appium or
+Selenium code fails too.
 
 The Android tests use a synthetic adb server, synthetic PNG headers and recognised
 words, and fake Corellium clients that fail on any lifecycle call. They cover role
 derivation and malformed declarations, routing in plan order through the shared
-runner, missing roles without substitution, adb states and bounded reconnection,
+runner, missing roles without substitution, adb states and time-bounded reconnection,
 boot and root-state checks, recognised and unfamiliar prompts in both
 orientations, approval timeouts with diagnostics, and Appium recovery on the same
 instances without preparation. These checks do not qualify actual Android images

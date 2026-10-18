@@ -5,6 +5,7 @@ A synthetic adb server for tests: per-serial states, scripted state sequences, b
 from __future__ import annotations
 
 import subprocess
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -13,6 +14,8 @@ from pathlib import Path
 class FakeDevice:
     state: str = "absent"
     connects_to: str = "device"
+    unreachable_connects: int = 0
+    reachable_at: float = 0.0
     build_type: str = "user"
     boots_after: int = 0
     script: list[str] = field(default_factory=list)
@@ -53,6 +56,11 @@ class FakeAdbHost:
             return 0, "List of devices attached\n" + "\n".join(rows) + "\n", ""
         if args[:1] == ["connect"]:
             device = self.devices.get(args[1])
+            if device is not None and time.monotonic() < device.reachable_at:
+                return 1, f"failed to connect to {args[1]}", ""
+            if device is not None and device.unreachable_connects > 0:
+                device.unreachable_connects -= 1
+                return 1, f"failed to connect to {args[1]}", ""
             if device is None or device.connects_to == "absent":
                 return 1, f"failed to connect to {args[1]}", ""
             device.state = device.connects_to
