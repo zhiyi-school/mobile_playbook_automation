@@ -18,7 +18,7 @@ from mobile_playbook.platforms.android.acquisition import apk as apk_install
 from mobile_playbook.platforms.android.acquisition.intake_apk import find_intake_apk
 from mobile_playbook.platforms.android.acquisition.play_store import InstallOutcome, installer_of
 from mobile_playbook.platforms.android.device.app_version import installed_version
-from mobile_playbook.platforms.android.device.install import install_apks
+from mobile_playbook.platforms.android.device.install import install_apks, wait_for_dexopt
 from mobile_playbook.platforms.android.device.corellium import adb_serial
 from mobile_playbook.platforms.android.device.permissions import is_installed
 from mobile_playbook.platforms.android.device.phone_lock import PhoneBusy, PhoneLock, acquire_phone_lock, phone_lock_holder
@@ -170,6 +170,17 @@ class BaselineSession:
         adb = device.client.adb
         if apk_install.adb_installs_need_confirmation(adb):
             raise BuildInstallError(apk_install.FAILURES["confirmation_required"][2], "confirmation_required")
+        if device.device_type == CORELLIUM_VM:
+            # A VM restored from its snapshot may recompile apps such as Play services first, and the package manager
+            # queues the install behind that work until the install's own timeout expires.
+            waiting = time.monotonic()
+            still_running = wait_for_dexopt(adb)
+            if still_running:
+                raise BuildInstallError(
+                    f"The {role} device (instance {device.instance_id}) was still compiling apps after "
+                    f"{time.monotonic() - waiting:.0f} s ({'; '.join(still_running)}), so {build.apk.name} was not "
+                    "installed. Retry once the baseline finishes compiling, or retake its snapshot after compilation ends."
+                )
         if device.device_type == PHYSICAL_PHONE and is_installed(adb, build.package):
             self.replaced.setdefault(role, set()).add(build.package)
             logger.info("Uninstalling the copy of %s already on the phone %s before installing the intended build.",

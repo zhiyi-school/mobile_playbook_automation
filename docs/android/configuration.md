@@ -184,6 +184,7 @@ For each run, in order:
 - USB debugging is enabled and this host's adb key (`$ANDROID_USER_HOME/adbkey.pub`, else `~/.android/adbkey.pub`) is authorized, so no prompt appears;
 - required companion apps, stable test certificates and supporting configuration are installed, including Google Play services when the apps under test need them;
 - recordings, collected input and earlier test data are cleared;
+- app updates and compilation have finished: Google Play services and the Play Store are up to date, `adb shell pm bg-dexopt-job` has returned, and `adb shell ps -A -o ARGS` lists no `dex2oat` or `dexoptanalyzer`, so a restored VM does not make the install wait behind compilation;
 - no Appium, capture or interception session is active, and the target apps are not installed.
 
 An existing snapshot such as `automation-ready-v1` can serve its own instance once it has been checked against this list; the second VM needs its own snapshot. Creating or replacing a baseline is maintenance work done by hand in Corellium: keep the original snapshot, the active prepared baseline and the previous prepared baseline for each instance, and update `baselines` only after the replacement has passed [qualification](corellium-qualification.md). Runs restore snapshots and never create or delete them.

@@ -1,4 +1,5 @@
 import json
+import math
 from types import SimpleNamespace
 
 import pytest
@@ -6,6 +7,7 @@ import pytest
 from mobile_playbook.artifact_store import resolver
 from mobile_playbook.orchestration.scan_runner import RunOptions, run_platform
 from mobile_playbook.platforms.android.config import load_config
+from mobile_playbook.platforms.android.device import install as install_module
 from mobile_playbook.platforms.android.device.debugging_prompt import DebuggingAuthorizationError
 from mobile_playbook.platforms.android.device.pool import AndroidDevicePool
 from mobile_playbook.platforms.android.runner import AndroidPlatformRunner
@@ -191,6 +193,67 @@ def test_a_build_that_reports_another_version_fails_setup_and_shuts_both_vms_dow
     assert bench.risks[PLAIN].used == []
     cleanup = events(last_run_dir(tmp_path), "device_cleanup")
     assert sorted(event["status"] for event in cleanup) == ["off", "off"]
+
+
+def compilation_checks(bench, serial):
+    return [index for index, (target, args) in enumerate(bench.adb.commands)
+            if target == serial and args == ["shell", "ps", "-A", "-o", "ARGS"]]
+
+
+def install_commands(bench, serial):
+    return [index for index, (target, args) in enumerate(bench.adb.commands)
+            if target == serial and args[:3] == ["shell", "pm", "install"]]
+
+
+@pytest.fixture
+def dexopt_budget(monkeypatch):
+    # raising=False lets these tests run, and fail on behavior, against code without the compilation wait.
+    def set_budget(seconds=900.0):
+        monkeypatch.setattr(install_module, "DEXOPT_POLL_SECONDS", 0.001, raising=False)
+        monkeypatch.setattr(install_module, "DEXOPT_WAIT_SECONDS", seconds, raising=False)
+    return set_budget
+
+
+def test_an_install_on_a_restored_vm_waits_for_its_compilation_to_finish(bench, tmp_path, dexopt_budget, caplog):
+    dexopt_budget()
+    bench.adb.devices[ROOTED_SERIAL].compiling = 3
+    caplog.set_level("INFO", logger=install_module.__name__)
+
+    outcome = run(bench, tmp_path, ROOT)
+
+    assert read_manifest(outcome.run_dir)["status"] == "completed"
+    assert bench.risks[ROOT].used == [ROOTED_SERIAL]
+    checks, install = compilation_checks(bench, ROOTED_SERIAL), install_commands(bench, ROOTED_SERIAL)
+    assert len(checks) == 5 and len(install) == 1 and checks[-1] < install[0]
+    assert "dex2oat32 on /data/app/~~a==/com.google.android.gms-b==/base.apk" in caplog.text
+    assert bench.instance_state(ROOTED_VM) == "off"
+
+
+def test_a_vm_that_never_finishes_compiling_fails_the_install_clearly_and_shuts_down(bench, tmp_path, dexopt_budget):
+    dexopt_budget(0.05)
+    bench.adb.devices[ROOTED_SERIAL].compiling = math.inf
+
+    with pytest.raises(RuntimeError, match=r"rooted device \(instance rooted-vm\) was still compiling apps after \d+ s "
+                                            r"\(dex2oat32 on /data/app/.*com\.google\.android\.gms.*\), so One_3\.2\.1\.apk "
+                                            r"was not installed"):
+        run(bench, tmp_path, ROOT)
+
+    assert install_commands(bench, ROOTED_SERIAL) == []
+    assert bench.risks[ROOT].used == []
+    assert bench.actions(ROOTED_VM, "restore", "start", "stop") == ["restore", "start", "stop"]
+    assert bench.store.pending() == []
+
+
+def test_a_standalone_install_on_a_compiling_vm_reports_a_retryable_failure(bench, tmp_path, dexopt_budget):
+    dexopt_budget(0.05)
+    bench.adb.devices[ROOTED_SERIAL].compiling = math.inf
+    config = load_config(bench.config_path)
+
+    [(_, outcome)] = bench.runner().install_on_baseline(config, config.apps, "rooted", tmp_path / "install-work")
+
+    assert (outcome.status, outcome.blocker_code, outcome.retryable) == ("failed", "app_install_failed", True)
+    assert "still compiling apps" in outcome.detail
+    assert install_commands(bench, ROOTED_SERIAL) == [] and bench.instance_state(ROOTED_VM) == "off"
 
 
 def test_a_connection_failure_after_preparation_still_shuts_down_every_claimed_vm(bench, tmp_path):

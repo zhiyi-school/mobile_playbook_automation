@@ -224,3 +224,10 @@ def test_a_wifi_phone_is_resolved_with_the_rooted_vms_address_excluded(bench, tm
 
     assert ROOTED_SERIAL in seen[0]
     assert bench.risks[PLAIN].used == [PHONE_SERIAL]
+
+
+def test_only_the_vm_is_checked_for_app_compilation_before_installing(bench, tmp_path):
+    run(bench, tmp_path)
+
+    assert phone_commands(bench, "shell", "ps", "-A", "-o", "ARGS") == []
+    assert bench.adb.sent(ROOTED_SERIAL, "shell", "ps", "-A", "-o", "ARGS") >= 1

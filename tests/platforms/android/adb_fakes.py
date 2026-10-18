@@ -1,5 +1,5 @@
 """
-A synthetic adb server for tests: per-serial states, scripted state sequences, boot progress, build types and APK installs.
+A synthetic adb server for tests: per-serial states, scripted state sequences, boot progress, build types, app compilation and APK installs.
 """
 
 from __future__ import annotations
@@ -24,6 +24,10 @@ class FakeDevice:
     files: dict[str, Path] = field(default_factory=dict)
     play_services: bool = True
     uninstall_fails: set[str] = field(default_factory=set)
+    compiling: float = 0
+
+
+COMPILING = "dex2oat32 --zip-fd=9 --zip-location=/data/app/~~a==/com.google.android.gms-b==/base.apk --oat-fd=10"
 
 
 class FakeAdbHost:
@@ -95,7 +99,15 @@ class FakeAdbHost:
         if args[:3] == ["shell", "stat", "-c"]:
             local = device.files.get(args[-1])
             return (0, f"{local.stat().st_size}\n", "") if local else (1, "", "No such file or directory")
+        if args == ["shell", "ps", "-A", "-o", "ARGS"]:
+            rows = ["ARGS", "init", "system_server"]
+            if device.compiling > 0:
+                device.compiling -= 1
+                rows.append(COMPILING)
+            return 0, "\n".join(rows) + "\n", ""
         if args[:3] == ["shell", "pm", "install"]:
+            if device.compiling > 0:
+                return 124, "", f"adb timed out after 300.0s: adb -s {serial} {' '.join(args)}"
             for remote in args[3:]:
                 package = self.apks.get(device.files[remote].name) if remote in device.files else None
                 if package is not None:

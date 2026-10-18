@@ -284,10 +284,22 @@ restores, starts and installs nothing. For a run that needs devices, in order:
 4. `connect_claimed()` connects adb to each prepared VM, approving the debugging
    prompt if needed.
 5. Each app's APK is installed with `install_apks()` on every role device whose
-   risks test it, before any risk runs. The package must then be installed and
-   report the APK's `versionName` and `versionCode`; otherwise setup fails. The
-   run's `artifacts` digest for the app is the installed APK's SHA-256, even
-   when an older pulled copy exists in the work folder.
+   risks test it, before any risk runs. A restored VM can still be compiling
+   apps (for example `dex2oat` on Google Play services), and the package
+   manager queues an install behind that work. So before each install on a
+   VM, `wait_for_dexopt()` polls `ps -A -o ARGS` every 5 s for `dex2oat` or
+   `dexoptanalyzer` and logs what is compiling. It installs once two samples
+   in a row show none. If compilation is still running after 900 s, the
+   install fails without calling `pm install`, naming the process and APK; a
+   standalone install reports this as a retryable `app_install_failed`. The
+   wait never restarts, re-restores or replaces the VM, and never applies to a
+   physical phone. The package manager's own install keeps its 300 s limit. A
+   baseline snapshot taken after compilation has finished avoids the wait (see
+   [preparing a baseline](android/configuration.md#baseline-role-devices)).
+   After the install, the package must be installed and report the APK's
+   `versionName` and `versionCode`; otherwise setup fails. The run's
+   `artifacts` digest for the app is the installed APK's SHA-256, even when an
+   older pulled copy exists in the work folder.
 6. Risks run in their planned order, each on its role's device. Each result
    written on a role device carries `metadata.device` with the role,
    `device_type` (`corellium_vm`), instance ID, baseline ID, adb `serial` and
@@ -408,7 +420,8 @@ The run, install and readiness tests use `tests/platforms/android/baseline_fakes
 the synthetic Corellium API, a synthetic adb server that installs APKs, a
 synthetic intake APK and a real baseline config. They cover non-rooted-only,
 rooted-only, mixed and static-only runs, installation after restoration and
-before the first risk, version verification, recorded artifact digests and result
+before the first risk, installs that wait for post-restore compilation or fail
+when it outlasts its budget, version verification, recorded artifact digests and result
 metadata, missing APKs and roles, an unavailable VM without substitution, setup
 failures after preparation, one failed shutdown, failed session closing,
 cancellation and Appium recovery without restoration, through `run_platform`,

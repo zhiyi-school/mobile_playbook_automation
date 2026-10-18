@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 from pathlib import Path
 
 from mobile_playbook.platforms.android.device.adb import AdbClient
@@ -20,6 +21,12 @@ STAGING_DIR = "/data/local/tmp/mobile_playbook_install"
 PUSH_BASE_TIMEOUT_SECONDS = 60.0
 PUSH_MIN_BYTES_PER_SECOND = 250_000
 PUSH_ATTEMPTS = 2
+# ART's compiler and its planner; the package manager runs one job at a time, so an install waits behind them.
+DEXOPT_PROCESS_RE = re.compile(r"^(?:\S*/)?(dex2oat\w*|dexoptanalyzer)(?:\s+(.*))?$")
+DEXOPT_LOCATION_RE = re.compile(r"--(?:zip|dex)-location=(\S+)")
+# A VM restored from a Google apps snapshot has compiled Play services for more than six minutes.
+DEXOPT_WAIT_SECONDS = 900.0
+DEXOPT_POLL_SECONDS = 5.0
 
 
 # Copy the APKs to the device, install them as one app replacing any installed copy, and return whether it worked
@@ -87,3 +94,47 @@ def _pm_install(adb: AdbClient, remotes: list[str], *, grant_permissions: bool, 
         return False, failure.group(0)
     lines = [line.strip() for line in output.splitlines() if line.strip()]
     return False, lines[-1] if lines else f"pm install exited {code}"
+
+
+# Return the app compilations running on the device, each as its process and the APK it compiles when shown; empty
+# when none run or the process list cannot be read.
+def running_dexopt(adb: AdbClient) -> list[str]:
+    code, out, _ = adb.run(["shell", "ps", "-A", "-o", "ARGS"])
+    if code != 0:
+        return []
+    running = []
+    for line in out.splitlines():
+        match = DEXOPT_PROCESS_RE.match(line.strip())
+        if match:
+            location = DEXOPT_LOCATION_RE.search(match.group(2) or "")
+            running.append(f"{match.group(1)} on {location.group(1)}" if location else match.group(1))
+    return running
+
+
+# Wait until no app compilation runs on the device, within `timeout` seconds polled every `poll` seconds, and return
+# the compilations still running when the budget ran out, or an empty list once the device is idle.
+def wait_for_dexopt(adb: AdbClient, *, timeout: float | None = None, poll: float | None = None) -> list[str]:
+    timeout = DEXOPT_WAIT_SECONDS if timeout is None else timeout
+    poll = DEXOPT_POLL_SECONDS if poll is None else poll
+    started = time.monotonic()
+    running = running_dexopt(adb)
+    if not running:
+        return []
+    logger.info("Waiting up to %.0f s for the device to finish compiling before the install: %s", timeout, "; ".join(running))
+    idle = 0
+    while time.monotonic() - started < timeout:
+        time.sleep(poll)
+        current = running_dexopt(adb)
+        if current:
+            if current != running:
+                logger.info("The device is still compiling after %.0f s: %s", time.monotonic() - started, "; ".join(current))
+            running, idle = current, 0
+            continue
+        idle += 1
+        # dex2oat runs once per APK, so one idle sample between two compilations does not yet mean the work is done.
+        if idle == 2:
+            break
+    if idle:
+        logger.info("The device finished compiling after %.0f s.", time.monotonic() - started)
+        return []
+    return running

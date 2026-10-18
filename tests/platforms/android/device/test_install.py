@@ -7,12 +7,15 @@ from mobile_playbook.platforms.android.device.install import (
     PUSH_MIN_BYTES_PER_SECOND,
     STAGING_DIR,
     install_apks,
+    running_dexopt,
+    wait_for_dexopt,
 )
 
 
 class FakeAdb:
-    def __init__(self, install_result=(0, "Success", ""), push_results=None, remote_size=None):
+    def __init__(self, install_result=(0, "Success", ""), push_results=None, remote_size=None, processes=None):
         self.install_result = install_result
+        self.processes = list(processes or [])
         self.push_results = list(push_results or [])
         self.remote_size = remote_size
         self.sizes: dict[str, int] = {}
@@ -31,6 +34,9 @@ class FakeAdb:
         if args[:2] == ["shell", "stat"]:
             size = self.remote_size if self.remote_size is not None else self.sizes.get(args[-1])
             return (0, f"{size}\n", "") if size is not None else (1, "", "No such file")
+        if args == ["shell", "ps", "-A", "-o", "ARGS"]:
+            listed = self.processes.pop(0) if self.processes else []
+            return listed if isinstance(listed, tuple) else (0, "\n".join(["ARGS", "init", *listed]) + "\n", "")
         if args[:3] == ["shell", "pm", "install"]:
             self.timeouts.setdefault("install", []).append(timeout)
             return self.install_result
@@ -145,3 +151,38 @@ def test_no_apks_never_reaches_the_device():
 
     assert install_apks(adb, [], grant_permissions=False) == (False, "No APKs to install")
     assert adb.commands == []
+
+
+GMS = "/data/app/~~a==/com.google.android.gms-b==/base.apk"
+
+
+def test_running_compilations_name_the_compiler_and_the_apk_it_compiles():
+    adb = FakeAdb(processes=[[f"/apex/com.android.art/bin/dex2oat64 --zip-fd=9 --zip-location={GMS}",
+                              "dexoptanalyzer --dex-file=/system/framework/x.jar", "artd", "sh -c ps"]])
+
+    assert running_dexopt(adb) == [f"dex2oat64 on {GMS}", "dexoptanalyzer"]
+
+
+def test_an_unreadable_process_list_counts_as_idle():
+    assert running_dexopt(FakeAdb(processes=[(1, "", "ps: bad -o ARGS")])) == []
+
+
+def test_an_idle_device_is_checked_once_without_waiting():
+    adb = FakeAdb()
+
+    assert wait_for_dexopt(adb, timeout=0, poll=0) == []
+    assert adb.commands == [["shell", "ps", "-A", "-o", "ARGS"]]
+
+
+def test_a_gap_between_two_compilations_is_not_mistaken_for_the_end():
+    busy = [f"dex2oat32 --zip-location={GMS}"]
+    adb = FakeAdb(processes=[busy, [], busy, [], []])
+
+    assert wait_for_dexopt(adb, timeout=5, poll=0.001) == []
+    assert adb.processes == []
+
+
+def test_compilation_that_outlasts_the_budget_is_returned():
+    adb = FakeAdb(processes=[[f"dex2oat32 --zip-location={GMS}"]] * 1000)
+
+    assert wait_for_dexopt(adb, timeout=0.02, poll=0.001) == [f"dex2oat32 on {GMS}"]
