@@ -410,11 +410,15 @@ class TaggedReportWriter:
 
 @dataclass(frozen=True)
 class RoleReadiness:
-    """Whether a role device could serve a run now: ready, startable, busy, unavailable, unreachable or unconfigured."""
+    """Whether a role device could serve a run now: ready, startable, busy, unavailable, unreachable or unconfigured.
+
+    cause is a machine-readable reason when one is known, such as `unauthorized` for a phone awaiting debugging approval.
+    """
 
     role: str
     state: str
     detail: str = ""
+    cause: str = ""
 
 
 # Report each required role's readiness from read-only API calls and the claim store, never claiming, restoring,
@@ -463,8 +467,9 @@ def _phone_role_readiness(config: Any, profile: Any, role: str) -> RoleReadiness
     holder = phone_lock_holder()
     if holder is not None:
         return RoleReadiness(role, "busy", f"the phone is in use by {holder.get('purpose')}")
-    state, detail = phone_readiness(config.device.adb_path, config.device.adb_serial, _vm_addresses((), profile.role_settings))
-    return RoleReadiness(role, state, detail)
+    state, detail, cause = phone_readiness(config.device.adb_path, config.device.adb_serial,
+                                           _vm_addresses((), profile.role_settings))
+    return RoleReadiness(role, state, detail, cause)
 
 
 # Report whether an inventory instance is one the role could select, so its ownership explains an empty selection.

@@ -10,6 +10,7 @@ import time
 from collections.abc import Collection
 
 from mobile_playbook.platforms.android.device.adb import AdbClient
+from mobile_playbook.platforms.android.device.adb_connection import ABSENT, READY, UNAUTHORIZED
 
 logger = logging.getLogger(__name__)
 
@@ -22,19 +23,24 @@ _IPV4_RE = re.compile(r"\binet (\d{1,3}(?:\.\d{1,3}){3})/")
 
 
 # Return the serial of the phone's Wi-Fi adb connection, enabling and connecting it through USB when needed, or None.
-# Serials in exclude, such as Corellium VM addresses, are never taken for the phone.
+# A connection still waiting for the phone to approve debugging is returned too, after the wait, so adb reports it as
+# unauthorized rather than missing. Serials in exclude, such as Corellium VM addresses, are never taken for the phone.
 def connect_over_wifi(adb_path: str = "adb", *, wait: float = CONNECT_WAIT_SECONDS, poll: float = POLL_SECONDS,
                       exclude: Collection[str] = ()) -> str | None:
     host = AdbClient(adb_path)
-    devices = host.connected_devices()
-    network = sorted(serial for serial in devices if is_network_serial(serial) and serial not in exclude)
-    if len(network) == 1:
-        logger.debug("android wifi: using existing Wi-Fi connection %s", network[0])
-        return network[0]
-    if network:
+    states = {serial: state for serial, state in host.device_states().items() if serial not in exclude}
+    network = sorted(serial for serial in states if is_network_serial(serial))
+    ready = [serial for serial in network if states[serial] == READY]
+    if len(ready) == 1:
+        logger.debug("android wifi: using existing Wi-Fi connection %s", ready[0])
+        return ready[0]
+    if ready:
         logger.warning("Several Android devices are connected over Wi-Fi; set device.adb_serial to the one to test.")
         return None
-    usb = [serial for serial in devices if not is_network_serial(serial)]
+    pending = [serial for serial in network if states[serial] == UNAUTHORIZED]
+    if len(pending) == 1:
+        return _await_connection(host, pending[0], wait, poll)
+    usb = [serial for serial in states if not is_network_serial(serial) and states[serial] == READY]
     if len(usb) != 1:
         logger.warning(
             "No Android Wi-Fi connection exists and %s USB devices are connected; connect exactly one phone by USB "
@@ -56,20 +62,38 @@ def connect_over_wifi(adb_path: str = "adb", *, wait: float = CONNECT_WAIT_SECON
             logger.warning("Could not switch adb on the Android phone to Wi-Fi: %s", (err or out or f"exit {code}").strip())
             return None
         port = WIFI_PORT
-    serial = f"{address}:{port}"
+    return _await_connection(host, f"{address}:{port}", wait, poll)
 
-    # adbd restarts after tcpip, so the first connect attempts can fail until it is listening again.
+
+# Connect to the phone's Wi-Fi serial and wait until it is ready, returning it; one still unauthorized at the end of
+# the wait is returned with a warning naming the prompt, and any other failure returns None.
+def _await_connection(host: AdbClient, serial: str, wait: float, poll: float) -> str | None:
+    # adbd restarts after tcpip, so the first connect attempts can fail until it is listening again. Approval of
+    # debugging is only ever waited for and left to the person at the phone.
     deadline = time.monotonic() + wait
+    state, reply = host.device_states().get(serial, ABSENT), ""
     while True:
-        code, out, err = host.run(["connect", serial])
-        logger.debug("android wifi: connect %s exited %s (%s)", serial, code, (out or err)[:200])
-        if serial in host.connected_devices():
+        if state not in (READY, UNAUTHORIZED):
+            code, out, err = host.run(["connect", serial])
+            reply = (out or err).strip()
+            logger.debug("android wifi: connect %s exited %s (%s)", serial, code, reply[:200])
+            state = host.device_states().get(serial, ABSENT)
+        if state == READY:
             logger.info("Connected to the Android phone over Wi-Fi at %s.", serial)
             return serial
         if time.monotonic() >= deadline:
-            logger.warning("Could not connect to the Android phone over Wi-Fi at %s: %s", serial, (out or err).strip())
-            return None
+            break
         time.sleep(poll)
+        state = host.device_states().get(serial, ABSENT)
+    if state == UNAUTHORIZED:
+        logger.warning(
+            "The Android phone's Wi-Fi adb connection %s is waiting for the phone to allow debugging from this host. "
+            "Unlock the phone and tap Allow on its USB debugging prompt, ticking Always allow from this computer.",
+            serial,
+        )
+        return serial
+    logger.warning("Could not connect to the Android phone over Wi-Fi at %s: %s", serial, reply or state)
+    return None
 
 
 # Report whether an adb serial is a network connection rather than USB.

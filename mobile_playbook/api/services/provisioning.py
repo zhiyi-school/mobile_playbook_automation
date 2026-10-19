@@ -11,6 +11,7 @@ from typing import Any
 from mobile_playbook.api import config_editing
 from mobile_playbook.api.config_editing.shared import ENTRY_FILES
 from mobile_playbook.platforms.android.device.adb import AdbClient
+from mobile_playbook.platforms.android.device.adb_connection import UNAUTHORIZED
 from mobile_playbook.platforms.android.config import ConfigError as AndroidConfigError
 from mobile_playbook.platforms.android.config import load_config as load_android_config
 from mobile_playbook.platforms.android.device.client import AndroidDeviceClient, open_device
@@ -308,6 +309,11 @@ def _baseline_device(app: dict) -> tuple[bool, str | None, str | None]:
             return False, "device_unreachable", None
         if role.state == "busy":
             return False, "platform_busy", None
+        if role.state == "unavailable" and role.cause == UNAUTHORIZED:
+            return False, "no_device", (
+                f"Waiting for the {kind} test phone to allow USB debugging from the automation host: unlock it and tap "
+                "Allow on its debugging prompt, ticking Always allow."
+            )
         if role.state == "unavailable" and role.role in config.device.physical_roles:
             return False, "no_device", f"Waiting for the {kind} test phone to be connected and to approve USB debugging."
         if role.state == "unavailable":

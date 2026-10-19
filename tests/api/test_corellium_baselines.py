@@ -242,15 +242,19 @@ def test_an_app_tested_only_on_the_phone_is_ready_without_contacting_corellium(t
     assert {tuple(args) for _, args in bench.adb.commands} <= {("version",), ("devices",), ("shell", "getprop", "ro.build.type")}
 
 
-@pytest.mark.parametrize("state", ["absent", "unauthorized"])
-def test_a_phone_that_is_missing_or_unapproved_blocks_only_apps_tested_on_it(tmp_path, monkeypatch, registry, state):
+@pytest.mark.parametrize(("state", "detail"), [
+    ("absent", "Waiting for the non-rooted test phone to be connected and to approve USB debugging."),
+    ("unauthorized", "Waiting for the non-rooted test phone to allow USB debugging from the automation host: unlock it "
+                     "and tap Allow on its debugging prompt, ticking Always allow."),
+])
+def test_a_phone_that_is_missing_or_unapproved_blocks_only_apps_tested_on_it(tmp_path, monkeypatch, registry, state, detail):
     bench = phone_bench(tmp_path, monkeypatch)
     bench.phone.state = state
 
     body = readiness()
 
     assert (body["runnable"], body["blocker_code"], body["retryable"]) == (False, "no_device", True)
-    assert body["detail"] == "Waiting for the non-rooted test phone to be connected and to approve USB debugging."
+    assert body["detail"] == detail
     assert readiness_for(ROOT, bench)["runnable"] is True
 
 
