@@ -6,6 +6,7 @@ from mobile_playbook.platforms.android.device.install import (
     PUSH_BASE_TIMEOUT_SECONDS,
     PUSH_MIN_BYTES_PER_SECOND,
     STAGING_DIR,
+    disable_background_dexopt,
     install_apks,
     running_dexopt,
     wait_for_dexopt,
@@ -13,8 +14,10 @@ from mobile_playbook.platforms.android.device.install import (
 
 
 class FakeAdb:
-    def __init__(self, install_result=(0, "Success", ""), push_results=None, remote_size=None, processes=None):
+    def __init__(self, install_result=(0, "Success", ""), push_results=None, remote_size=None, processes=None,
+                 bg_dexopt_result=(0, "", "")):
         self.install_result = install_result
+        self.bg_dexopt_result = bg_dexopt_result
         self.processes = list(processes or [])
         self.push_results = list(push_results or [])
         self.remote_size = remote_size
@@ -37,6 +40,8 @@ class FakeAdb:
         if args == ["shell", "ps", "-A", "-o", "ARGS"]:
             listed = self.processes.pop(0) if self.processes else []
             return listed if isinstance(listed, tuple) else (0, "\n".join(["ARGS", "init", *listed]) + "\n", "")
+        if args == ["shell", "pm", "bg-dexopt-job", "--disable"]:
+            return self.bg_dexopt_result
         if args[:3] == ["shell", "pm", "install"]:
             self.timeouts.setdefault("install", []).append(timeout)
             return self.install_result
@@ -186,3 +191,20 @@ def test_compilation_that_outlasts_the_budget_is_returned():
     adb = FakeAdb(processes=[[f"dex2oat32 --zip-location={GMS}"]] * 1000)
 
     assert wait_for_dexopt(adb, timeout=0.02, poll=0.001) == [f"dex2oat32 on {GMS}"]
+
+
+def test_disabling_the_background_compilation_job_reports_success_as_none():
+    adb = FakeAdb()
+
+    assert disable_background_dexopt(adb) is None
+    assert adb.commands == [["shell", "pm", "bg-dexopt-job", "--disable"]]
+
+
+@pytest.mark.parametrize("result, reason", [
+    ((255, "", "Error: Unknown option: --disable"), "Error: Unknown option: --disable"),
+    ((0, "Exception occurred while executing 'bg-dexopt-job':\njava.lang.SecurityException: denied", ""),
+     "java.lang.SecurityException: denied"),
+    ((1, "", ""), "pm bg-dexopt-job exited 1"),
+])
+def test_a_refused_background_compilation_job_change_returns_the_reason(result, reason):
+    assert disable_background_dexopt(FakeAdb(bg_dexopt_result=result)) == reason

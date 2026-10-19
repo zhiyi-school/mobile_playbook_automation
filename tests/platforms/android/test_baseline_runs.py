@@ -256,6 +256,37 @@ def test_a_standalone_install_on_a_compiling_vm_reports_a_retryable_failure(benc
     assert install_commands(bench, ROOTED_SERIAL) == [] and bench.instance_state(ROOTED_VM) == "off"
 
 
+BG_DEXOPT_DISABLE = ["shell", "pm", "bg-dexopt-job", "--disable"]
+
+
+def bg_dexopt_disables(bench, serial):
+    return [index for index, (target, args) in enumerate(bench.adb.commands) if target == serial and args == BG_DEXOPT_DISABLE]
+
+
+def test_each_connected_vm_stops_background_compilation_before_its_first_install(bench, tmp_path):
+    outcome = run(bench, tmp_path, PLAIN, ROOT)
+
+    assert read_manifest(outcome.run_dir)["status"] == "completed"
+    for serial in (STOCK_SERIAL, ROOTED_SERIAL):
+        disables = bg_dexopt_disables(bench, serial)
+        assert len(disables) == 1 and disables[0] < compilation_checks(bench, serial)[0] < install_commands(bench, serial)[0]
+        assert not bench.adb.devices[serial].bg_dexopt_enabled
+
+
+def test_a_vm_that_refuses_to_stop_background_compilation_still_installs_and_runs(bench, tmp_path, caplog):
+    bench.adb.devices[ROOTED_SERIAL].bg_dexopt_refusal = "Error: Unknown option: --disable"
+    caplog.set_level("WARNING")
+
+    outcome = run(bench, tmp_path, ROOT)
+
+    assert read_manifest(outcome.run_dir)["status"] == "completed"
+    assert len(bg_dexopt_disables(bench, ROOTED_SERIAL)) == 1 and len(install_commands(bench, ROOTED_SERIAL)) == 1
+    assert bench.risks[ROOT].used == [ROOTED_SERIAL]
+    assert ("Could not stop background app compilation on the rooted device (instance rooted-vm): "
+            "Error: Unknown option: --disable") in caplog.text
+    assert bench.instance_state(ROOTED_VM) == "off"
+
+
 def test_a_connection_failure_after_preparation_still_shuts_down_every_claimed_vm(bench, tmp_path):
     bench.adb.devices[ROOTED_SERIAL].connects_to = "absent"
 

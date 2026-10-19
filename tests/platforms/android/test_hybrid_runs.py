@@ -231,3 +231,11 @@ def test_only_the_vm_is_checked_for_app_compilation_before_installing(bench, tmp
 
     assert phone_commands(bench, "shell", "ps", "-A", "-o", "ARGS") == []
     assert bench.adb.sent(ROOTED_SERIAL, "shell", "ps", "-A", "-o", "ARGS") >= 1
+
+
+def test_only_the_vm_stops_background_compilation_and_the_phone_is_never_asked(bench, tmp_path):
+    run(bench, tmp_path)
+
+    assert phone_commands(bench, "shell", "pm", "bg-dexopt-job") == []
+    assert bench.phone.bg_dexopt_enabled
+    assert bench.adb.sent(ROOTED_SERIAL, "shell", "pm", "bg-dexopt-job", "--disable") == 1

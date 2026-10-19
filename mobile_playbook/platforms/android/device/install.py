@@ -96,6 +96,18 @@ def _pm_install(adb: AdbClient, remotes: list[str], *, grant_permissions: bool, 
     return False, lines[-1] if lines else f"pm install exited {code}"
 
 
+# Stop ART's daily background compilation job until the next boot, and return why the device refused, or None once
+# it accepted.
+def disable_background_dexopt(adb: AdbClient) -> str | None:
+    code, out, err = adb.run(["shell", "pm", "bg-dexopt-job", "--disable"])
+    output = "\n".join(part for part in (out, err) if part).strip()
+    # Devices without adb's shell protocol report exit 0 even when the package manager prints an exception.
+    if code == 0 and not re.search(r"exception|error|unknown", output, re.IGNORECASE):
+        return None
+    lines = [line.strip() for line in output.splitlines() if line.strip()]
+    return lines[-1] if lines else f"pm bg-dexopt-job exited {code}"
+
+
 # Return the app compilations running on the device, each as its process and the APK it compiles when shown; empty
 # when none run or the process list cannot be read.
 def running_dexopt(adb: AdbClient) -> list[str]:

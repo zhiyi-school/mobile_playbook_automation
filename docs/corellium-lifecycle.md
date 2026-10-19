@@ -284,9 +284,15 @@ restores, starts and installs nothing. For a run that needs devices, in order:
 4. `connect_claimed()` connects adb to each prepared VM, approving the debugging
    prompt if needed.
 5. Each app's APK is installed with `install_apks()` on every role device whose
-   risks test it, before any risk runs. A restored VM can still be compiling
-   apps (for example `dex2oat` on Google Play services), and the package
-   manager queues an install behind that work. So before each install on a
+   risks test it, before any risk runs. Right after a VM connects, the run
+   calls `pm bg-dexopt-job --disable` on it, which stops ART's daily
+   background compilation job until the VM's next boot. That job runs when
+   the device is idle and charging and compiles Google Play services with the
+   `speed` filter, which takes longer than `artd` allows and fails, so an
+   install could otherwise wait behind it. If the VM refuses, the run logs a
+   warning and continues. A physical phone is never asked. A restored VM can
+   still be compiling apps (for example `dex2oat` on Google Play services),
+   and the package manager queues an install behind that work. So before each install on a
    VM, `wait_for_dexopt()` polls `ps -A -o ARGS` every 5 s for `dex2oat` or
    `dexoptanalyzer` and logs what is compiling. It installs once two samples
    in a row show none. If compilation is still running after 900 s, the

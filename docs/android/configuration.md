@@ -184,8 +184,17 @@ For each run, in order:
 - USB debugging is enabled and this host's adb key (`$ANDROID_USER_HOME/adbkey.pub`, else `~/.android/adbkey.pub`) is authorized, so no prompt appears;
 - required companion apps, stable test certificates and supporting configuration are installed, including Google Play services when the apps under test need them;
 - recordings, collected input and earlier test data are cleared;
-- app updates and compilation have finished: Google Play services and the Play Store are up to date, `adb shell pm bg-dexopt-job` has returned, and `adb shell ps -A -o ARGS` lists no `dex2oat` or `dexoptanalyzer`, so a restored VM does not make the install wait behind compilation;
+- Google Play services has been updated and then frozen at that version, with its base APK compiled, so a restored VM does not make the install wait behind an update or a compilation (see below);
 - no Appium, capture or interception session is active, and the target apps are not installed.
+
+On a Google apps VM, `artd` stops any `dex2oat` run after 570 s. Play services' shared base APK has no usable profile, so ART compiles it with the `speed` filter, which takes longer than that and fails, both after a Play services update and in the daily background compilation job. Freeze and compile Play services before taking the snapshot:
+
+1. Let Play services update through the Play Store, and wait until `adb shell dumpsys package com.google.android.gms` reports the new `versionCode`.
+2. Disable the Play Store so Play services stays at that version: `adb shell pm disable-user --user 0 com.android.vending`. Play services then falls behind over time; enabling the Play Store again brings back the update and its failing compile.
+3. Compile the Play services base with the `verify` filter, which finishes in a few minutes: `adb shell cmd package compile -m verify --primary-dex com.google.android.gms`. It prints `Success`, and `adb shell dumpsys package dexopt` then shows the base at `[status=verify]`.
+4. Reboot (`adb reboot`) and check for about ten minutes that nothing compiles: `adb shell ps -A -o ARGS` lists no `dex2oat` or `dexoptanalyzer`, and the base is still at `verify`. Then stop the VM and take the snapshot.
+
+The daily background job still targets `speed` for the base, so each run disables it on every VM it connects (see [runs, installs and readiness](../corellium-lifecycle.md#runs-installs-and-readiness)); the setting lasts until the next boot and is not part of the snapshot.
 
 An existing snapshot such as `automation-ready-v1` can serve its own instance once it has been checked against this list; the second VM needs its own snapshot. Creating or replacing a baseline is maintenance work done by hand in Corellium: keep the original snapshot, the active prepared baseline and the previous prepared baseline for each instance, and update `baselines` only after the replacement has passed [qualification](corellium-qualification.md). Runs restore snapshots and never create or delete them.
 

@@ -1,5 +1,5 @@
 """
-A synthetic adb server for tests: per-serial states, scripted state sequences, boot progress, build types, app compilation and APK installs.
+A synthetic adb server for tests: per-serial states, scripted state sequences, boot progress, build types, app compilation, the background compilation job and APK installs.
 """
 
 from __future__ import annotations
@@ -25,6 +25,8 @@ class FakeDevice:
     play_services: bool = True
     uninstall_fails: set[str] = field(default_factory=set)
     compiling: float = 0
+    bg_dexopt_enabled: bool = True
+    bg_dexopt_refusal: str = ""
 
 
 COMPILING = "dex2oat32 --zip-fd=9 --zip-location=/data/app/~~a==/com.google.android.gms-b==/base.apk --oat-fd=10"
@@ -105,6 +107,11 @@ class FakeAdbHost:
                 device.compiling -= 1
                 rows.append(COMPILING)
             return 0, "\n".join(rows) + "\n", ""
+        if args == ["shell", "pm", "bg-dexopt-job", "--disable"]:
+            if device.bg_dexopt_refusal:
+                return 255, "", device.bg_dexopt_refusal
+            device.bg_dexopt_enabled = False
+            return 0, "", ""
         if args[:3] == ["shell", "pm", "install"]:
             if device.compiling > 0:
                 return 124, "", f"adb timed out after 300.0s: adb -s {serial} {' '.join(args)}"

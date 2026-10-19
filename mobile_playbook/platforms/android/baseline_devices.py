@@ -18,7 +18,7 @@ from mobile_playbook.platforms.android.acquisition import apk as apk_install
 from mobile_playbook.platforms.android.acquisition.intake_apk import find_intake_apk
 from mobile_playbook.platforms.android.acquisition.play_store import InstallOutcome, installer_of
 from mobile_playbook.platforms.android.device.app_version import installed_version
-from mobile_playbook.platforms.android.device.install import install_apks, wait_for_dexopt
+from mobile_playbook.platforms.android.device.install import disable_background_dexopt, install_apks, wait_for_dexopt
 from mobile_playbook.platforms.android.device.corellium import adb_serial
 from mobile_playbook.platforms.android.device.permissions import is_installed
 from mobile_playbook.platforms.android.device.phone_lock import PhoneBusy, PhoneLock, acquire_phone_lock, phone_lock_holder
@@ -332,6 +332,12 @@ def open_session(config: Any, roles: Sequence[str], builds: Mapping[str, Sequenc
                 pool_devices[role] = vm_pool.device(role)
                 append_event(event_dir, "device_connected", role=role, device_type=CORELLIUM_VM,
                              instance_id=vm_pool.device(role).instance_id, serial=vm_pool.device(role).serial)
+                # The daily background job compiles Play services for longer than artd allows, and installs would
+                # queue behind it; stopping it lasts until the VM's next boot, so a refusal never blocks the run.
+                refused = disable_background_dexopt(vm_pool.device(role).client.adb)
+                if refused:
+                    logger.warning("Could not stop background app compilation on the %s device (instance %s): %s",
+                                   role, vm_pool.device(role).instance_id, refused)
             session.pool = AndroidDevicePool({role: pool_devices[role] for role in roles}, adb_path=vm_pool.adb_path,
                                              policy=vm_pool.policy)
         else:
