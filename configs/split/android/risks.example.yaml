@@ -53,3 +53,53 @@ android-feature-06-risk-01:
   description: "Describe what this risk demonstrates."
   tactic: null
   demonstration: []
+
+android-feature-07-risk-01:
+  name: Android Private Data Directory Test
+  description: On a rooted device, the app's private data directory can be listed and read, so any sensitive data the app stores there in plain text can be collected.
+  tactic: Collection
+  demonstration:
+    - id: setup_table
+      type: table
+      label: Setup
+      rows:
+        - Configuration: Requires
+          Detail: adb, root (a rooted device; with Corellium role devices, the rooted VM)
+        - Configuration: Directories read
+          Detail: /data/data/<package> and, when present, /data/user_de/0/<package>
+    - id: steps
+      type: steps
+      label: Demonstration
+      items:
+        - id: step_1
+          text: Find how the device grants root - a root adbd, the su of userdebug images, or Magisk-style su
+          images: []
+          commands:
+            - adb shell id -u
+            - adb shell su 0 id -u
+            - adb shell su -c 'id -u'
+        - id: step_2
+          text: Launch the app so it writes its data, wait launch_wait seconds, then stop it so its files do not change while they are copied
+          images: []
+          commands:
+            - adb shell monkey -p <package> -c android.intent.category.LAUNCHER 1
+            - adb shell am force-stop <package>
+        - id: step_3
+          text: List the private data directories as root
+          images: []
+          commands:
+            - adb shell "su -c 'ls -laR /data/data/<package>'"
+        - id: step_4
+          text: Archive the directories as root, pull the archive and remove the device copy
+          images: []
+          commands:
+            - adb shell "su -c 'tar -cf /data/local/tmp/mobile-playbook-private-data-<package>.tar -C / data/data/<package>'"
+            - adb pull /data/local/tmp/mobile-playbook-private-data-<package>.tar
+        - id: step_5
+          text: Read every file - shared preferences, SQLite rows, JSON and text, and strings in other binary files - and flag secrets and personal data stored in plain text, reporting findings in known third-party SDK files separately and checking app code for secrets only; recognise EncryptedSharedPreferences and opaque, encrypted-looking files
+          images: []
+          commands: []
+        - id: step_6
+          text: Write private_data_listing.txt, private_data_findings.json and the critical findings, and delete the pulled archive unless keep_archive is true
+          images: []
+          commands: []

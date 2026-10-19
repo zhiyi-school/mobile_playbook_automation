@@ -13,10 +13,11 @@ It uses platform-prefixed risk IDs:
 | `ios-feature-04-risk-01` | iOS | Custom keyboard keystroke collection |
 | `android-feature-01-risk-02` | Android | APK repackaging, resigning, reinstall, and launch validation |
 | `android-feature-06-risk-01` | Android | Screen recording / `FLAG_SECURE` capture blocking |
+| `android-feature-07-risk-01` | Android | Sensitive data readable in the private data directory on a rooted device |
 
 ## Scope
 
-This tool is for local security testing on your own workstation and authorized test devices. It does not decrypt App Store binaries, bypass FairPlay, require jailbreak/root behavior, read protected app containers directly, or redistribute app packages.
+This tool is for local security testing on your own workstation and authorized test devices. It does not decrypt App Store binaries, bypass FairPlay, or redistribute app packages. Root is used only by Android risks that require it, on a rooted test device: `android-feature-07-risk-01` reads the app's private data directory.
 
 If a package cannot be inspected, installed, launched, or modified because of platform restrictions, the framework reports that as a test outcome.
 

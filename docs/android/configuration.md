@@ -302,7 +302,7 @@ Android risk IDs are prefixed `android-feature...`. To configure a risk for an a
      keystore_pass: "REPLACE_WITH_KEYSTORE_PASSWORD"
    ```
 
-   See `configs/split/android/repackaging.example.yaml`, `screen_capture.example.yaml` and `apk_static_analysis.example.yaml` for the rest of these fields, and the field references below for what each controls.
+   See `configs/split/android/repackaging.example.yaml`, `screen_capture.example.yaml`, `apk_static_analysis.example.yaml` and `private_data.example.yaml` for the rest of these fields, and the field references below for what each controls.
 3. Only add more fields under the app's own `risks.<risk_id>` entry when this one app needs to differ from those shared defaults — nest just the field being changed. Anything left unset there falls back to the global file.
 
 Risks run in the order they're listed under an app's `risks` mapping, not sorted by ID — keep that in mind if the order of your own `risks:` blocks matters to you.
@@ -386,6 +386,23 @@ screen_capture:
 
 `record_tail` is no longer read; the helper's frames replace the Appium recording it paced.
 
+### Private data (`android-feature-07-risk-01`)
+
+Global defaults live under a top-level `private_data` block in `private_data.yaml` under `configs/split/android/` (see `private_data.example.yaml`), and can be overridden per app under `risks.android-feature-07-risk-01`:
+
+```yaml
+private_data:
+  launch_wait: 5
+  max_archive_mb: 200
+  reveal_values: false
+  keep_archive: false
+```
+
+- `launch_wait`: seconds the app stays open after launch so it writes its data, before it is stopped and its directories are copied (default 5).
+- `max_archive_mb`: the largest private data size, in MiB, that is copied off the device; a larger app fails the run (default 200).
+- `reveal_values`: report sensitive values in full instead of masked (default false).
+- `keep_archive`: keep the pulled archive under `artifacts/work/android/private_data/<package>/` instead of deleting it after the scan (default false). It holds the app's real data and is never copied into the report. Kept archives are not pruned with old run folders, so remove them by hand.
+
 Full risk behavior and status meanings are documented in [Risks](risks.md).
 
 ## Split Android Configs
@@ -405,12 +422,13 @@ include:
   apk_static_analysis: split/android/apk_static_analysis.yaml
   repackaging: split/android/repackaging.yaml
   screen_capture: split/android/screen_capture.yaml
+  private_data: split/android/private_data.yaml
   apps: split/android/apps.yaml
 ```
 
 Included paths are resolved relative to the entry-point file — here, that's `configs/`, so each path is prefixed `split/android/`. Inline values and included sections can coexist in the same file — nothing requires every section to go through `include:`, which is how `device`/`runner` stay inline while the rest are pulled in. See `configs/android.example.yaml`, the tracked example of this entry-point file.
 
-The real tools/apk_static_analysis/repackaging/screen_capture/app-roster content lives in `configs/split/android/*.yaml` (all git-ignored, since they contain real app config — only the `*.example.yaml` files under `configs/split/android/` are tracked). `configs/android.yaml` itself is also git-ignored, since it holds the real device config.
+The real tools/apk_static_analysis/repackaging/screen_capture/private_data/app-roster content lives in `configs/split/android/*.yaml` (all git-ignored, since they contain real app config — only the `*.example.yaml` files under `configs/split/android/` are tracked). `configs/android.yaml` itself is also git-ignored, since it holds the real device config.
 
 ## Environment Files
 

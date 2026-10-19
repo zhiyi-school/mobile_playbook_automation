@@ -60,4 +60,5 @@ include:
   apk_static_analysis: split/android/apk_static_analysis.yaml
   repackaging: split/android/repackaging.yaml
   screen_capture: split/android/screen_capture.yaml
+  private_data: split/android/private_data.yaml
   apps: split/android/apps.yaml

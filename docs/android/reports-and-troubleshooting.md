@@ -47,6 +47,15 @@ These are listed in `evidence` with kind `report`.
 - `run_as_ls.txt` when `run-as` could list the repackaged app's private files
 - generated APK work files under `artifacts/work/android/repackaging/`
 
+`android-feature-07-risk-01`:
+
+- `report.json`
+- `logs.txt`
+- `private_data_listing.txt`, the root `ls -laR` of the private data directories
+- `private_data_findings.json`, each file read with its category, the masked findings, and the masked findings in known third-party SDK files, which do not decide the verdict
+- `critical_findings.json` and `critical_findings.md`, the ranked flags
+- the pulled archive under `artifacts/work/android/private_data/<package>/`, only when `keep_archive` is true
+
 ## Statuses
 
 Each test's `report.json` (and `logs.txt`) carries one of these precise statuses in its `final_status` field:
@@ -59,6 +68,9 @@ Each test's `report.json` (and `logs.txt`) carries one of these precise statuses
 - `REPACKAGING_SURVIVED`: repackaged app installed and passed basic launch validation.
 - `REPACKAGING_BLOCKED`: repackaged app installed but failed validation.
 - `REPACKAGING_FAILED`: backup, decode, patch, rebuild, sign, or install failed.
+- `PRIVATE_DATA_EXPOSED`: a secret or personal-data value was readable in plain text in the app's private data directory, outside the files known third-party SDKs write.
+- `PRIVATE_DATA_PROTECTED`: nothing sensitive was readable in plain text and the app keeps encrypted stores there. Reported as Reduced Risk.
+- `PRIVATE_DATA_NO_FINDINGS`: nothing sensitive was found in plain text, but no encrypted store was found either. Reported as Inconclusive.
 - `FAILED`: unexpected Android automation failure.
 
 `summary.md`'s `Status` column doesn't show these directly — it shows a 3-way security verdict (`AndroidRiskRunResult.verdict`) that each risk sets itself, alongside `final_status`, at the point it decides the outcome: **At Risk** (the risk was demonstrated, e.g. `SCREEN_CAPTURE_ALLOWED`/`REPACKAGING_SURVIVED`), **Reduced Risk** (the app mitigated it, e.g. `SCREEN_CAPTURE_BLOCKED`/`REPACKAGING_BLOCKED`), or **Inconclusive** — the field's default, and what `REPACKAGING_FAILED`/`FAILED` leave it as. The precise underlying status is always still in that test's `report.json`.
@@ -94,6 +106,10 @@ The runner wakes and unlocks the device over adb before each test, which only wo
 Screen capture test fails before launching the app:
 
 The test needs the screen-capture helper. `screen-capture helper APK not found` means it has not been built: run `python tools/companion_apps/android_screen_capture/build.py` (needs the Android SDK and a JDK). `the screen-capture consent prompt did not appear` usually means the device's screen was off or locked when the prompt opened; the runner wakes and unlocks it before each test, so check that the device has no PIN, password or pattern. `screen capture did not start (denied: …)` means the prompt was cancelled instead of allowed. `the entire-screen option was not found` means the prompt asked whether to share one app or the entire screen, and no option containing "entire screen" was found; set the device language to English.
+
+Private data test fails before reading any files:
+
+`The device does not grant root` means neither adbd nor `su` runs commands as uid 0; run the test on a rooted device, or on the rooted VM with Corellium role devices. `does not exist; is <package> installed` means the app has no `/data/data/<package>` directory. `more than the … byte limit (max_archive_mb)` means the app holds more data than `private_data.max_archive_mb` allows; raise it for that app. `Pulling the private data archive failed` usually means the host is out of space or the connection dropped; the copy on the device is removed either way.
 
 Keystore or signing failure:
 

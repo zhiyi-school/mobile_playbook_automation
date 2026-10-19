@@ -14,6 +14,8 @@ apps:
         enabled: true
       android-feature-06-risk-01:
         enabled: true
+      android-feature-07-risk-01:
+        enabled: true
     sector: "Government"
     agency: "Example Agency"
     version: "1.0.0"

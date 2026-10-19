@@ -43,6 +43,7 @@ RISK_SETTINGS = {
         "android-feature-01-risk-01": ("apk_static_analysis", Path("split/android/apk_static_analysis.yaml")),
         "android-feature-01-risk-02": ("repackaging", Path("split/android/repackaging.yaml")),
         "android-feature-06-risk-01": ("screen_capture", Path("split/android/screen_capture.yaml")),
+        "android-feature-07-risk-01": ("private_data", Path("split/android/private_data.yaml")),
     },
 }
 TEMPLATE_FILES = {"ios": Path("split/ios/templates.yaml")}
