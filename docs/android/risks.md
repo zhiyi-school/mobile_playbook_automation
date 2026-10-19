@@ -94,6 +94,48 @@ When `restore_original_after_test` is true (the default) and the install stage r
 
 Generated work files (backed-up, decoded, and rebuilt APKs) are left under `artifacts/work/android/repackaging/` for inspection.
 
+## android-feature-07-risk-01
+
+`android-feature-07-risk-01` demonstrates what a rooted device can collect from the app's private data directory, following the playbook: root lists `/data/data/<package>` and reads the files in it. Root can read every app's private files, so the test asks whether the app keeps sensitive data there in plain text, or protects it as the playbook's control does, by encrypting it with a key held in the Android Keystore.
+
+Requires: `adb` and `root`, so a rooted device; with Corellium role devices it runs on the rooted VM (see [Android role connections](../corellium-lifecycle.md#android-role-connections)). Root is used through whichever the device grants: a root adbd, the `su 0` of userdebug images, or Magisk-style `su -c` (`platforms/android/device/root.py`, which the `root` preflight check also uses). It needs no Appium.
+
+Stages:
+
+1. Record `metadata.installed_base_apk_sha256` and `metadata.root_method` (`adbd`, `su_0` or `su_c`).
+2. Launch the app with `adb shell monkey -p <package> -c android.intent.category.LAUNCHER 1` so it writes its data, wait `launch_wait` seconds, then `am force-stop` it so its files do not change while they are copied. `metadata.launch` records whether it launched; a failed launch is recorded and the test goes on to read the data already there. The app's data is never cleared, so anything an operator left on the device, such as a signed-in session, is included.
+3. As root, check which of `/data/data/<package>` and `/data/user_de/0/<package>` (device-protected storage) exist, list them with `ls -laR` into `private_data_listing.txt`, and measure them with `du`. A missing `/data/data/<package>` means the app is not installed, and the run fails. Data larger than `max_archive_mb` is not copied, and the run fails.
+4. As root, archive the directories with `tar` into `/data/local/tmp/`, pull the archive into `artifacts/work/android/private_data/<package>/<run timestamp>.tar`, and remove the device copy, including when the pull fails. `tar` warnings about skipped files such as sockets are kept under `metadata.tar_warnings` and do not stop the test.
+5. Read every regular file in the archive in memory, without extracting it; symlinks are skipped, and a member with an absolute or `..` path is recorded as `skipped` and not read. Each file gets a category:
+   - `shared_prefs`: a `shared_prefs/*.xml` file, whose entries are checked by key name and value. One holding the androidx `EncryptedSharedPreferences` keyset entries is `encrypted_prefs` instead.
+   - `sqlite`: a file with the `SQLite format 3` header, an unencrypted database. Up to 1,000 rows of each table are read from a read-only temporary copy and checked as `table.column` keys and values. `sqlite_sidecar` (`-wal`, `-journal`, `-shm`) files are checked through their printable strings.
+   - `json` and `text`: UTF-8 text, checked with the shared secret scanner (`platforms/static_analysis/sensitive_findings.py`); JSON key names are checked as well. A text file that is only base64 of random-looking bytes is `opaque`.
+   - `code`: app code stored as data, such as a React Native or Expo JavaScript bundle (`.js`, `.mjs`, `.bundle`, `.html`, `.htm`, `.css`), checked for secrets but not for personal data, since number and email literals in code are not stored user data. Hermes bytecode (`.hbc`) is read as `binary` under the same rule.
+   - `media`: content that starts with a known image, archive or code format (PNG, JPEG, GIF, RIFF, gzip, zip, DEX, ELF, VDEX, ART), not read further.
+   - `opaque`: at least 256 bytes spread as evenly as random data (a byte chi-square of at most 330), as encrypted data is; a file encrypted with AES-GCM, as the playbook's control writes, falls here. About one random file in a thousand measures above the limit and is read as `binary` instead. Compressed data in an unrecognised format also looks opaque.
+   - `binary`: any other content, such as a DataStore protobuf, checked through its printable strings.
+   - `empty`, `too_large` (over 5 MiB, or 50 MiB for a database, and not read), or `unreadable` when parsing failed.
+6. Flag what is readable in plain text:
+   - Secrets, as the APK analysis finds them: values under secret-like key names (`SENSITIVE_KEY_NAME`, `SENSITIVE_KEY_VALUE`), and JWTs, Google API keys, AWS access keys, private keys, Slack tokens and URLs with credentials.
+   - Personal data: email addresses (`EMAIL_ADDRESS`), Singapore NRIC/FIN numbers (`NRIC_FIN`) and Luhn-valid payment card numbers (`PAYMENT_CARD_NUMBER`) anywhere, and values under personal-data key names (`PERSONAL_DATA_KEY_NAME`) such as NRIC, passport, card, account or IBAN, date of birth, PIN, name, address and postal code. Email and phone or mobile keys count only when the value looks like an email address or a phone number.
+   - Values are masked unless `reveal_values` is true.
+   - A value that several rules match is one finding, kept at its highest severity with its key name where one matched; `match_types` lists every rule that matched it.
+   - Files that third-party SDKs write on their own are recognised by path and their findings reported separately, under `sdk_findings`, without deciding the verdict: Firebase Installations (`files/PersistedInstallation.*.json`, which holds the installation's auth and refresh tokens), Google Data Transport (`databases/com.google.android.datatransport.events`) and Google Analytics for Firebase (`databases/google_app_measurement.db` and `google_app_measurement_local.db`), with their `-wal`, `-journal` and `-shm` files. Every app that uses these SDKs has them from its first launch, so they say nothing about how the app stores its own data.
+7. Write the reports, decide the verdict, and delete the pulled archive unless `keep_archive` is true. The archive holds the app's real data, so it is never copied into the report; a kept archive's path is `metadata.archive`.
+
+Verdicts:
+
+- `PRIVATE_DATA_EXPOSED` (**At Risk**): at least one secret or personal-data value was readable in plain text outside the known SDK files.
+- `PRIVATE_DATA_PROTECTED` (**Reduced Risk**): nothing was flagged outside the known SDK files, and at least one file is an encrypted store, `encrypted_prefs` or `opaque`, outside the `cache`, `code_cache` and `app_webview` folders, where caches and WebView data would otherwise count. `metadata.protected_files` lists those files so they can be checked.
+- `PRIVATE_DATA_NO_FINDINGS` (**Inconclusive**): nothing was flagged outside the known SDK files and no encrypted store was found. Plain-text files without a match are not proof that the app stores nothing sensitive, and an app that has not yet been used may have written little.
+- `FAILED` (**Inconclusive**): the device does not grant root, the app is not installed, the data is over `max_archive_mb`, or archiving or pulling failed; `errors` says which.
+
+Report files: `private_data_listing.txt` (`private_data_listing` evidence), `private_data_findings.json` with every file's category, size, `protected` flag, `sdk` name and finding count, the masked `findings` and the masked `sdk_findings` (`private_data_findings` evidence), and `critical_findings.json` and `critical_findings.md`. The critical findings are `PRIVATE_DATA_READABLE_WITH_ROOT` (LOW, always), `SENSITIVE_INFORMATION_EXPOSURE` with the highest severity found outside the SDK files, `SDK_DATA_IN_PLAIN_TEXT` (LOW) for findings in the SDK files, and `UNENCRYPTED_DATABASES` (LOW). `metadata` also records `directories`, `archive_bytes`, `file_count`, `categories`, `finding_count`, `sdk_finding_count`, `sdk_files` and `unencrypted_databases`.
+
+The test reads only what the app has written by the time it runs: it does not sign in or move through the app. Sign in on the rooted device beforehand to include a session's data. Baseline role devices restore the rooted VM from its snapshot at the start of each run, which removes data left on it before.
+
+Settings (`launch_wait`, `max_archive_mb`, `reveal_values`, `keep_archive`) are documented in [Configuration](configuration.md#private-data-android-feature-07-risk-01).
+
 ## Risk Metadata
 
 **`configs/split/android/risks.yaml` is the source of truth for everything a dashboard displays about a risk** — its `name`, `description`, `tactic` and `demonstration`. The `AndroidRisk` class holds none of that text: it carries only `risk_id`, `feature_id`, the test-case identifiers and the flags that change what a run does (`is_blocking`, `requires`, `requires_device`). `list_risks()` returns the class's empty defaults and `GET /platforms/{platform}/risks` overlays the YAML entry on top. See [iOS risk metadata](../ios/risks.md#risk-metadata) for the reasoning — the same arrangement applies here.
@@ -109,7 +151,7 @@ Many apps stop at a "Google Play services" error dialog on a device without Play
 
 When the app needs Play services and the device lacks them, the risk is not run. Its result is `FAILED` with verdict `Inconclusive`, and an error naming the device (its role and adb serial on Corellium role devices) and the app. Static risks are never affected. Corellium images without Google Play, such as stock `user` builds, and phones sold without Google Play (for example, recent Huawei models) produce this result for such apps. An app whose manifest declares Play services but works without them can set `requires_play_services: false`.
 
-There is no Android playbook yet, so the current entries carry over what the risk classes used to say; once one exists its `### Title` and `### Description` take over automatically and these entries become the fallback. `tactic` is `null` for the screen-capture and repackaging risks until they're mapped; the APK static-analysis entry carries `Discovery`, the tactic its playbook entry names.
+There is no Android playbook yet, so the current entries carry over what the risk classes used to say; once one exists its `### Title` and `### Description` take over automatically and these entries become the fallback. `tactic` is `null` for the screen-capture and repackaging risks until they're mapped; the APK static-analysis entry carries `Discovery` and the private-data entry `Collection`, the tactics their playbook entries name.
 
 Both halves of an entry are editable over HTTP without a code change: `PUT /platforms/android/risks/{risk_id}` replaces the metadata fields, and `PUT /platforms/android/risks/{risk_id}/demonstration` replaces the demonstration. Neither touches the run.
 

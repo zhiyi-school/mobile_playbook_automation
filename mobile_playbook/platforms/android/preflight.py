@@ -13,6 +13,7 @@ from mobile_playbook.platforms.android.device.adb import AdbClient
 from mobile_playbook.platforms.android.device.app_version import installed_version
 from mobile_playbook.platforms.android.device.appium_driver import appium_available
 from mobile_playbook.platforms.android.device.capture_helper import BUILD_COMMAND, HELPER_PACKAGE, HELPER_VERSION, helper_apk_path
+from mobile_playbook.platforms.android.device.root import find_root_shell
 
 logger = logging.getLogger(__name__)
 
@@ -74,11 +75,8 @@ def _check_adb(adb: AdbClient) -> tuple[bool, str]:
 def _check_root(adb: AdbClient | None) -> tuple[bool, str]:
     if adb is None:
         return False, "No Android device connected to check for root."
-    for command in (["shell", "id", "-u"], ["shell", "su", "0", "id", "-u"], ["shell", "su", "-c", "id -u"]):
-        code, out, _ = adb.run(command)
-        logger.debug("android preflight: root probe %s exited %s (%r)", command, code, (out or "")[:40])
-        if code == 0 and out.strip() == "0":
-            return True, "device grants root"
+    if find_root_shell(adb) is not None:
+        return True, "device grants root"
     return False, "The device does not grant root; risks that require root need a rooted device."
 
 
