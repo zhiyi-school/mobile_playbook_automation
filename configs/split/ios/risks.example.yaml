@@ -33,8 +33,26 @@ ios-feature-04-risk-01:
   tactic: null
   demonstration: []
 
-ios-feature-99-risk-01:
-  name: "Manual review placeholder"
+ios-feature-05-risk-01:
+  name: "Access app sandbox data"
+  description: "Describe what this risk demonstrates."
+  tactic: null
+  demonstration: []
+
+ios-feature-05-risk-02:
+  name: "Manipulate runtime decisions"
+  description: "Describe what this risk demonstrates."
+  tactic: null
+  demonstration: []
+
+ios-feature-05-risk-03:
+  name: "Bypass jailbreak detection"
+  description: "Describe what this risk demonstrates."
+  tactic: null
+  demonstration: []
+
+ios-feature-05-risk-04:
+  name: "Extract secrets from memory"
   description: "Describe what this risk demonstrates."
   tactic: null
   demonstration: []

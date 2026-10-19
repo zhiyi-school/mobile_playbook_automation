@@ -145,7 +145,10 @@ def test_ios_registry_only_exposes_current_risks():
         "ios-feature-02-risk-01",
         "ios-feature-03-risk-01",
         "ios-feature-04-risk-01",
-        "ios-feature-99-risk-01",
+        "ios-feature-05-risk-01",
+        "ios-feature-05-risk-02",
+        "ios-feature-05-risk-03",
+        "ios-feature-05-risk-04",
     }
 
 
@@ -182,7 +185,9 @@ def test_manual_only_risks_are_flagged_in_the_catalogue():
 
     by_id = {risk["risk_id"]: risk for risk in list_risks()}
 
-    assert by_id["ios-feature-99-risk-01"]["automation_available"] is False
+    for risk_id in ("ios-feature-05-risk-01", "ios-feature-05-risk-02", "ios-feature-05-risk-03", "ios-feature-05-risk-04"):
+        assert by_id[risk_id]["automation_available"] is False
+        assert by_id[risk_id]["feature_id"] == "feature-05"
     assert by_id["ios-feature-01-risk-01"]["automation_available"] is True
 
 

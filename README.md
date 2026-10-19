@@ -11,6 +11,10 @@ It uses platform-prefixed risk IDs:
 | `ios-feature-02-risk-01` | iOS | TLS traffic interception exposure |
 | `ios-feature-03-risk-01` | iOS | On-screen content captured by an authorised screen recorder |
 | `ios-feature-04-risk-01` | iOS | Custom keyboard keystroke collection |
+| `ios-feature-05-risk-01` | iOS | Manual only: app sandbox data read on a jailbroken device |
+| `ios-feature-05-risk-02` | iOS | Manual only: runtime decisions manipulated with instrumentation |
+| `ios-feature-05-risk-03` | iOS | Manual only: jailbreak detection bypass |
+| `ios-feature-05-risk-04` | iOS | Manual only: secrets extracted from process memory |
 | `android-feature-01-risk-02` | Android | APK repackaging, resigning, reinstall, and launch validation |
 | `android-feature-06-risk-01` | Android | Screen recording / `FLAG_SECURE` capture blocking |
 | `android-feature-07-risk-01` | Android | Sensitive data readable in the private data directory on a rooted device |

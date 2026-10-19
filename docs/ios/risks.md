@@ -209,6 +209,23 @@ The framework's local-log matching supports two evidence shapes:
 
 See [Manual LocalKeyboard Server](manual-local-keyboard-server.md) to run the collection server by itself for phone-side manual testing.
 
+## iOS feature 05 manual-only risks
+
+Feature 05 covers a jailbroken iOS device. Its four risks have no automation:
+
+| Risk | Tests |
+| --- | --- |
+| `ios-feature-05-risk-01` | App sandbox data read with root access |
+| `ios-feature-05-risk-02` | Security-critical runtime decisions changed with dynamic instrumentation |
+| `ios-feature-05-risk-03` | Jailbreak detection bypassed by hooking its checks |
+| `ios-feature-05-risk-04` | Secrets recovered from the running app's process memory |
+
+Their classes set `automation_available = False`, so a run never plans them,
+even when an app enables them or a run selects them. The dashboard lists them
+from `GET /platforms/ios/risks` and offers the manual steps instead of an
+automated run. The steps come from each risk's playbook `### Demonstration`
+section, as described in [Risk Metadata](#risk-metadata).
+
 ## Artifact Sources
 
 - `local_ipa`: validates the local IPA at the exact path in `artifact.ipa` and places it in the run folder as a hard link to its stored copy in `acquired/.by-sha256/`.

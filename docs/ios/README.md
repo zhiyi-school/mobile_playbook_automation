@@ -107,6 +107,7 @@ Not every iOS risk needs a device:
 | `ios-feature-02-risk-01` — TLS traffic interception | yes | Burp reachable, device proxying, CA trusted, capture extension writing to `capture_path` |
 | `ios-feature-03-risk-01` — capture on-screen content | yes | the ReplayConsentRecorder companion IPA; Tesseract 5 with language data; macOS PyObjC image/video dependencies |
 | `ios-feature-04-risk-01` — custom keyboard keystroke collection | yes | the keyboard added in iOS Settings with **Full Access** enabled |
+| `ios-feature-05-risk-01` to `-04` — jailbroken-device risks | never run | manual only; see [Risks](risks.md#ios-feature-05-manual-only-risks) |
 
 The runner is sequential by default and can uninstall test bundles after each
 app to reduce device state drift. One run per platform at a time.

@@ -119,7 +119,7 @@ def test_a_playbook_risk_with_no_tactic_keeps_the_configured_one(risks_file, aut
 
 
 def test_behavioural_flags_stay_with_the_class(risks_file):
-    assert _risk("ios-feature-99-risk-01")["automation_available"] is False
+    assert _risk("ios-feature-05-risk-01")["automation_available"] is False
     assert _risk(RISK_ID)["automation_available"] is True
 
 
