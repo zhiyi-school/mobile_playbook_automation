@@ -372,7 +372,8 @@ pre-run install for these configs. A required role reads as:
 | VM claimed by a run or awaiting cleanup | `platform_busy` |
 | Corellium API unreachable or credentials missing | `device_unreachable` |
 | Physical phone connected, approved and on a `user` build | `device_ready: true` |
-| Physical phone missing, unapproved, offline or rooted | `no_device`, asking for the phone to be connected and approve USB debugging |
+| Physical phone not approving this host (`unauthorized` over USB or Wi-Fi) | `no_device`, asking for the phone to allow USB debugging with Always allow |
+| Physical phone missing, offline or rooted | `no_device`, asking for the phone to be connected and approve USB debugging |
 | Physical phone held by another run or install on this host | `platform_busy` |
 
 An unavailable rooted VM therefore blocks only apps with a risk that needs root.

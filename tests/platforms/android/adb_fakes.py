@@ -1,5 +1,5 @@
 """
-A synthetic adb server for tests: per-serial states, scripted state sequences, boot progress, build types, app compilation, the background compilation job and APK installs.
+A synthetic adb server for tests: per-serial states, scripted state sequences, boot progress, build types, app compilation, the background compilation job, APK installs and Wi-Fi addresses.
 """
 
 from __future__ import annotations
@@ -27,6 +27,8 @@ class FakeDevice:
     compiling: float = 0
     bg_dexopt_enabled: bool = True
     bg_dexopt_refusal: str = ""
+    wifi_address: str = ""
+    tcp_port: str = ""
 
 
 COMPILING = "dex2oat32 --zip-fd=9 --zip-location=/data/app/~~a==/com.google.android.gms-b==/base.apk --oat-fd=10"
@@ -86,6 +88,13 @@ class FakeAdbHost:
             booted = device.boots_after <= 0
             device.boots_after -= 1
             return 0, "1\n" if booted else "\n", ""
+        if args == ["shell", "ip", "-f", "inet", "addr", "show", "wlan0"]:
+            return 0, f"47: wlan0: <UP>\n    inet {device.wifi_address}/24 scope global wlan0\n" if device.wifi_address else "", ""
+        if args == ["shell", "getprop", "service.adb.tcp.port"]:
+            return 0, device.tcp_port + "\n", ""
+        if args[:1] == ["tcpip"]:
+            device.tcp_port = args[1]
+            return 0, f"restarting in TCP mode port: {args[1]}\n", ""
         if args == ["shell", "getprop", "ro.build.type"]:
             return 0, device.build_type + "\n", ""
         if args == ["shell", "id", "-u"]:

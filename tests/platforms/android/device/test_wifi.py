@@ -136,3 +136,44 @@ def test_without_exclusions_a_lone_vm_would_be_mistaken_for_the_phone(phone):
 
     assert wifi.connect_over_wifi() == VM
     assert wifi.connect_over_wifi(exclude={VM}) is None
+
+
+WIFI = f"{ADDRESS}:5555"
+
+
+def usb_phone(adb_host, **settings):
+    return adb_host.add(USB, state="device", wifi_address=ADDRESS, **settings)
+
+
+@pytest.mark.parametrize("on_usb", [True, False])
+def test_an_unapproved_wifi_connection_is_returned_and_names_the_debugging_prompt(adb_host, caplog, on_usb):
+    if on_usb:
+        usb_phone(adb_host, tcp_port="5555")
+        adb_host.add(WIFI, connects_to="unauthorized")
+    else:
+        adb_host.add(WIFI, state="unauthorized")
+
+    assert wifi.connect_over_wifi(wait=0, poll=0) == WIFI
+    assert "waiting for the phone to allow debugging" in caplog.text
+    assert "tap Allow on its USB debugging prompt, ticking Always allow" in caplog.text
+    assert "already connected" not in caplog.text and "Could not connect" not in caplog.text
+    assert adb_host.sent(None, "connect", WIFI) == (1 if on_usb else 0)
+
+
+def test_approval_within_the_wait_is_used_without_switching_the_phone_again(adb_host, caplog):
+    usb_phone(adb_host, tcp_port="5555")
+    adb_host.add(WIFI, script=["unauthorized", "unauthorized", "device"])
+
+    assert wifi.connect_over_wifi(wait=5, poll=0) == WIFI
+    assert adb_host.sent(None, "connect", WIFI) == 0
+    assert adb_host.sent(USB, "tcpip", "5555") == 0
+    assert "allow debugging" not in caplog.text
+
+
+def test_an_unreachable_wifi_address_still_reports_the_connect_failure(adb_host, caplog):
+    usb_phone(adb_host)
+
+    assert wifi.connect_over_wifi(wait=0, poll=0) is None
+    assert adb_host.sent(USB, "tcpip", "5555") == 1
+    assert f"Could not connect to the Android phone over Wi-Fi at {WIFI}: failed to connect" in caplog.text
+    assert "allow debugging" not in caplog.text
