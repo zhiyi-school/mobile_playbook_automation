@@ -7,6 +7,7 @@ from __future__ import annotations
 import logging
 import subprocess
 import time
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -29,11 +30,7 @@ class AdbClient:
 
     # Run an adb command and return its exit code, stdout and stderr, using 127 and 124 for missing adb and timeouts.
     def run(self, args: list[str], timeout: float | None = DEFAULT_TIMEOUT) -> tuple[int, str, str]:
-        command = [self.adb_path]
-        serial = self.serial if args[:1] and args[0] in HOST_COMMANDS else self.target_serial()
-        if serial:
-            command.extend(["-s", serial])
-        command.extend(args)
+        command = self._command(args)
         logger.debug("android adb: running argv=%s (timeout=%s)", command, timeout)
         started = time.monotonic()
         try:
@@ -63,6 +60,34 @@ class AdbClient:
             stderr[:200],
         )
         return result.returncode, stdout, stderr
+
+    # Run an adb command with its stdout written unchanged to a file and return its exit code and stderr, using 127 and
+    # 124 for missing adb and timeouts as run() does.
+    def run_to_file(self, args: list[str], destination: Path, timeout: float | None = DEFAULT_TIMEOUT) -> tuple[int, str]:
+        command = self._command(args)
+        logger.debug("android adb: streaming argv=%s to %s (timeout=%s)", command, destination, timeout)
+        started = time.monotonic()
+        try:
+            with destination.open("wb") as handle:
+                result = subprocess.run(command, stdout=handle, stderr=subprocess.PIPE, timeout=timeout)
+        except FileNotFoundError:
+            logger.debug("android adb: %s not found on PATH", self.adb_path, exc_info=True)
+            return 127, f"{self.adb_path} not found on PATH"
+        except subprocess.TimeoutExpired:
+            logger.debug("android adb: argv=%s timed out after %ss", command, timeout, exc_info=True)
+            return 124, f"adb timed out after {timeout}s: {' '.join(command)}"
+        stderr = result.stderr.decode("utf-8", errors="replace").strip() if result.stderr else ""
+        logger.debug("android adb: argv=%s exited %s in %.2fs (%s bytes written, stderr head=%r)", command, result.returncode, time.monotonic() - started, destination.stat().st_size, stderr[:200])
+        return result.returncode, stderr
+
+    # Return the adb argv for a command, adding the target serial unless the adb host answers the command itself.
+    def _command(self, args: list[str]) -> list[str]:
+        command = [self.adb_path]
+        serial = self.serial if args[:1] and args[0] in HOST_COMMANDS else self.target_serial()
+        if serial:
+            command.extend(["-s", serial])
+        command.extend(args)
+        return command
 
     # Return the serial device commands use, resolving `wifi` to the phone's Wi-Fi connection once per client.
     def target_serial(self) -> str | None:

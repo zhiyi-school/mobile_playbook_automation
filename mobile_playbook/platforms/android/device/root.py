@@ -7,6 +7,7 @@ from __future__ import annotations
 import logging
 import shlex
 from dataclasses import dataclass
+from typing import ClassVar
 
 from mobile_playbook.platforms.android.device.adb import AdbClient
 
@@ -28,6 +29,7 @@ class RootShell:
 
     adb: AdbClient
     method: str
+    access: ClassVar[str] = "as root"
 
     # Run a shell command line as root and return its exit code, stdout and stderr.
     def run(self, command: str, timeout: float | None = AdbClient.DEFAULT_TIMEOUT) -> tuple[int, str, str]:
