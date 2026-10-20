@@ -62,7 +62,7 @@ Settings (`record_lead_in`, `launch_wait`, `consent_timeout`, `helper_apk`) are 
 
 `android-feature-01-risk-02` demonstrates whether a repackaged (decompiled, patched, and re-signed) build of the app can still install and launch, which indicates the app lacks effective tamper/signature detection.
 
-Requires: `adb`, `apktool`, `apksigner`, `keytool`, `appium`. Apps installed as split APKs also need [APKEditor](https://github.com/REAndroid/APKEditor) and `java`; preflight does not check these because apps without splits don't use them.
+Requires: `adb`, `apktool`, `zipalign`, `apksigner`, `keytool`, `appium`. `zipalign` and `apksigner` ship in the Android SDK build-tools folder, which must be on `PATH`. Apps installed as split APKs also need [APKEditor](https://github.com/REAndroid/APKEditor) and `java`; preflight does not check these because apps without splits don't use them.
 
 Stages (each must succeed before the next runs; the first failure stops the pipeline):
 
@@ -73,10 +73,11 @@ Stages (each must succeed before the next runs; the first failure stops the pipe
 5. **Patch manifest** — add `android:debuggable="true"` to the `<application>` element if not already present.
 6. **Change app name** — prefix the `app_name` string resource with `RPK ` so the repackaged build is visually distinguishable (best-effort; does not fail the pipeline if the string is missing).
 7. **Rebuild APK** — `apktool b` the patched sources into `repackaged.apk`.
-8. **Sign APKs** — `apksigner sign` the rebuilt APK with the local keystore.
-9. **Install repackaged APKs** — uninstall the existing app, then copy the signed, repackaged APK to the device with `adb push` and install it with `pm install` (see [APK installs](../architecture.md)). A copy that does not finish fails the stage with `Could not copy <apk> to the device: …`.
+8. **Align APK** — `zipalign -p -f 4` the rebuilt APK, check the result with `zipalign -c -p 4`, and replace `repackaged.apk` with the aligned copy. Alignment comes before signing because aligning a signed APK invalidates its signature, as the playbook notes.
+9. **Sign APKs** — `apksigner sign` the aligned APK with the local keystore.
+10. **Install repackaged APKs** — uninstall the existing app, then copy the signed, repackaged APK to the device with `adb push` and install it with `pm install` (see [APK installs](../architecture.md)). A copy that does not finish fails the stage with `Could not copy <apk> to the device: …`.
 
-If any stage fails, the run stops there and reports `REPACKAGING_FAILED` with the Inconclusive verdict. `errors` names the failing stage and, where the tool gave one, its reason, for example `Failed at stage: install_repackaged_apks - Failure [INSTALL_FAILED_...]`.
+If any stage fails, the run stops there and reports `REPACKAGING_FAILED` with the Inconclusive verdict. `errors` names the failing stage and, where the tool gave one, its reason, for example `Failed at stage: install_repackaged_apks - Failure [INSTALL_FAILED_...]` or `Failed at stage: align_apk - zipalign is not on PATH. …`.
 
 If all stages succeed, an Appium-driven validation launches the repackaged app and checks:
 
@@ -140,7 +141,7 @@ Settings (`launch_wait`, `max_archive_mb`, `reveal_values`, `keep_archive`) are 
 
 **`configs/split/android/risks.yaml` is the source of truth for everything a dashboard displays about a risk** — its `name`, `description`, `tactic` and `demonstration`. The `AndroidRisk` class holds none of that text: it carries only `risk_id`, `feature_id`, the test-case identifiers and the flags that change what a run does (`is_blocking`, `requires`, `requires_device`). `list_risks()` returns the class's empty defaults and `GET /platforms/{platform}/risks` overlays the YAML entry on top. See [iOS risk metadata](../ios/risks.md#risk-metadata) for the reasoning — the same arrangement applies here.
 
-`requires` names the tools and services a risk checks before it runs (`adb`, `appium`, `apktool`, `apksigner`, `keytool`, `mobsf`, `burp`, `screen_capture_helper`) and `root` when it needs a rooted device. The `root` check passes when the device runs shell commands as root or its `su` grants root. With Corellium role devices, a risk that requires root runs on the rooted VM and every other device risk on the non-rooted VM; a malformed declaration fails the risk. See [Android role connections](../corellium-lifecycle.md#android-role-connections). A single physical device runs every risk.
+`requires` names the tools and services a risk checks before it runs (`adb`, `appium`, `apktool`, `zipalign`, `apksigner`, `keytool`, `mobsf`, `burp`, `screen_capture_helper`) and `root` when it needs a rooted device. The `root` check passes when the device runs shell commands as root or its `su` grants root. With Corellium role devices, a risk that requires root runs on the rooted VM and every other device risk on the non-rooted VM; a malformed declaration fails the risk. See [Android role connections](../corellium-lifecycle.md#android-role-connections). A single physical device runs every risk.
 
 ### Google Play services
 
@@ -151,7 +152,7 @@ Many apps stop at a "Google Play services" error dialog on a device without Play
 
 When the app needs Play services and the device lacks them, the risk is not run. Its result is `FAILED` with verdict `Inconclusive`, and an error naming the device (its role and adb serial on Corellium role devices) and the app. Static risks are never affected. Corellium images without Google Play, such as stock `user` builds, and phones sold without Google Play (for example, recent Huawei models) produce this result for such apps. An app whose manifest declares Play services but works without them can set `requires_play_services: false`.
 
-There is no Android playbook yet, so the current entries carry over what the risk classes used to say; once one exists its `### Title` and `### Description` take over automatically and these entries become the fallback. `tactic` is `null` for the screen-capture and repackaging risks until they're mapped; the APK static-analysis entry carries `Discovery` and the private-data entry `Collection`, the tactics their playbook entries name.
+The Android playbook's Markdown now supplies each risk's title and description (`### Title`, `### Description`) and its demonstration, and the tactic comes from the MITRE annotation in that description (see [Developer remediation playbook](../developer-playbook.md#the-mitre-annotation)). `risks.yaml` is the fallback, used only for a risk the playbook does not cover or when no playbook directory is configured.
 
 Both halves of an entry are editable over HTTP without a code change: `PUT /platforms/android/risks/{risk_id}` replaces the metadata fields, and `PUT /platforms/android/risks/{risk_id}/demonstration` replaces the demonstration. Neither touches the run.
 
