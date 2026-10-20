@@ -101,6 +101,8 @@ Generated work files (backed-up, decoded, and rebuilt APKs) are left under `arti
 
 Requires: `adb` and `root`, so a rooted device; with Corellium role devices it runs on the rooted VM (see [Android role connections](../corellium-lifecycle.md#android-role-connections)). Root is used through whichever the device grants: a root adbd, the `su 0` of userdebug images, or Magisk-style `su -c` (`platforms/android/device/root.py`, which the `root` preflight check also uses). It needs no Appium.
 
+The device copy is in `platforms/android/device/private_data.py`. Launching the app, scanning the copied files and writing the verdict and reports are in `platforms/android/private_data/` (`launch.py`, `scan.py` and `findings.py`), which any risk that reads an app's private data uses.
+
 Stages:
 
 1. Record `metadata.installed_base_apk_sha256` and `metadata.root_method` (`adbd`, `su_0` or `su_c`).
