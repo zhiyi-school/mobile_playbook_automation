@@ -276,8 +276,9 @@ Stages, statuses and how to add a new Android risk: [Risks](risks.md).
 Capabilities are derived from the `device` and `runner` config rather than
 written by hand — the UiAutomator2 driver, the resolved `adb_serial`, and the
 app's `package_name`. `runner.auto_grant_permissions` grants the app's declared permissions over adb
-before each test, so runtime permission prompts don't appear; Android has no
-prompt-handling setting like iOS's `runner.permission_alerts`.
+before each test, so most runtime permission prompts don't appear; Android has no
+prompt-handling setting like iOS's `runner.permission_alerts`. The repackaging
+risk denies any prompt that still covers the app; see [Risks](risks.md#android-feature-01-risk-02).
 Field-by-field detail: [Configuration](configuration.md).
 
 ## Reports and evidence

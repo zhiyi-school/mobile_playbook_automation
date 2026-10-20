@@ -358,6 +358,8 @@ repackaging:
   launch_wait: 8
   post_click_wait: 5
   record_tail: 3
+  permission_prompt_wait: 2
+  max_permission_prompts: 3
 ```
 
 - `work_dir` (optional): root directory for backed-up, decoded, and rebuilt APKs (per app, under `<work_dir>/<package_name_with_underscores>/`). Unset, it is `<work>/android/repackaging`; a relative value resolves against the repository root.
@@ -366,6 +368,7 @@ repackaging:
 - `restore_original_after_test`: whether to replace the repackaged build with the original after validation, from the APKs backed up before the test, so later tests run against the same build, and with the install method that `device.app_store` selects only if that fails.
 - `apkeditor_jar` (optional): path to the APKEditor jar used to merge split APKs before decoding; a relative value resolves against the repository root. Unset, the newest `APKEditor*.jar` under `tools/vendor/apkeditor/` is used.
 - `launch_wait` / `post_click_wait` / `record_lead_in` / `record_tail`: pacing for the post-repackaging Appium launch validation and its screen recording.
+- `permission_prompt_wait` / `max_permission_prompts`: seconds to wait after denying a system permission prompt that covers the app, and how many prompts to deny at each foreground check before the validation is inconclusive.
 
 ### Screen capture timing (`android-feature-06-risk-01`)
 

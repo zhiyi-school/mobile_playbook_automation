@@ -16,6 +16,7 @@ from mobile_playbook.common.logging_setup import redacted
 from mobile_playbook.platforms.android.acquisition.store import STORE_APPS
 from mobile_playbook.platforms.android.device.capture_helper import CaptureHelper, Frame, helper_apk_path
 from mobile_playbook.platforms.android.device.fingerprint import installed_base_apk_sha256
+from mobile_playbook.platforms.android.device.permissions import PERMISSION_CONTROLLER_PACKAGES
 from mobile_playbook.platforms.android.risks.base import AndroidRisk
 
 logger = logging.getLogger(__name__)
@@ -28,8 +29,6 @@ BROWSER_PACKAGES = [
     "com.sec.android.app.sbrowser",
 ]
 LAUNCHER_PACKAGES = ["com.google.android.apps.nexuslauncher", "com.sec.android.app.launcher", "com.huawei.android.launcher"]
-# System dialogs Android shows over the app, such as a runtime permission prompt; they are not the app protecting itself.
-SYSTEM_PROMPT_PACKAGES = ["com.android.permissioncontroller", "com.google.android.permissioncontroller"]
 DEBUGGING_KEYWORDS = ["developer options", "debugging", "usb debugging", "debugging detected"]
 CAPTURE_KEYWORDS = ["screen recording", "screen sharing", "screen recording/sharing"]
 # dumpsys prints window flags by name without the FLAG_ prefix ("fl=SECURE HARDWARE_ACCELERATED"), or as hex on
@@ -171,7 +170,7 @@ class AndroidScreenCaptureRisk(AndroidRisk):
         logger.debug("%s[%s]: foreground package after launch is %s", self.risk_id, package_name, current_package)
         if current_package == package_name:
             return "Unknown"
-        if current_package in SYSTEM_PROMPT_PACKAGES:
+        if current_package in PERMISSION_CONTROLLER_PACKAGES:
             return f"INCONCLUSIVE (A system prompt covered the app: {current_package} - screen capture was not tested)"
         if current_package in STORE_APPS:
             verdict = f"INCONCLUSIVE (Redirected to {STORE_APPS[current_package]} - the app did not open, so screen capture was not tested)"

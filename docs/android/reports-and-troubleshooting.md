@@ -67,7 +67,7 @@ Each test's `report.json` (and `logs.txt`) carries one of these precise statuses
 - `SCREEN_CAPTURE_NOT_TESTED`: the app exited, redirected to another app, or a system permission prompt covered it. Reported as Inconclusive because these observations do not prove capture protection. Check that the app works on this device and inspect the captured frame. For a store redirect, check its installation requirements; for a permission prompt, set `runner.auto_grant_permissions: true` (or grant the permission on the device) and run it again.
 - `REPACKAGING_SURVIVED`: repackaged app installed and passed basic launch validation.
 - `REPACKAGING_BLOCKED`: repackaged app installed but failed validation.
-- `REPACKAGING_FAILED`: backup, decode, patch, rebuild, sign, or install failed.
+- `REPACKAGING_FAILED`: backup, decode, patch, rebuild, sign, or install failed, or the launch validation could not reach a verdict (for example a system permission prompt that kept returning); `errors` says which.
 - `PRIVATE_DATA_EXPOSED`: a secret or personal-data value was readable in plain text in the app's private data directory, outside the files known third-party SDKs write.
 - `PRIVATE_DATA_PROTECTED`: nothing sensitive was readable in plain text and the app keeps encrypted stores there. Reported as Reduced Risk.
 - `PRIVATE_DATA_NO_FINDINGS`: nothing sensitive was found in plain text, but no encrypted store was found either. Reported as Inconclusive.

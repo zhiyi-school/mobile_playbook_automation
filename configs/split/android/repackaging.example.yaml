@@ -11,3 +11,6 @@ repackaging:
   launch_wait: 8
   post_click_wait: 5
   record_tail: 3
+  # Seconds to wait after denying a system permission prompt over the app, and how many to deny per check.
+  permission_prompt_wait: 2
+  max_permission_prompts: 3

@@ -20,6 +20,7 @@ from mobile_playbook.platforms.android.acquisition.store import APP_STORES, DEFA
 from mobile_playbook.platforms.android.device.apks import pull_installed_apks
 from mobile_playbook.platforms.android.device.fingerprint import installed_base_apk_sha256, installer_of
 from mobile_playbook.platforms.android.device.install import install_apks
+from mobile_playbook.platforms.android.device.permissions import PERMISSION_CONTROLLER_PACKAGES
 from mobile_playbook.platforms.android.models import AndroidRiskRunResult
 from mobile_playbook.platforms.android.risks.base import AndroidRisk
 
@@ -32,6 +33,12 @@ except ImportError:
     AppiumBy = None
 
 APKEDITOR_DIR = "tools/vendor/apkeditor"
+# The prompt's Deny button: by its AOSP ids, else by its English label, which HarmonyOS's own prompts need since
+# they use other ids and ignore Back. Prompts matching neither are dismissed with Back.
+PERMISSION_DENY_SELECTORS = (
+    'new UiSelector().resourceIdMatches(".*:id/permission_deny.*")',
+    'new UiSelector().clickable(true).textMatches("(?i)(deny|don.t allow)")',
+)
 
 
 class StageFailure(Exception):
@@ -122,8 +129,14 @@ class AndroidRepackagingRisk(AndroidRisk):
                     result.metadata["debuggable"] = self._check_debuggable(device_client, app_config.package_name, report_dir)
                     if result.metadata["debuggable"].get("listing"):
                         result.evidence.append({"kind": "run_as_listing", "path": result.metadata["debuggable"]["listing"], "label": "Private files listed with run-as"})
-                    result.final_status = "REPACKAGING_SURVIVED" if verdict.startswith("PASS") else "REPACKAGING_BLOCKED"
-                    result.verdict = "At Risk" if verdict.startswith("PASS") else "Reduced Risk"
+                    if verdict.startswith("PASS"):
+                        result.final_status, result.verdict = "REPACKAGING_SURVIVED", "At Risk"
+                    elif verdict.startswith("FAIL"):
+                        result.final_status, result.verdict = "REPACKAGING_BLOCKED", "Reduced Risk"
+                    else:
+                        # Only an observed exit or redirect shows a defense; an unjudgable launch stays Inconclusive.
+                        result.final_status = "REPACKAGING_FAILED"
+                        result.errors.append(f"Validation did not reach a verdict: {verdict}")
                     logger.debug("%s[%s]: validation %r -> final_status=%s verdict=%s", self.risk_id, app_config.id, verdict, result.final_status, result.verdict)
                 else:
                     result.final_status = "REPACKAGING_FAILED"
@@ -477,8 +490,8 @@ class AndroidRepackagingRisk(AndroidRisk):
             logger.debug("%s[%s]: quitting Appium session %s", self.risk_id, package_name, getattr(driver, "session_id", None))
             driver.quit()
 
-    # Return PASS when the app stays in the foreground after launch and a click, else a FAIL or ERROR reason,
-    # saving a screenshot after each so a tamper warning shown inside the app can be seen in the report.
+    # Return PASS when the app stays in the foreground after launch and a click, else a FAIL, INCONCLUSIVE or ERROR
+    # reason, saving a screenshot after each so a tamper warning shown inside the app can be seen in the report.
     def _check_app_after_launch(self, driver, package_name: str, cfg: dict, screenshots_dir: Path | None = None) -> str:
         try:
             logger.debug("%s[%s]: activating repackaged app", self.risk_id, package_name)
@@ -490,16 +503,22 @@ class AndroidRepackagingRisk(AndroidRisk):
         self._save_screenshot(driver, package_name, screenshots_dir, "after_launch")
         try:
             current_package = driver.current_package
+            logger.debug("%s[%s]: foreground package after launch is %s", self.risk_id, package_name, current_package)
+            current_package, denied = self._deny_permission_prompts(driver, package_name, current_package, cfg, screenshots_dir, "after_launch")
         except Exception as exc:
             logger.debug("%s[%s]: reading current_package failed: %s", self.risk_id, package_name, exc, exc_info=True)
             return f"ERROR: failed to read current package - {exc}"
-        logger.debug("%s[%s]: foreground package after launch is %s", self.risk_id, package_name, current_package)
+        if current_package in PERMISSION_CONTROLLER_PACKAGES:
+            return f"INCONCLUSIVE: a system permission prompt ({current_package}) still covered the app after {denied} denials"
         if current_package in STORE_APPS:
             logger.debug("%s[%s]: redirected to %s after launch", self.risk_id, package_name, current_package)
             self._close_app(driver, current_package)
             return f"FAIL: app fail to work after repackaging (redirected to {STORE_APPS[current_package]} after launch)"
         if current_package != package_name:
-            logger.debug("%s[%s]: app not in foreground after launch (foreground=%s)", self.risk_id, package_name, current_package)
+            logger.debug("%s[%s]: app not in foreground after launch (foreground=%s, prompts denied=%s)", self.risk_id, package_name, current_package, denied)
+            if denied:
+                # The app may have closed because a permission was denied, so the exit is not attributable to tampering.
+                return f"INCONCLUSIVE: app left the foreground after a system permission prompt was denied (foreground: {current_package})"
             return "FAIL: app fail to work after repackaging (exited immediately after launch)"
         try:
             logger.debug("%s[%s]: find_elements by %s %r", self.risk_id, package_name, AppiumBy.ANDROID_UIAUTOMATOR, "new UiSelector().clickable(true)")
@@ -519,20 +538,56 @@ class AndroidRepackagingRisk(AndroidRisk):
             self._save_screenshot(driver, package_name, screenshots_dir, "after_tap")
             try:
                 current_package = driver.current_package
+                logger.debug("%s[%s]: foreground package after click is %s", self.risk_id, package_name, current_package)
+                current_package, denied_after_tap = self._deny_permission_prompts(driver, package_name, current_package, cfg, screenshots_dir, "after_tap")
             except Exception as exc:
                 logger.debug("%s[%s]: reading current_package after click failed: %s", self.risk_id, package_name, exc, exc_info=True)
                 return f"ERROR: failed to read current package after button click - {exc}"
-            logger.debug("%s[%s]: foreground package after click is %s", self.risk_id, package_name, current_package)
+            denied += denied_after_tap
+            if current_package in PERMISSION_CONTROLLER_PACKAGES:
+                return f"INCONCLUSIVE: a system permission prompt ({current_package}) still covered the app after {denied_after_tap} denials following the click"
             if current_package in STORE_APPS:
                 logger.debug("%s[%s]: redirected to %s after click", self.risk_id, package_name, current_package)
                 self._close_app(driver, current_package)
                 return f"FAIL: app fail to work after repackaging (redirected to {STORE_APPS[current_package]} after clicking button)"
             if current_package != package_name:
-                logger.debug("%s[%s]: app left foreground after click (foreground=%s)", self.risk_id, package_name, current_package)
+                logger.debug("%s[%s]: app left foreground after click (foreground=%s, prompts denied=%s)", self.risk_id, package_name, current_package, denied_after_tap)
+                if denied_after_tap:
+                    return f"INCONCLUSIVE: app left the foreground after a system permission prompt was denied following the click (foreground: {current_package})"
                 return "FAIL: app fail to work after repackaging (exited after clicking button)"
         else:
             logger.debug("%s[%s]: no clickable elements; judging on launch only", self.risk_id, package_name)
+        if denied:
+            return f"PASS: able to work after repackaging (denied {denied} system permission prompt{'s' if denied != 1 else ''})"
         return "PASS: able to work after repackaging"
+
+    # Deny system permission prompts covering the app, up to max_permission_prompts, screenshotting what each one
+    # uncovered; return the foreground package afterwards and how many prompts were denied.
+    def _deny_permission_prompts(self, driver, package_name: str, current_package: str, cfg: dict, screenshots_dir: Path | None, stage: str) -> tuple[str, int]:
+        denied = 0
+        limit = int(cfg.get("max_permission_prompts", 3))
+        while current_package in PERMISSION_CONTROLLER_PACKAGES and denied < limit:
+            self._deny_permission_prompt(driver, package_name, current_package)
+            denied += 1
+            time.sleep(float(cfg.get("permission_prompt_wait", 2)))
+            self._save_screenshot(driver, package_name, screenshots_dir, f"{stage}_prompt_{denied}_denied")
+            current_package = driver.current_package
+            logger.debug("%s[%s]: foreground package after denying prompt %s is %s", self.risk_id, package_name, denied, current_package)
+        return current_package, denied
+
+    # Tap the prompt's Deny button, or press Back where none is found, which Android also treats as a denial.
+    def _deny_permission_prompt(self, driver, package_name: str, prompt_package: str) -> None:
+        for selector in PERMISSION_DENY_SELECTORS:
+            try:
+                buttons = driver.find_elements(AppiumBy.ANDROID_UIAUTOMATOR, selector)
+                if buttons:
+                    logger.debug("%s[%s]: tapping Deny on the %s prompt (found by %s)", self.risk_id, package_name, prompt_package, selector)
+                    buttons[0].click()
+                    return
+            except Exception as exc:
+                logger.debug("%s[%s]: tapping Deny found by %s on the %s prompt failed: %s", self.risk_id, package_name, selector, prompt_package, exc, exc_info=True)
+        logger.debug("%s[%s]: pressing Back to dismiss the %s prompt", self.risk_id, package_name, prompt_package)
+        driver.back()
 
     # Save a screenshot of the device screen as <name>.png, ignoring failures; FLAG_SECURE windows come out black.
     def _save_screenshot(self, driver, package_name: str, screenshots_dir: Path | None, name: str) -> None:

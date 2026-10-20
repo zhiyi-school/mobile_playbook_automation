@@ -598,3 +598,125 @@ def test_a_validated_run_records_screenshots_and_the_run_as_check(tmp_path, monk
     assert [item["kind"] for item in result.evidence] == ["screenshot", "run_as_listing"]
     assert result.evidence[0]["path"] == str(report_dir / "screenshots" / "after_launch.png")
     assert result.final_status == "REPACKAGING_SURVIVED"
+
+
+class PromptDriver(ScreenshotDriver):
+    """Reports each foreground package in turn, then stays on the last one."""
+
+    def __init__(self, foregrounds, deny_found_by="id", app_buttons=()):
+        super().__init__(foregrounds[0], buttons=app_buttons)
+        self.foregrounds = list(foregrounds)
+        self.deny_selector = {"id": repackaging.PERMISSION_DENY_SELECTORS[0], "label": repackaging.PERMISSION_DENY_SELECTORS[1]}.get(deny_found_by)
+        self.actions: list[str] = []
+
+    @property
+    def current_package(self):
+        return self.foregrounds.pop(0) if len(self.foregrounds) > 1 else self.foregrounds[0]
+
+    @current_package.setter
+    def current_package(self, value):
+        pass
+
+    def find_elements(self, by, selector):
+        if selector in repackaging.PERMISSION_DENY_SELECTORS:
+            return [ActionButton(self.actions, "deny")] if selector == self.deny_selector else []
+        return self.buttons
+
+    def back(self) -> None:
+        self.actions.append("back")
+
+
+class ActionButton:
+    def __init__(self, actions, name):
+        self.actions = actions
+        self.name = name
+
+    def click(self) -> None:
+        self.actions.append(self.name)
+
+
+PROMPT_CFG = {"launch_wait": 0, "post_click_wait": 0, "permission_prompt_wait": 0}
+
+
+@pytest.mark.parametrize("prompt", ["com.android.permissioncontroller", "com.google.android.permissioncontroller"])
+def test_a_permission_prompt_at_launch_is_denied_not_judged_an_exit(tmp_path, prompt):
+    driver = PromptDriver([prompt, PACKAGE])
+
+    verdict = AndroidRepackagingRisk()._check_app_after_launch(driver, PACKAGE, PROMPT_CFG, tmp_path)
+
+    assert verdict == "PASS: able to work after repackaging (denied 1 system permission prompt)"
+    assert driver.actions == ["deny"]
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["after_launch.png", "after_launch_prompt_1_denied.png"]
+
+
+def test_a_prompt_without_the_aosp_deny_id_is_denied_by_its_label():
+    # HarmonyOS's own prompts, such as reading the installed-app list, use other button ids and ignore Back.
+    driver = PromptDriver(["com.android.permissioncontroller", PACKAGE], deny_found_by="label")
+
+    verdict = AndroidRepackagingRisk()._check_app_after_launch(driver, PACKAGE, PROMPT_CFG)
+
+    assert verdict.startswith("PASS")
+    assert driver.actions == ["deny"]
+
+
+def test_a_prompt_without_a_deny_button_is_dismissed_with_back():
+    driver = PromptDriver(["com.android.permissioncontroller", PACKAGE], deny_found_by=None)
+
+    verdict = AndroidRepackagingRisk()._check_app_after_launch(driver, PACKAGE, PROMPT_CFG)
+
+    assert verdict.startswith("PASS")
+    assert driver.actions == ["back"]
+
+
+def test_a_prompt_that_keeps_returning_is_inconclusive():
+    driver = PromptDriver(["com.android.permissioncontroller"])
+
+    verdict = AndroidRepackagingRisk()._check_app_after_launch(driver, PACKAGE, {**PROMPT_CFG, "max_permission_prompts": 2})
+
+    assert verdict == "INCONCLUSIVE: a system permission prompt (com.android.permissioncontroller) still covered the app after 2 denials"
+    assert driver.actions == ["deny", "deny"]
+
+
+def test_an_exit_after_denying_a_prompt_is_inconclusive():
+    driver = PromptDriver(["com.android.permissioncontroller", "com.huawei.android.launcher"])
+
+    verdict = AndroidRepackagingRisk()._check_app_after_launch(driver, PACKAGE, PROMPT_CFG)
+
+    assert verdict == "INCONCLUSIVE: app left the foreground after a system permission prompt was denied (foreground: com.huawei.android.launcher)"
+
+
+def test_a_store_redirect_after_denying_a_prompt_still_blocks():
+    driver = PromptDriver(["com.android.permissioncontroller", "com.android.vending"])
+
+    verdict = AndroidRepackagingRisk()._check_app_after_launch(driver, PACKAGE, PROMPT_CFG)
+
+    assert verdict == "FAIL: app fail to work after repackaging (redirected to Play Store after launch)"
+
+
+def test_a_permission_prompt_after_the_tap_is_denied_not_judged_an_exit():
+    driver = PromptDriver([PACKAGE, "com.android.permissioncontroller", PACKAGE], app_buttons=[Button()])
+
+    verdict = AndroidRepackagingRisk()._check_app_after_launch(driver, PACKAGE, PROMPT_CFG)
+
+    assert verdict == "PASS: able to work after repackaging (denied 1 system permission prompt)"
+    assert driver.actions == ["deny"]
+
+
+@pytest.mark.parametrize(
+    "verdict",
+    [
+        "INCONCLUSIVE: a system permission prompt (com.android.permissioncontroller) still covered the app after 3 denials",
+        "ERROR: failed to read current package - device offline",
+    ],
+)
+def test_a_validation_without_a_verdict_is_inconclusive_not_blocked(tmp_path, monkeypatch, verdict):
+    app_config, global_config = make_configs(tmp_path, restore_original_after_test=False)
+    risk = AndroidRepackagingRisk()
+    stub_pipeline(risk, monkeypatch)
+    monkeypatch.setattr(risk, "_validate_with_appium", lambda *args: (verdict, None))
+
+    result = risk.run(app_config, global_config, FakeDeviceClient(RunAsAdb((1, "", "run-as: package not debuggable"))), FakeReportWriter(tmp_path))
+
+    assert result.final_status == "REPACKAGING_FAILED"
+    assert result.verdict == "Inconclusive"
+    assert result.errors == [f"Validation did not reach a verdict: {verdict}"]
