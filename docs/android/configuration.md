@@ -389,9 +389,9 @@ screen_capture:
 
 `record_tail` is no longer read; the helper's frames replace the Appium recording it paced.
 
-### Private data (`android-feature-07-risk-01`)
+### Private data (`android-feature-02-risk-01` and `android-feature-07-risk-01`)
 
-Global defaults live under a top-level `private_data` block in `private_data.yaml` under `configs/split/android/` (see `private_data.example.yaml`), and can be overridden per app under `risks.android-feature-07-risk-01`:
+Both private data risks read the same settings. Global defaults live under a top-level `private_data` block in `private_data.yaml` under `configs/split/android/` (see `private_data.example.yaml`), and can be overridden per app under `risks.android-feature-02-risk-01` or `risks.android-feature-07-risk-01`. Editing either risk's settings over HTTP changes this shared block:
 
 ```yaml
 private_data:
@@ -404,7 +404,7 @@ private_data:
 - `launch_wait`: seconds the app stays open after launch so it writes its data, before it is stopped and its directories are copied (default 5).
 - `max_archive_mb`: the largest private data size, in MiB, that is copied off the device; a larger app fails the run (default 200).
 - `reveal_values`: report sensitive values in full instead of masked (default false).
-- `keep_archive`: keep the pulled archive under `artifacts/work/android/private_data/<package>/` instead of deleting it after the scan (default false). It holds the app's real data and is never copied into the report. Kept archives are not pruned with old run folders, so remove them by hand.
+- `keep_archive`: keep the copied archive under `artifacts/work/android/private_data/<package>/` (`<run timestamp>.tar` for `android-feature-07-risk-01`, `<run timestamp>_run_as.tar` for `android-feature-02-risk-01`) instead of deleting it after the scan (default false). It holds the app's real data and is never copied into the report. Kept archives are not pruned with old run folders, so remove them by hand.
 
 Full risk behavior and status meanings are documented in [Risks](risks.md).
 

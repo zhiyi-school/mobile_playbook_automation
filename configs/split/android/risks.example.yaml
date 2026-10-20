@@ -48,6 +48,55 @@ android-feature-01-risk-02:
   tactic: null
   demonstration: []
 
+android-feature-02-risk-01:
+  name: Android USB Debugging Private Data Test
+  description: Over USB debugging, the private data directory of a debuggable app can be read with run-as without root, so any sensitive data the app stores there in plain text can be collected; an app that allows backups may give up its data through adb backup instead.
+  tactic: Credential Access
+  demonstration:
+    - id: setup_table
+      type: table
+      label: Setup
+      rows:
+        - Configuration: Requires
+          Detail: adb over an authorized USB debugging connection (with Corellium role devices, the non-rooted device); developer mode and USB debugging are already on when adb connects
+        - Configuration: Directories read
+          Detail: /data/data/<package> and, when present, /data/user_de/0/<package>
+    - id: steps
+      type: steps
+      label: Demonstration
+      items:
+        - id: step_1
+          text: Read the installed app's package flags and target API level, and the device's API level
+          images: []
+          commands:
+            - adb shell dumpsys package <package>
+            - adb shell getprop ro.build.version.sdk
+        - id: step_2
+          text: Check whether run-as runs commands as the app's user, which only a debuggable app allows
+          images: []
+          commands:
+            - adb shell run-as <package> id -u
+        - id: step_3
+          text: If run-as is refused, record whether adb backup would return the app's data (ALLOW_BACKUP, and from Android 12 a target API level of 30 or lower) without running a backup
+          images: []
+          commands: []
+        - id: step_4
+          text: Otherwise launch the app so it writes its data, wait launch_wait seconds, and stop it
+          images: []
+          commands:
+            - adb shell monkey -p <package> -c android.intent.category.LAUNCHER 1
+            - adb shell am force-stop <package>
+        - id: step_5
+          text: List the private data directories with run-as and stream them to the workstation as a tar archive, writing nothing on the device
+          images: []
+          commands:
+            - adb shell run-as <package> sh -c 'ls -laR /data/data/<package>'
+            - adb shell -T run-as <package> tar -cf - -C / data/data/<package> > archive.tar
+        - id: step_6
+          text: Read every file as android-feature-07-risk-01 does, flagging secrets and personal data stored in plain text, then write private_data_listing.txt, private_data_findings.json and the critical findings, and delete the archive unless keep_archive is true
+          images: []
+          commands: []
+
 android-feature-06-risk-01:
   name: "Android Screen Capture Test"
   description: "Describe what this risk demonstrates."

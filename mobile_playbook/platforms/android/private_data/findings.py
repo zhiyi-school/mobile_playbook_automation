@@ -79,6 +79,11 @@ def record_scan(
                 "recommendation": "Encrypt databases that hold sensitive data, for example with SQLCipher and a Keystore-protected key.",
             }
         )
+    write_critical_findings(flags, app_config, report_dir, result, markdown_title)
+
+
+# Write the critical findings report as JSON and Markdown and add both to the result's evidence.
+def write_critical_findings(flags: list[dict[str, Any]], app_config, report_dir: Path, result: AndroidRiskRunResult, markdown_title: str = DEFAULT_MARKDOWN_TITLE) -> None:
     app = {"id": app_config.id, "name": app_config.name, "package_name": app_config.package_name}
     report = critical_report(app, flags, OWASP_REFERENCE)
     critical_path = report_dir / "critical_findings.json"

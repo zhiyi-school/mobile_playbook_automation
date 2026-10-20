@@ -59,7 +59,7 @@ def test_android_config_accepts_structured_apps():
 
 
 def test_android_registry_exposes_ported_risks():
-    assert known_risks() == {"android-feature-01-risk-01", "android-feature-01-risk-02", "android-feature-06-risk-01", "android-feature-07-risk-01"}
+    assert known_risks() == {"android-feature-01-risk-01", "android-feature-01-risk-02", "android-feature-02-risk-01", "android-feature-06-risk-01", "android-feature-07-risk-01"}
 
 
 def test_android_dry_run_filters_selected_apps():

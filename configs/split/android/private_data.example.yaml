@@ -1,5 +1,5 @@
-# Example Android private_data settings for android-feature-07-risk-01. Copy to private_data.yaml; see
-# docs/android/configuration.md#private-data-android-feature-07-risk-01.
+# Example Android private_data settings, shared by android-feature-02-risk-01 and android-feature-07-risk-01. Copy to
+# private_data.yaml; see docs/android/configuration.md#private-data-android-feature-02-risk-01-and-android-feature-07-risk-01.
 
 private_data:
   # Seconds the app stays open after launch so it writes its data, before it is stopped and its folders are copied.
@@ -8,6 +8,6 @@ private_data:
   max_archive_mb: 200
   # Report sensitive values in full instead of masked.
   reveal_values: false
-  # Keep the pulled archive under artifacts/work/android/private_data/<package>/ instead of deleting it after the scan.
+  # Keep the copied archive under artifacts/work/android/private_data/<package>/ instead of deleting it after the scan.
   # It holds the app's real data, so it is never copied into the report.
   keep_archive: false

@@ -47,6 +47,14 @@ These are listed in `evidence` with kind `report`.
 - `run_as_ls.txt` when `run-as` could list the repackaged app's private files
 - generated APK work files under `artifacts/work/android/repackaging/`
 
+`android-feature-02-risk-01`:
+
+- `report.json`
+- `logs.txt`
+- `private_data_listing.txt`, the run-as `ls -laR` of the private data directories, and `private_data_findings.json`, as for `android-feature-07-risk-01`, when run-as could read them
+- `critical_findings.json` and `critical_findings.md`, the ranked flags
+- the streamed archive under `artifacts/work/android/private_data/<package>/`, only when `keep_archive` is true
+
 `android-feature-07-risk-01`:
 
 - `report.json`
@@ -71,6 +79,8 @@ Each test's `report.json` (and `logs.txt`) carries one of these precise statuses
 - `PRIVATE_DATA_EXPOSED`: a secret or personal-data value was readable in plain text in the app's private data directory, outside the files known third-party SDKs write.
 - `PRIVATE_DATA_PROTECTED`: nothing sensitive was readable in plain text and the app keeps encrypted stores there. Reported as Reduced Risk.
 - `PRIVATE_DATA_NO_FINDINGS`: nothing sensitive was found in plain text, but no encrypted store was found either. Reported as Inconclusive.
+- `PRIVATE_DATA_NOT_ACCESSIBLE`: run-as refused to read the app's data because it is not debuggable, and `adb backup` would not return its data either. Reported as Reduced Risk.
+- `PRIVATE_DATA_BACKUP_POSSIBLE`: run-as was refused, but the app allows backups and `adb backup` would return its data; the backup was not tested. Reported as Inconclusive.
 - `FAILED`: unexpected Android automation failure.
 
 `summary.md`'s `Status` column doesn't show these directly — it shows a 3-way security verdict (`AndroidRiskRunResult.verdict`) that each risk sets itself, alongside `final_status`, at the point it decides the outcome: **At Risk** (the risk was demonstrated, e.g. `SCREEN_CAPTURE_ALLOWED`/`REPACKAGING_SURVIVED`), **Reduced Risk** (the app mitigated it, e.g. `SCREEN_CAPTURE_BLOCKED`/`REPACKAGING_BLOCKED`), or **Inconclusive** — the field's default, and what `REPACKAGING_FAILED`/`FAILED` leave it as. The precise underlying status is always still in that test's `report.json`.
@@ -110,6 +120,10 @@ The test needs the screen-capture helper. `screen-capture helper APK not found` 
 Private data test fails before reading any files:
 
 `The device does not grant root` means neither adbd nor `su` runs commands as uid 0; run the test on a rooted device, or on the rooted VM with Corellium role devices. `does not exist; is <package> installed` means the app has no `/data/data/<package>` directory. `more than the … byte limit (max_archive_mb)` means the app holds more data than `private_data.max_archive_mb` allows; raise it for that app. `Pulling the private data archive failed` usually means the host is out of space or the connection dropped; the copy on the device is removed either way.
+
+USB debugging private data test fails:
+
+`is it installed on the device` means `dumpsys package` reports nothing for the app. `The app is debuggable, but the device refused run-as` means the manifest is debuggable but the device's `run-as` still refuses it, which some vendor builds do; `metadata.run_as.detail` holds the refusal. `Streaming the private data directories with run-as failed` means tar or the adb connection failed partway, or the device returned something other than a tar archive; the partial copy is deleted. The size limit message is the same as for the rooted test.
 
 Keystore or signing failure:
 

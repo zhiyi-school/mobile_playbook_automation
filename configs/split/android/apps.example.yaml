@@ -12,6 +12,8 @@ apps:
         enabled: true
       android-feature-01-risk-02:
         enabled: true
+      android-feature-02-risk-01:
+        enabled: true
       android-feature-06-risk-01:
         enabled: true
       android-feature-07-risk-01:

@@ -16,6 +16,7 @@ It uses platform-prefixed risk IDs:
 | `ios-feature-05-risk-03` | iOS | Manual only: jailbreak detection bypass |
 | `ios-feature-05-risk-04` | iOS | Manual only: secrets extracted from process memory |
 | `android-feature-01-risk-02` | Android | APK repackaging, resigning, reinstall, and launch validation |
+| `android-feature-02-risk-01` | Android | Sensitive data readable in the private data directory of a debuggable app over USB debugging |
 | `android-feature-06-risk-01` | Android | Screen recording / `FLAG_SECURE` capture blocking |
 | `android-feature-07-risk-01` | Android | Sensitive data readable in the private data directory on a rooted device |
 

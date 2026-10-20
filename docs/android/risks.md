@@ -97,6 +97,36 @@ When `restore_original_after_test` is true (the default) and the install stage r
 
 Generated work files (backed-up, decoded, and rebuilt APKs) are left under `artifacts/work/android/repackaging/` for inspection.
 
+## android-feature-02-risk-01
+
+`android-feature-02-risk-01` demonstrates what USB debugging alone, without root, can collect from the app's private data directory, following the playbook: when the installed app is debuggable, `run-as <package>` runs commands as the app's own user and reads `/data/data/<package>`. A debuggable release build gives its data to anyone with an authorized USB debugging connection, so the test reports that, and then judges the data the way `android-feature-07-risk-01` does: whether the app keeps sensitive data in plain text or encrypts it, as the playbook's control does, with a key held in the Android Keystore.
+
+Requires: `adb` over an authorized USB debugging connection, so with Corellium role devices it runs on the non-rooted device, and a single physical phone runs it as is. Developer mode and USB debugging are already on whenever adb connects, so the test has no setup step of its own. It needs neither root nor Appium. The run-as checks are in `platforms/android/device/run_as.py` and the package flags are read by `platforms/android/device/package_flags.py`.
+
+Stages:
+
+1. Record `metadata.installed_base_apk_sha256`, the installed app's `metadata.package_flags` (`debuggable`, `allow_backup`, `target_sdk` and the full `flags` list from `adb shell dumpsys package <package>`) and `metadata.device_sdk` (`ro.build.version.sdk`). An app that `dumpsys` reports no flags for is not installed, and the run fails.
+2. Check run-as with `adb shell run-as <package> id -u` and record `metadata.run_as`: `available: true`, or `available: false` with the device's refusal in `detail`.
+3. When run-as is refused, the app is not debuggable, so its files cannot be read over USB debugging. `metadata.backup_returns_data` records whether `adb backup` would still return its data: the app allows backups (`ALLOW_BACKUP`, which is set unless the manifest turns `allowBackup` off) and either the device runs Android 11 or earlier or the app targets API level 30 or lower, since from Android 12 a backup leaves out the data of apps that target API level 31 or later. A missing API level counts as possible. The backup is not run, because it needs a tap on the device to confirm. The test ends here, with no files read.
+4. Otherwise, launch the app with `adb shell monkey`, wait `launch_wait` seconds and `am force-stop` it, as `android-feature-07-risk-01` does (step 2 there).
+5. Through run-as, check which of `/data/data/<package>` and `/data/user_de/0/<package>` exist, list them with `ls -laR` into `private_data_listing.txt` and measure them with `du`; data larger than `max_archive_mb` is not copied, and the run fails. Then stream the directories as a tar archive with `adb shell -T run-as <package> tar -cf - -C / data/data/<package> …` into `artifacts/work/android/private_data/<package>/<run timestamp>_run_as.tar`. Nothing is written on the device, because the app's user cannot write to `/data/local/tmp`. `-T` keeps tar's error output out of the archive and returns its exit code. An exit code of 1 means tar skipped files such as sockets, and those warnings are kept under `metadata.tar_warnings`; any other failure, or output that is not a complete tar archive, fails the run and deletes the partial copy.
+6. Read and categorise every file exactly as in `android-feature-07-risk-01` (steps 5 and 6 there, in `platforms/android/private_data/`), write the reports, and delete the archive unless `keep_archive` is true.
+
+Verdicts:
+
+- `PRIVATE_DATA_EXPOSED` (**At Risk**): run-as works, and at least one secret or personal-data value was readable in plain text outside the known SDK files.
+- `PRIVATE_DATA_PROTECTED` (**Reduced Risk**): run-as works, nothing was flagged outside the known SDK files, and at least one file is an encrypted store outside the cache folders. The app is still debuggable, which the critical findings report as HIGH.
+- `PRIVATE_DATA_NO_FINDINGS` (**Inconclusive**): run-as works, but nothing was flagged and no encrypted store was found.
+- `PRIVATE_DATA_NOT_ACCESSIBLE` (**Reduced Risk**): run-as is refused and a backup would not return the app's data.
+- `PRIVATE_DATA_BACKUP_POSSIBLE` (**Inconclusive**): run-as is refused, but a backup would return the app's data, and it was not tested.
+- `FAILED` (**Inconclusive**): the app is not installed, the app is debuggable but the device still refuses run-as, the data is over `max_archive_mb`, or listing or streaming failed; `errors` says which.
+
+Report files: `private_data_listing.txt` and `private_data_findings.json` when the files were read, as in `android-feature-07-risk-01`, and `critical_findings.json` and `critical_findings.md` (headed "Android USB Debugging Private Data Critical Findings") on every run that reaches a verdict. The critical findings are `PRIVATE_DATA_READABLE_VIA_USB_DEBUGGING` (HIGH) whenever run-as works, followed by the same `SENSITIVE_INFORMATION_EXPOSURE`, `SDK_DATA_IN_PLAIN_TEXT` and `UNENCRYPTED_DATABASES` flags; `APP_DATA_BACKUP_ALLOWED` (LOW) for `PRIVATE_DATA_BACKUP_POSSIBLE`; and none for `PRIVATE_DATA_NOT_ACCESSIBLE`.
+
+The test reads only what the app has written by the time it runs: it does not sign in or move through the app, and it never reinstalls it. Sign in to the app on the test device beforehand to include a session's data; a physical phone keeps it between runs. The playbook's fallback of repackaging a non-debuggable app as debuggable is not part of this test: installing the repackaged build means uninstalling the original, which deletes its data. `android-feature-01-risk-02` repackages the app and lists its files with run-as.
+
+Settings (`launch_wait`, `max_archive_mb`, `reveal_values`, `keep_archive`) are shared with `android-feature-07-risk-01` and documented in [Configuration](configuration.md#private-data-android-feature-02-risk-01-and-android-feature-07-risk-01).
+
 ## android-feature-07-risk-01
 
 `android-feature-07-risk-01` demonstrates what a rooted device can collect from the app's private data directory, following the playbook: root lists `/data/data/<package>` and reads the files in it. Root can read every app's private files, so the test asks whether the app keeps sensitive data there in plain text, or protects it as the playbook's control does, by encrypting it with a key held in the Android Keystore.
@@ -139,7 +169,7 @@ Report files: `private_data_listing.txt` (`private_data_listing` evidence), `pri
 
 The test reads only what the app has written by the time it runs: it does not sign in or move through the app. Sign in on the rooted device beforehand to include a session's data. Baseline role devices restore the rooted VM from its snapshot at the start of each run, which removes data left on it before.
 
-Settings (`launch_wait`, `max_archive_mb`, `reveal_values`, `keep_archive`) are documented in [Configuration](configuration.md#private-data-android-feature-07-risk-01).
+Settings (`launch_wait`, `max_archive_mb`, `reveal_values`, `keep_archive`) are documented in [Configuration](configuration.md#private-data-android-feature-02-risk-01-and-android-feature-07-risk-01).
 
 ## Risk Metadata
 
