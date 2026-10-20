@@ -11,6 +11,9 @@ from mobile_playbook.platforms.android.device.adb import AdbClient
 
 logger = logging.getLogger(__name__)
 
+# Packages whose window is a system runtime-permission prompt shown over an app; HarmonyOS uses the AOSP one.
+PERMISSION_CONTROLLER_PACKAGES = ["com.android.permissioncontroller", "com.google.android.permissioncontroller"]
+
 SPECIAL_PERMISSION_OPS = {
     "android.permission.SYSTEM_ALERT_WINDOW": "SYSTEM_ALERT_WINDOW",
     "android.permission.MANAGE_EXTERNAL_STORAGE": "MANAGE_EXTERNAL_STORAGE",
