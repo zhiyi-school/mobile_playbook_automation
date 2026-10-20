@@ -58,7 +58,7 @@ artifacts/reports/<RUN_TIMESTAMP>/android/<APP_ID>/<RISK_ID>/<CASE_ID>/
 | Appium with the UiAutomator2 driver | `android-feature-06-risk-01` and `android-feature-01-risk-02` |
 | The app's APK in `artifacts/intake/android/apks/` and `aapt` or `aapt2` on `PATH` to find it; MobSF when `analyzer.provider` is `mobsf` | `android-feature-01-risk-01` only |
 | The screen-capture helper APK, built with `python tools/companion_apps/android_screen_capture/build.py` (Android SDK and a JDK), and the device language set to English for Android versions that ask to share one app or the entire screen | `android-feature-06-risk-01` only |
-| `apktool`, `apksigner`, `keytool` on `PATH` | `android-feature-01-risk-02` only |
+| `apktool`, `zipalign`, `apksigner`, `keytool` on `PATH` | `android-feature-01-risk-02` only |
 | A rooted device, whose adbd or `su` runs commands as root; with Corellium role devices, the rooted VM | `android-feature-07-risk-01` only |
 | For `play_store` or `aurora_store`, that store app signed in to a Google account, with the device language set to English | installing missing apps |
 
@@ -262,7 +262,7 @@ has no column for it.
 | --- | --- | --- |
 | `android-feature-01-risk-01` — APK static analysis | the app's intake APK; MobSF optional | no device; scans the APK with MobSF or the built-in scanner and ranks what it exposes |
 | `android-feature-06-risk-01` — screen recording / `FLAG_SECURE` | ADB, Appium, the screen-capture helper, a device without a PIN, password or pattern | records the screen with a helper app, as the playbook does, and checks whether the app's content was captured |
-| `android-feature-01-risk-02` — APK repackaging | ADB, Appium, plus `apktool`, `apksigner`, `keytool` | pulls, decodes, rebuilds, resigns, reinstalls and launches |
+| `android-feature-01-risk-02` — APK repackaging | ADB, Appium, plus `apktool`, `zipalign`, `apksigner`, `keytool` | pulls, decodes, rebuilds, aligns, resigns, reinstalls and launches |
 | `android-feature-07-risk-01` — private data directory | ADB, a rooted device | copies the app's private data directories off the device as root and flags secrets and personal data stored in plain text |
 
 The repackaging risk modifies device state. Working files are left under

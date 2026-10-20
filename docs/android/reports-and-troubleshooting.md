@@ -93,7 +93,7 @@ Confirm Appium is running and the UiAutomator2 driver is installed. Set `device.
 
 Android repackaging tool failure:
 
-Confirm `apktool`, `apksigner`, and `keytool` are available on `PATH`. If it stops at `merge_split_apks`, the app is installed as split APKs: make sure `java` is on `PATH` and an APKEditor jar is under `tools/vendor/apkeditor/` (or `repackaging.apkeditor_jar` points at one). Repackaging work files are left under `artifacts/work/android/repackaging/` for inspection.
+Confirm `apktool`, `zipalign`, `apksigner`, and `keytool` are available on `PATH`. If it stops at `merge_split_apks`, the app is installed as split APKs: make sure `java` is on `PATH` and an APKEditor jar is under `tools/vendor/apkeditor/` (or `repackaging.apkeditor_jar` points at one). Repackaging work files are left under `artifacts/work/android/repackaging/` for inspection.
 
 Android app redirects to Play Store after repackaging:
 

@@ -149,7 +149,7 @@ though `validate` and `--dry-run` work without any of it.
   one, so a locked secured device needs a person.
 - **Android**: Android platform-tools on `PATH` (`adb`), the UiAutomator2
   driver, and a device with USB debugging authorized.
-- **Android repackaging risk only**: `apktool`, `apksigner`, `keytool`, plus `java` for apps installed as split APKs (APKEditor is vendored under `tools/vendor/apkeditor/`).
+- **Android repackaging risk only**: `apktool`, `zipalign`, `apksigner`, `keytool`, plus `java` for apps installed as split APKs (APKEditor is vendored under `tools/vendor/apkeditor/`).
 - **Android APK static-analysis risk**: the app's installable APK in `artifacts/intake/android/apks/`, named `<App_Name>_<version>.apk`; no device. `aapt` or `aapt2` (Android SDK build-tools) on `PATH`, which finds the app's APK by its package name and reads its manifest.
 - **Android screen capture risk only**: the screen-capture helper APK, built once with `python tools/companion_apps/android_screen_capture/build.py`, which needs the Android SDK (build-tools and a platform) and a JDK.
 - **MobSF** (optional): only for the iOS and Android static-analysis risks when their

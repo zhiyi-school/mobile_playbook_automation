@@ -109,6 +109,63 @@ def test_a_failed_merge_reports_apkeditor_output(tmp_path, monkeypatch):
         AndroidRepackagingRisk()._merge_split_apks(tmp_path, str(jar))
 
 
+def write_rebuilt_apk(app_dir):
+    rebuilt = app_dir / "repackaged" / "repackaged.apk"
+    rebuilt.parent.mkdir(parents=True)
+    rebuilt.write_bytes(b"unaligned")
+    return rebuilt
+
+
+def test_the_rebuilt_apk_is_aligned_and_verified_before_signing(tmp_path, monkeypatch):
+    rebuilt = write_rebuilt_apk(tmp_path)
+    commands = []
+
+    def fake_run(command, **kwargs):
+        commands.append(command)
+        if command[1] == "-p":
+            (tmp_path / "aligned.apk").write_bytes(b"aligned")
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    assert AndroidRepackagingRisk()._align_apk(tmp_path) is True
+    assert commands == [
+        ["zipalign", "-p", "-f", "4", str(rebuilt), str(tmp_path / "aligned.apk")],
+        ["zipalign", "-c", "-p", "4", str(tmp_path / "aligned.apk")],
+    ]
+    assert rebuilt.read_bytes() == b"aligned"
+    # Only the aligned APK is left in the folder the install stage installs from.
+    assert sorted(path.name for path in rebuilt.parent.iterdir()) == ["repackaged.apk"]
+
+
+def test_a_failed_alignment_check_stops_the_stage_and_keeps_the_rebuilt_apk(tmp_path, monkeypatch):
+    rebuilt = write_rebuilt_apk(tmp_path)
+
+    def fake_run(command, **kwargs):
+        if command[1] == "-p":
+            (tmp_path / "aligned.apk").write_bytes(b"aligned")
+            return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+        return subprocess.CompletedProcess(command, 1, stdout="Verifying alignment\nVerification FAILED", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    with pytest.raises(StageFailure, match="zipalign -c exited 1: Verification FAILED"):
+        AndroidRepackagingRisk()._align_apk(tmp_path)
+    assert rebuilt.read_bytes() == b"unaligned"
+
+
+def test_a_missing_zipalign_fails_the_stage_with_a_clear_message(tmp_path, monkeypatch):
+    write_rebuilt_apk(tmp_path)
+
+    def fake_run(command, **kwargs):
+        raise FileNotFoundError(command[0])
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    with pytest.raises(StageFailure, match="zipalign is not on PATH"):
+        AndroidRepackagingRisk()._align_apk(tmp_path)
+
+
 @pytest.mark.parametrize(
     "install_result",
     [
@@ -289,7 +346,7 @@ def make_configs(tmp_path, **repackaging_cfg):
 
 
 def stub_pipeline(risk, monkeypatch):
-    for name in ("_backup_apks", "_ensure_keystore", "_merge_split_apks", "_run_apktool_decode", "_add_debuggable_to_manifest", "_change_apk_name", "_rebuild_apk", "_sign_apks", "_install_repackaged_apk"):
+    for name in ("_backup_apks", "_ensure_keystore", "_merge_split_apks", "_run_apktool_decode", "_add_debuggable_to_manifest", "_change_apk_name", "_rebuild_apk", "_align_apk", "_sign_apks", "_install_repackaged_apk"):
         monkeypatch.setattr(risk, name, lambda *a: True)
 
 

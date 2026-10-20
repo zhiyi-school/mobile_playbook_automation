@@ -44,7 +44,7 @@ class AndroidRepackagingRisk(AndroidRisk):
     name = "Android Repackaging Test"
     test_case_id = "repackaging"
     test_case_type = "apk_decode_patch_resign_validate"
-    requires = ["adb", "apktool", "apksigner", "keytool", "appium"]
+    requires = ["adb", "apktool", "zipalign", "apksigner", "keytool", "appium"]
     store = APP_STORES[DEFAULT_APP_STORE]
 
     # Repackage and reinstall the app, validate it with Appium, optionally restore the original and write the result.
@@ -89,6 +89,7 @@ class AndroidRepackagingRisk(AndroidRisk):
                     ("add_debuggable_to_manifest", lambda: self._add_debuggable_to_manifest(app_dir)),
                     ("change_apk_name", lambda: self._change_apk_name(app_dir)),
                     ("rebuild_apk", lambda: self._rebuild_apk(app_dir)),
+                    ("align_apk", lambda: self._align_apk(app_dir)),
                     ("sign_apks", lambda: self._sign_apks(app_dir, keystore, keystore_pass)),
                     ("install_repackaged_apks", lambda: self._install_repackaged_apk(device_client, app_dir, app_config.package_name)),
                 ]
@@ -318,6 +319,29 @@ class AndroidRepackagingRisk(AndroidRisk):
         )
         logger.debug("%s: apktool b exited %s in %.2fs (repackaged.apk exists=%s, stderr head=%r)", self.risk_id, result.returncode, time.monotonic() - started, (repackaged_dir / "repackaged.apk").exists(), (result.stderr or "")[:200])
         return result.returncode == 0 and (repackaged_dir / "repackaged.apk").exists()
+
+    # Align the rebuilt APK in place with zipalign and verify it, so it is ready to sign.
+    def _align_apk(self, app_dir: Path) -> bool:
+        rebuilt = app_dir / "repackaged" / "repackaged.apk"
+        if not rebuilt.exists():
+            logger.debug("%s: rebuilt APK missing at %s; cannot align", self.risk_id, rebuilt)
+            return False
+        # Aligning after signing would invalidate the signature, so this runs first. The aligned copy is written
+        # outside repackaged/ because the install stage installs every APK in that folder.
+        aligned = app_dir / "aligned.apk"
+        for cmd in (["zipalign", "-p", "-f", "4", str(rebuilt), str(aligned)], ["zipalign", "-c", "-p", "4", str(aligned)]):
+            logger.debug("%s: running argv=%s", self.risk_id, cmd)
+            started = time.monotonic()
+            try:
+                result = subprocess.run(cmd, capture_output=True, text=True, stdin=subprocess.DEVNULL)
+            except FileNotFoundError:
+                raise StageFailure("zipalign is not on PATH. Add the Android SDK build-tools folder to PATH.") from None
+            logger.debug("%s: zipalign %s exited %s in %.2fs (stderr head=%r)", self.risk_id, cmd[1], result.returncode, time.monotonic() - started, (result.stderr or "")[:200])
+            if result.returncode != 0:
+                lines = [line.strip() for line in f"{result.stdout or ''}\n{result.stderr or ''}".splitlines() if line.strip()]
+                raise StageFailure(f"zipalign {cmd[1]} exited {result.returncode}: {lines[-1] if lines else 'no output'}")
+        aligned.replace(rebuilt)
+        return True
 
     # Sign the rebuilt APK in place with the test keystore.
     def _sign_apks(self, app_dir: Path, keystore: Path, password: str) -> bool:

@@ -69,7 +69,7 @@ The consequences that matter in practice:
 | iOS driver | Appium `XCUITest` driver, real device only |
 | Android driver | Appium `UiAutomator2` driver |
 | Android bridge | `adb` (Android platform-tools), shelled out to directly |
-| Android repackaging tools | `apktool`, `apksigner`, `keytool`, all shelled out to directly |
+| Android repackaging tools | `apktool`, `zipalign`, `apksigner`, `keytool`, all shelled out to directly |
 | iOS binary inspection | `otool` (Xcode command line tools), shelled out to directly |
 | iOS static analysis | MobSF REST API (primary) with a built-in Python fallback scanner; optional Docker auto-start |
 | Custom-keyboard collection server | Python stdlib `http.server.ThreadingHTTPServer` — no web framework |
@@ -399,7 +399,7 @@ above.
 Since this is a security-testing tool, it's worth listing every external process and network endpoint it can invoke, for anyone reviewing what a run actually touches:
 
 - `adb` (device bridge, package install/uninstall, shell commands, `dumpsys`)
-- `apktool`, `apksigner`, `keytool` (Android repackaging only)
+- `apktool`, `zipalign`, `apksigner`, `keytool` (Android repackaging only)
 - `otool` (iOS binary inspection, read-only)
 - Appium server, over HTTP (`device.appium_server_url`, both platforms)
 - MobSF REST API, over HTTP (`analyzer.mobsf_url`, the iOS and Android static-analysis risks), and optionally `docker run ...`/a local MobSF command if `auto_start.enabled`

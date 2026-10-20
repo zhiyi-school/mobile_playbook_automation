@@ -31,7 +31,7 @@ If a package cannot be inspected, installed, launched, or modified because of pl
 - Appium server
 - iOS: Xcode, XCUITest driver, physical iPhone, and optionally MobSF
 - Android: Android platform-tools / `adb`, UiAutomator2 Appium support
-- Android repackaging: `apktool`, `apksigner`, and `keytool`, plus APKEditor and `java` for apps installed as split APKs
+- Android repackaging: `apktool`, `zipalign`, `apksigner`, and `keytool`, plus APKEditor and `java` for apps installed as split APKs
 
 Install the package:
 

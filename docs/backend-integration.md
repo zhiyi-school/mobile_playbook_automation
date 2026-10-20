@@ -44,7 +44,7 @@ requirement.
 | Device | one physical iOS or Android device per platform, connected and authorised |
 | iOS | Xcode, XCUITest driver, Apple Team ID, device with no passcode/biometric |
 | Android | platform-tools (`adb`), UiAutomator2 driver |
-| Android repackaging risk | `apktool`, `apksigner`, `keytool` |
+| Android repackaging risk | `apktool`, `zipalign`, `apksigner`, `keytool` |
 | Optional | MobSF (iOS and Android static analysis, `analyzer.provider: mobsf`) |
 | Optional | Supabase project + service-role key (dashboard sync only) |
 

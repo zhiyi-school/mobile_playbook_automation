@@ -51,7 +51,7 @@ paste them into issue trackers unredacted.
 | iOS device never unlocks | the device has a passcode/Face ID/Touch ID | Appium cannot enter one on a real device; remove it on the test device |
 | iOS install fails | signing identity or Team ID mismatch | check `device.team_id` and `device.xcode_signing_id` |
 | Android device not found | USB debugging not authorised | `adb devices`, accept the prompt on the device |
-| Repackaging risk fails immediately | `apktool`/`apksigner`/`keytool` missing | install them and confirm they are on `PATH` |
+| Repackaging risk fails immediately | `apktool`/`zipalign`/`apksigner`/`keytool` missing | install them and confirm they are on `PATH` |
 | MobSF analysis fails | MobSF not running, or `MOBSF_API_KEY` unset/incorrect | start MobSF; the static-analysis risk can also use the `builtin` provider |
 
 ## Dashboard sync

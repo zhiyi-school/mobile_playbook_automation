@@ -47,7 +47,7 @@ def check_requirements(requires: list[str], adb: AdbClient | None, config) -> li
             results.append((name, *_check_appium(config)))
         elif name == "root":
             results.append((name, *_check_root(adb)))
-        elif name in {"apktool", "apksigner", "keytool"}:
+        elif name in {"apktool", "zipalign", "apksigner", "keytool"}:
             results.append((name, *_check_executable(name)))
         elif name == "mobsf":
             results.append((name, *_check_tcp_tool("MobSF", config.tools.get("mobsf_url", ""))))
