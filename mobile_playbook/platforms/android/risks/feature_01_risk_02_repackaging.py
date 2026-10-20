@@ -33,8 +33,12 @@ except ImportError:
     AppiumBy = None
 
 APKEDITOR_DIR = "tools/vendor/apkeditor"
-# AOSP ids of the prompt's Deny and "Don't allow" buttons; prompts without them are dismissed with Back.
-PERMISSION_DENY_SELECTOR = 'new UiSelector().resourceIdMatches(".*:id/permission_deny.*")'
+# The prompt's Deny button: by its AOSP ids, else by its English label, which HarmonyOS's own prompts need since
+# they use other ids and ignore Back. Prompts matching neither are dismissed with Back.
+PERMISSION_DENY_SELECTORS = (
+    'new UiSelector().resourceIdMatches(".*:id/permission_deny.*")',
+    'new UiSelector().clickable(true).textMatches("(?i)(deny|don.t allow)")',
+)
 
 
 class StageFailure(Exception):
@@ -547,16 +551,17 @@ class AndroidRepackagingRisk(AndroidRisk):
             logger.debug("%s[%s]: foreground package after denying prompt %s is %s", self.risk_id, package_name, denied, current_package)
         return current_package, denied
 
-    # Tap the prompt's Deny button, or press Back where it has none (as on HarmonyOS), which Android also treats as a denial.
+    # Tap the prompt's Deny button, or press Back where none is found, which Android also treats as a denial.
     def _deny_permission_prompt(self, driver, package_name: str, prompt_package: str) -> None:
-        try:
-            buttons = driver.find_elements(AppiumBy.ANDROID_UIAUTOMATOR, PERMISSION_DENY_SELECTOR)
-            if buttons:
-                logger.debug("%s[%s]: tapping Deny on the %s prompt", self.risk_id, package_name, prompt_package)
-                buttons[0].click()
-                return
-        except Exception as exc:
-            logger.debug("%s[%s]: tapping Deny on the %s prompt failed: %s", self.risk_id, package_name, prompt_package, exc, exc_info=True)
+        for selector in PERMISSION_DENY_SELECTORS:
+            try:
+                buttons = driver.find_elements(AppiumBy.ANDROID_UIAUTOMATOR, selector)
+                if buttons:
+                    logger.debug("%s[%s]: tapping Deny on the %s prompt (found by %s)", self.risk_id, package_name, prompt_package, selector)
+                    buttons[0].click()
+                    return
+            except Exception as exc:
+                logger.debug("%s[%s]: tapping Deny found by %s on the %s prompt failed: %s", self.risk_id, package_name, selector, prompt_package, exc, exc_info=True)
         logger.debug("%s[%s]: pressing Back to dismiss the %s prompt", self.risk_id, package_name, prompt_package)
         driver.back()
 

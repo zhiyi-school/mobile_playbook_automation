@@ -546,10 +546,10 @@ def test_a_validated_run_records_screenshots_and_the_run_as_check(tmp_path, monk
 class PromptDriver(ScreenshotDriver):
     """Reports each foreground package in turn, then stays on the last one."""
 
-    def __init__(self, foregrounds, deny_buttons=True, app_buttons=()):
+    def __init__(self, foregrounds, deny_found_by="id", app_buttons=()):
         super().__init__(foregrounds[0], buttons=app_buttons)
         self.foregrounds = list(foregrounds)
-        self.deny_buttons = deny_buttons
+        self.deny_selector = {"id": repackaging.PERMISSION_DENY_SELECTORS[0], "label": repackaging.PERMISSION_DENY_SELECTORS[1]}.get(deny_found_by)
         self.actions: list[str] = []
 
     @property
@@ -561,8 +561,8 @@ class PromptDriver(ScreenshotDriver):
         pass
 
     def find_elements(self, by, selector):
-        if selector == repackaging.PERMISSION_DENY_SELECTOR:
-            return [ActionButton(self.actions, "deny")] if self.deny_buttons else []
+        if selector in repackaging.PERMISSION_DENY_SELECTORS:
+            return [ActionButton(self.actions, "deny")] if selector == self.deny_selector else []
         return self.buttons
 
     def back(self) -> None:
@@ -592,9 +592,18 @@ def test_a_permission_prompt_at_launch_is_denied_not_judged_an_exit(tmp_path, pr
     assert sorted(p.name for p in tmp_path.iterdir()) == ["after_launch.png", "after_launch_prompt_1_denied.png"]
 
 
+def test_a_prompt_without_the_aosp_deny_id_is_denied_by_its_label():
+    # HarmonyOS's own prompts, such as reading the installed-app list, use other button ids and ignore Back.
+    driver = PromptDriver(["com.android.permissioncontroller", PACKAGE], deny_found_by="label")
+
+    verdict = AndroidRepackagingRisk()._check_app_after_launch(driver, PACKAGE, PROMPT_CFG)
+
+    assert verdict.startswith("PASS")
+    assert driver.actions == ["deny"]
+
+
 def test_a_prompt_without_a_deny_button_is_dismissed_with_back():
-    # HarmonyOS's own prompts, such as reading the installed-app list, lack the AOSP deny button ids.
-    driver = PromptDriver(["com.android.permissioncontroller", PACKAGE], deny_buttons=False)
+    driver = PromptDriver(["com.android.permissioncontroller", PACKAGE], deny_found_by=None)
 
     verdict = AndroidRepackagingRisk()._check_app_after_launch(driver, PACKAGE, PROMPT_CFG)
 
