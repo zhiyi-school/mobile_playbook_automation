@@ -14,6 +14,15 @@ apps:
         enabled: true
       android-feature-02-risk-01:
         enabled: true
+      android-feature-02-risk-02:
+        enabled: true
+        # Optional: steps that take the app through a sensitive flow while its log is captured, typing synthetic
+        # canaries from runtime_logs.canaries. Without steps the app is left running for dwell_seconds instead.
+        # steps:
+        #   - type: {id: "com.example.app:id/email", value: "{canary.email}"}
+        #   - type: {accessibility_id: "Password", value: "{canary.password}"}
+        #   - tap: {text: "Sign in"}
+        #   - wait: 3
       android-feature-06-risk-01:
         enabled: true
       android-feature-07-risk-01:
