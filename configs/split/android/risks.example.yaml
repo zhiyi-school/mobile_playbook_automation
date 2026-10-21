@@ -142,10 +142,54 @@ android-feature-02-risk-02:
           commands: []
 
 android-feature-04-risk-01:
-  name: "Android Overlay Test"
-  description: "Describe what this risk demonstrates."
+  name: Android Overlay Test
+  description: Another app allowed to display over other apps may draw its own window over the app's screens, because the app does not hide non-system overlay windows while it is shown.
   tactic: null
-  demonstration: []
+  demonstration:
+    - id: setup_table
+      type: table
+      label: Setup
+      rows:
+        - Configuration: Requires
+          Detail: adb, appium, overlay_attacker (F4_Overlay_Attacker.apk in the Android intake folder, or the current attacker app already installed)
+        - Configuration: Coverage
+          Detail: The app's risks.android-feature-04-risk-01.steps take it to the screen tested, such as its sign-in screen; without them the overlay is tested over the launch screen
+    - id: steps
+      type: steps
+      label: Demonstration
+      items:
+        - id: step_1
+          text: Record the installed APK's hash, connect Appium and return to the home screen
+          images: []
+          commands: []
+        - id: step_2
+          text: Install the attacker app without granting permissions, start it titled after the app, and record the Display over other apps list
+          images: []
+          commands:
+            - adb shell am start -S -n com.mobileplaybook.overlay/.MainActivity
+            - adb shell am start -a android.settings.action.MANAGE_OVERLAY_PERMISSION
+        - id: step_3
+          text: Turn on Allow display over other apps for the attacker in Settings, falling back to appops only when the switch cannot be found, confirm the grant, and start the attacker again
+          images: []
+          commands:
+            - adb shell am start -a android.settings.action.MANAGE_OVERLAY_PERMISSION -d package:com.mobileplaybook.overlay
+            - adb shell appops get com.mobileplaybook.overlay SYSTEM_ALERT_WINDOW
+        - id: step_4
+          text: Launch the app, run its scripted steps if any, confirm it is in the foreground (or resumed behind the focused overlay), and check whether the attacker's overlay window is shown over it
+          images: []
+          commands:
+            - adb shell dumpsys window windows
+            - adb shell dumpsys activity activities
+        - id: step_5
+          text: When the overlay is shown, confirm with synthetic test values that the attacker app records what is entered into its window
+          images: []
+          commands: []
+        - id: step_6
+          text: Decide the verdict, then stop the attacker, reset its overlay permission, close the app and write the report
+          images: []
+          commands:
+            - adb shell am force-stop com.mobileplaybook.overlay
+            - adb shell appops set com.mobileplaybook.overlay SYSTEM_ALERT_WINDOW default
 
 android-feature-06-risk-01:
   name: "Android Screen Capture Test"
