@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from mobile_playbook.platforms.ios.traffic_interception.burp_capture import CaptureObservation
+from mobile_playbook.platforms.traffic_interception.burp_capture import CaptureObservation
 from mobile_playbook.platforms.ios.traffic_interception.burp_health import health_record_path, write_health_record
 from scripts import check_burp_interception
 

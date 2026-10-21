@@ -87,6 +87,7 @@ the matching path. Paths below are relative to `tests/`.
 | IPA acquisition, handling and zip safety | `platforms/ios/acquisition/`, `platforms/ios/ipa/`, `orchestration/test_selection.py` |
 | Individual risks | `platforms/ios/risks/`, `platforms/android/risks/`, `platforms/android/test_apk_tools.py` |
 | iOS capabilities | `platforms/ios/keyboard/`, `platforms/ios/traffic_interception/`, `platforms/ios/screen_capture/` |
+| Burp capture reader | `platforms/traffic_interception/` |
 | Appium session handling and recovery | `platforms/ios/test_device_client.py`, `orchestration/test_appium_server.py`, `orchestration/test_*_appium_recovery.py` |
 | Corellium lifecycle and Android role devices | `platforms/corellium/`, `platforms/android/test_device_roles.py`, `platforms/android/test_runner_roles.py`, `platforms/android/device/test_adb_connection.py`, `platforms/android/device/test_debugging_prompt.py`, `platforms/android/device/test_pool.py` |
 | Corellium baseline runs, installs and readiness | `platforms/android/test_baseline_runs.py`, `api/test_corellium_baselines.py`, the baseline cases in `test_cli.py`, `workers/test_assessment_worker.py` and `api/test_appium_lifecycle.py`, with fakes in `platforms/android/baseline_fakes.py` |

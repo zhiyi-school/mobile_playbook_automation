@@ -1,3 +1,3 @@
 """
-Traffic interception: device proxy and CA setup, and the Burp capture file and its health record.
+Traffic interception on iOS: device proxy and CA setup, and the health record of a verified Burp capture file.
 """

@@ -16,7 +16,7 @@ from mobile_playbook.common.config_loader import merge_dicts
 from mobile_playbook.common.logging_setup import redacted, safe_url
 from mobile_playbook.orchestration.appium_server import tcp_reachable
 from mobile_playbook.platforms.ios.acquisition.registry import get_provider
-from mobile_playbook.platforms.ios.traffic_interception.burp_capture import (
+from mobile_playbook.platforms.traffic_interception.burp_capture import (
     CaptureCursor,
     CaptureObservation,
     poll_capture,

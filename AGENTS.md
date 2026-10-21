@@ -63,7 +63,9 @@ Paths below are relative to `mobile_playbook/`.
   corresponding platform packages. Static analysis that both platforms share
   (MobSF client, secret scanning, severity flags, analyzer selection) lives in
   `platforms/static_analysis/`; code that reads one package format stays in
-  `platforms/<platform>/static_analysis/`.
+  `platforms/<platform>/static_analysis/`. Likewise, reading the Burp capture
+  file lives in `platforms/traffic_interception/`, while device proxy and CA
+  setup stays in `platforms/<platform>/traffic_interception/`.
 - Keep `dashboard_sync/__init__.py` import-free. Importing `ledger`,
   `run_status`, or `trigger` from the API must not load the Supabase transport
   or worker startup code.
