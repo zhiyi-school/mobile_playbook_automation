@@ -141,6 +141,12 @@ android-feature-02-risk-02:
           images: []
           commands: []
 
+android-feature-04-risk-01:
+  name: "Android Overlay Test"
+  description: "Describe what this risk demonstrates."
+  tactic: null
+  demonstration: []
+
 android-feature-06-risk-01:
   name: "Android Screen Capture Test"
   description: "Describe what this risk demonstrates."
