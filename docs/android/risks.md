@@ -27,6 +27,41 @@ Statuses: `APK_ANALYSIS_COMPLETE` (At Risk), `APK_NOT_FOUND` (Inconclusive, noth
 
 Settings (`analyzer`, `sensitive_scan`, `api_key_reuse_test`) are documented in [Configuration](configuration.md#apk-static-analysis-android-feature-01-risk-01).
 
+## android-feature-04-risk-01
+
+`android-feature-04-risk-01` demonstrates whether another app allowed to display over other apps can draw its own window over the target app, following the playbook. An attacker app adds a `TYPE_APPLICATION_OVERLAY` window, which can take keyboard input, when it moves to the background. The test then opens the target app and checks whether that window is shown over it. The playbook's control is `window.setHideOverlayWindows(true)`, available from Android 12 (API level 31), which hides such windows while the app's window is shown.
+
+Requires: `adb`, `appium`, `overlay_attacker` (`F4_Overlay_Attacker.apk`, package `com.mobileplaybook.overlay`, in the Android intake folder, or the current version already installed on the device). The APK's source and its driving contract are kept with the playbook's sample apps. The test drives Settings through Appium, so the device must not have a PIN, password or pattern; the runner wakes and unlocks it before each test (see [Configuration](configuration.md#runner)).
+
+Stages, numbered by the playbook step each one carries out:
+
+1. **Step 01.** Record the installed APK's hash, open an Appium session and go to the home screen.
+2. **Step 03.** Install the attacker app unless the device already has its current version. The install grants no permissions, so Display over other apps stays off until step 04. Start the attacker titled after the app, and record the Display over other apps list (`overlay/permission_list.png`).
+3. **Step 04.** Open the attacker's Display over other apps page (`android.settings.action.MANAGE_OVERLAY_PERMISSION` with `package:com.mobileplaybook.overlay`) and turn on its switch through Appium. The switch is found as `android:id/switch_widget`, then as any `android.widget.Switch`, and is tapped only when it is off. When no switch is found, the permission is set with `adb shell appops set … SYSTEM_ALERT_WINDOW allow` instead. `metadata.permission_granted_via` records `settings_ui` or `appops_fallback`. The grant is confirmed with `appops get` (`overlay/permission_toggle.png`), and the attacker is started again so its service runs with the permission.
+4. **Step 05.** Go home, launch the app, wait `launch_wait` seconds, and run the app's scripted steps when it has them (see [Scripted steps](configuration.md#overlay-android-feature-04-risk-01)). Then check, in order:
+   - **The app is in front.** Every exit or redirect is inconclusive, classified as for the screen capture test. The overlay takes input focus, so Appium can report the attacker as the foreground app. When it does, the test reads the resumed activity from `adb shell dumpsys activity activities` and uses the app behind the overlay instead (`metadata.resumed_package`); when that cannot be read, the result is inconclusive.
+   - **The attacker added its window.** Its status reports how many times `addView()` succeeded.
+   - **The window is shown.** The attacker's `APPLICATION_OVERLAY` windows in `adb shell dumpsys window windows` are read, and kept as `overlay/dumpsys_overlay_window.txt`. A window counts as hidden when `mForceHideNonSystemOverlayWindow`, `mHidden` or `mPermanentlyHidden` is true, when a visibility or surface field such as `mHasSurface`, `isOnScreen`, `isVisible` or `mSurfaceShown` is false, when `mPolicyVisibility` is 0, or when `mViewVisibility` is not 0. It counts as shown when none of those hold and at least one shown field is true. A window with none of these fields is unknown.
+
+   `metadata.overlay` records `added`, `shown_count`, `window_found` and `visible`, and `overlay/target_screen.png` records the screen.
+5. **Step 06.** Only when the overlay is shown over the app: type the built-in synthetic email and password into the overlay's fields and tap its button, confirm the attacker recorded both values, then open the attacker app and confirm it displays them (`overlay/attacker_captured.png`). `metadata.capture` records the steps, `confirmed` and `display_confirmed`. Otherwise this step is skipped and nothing is typed.
+6. Stop the attacker app, which removes its overlay, and reset its overlay permission with `appops set … SYSTEM_ALERT_WINDOW default`, so no overlay stays over later tests and the next run grants the permission again. Then close the app, end the Appium session and write the report. Cleanup runs even when an earlier stage failed.
+
+`metadata.steps_performed` records each playbook step's outcome (`completed`, `skipped`, `failed` or `not_run`) with a short detail. `metadata.coverage` is `scripted`, `scripted_partial` or `launch_only`, as for the runtime log test. `metadata.declares_hide_overlay_windows` records whether the app's manifest requests `android.permission.HIDE_OVERLAY_WINDOWS` (`null` if that could not be read). It is supporting information only and does not decide the verdict.
+
+Verdict-to-status mapping:
+
+- `ALLOWED`: the overlay was added and shown over the app while it was in front, and step 06 confirmed the attacker recorded the input → `OVERLAY_ALLOWED` (**At Risk**).
+- `BLOCKED`: the overlay was added but hidden while the app was in front → `OVERLAY_BLOCKED` (**Reduced Risk**).
+- `INCONCLUSIVE`: the app was not in front, the attacker never added its window, no attacker overlay window was in the dump, or its visibility fields were not recognised → `OVERLAY_NOT_TESTED` (**Inconclusive**).
+- `ERROR`, or a stage that fails, such as a missing attacker APK, an unconfirmed permission grant or a step 06 check that does not pass → `FAILED` (**Inconclusive**), with the reason in `errors`.
+
+Screenshots are best-effort evidence. One that cannot be saved is listed under `metadata.evidence_errors` and does not change the verdict. Evidence kinds are `overlay_permission_list`, `overlay_permission_toggle`, `overlay_target_screen` and `overlay_window_dump`.
+
+Without scripted steps, this checks the screen the app shows after `launch_wait` only, usually its launch screen. An app that sets `setHideOverlayWindows(true)` on its sign-in screen alone is protected only there, so add steps that reach that screen.
+
+Settings (`launch_wait`, `overlay_timeout`, `step_timeout_seconds`, `attacker_apk`, `canaries`) are documented in [Configuration](configuration.md#overlay-android-feature-04-risk-01).
+
 ## android-feature-06-risk-01
 
 `android-feature-06-risk-01` demonstrates whether another app on the device can record the target app's screen, following the playbook: a helper app records the screen through Android's screen-recording API (`MediaProjection`) after the user approves the system prompt, the target app is opened while it records, and the recording shows whether the app's content was captured or came out blank, as a `FLAG_SECURE` window does.

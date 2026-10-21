@@ -32,6 +32,17 @@ for each platform. See [docs/ios/reports-and-troubleshooting.md](../ios/reports-
 
 These are listed in `evidence` with kind `report`.
 
+`android-feature-04-risk-01`:
+
+- `report.json`
+- `logs.txt`
+- `overlay/permission_list.png` and `overlay/permission_toggle.png`, the Display over other apps list and the attacker's permission page
+- `overlay/target_screen.png`, the app's screen when the overlay was checked
+- `overlay/dumpsys_overlay_window.txt`, the attacker's overlay windows from `adb shell dumpsys window windows`
+- `overlay/attacker_captured.png`, the attacker app showing the values it recorded, when the overlay was shown
+
+A screenshot that could not be saved is listed under `metadata.evidence_errors` instead.
+
 `android-feature-06-risk-01`:
 
 - `report.json`
@@ -79,6 +90,9 @@ Each test's `report.json` (and `logs.txt`) carries one of these precise statuses
 
 - `APK_ANALYSIS_COMPLETE`: the APK was analysed; reported as At Risk, since the analysis itself shows the APK's contents are exposed.
 - `APK_NOT_FOUND`: no APK in `artifacts/intake/android/apks/` has the app's package name, or `aapt`/`aapt2` is not on `PATH` to read it. Reported as Inconclusive.
+- `OVERLAY_ALLOWED`: the attacker's overlay window was shown over the app while it was in front, and the attacker recorded the synthetic values typed into it. Reported as At Risk.
+- `OVERLAY_BLOCKED`: the attacker added its overlay window, but it was hidden while the app was in front. Reported as Reduced Risk.
+- `OVERLAY_NOT_TESTED`: the app was not in front, the attacker never added its window, or the window or its visibility could not be read from `dumpsys window`. Reported as Inconclusive; `metadata.verdict` says which.
 - `SCREEN_CAPTURE_ALLOWED`: the recording captured content while the target app remained in the foreground; UI warnings and `FLAG_SECURE` do not override the recording.
 - `SCREEN_CAPTURE_BLOCKED`: the target app remained in the foreground and its recorded frame was blank, with a working pre-launch recording.
 - `SCREEN_CAPTURE_NOT_TESTED`: the app exited, redirected to another app, or a system permission prompt covered it. Reported as Inconclusive because these observations do not prove capture protection. Check that the app works on this device and inspect the captured frame. For a store redirect, check its installation requirements; for a permission prompt, set `runner.auto_grant_permissions: true` (or grant the permission on the device) and run it again.
@@ -126,6 +140,14 @@ This is treated as repackaging blocked. The app likely detected signature or pac
 Test fails with `the device is still locked after waking it`:
 
 The runner wakes and unlocks the device over adb before each test, which only works when the device has no PIN, password or pattern. Remove it in the device's security settings, or unlock the device by hand before the run. Set `runner.keep_screen_on: true` so the screen does not time out during a run while the device charges.
+
+Overlay test fails before launching the app:
+
+`overlay attacker APK not found` means `F4_Overlay_Attacker.apk` is not in `artifacts/intake/android/apks/` (or at `overlay.attacker_apk`) and the device does not have its current version. `INSTALL_FAILED_UPDATE_INCOMPATIBLE` means the device has the attacker app signed with another key, for example one rebuilt from its source archive; uninstall `com.mobileplaybook.overlay` and run the test again. `Overlay permission was not allowed` means the Settings switch was tapped but `appops get` never reported `allow`; check `overlay/permission_toggle.png`. `metadata.permission_granted_via: appops_fallback` means no switch was found on that device's Settings page, so the permission was set with `appops` instead.
+
+Overlay test is not tested although the overlay appears:
+
+`The overlay window visibility fields were not recognised` means the device's `dumpsys window` output has none of the fields the test reads; send `overlay/dumpsys_overlay_window.txt` with the report so the fields can be added. `The overlay held focus and the app behind it could not be read` means `dumpsys activity activities` had no resumed-activity line the test recognises.
 
 Screen capture test fails before launching the app:
 

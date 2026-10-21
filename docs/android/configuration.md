@@ -302,7 +302,7 @@ Android risk IDs are prefixed `android-feature...`. To configure a risk for an a
      keystore_pass: "REPLACE_WITH_KEYSTORE_PASSWORD"
    ```
 
-   See `configs/split/android/repackaging.example.yaml`, `screen_capture.example.yaml`, `apk_static_analysis.example.yaml`, `private_data.example.yaml` and `runtime_logs.example.yaml` for the rest of these fields, and the field references below for what each controls.
+   See `configs/split/android/repackaging.example.yaml`, `screen_capture.example.yaml`, `apk_static_analysis.example.yaml`, `private_data.example.yaml`, `runtime_logs.example.yaml` and `overlay.example.yaml` for the rest of these fields, and the field references below for what each controls.
 3. Only add more fields under the app's own `risks.<risk_id>` entry when this one app needs to differ from those shared defaults — nest just the field being changed. Anything left unset there falls back to the global file.
 
 Risks run in the order they're listed under an app's `risks` mapping, not sorted by ID — keep that in mind if the order of your own `risks:` blocks matters to you.
@@ -369,6 +369,37 @@ repackaging:
 - `apkeditor_jar` (optional): path to the APKEditor jar used to merge split APKs before decoding; a relative value resolves against the repository root. Unset, the newest `APKEditor*.jar` under `tools/vendor/apkeditor/` is used.
 - `launch_wait` / `post_click_wait` / `record_lead_in` / `record_tail`: pacing for the post-repackaging Appium launch validation and its screen recording.
 - `permission_prompt_wait` / `max_permission_prompts`: seconds to wait after denying a system permission prompt that covers the app, and how many prompts to deny at each foreground check before the validation is inconclusive.
+
+### Overlay (`android-feature-04-risk-01`)
+
+Global defaults live under a top-level `overlay` block in `overlay.yaml` under `configs/split/android/` (see `overlay.example.yaml`), included from `configs/android.yaml` as `overlay: split/android/overlay.yaml`. Without the file the defaults below apply. Each setting can be overridden per app under `risks.android-feature-04-risk-01`:
+
+```yaml
+overlay:
+  launch_wait: 5
+  overlay_timeout: 15
+  step_timeout_seconds: 10
+  # attacker_apk: artifacts/intake/android/apks/F4_Overlay_Attacker.apk
+```
+
+- `launch_wait`: seconds to wait after opening the Display over other apps list and after launching the app, before reading the screen (default 5).
+- `overlay_timeout`: seconds to wait for the attacker app to report that it started, added its overlay or recorded input (default 15).
+- `step_timeout_seconds`: seconds a scripted step, the Settings switch lookup or the permission check waits before giving up (default 10).
+- `attacker_apk`: the attacker APK to install when the device lacks its current version; relative paths resolve against the repository root. Defaults to `F4_Overlay_Attacker.apk` in the Android intake folder.
+- `canaries`: synthetic values a scripted step can type, by name, as for the runtime log test. They apply to the app's scripted steps only; step 06 types the built-in default email and password into the overlay.
+
+Scripted steps take the app to the screen the overlay is tested over, such as its sign-in screen. They are written per app under `risks.android-feature-04-risk-01.steps` in `apps.yaml`, use the same step kinds and locators as the runtime log test (see [Scripted steps](#scripted-steps)), and are checked when the configuration loads. Steps belong to one app, so they cannot be set in the shared `overlay` block. Without steps, the overlay is tested over the screen the app shows after `launch_wait`:
+
+```yaml
+risks:
+  android-feature-04-risk-01:
+    enabled: true
+    steps:
+      - tap: {text: "Log in"}
+      - wait: 2
+```
+
+Full risk behavior and status meanings are documented in [Risks](risks.md#android-feature-04-risk-01).
 
 ### Screen capture timing (`android-feature-06-risk-01`)
 
@@ -476,12 +507,14 @@ include:
   repackaging: split/android/repackaging.yaml
   screen_capture: split/android/screen_capture.yaml
   private_data: split/android/private_data.yaml
+  runtime_logs: split/android/runtime_logs.yaml
+  overlay: split/android/overlay.yaml
   apps: split/android/apps.yaml
 ```
 
 Included paths are resolved relative to the entry-point file — here, that's `configs/`, so each path is prefixed `split/android/`. Inline values and included sections can coexist in the same file — nothing requires every section to go through `include:`, which is how `device`/`runner` stay inline while the rest are pulled in. See `configs/android.example.yaml`, the tracked example of this entry-point file.
 
-The real tools/apk_static_analysis/repackaging/screen_capture/private_data/app-roster content lives in `configs/split/android/*.yaml` (all git-ignored, since they contain real app config — only the `*.example.yaml` files under `configs/split/android/` are tracked). `configs/android.yaml` itself is also git-ignored, since it holds the real device config.
+The real tools/apk_static_analysis/repackaging/screen_capture/private_data/runtime_logs/overlay/app-roster content lives in `configs/split/android/*.yaml` (all git-ignored, since they contain real app config — only the `*.example.yaml` files under `configs/split/android/` are tracked). `configs/android.yaml` itself is also git-ignored, since it holds the real device config.
 
 ## Environment Files
 
