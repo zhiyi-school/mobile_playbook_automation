@@ -17,19 +17,12 @@ from mobile_playbook.platforms.android.acquisition.store import STORE_APPS
 from mobile_playbook.platforms.android.device.capture_helper import CaptureHelper, Frame, helper_apk_path
 from mobile_playbook.platforms.android.device.debugging_warning import debugging_keywords
 from mobile_playbook.platforms.android.device.fingerprint import installed_base_apk_sha256
+from mobile_playbook.platforms.android.device.handoff_packages import BROWSER_PACKAGES, LAUNCHER_PACKAGES
 from mobile_playbook.platforms.android.device.permissions import PERMISSION_CONTROLLER_PACKAGES
 from mobile_playbook.platforms.android.risks.base import AndroidRisk
 
 logger = logging.getLogger(__name__)
 
-BROWSER_PACKAGES = [
-    "com.android.chrome",
-    "org.mozilla.firefox",
-    "com.google.android.browser",
-    "com.android.browser",
-    "com.sec.android.app.sbrowser",
-]
-LAUNCHER_PACKAGES = ["com.google.android.apps.nexuslauncher", "com.sec.android.app.launcher", "com.huawei.android.launcher"]
 CAPTURE_KEYWORDS = ["screen recording", "screen sharing", "screen recording/sharing"]
 # dumpsys prints window flags by name without the FLAG_ prefix ("fl=SECURE HARDWARE_ACCELERATED"), or as hex on
 # some builds ("fl=#2000"); the lookbehind skips the private flags line ("pfl=").
