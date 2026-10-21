@@ -268,6 +268,7 @@ has no column for it.
 | `android-feature-01-risk-02` — APK repackaging | ADB, Appium, plus `apktool`, `zipalign`, `apksigner`, `keytool` | pulls, decodes, rebuilds, aligns, resigns, reinstalls and launches |
 | `android-feature-07-risk-01` — private data directory | ADB, a rooted device | copies the app's private data directories off the device as root and flags secrets and personal data stored in plain text |
 | `android-feature-02-risk-01` — private data over USB debugging | ADB, no root | copies a debuggable app's private data directories with `run-as` and scans them as the rooted test does; for other apps, records whether `adb backup` could return their data |
+| `android-feature-02-risk-02` — runtime logs over USB debugging | ADB, Appium, no root | captures the device log with `adb logcat` (the playbook uses Android Studio's Logcat window) while the app is opened and taken through its scripted steps or left running, keeps the app's lines and scans them for canaries, secrets and personal data |
 
 The repackaging risk modifies device state. Working files are left under
 `artifacts/work/android/repackaging/` for inspection, and the original APK is reinstalled

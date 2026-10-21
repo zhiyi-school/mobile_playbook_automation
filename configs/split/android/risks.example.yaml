@@ -109,7 +109,7 @@ android-feature-02-risk-02:
         - Configuration: Requires
           Detail: adb over an authorized USB debugging connection and Appium (with Corellium role devices, the non-rooted device); developer mode and USB debugging are already on when adb connects
         - Configuration: Log read
-          Detail: The device's main, system and crash log buffers through adb logcat, the same stream Android Studio's Logcat window shows
+          Detail: The device's main, system and crash log buffers through adb logcat. The playbook's tester uses Android Studio's Logcat window; this test is scripted, so it reads the same log with adb instead
     - id: steps
       type: steps
       label: Demonstration

@@ -302,7 +302,7 @@ Android risk IDs are prefixed `android-feature...`. To configure a risk for an a
      keystore_pass: "REPLACE_WITH_KEYSTORE_PASSWORD"
    ```
 
-   See `configs/split/android/repackaging.example.yaml`, `screen_capture.example.yaml`, `apk_static_analysis.example.yaml` and `private_data.example.yaml` for the rest of these fields, and the field references below for what each controls.
+   See `configs/split/android/repackaging.example.yaml`, `screen_capture.example.yaml`, `apk_static_analysis.example.yaml`, `private_data.example.yaml` and `runtime_logs.example.yaml` for the rest of these fields, and the field references below for what each controls.
 3. Only add more fields under the app's own `risks.<risk_id>` entry when this one app needs to differ from those shared defaults — nest just the field being changed. Anything left unset there falls back to the global file.
 
 Risks run in the order they're listed under an app's `risks` mapping, not sorted by ID — keep that in mind if the order of your own `risks:` blocks matters to you.
@@ -405,6 +405,56 @@ private_data:
 - `max_archive_mb`: the largest private data size, in MiB, that is copied off the device; a larger app fails the run (default 200).
 - `reveal_values`: report sensitive values in full instead of masked (default false).
 - `keep_archive`: keep the copied archive under `artifacts/work/android/private_data/<package>/` (`<run timestamp>.tar` for `android-feature-07-risk-01`, `<run timestamp>_run_as.tar` for `android-feature-02-risk-01`) instead of deleting it after the scan (default false). It holds the app's real data and is never copied into the report. Kept archives are not pruned with old run folders, so remove them by hand.
+
+### Runtime logs (`android-feature-02-risk-02`)
+
+Global defaults live under a top-level `runtime_logs` block in `runtime_logs.yaml` under `configs/split/android/` (see `runtime_logs.example.yaml`), included from `configs/android.yaml` as `runtime_logs: split/android/runtime_logs.yaml`. Without the file the defaults below apply. Each setting can be overridden per app under `risks.android-feature-02-risk-02`:
+
+```yaml
+runtime_logs:
+  launch_wait: 5
+  dwell_seconds: 15
+  reveal_values: false
+  keep_raw: false
+  step_timeout_seconds: 10
+  canaries:
+    email: "canary.logtest@example.com"
+    password: "Canary-Pw-7Q4z"
+    card: "4111 1111 1111 1111"
+    nric: "S0000000Z"
+```
+
+- `launch_wait`: seconds after launch before the app's screen is checked for a USB debugging warning (default 5).
+- `dwell_seconds`: seconds the app stays open while its log is captured, for an app without scripted steps (default 15).
+- `reveal_values`: report sensitive values found in the log in full instead of masked, in the findings and in the exported `logcat_<package>.txt` (default false). Canaries are always reported in full.
+- `keep_raw`: keep the unfiltered capture under `artifacts/work/android/runtime_logs/<package>/<run timestamp>_logcat.txt` instead of deleting it once the app's lines are taken from it (default false). It holds every app's log lines, so it is never copied into the report. Kept captures are not pruned with old run folders, so remove them by hand.
+- `step_timeout_seconds`: seconds a scripted step waits for its element to appear (default 10).
+- `canaries`: the synthetic values a scripted step can type, by name. The four above are the built-in defaults; a name set here replaces that value for every app, and a name under an app's own `canaries` replaces it for that app alone. Names are letters, digits and underscores. The card number is a published test number and the NRIC fails its checksum, so neither belongs to anyone; an app that checks NRIC checksums needs its own value. Never use real credentials or personal data.
+
+#### Scripted steps
+
+The playbook asks the tester to perform sensitive user actions, such as signing in, updating a profile or paying, while the log is captured. The test does this through steps written for each app under `risks.android-feature-02-risk-02.steps` in `apps.yaml`. Steps belong to one app, so they cannot be set in the shared `runtime_logs` block. An app with steps runs them instead of waiting `dwell_seconds`:
+
+```yaml
+risks:
+  android-feature-02-risk-02:
+    enabled: true
+    steps:
+      - type: {id: "com.example.app:id/email", value: "{canary.email}"}
+      - type: {accessibility_id: "Password", value: "{canary.password}"}
+      - tap: {text: "Sign in"}
+      - wait: 3
+      - back
+```
+
+- `tap`: tap an element.
+- `type`: tap a field, clear it and type `value` into it. `{canary.<name>}` in `value` is replaced with that canary, and the log is searched for each canary typed.
+- `wait`: wait a number of seconds, for example for a sign-in request to finish, so what the app logs after it is captured.
+- `back`: press the back button.
+
+`tap` and `type` name their element with exactly one of `id` (the full resource ID, `<package>:id/<name>`), `accessibility_id` (the content description) or `text` (the text the element shows). Find these with Appium Inspector, or with `adb shell uiautomator dump` and the `resource-id`, `content-desc` and `text` attributes of the dumped XML, with the app open on the screen the step acts on. Each step waits up to `step_timeout_seconds` for its element. Steps are checked when the configuration loads: an unknown kind or setting, a step that names its element more than once, or a placeholder for a canary that is not defined is reported as a configuration error.
+
+A step that fails stops the script, and the result records it; see [Risks](risks.md#android-feature-02-risk-02) for how that decides the verdict. Steps act on the app as it is on the device, so write them for its state at the start of a run: the test stops the app before launching it but does not clear its data, so an app that stays signed in opens past its sign-in screen.
 
 Full risk behavior and status meanings are documented in [Risks](risks.md).
 

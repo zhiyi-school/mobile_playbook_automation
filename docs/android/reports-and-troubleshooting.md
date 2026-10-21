@@ -55,6 +55,15 @@ These are listed in `evidence` with kind `report`.
 - `critical_findings.json` and `critical_findings.md`, the ranked flags
 - the streamed archive under `artifacts/work/android/private_data/<package>/`, only when `keep_archive` is true
 
+`android-feature-02-risk-02`:
+
+- `report.json`
+- `logs.txt`
+- `logcat_<package>.txt`, the app's own log lines, with the sensitive values found masked unless `reveal_values` is true
+- `runtime_log_findings.json`, each value found with its first line and number of occurrences
+- `critical_findings.json` and `critical_findings.md`, the ranked flags
+- the unfiltered capture under `artifacts/work/android/runtime_logs/<package>/`, only when `keep_raw` is true
+
 `android-feature-07-risk-01`:
 
 - `report.json`
@@ -81,6 +90,11 @@ Each test's `report.json` (and `logs.txt`) carries one of these precise statuses
 - `PRIVATE_DATA_NO_FINDINGS`: nothing sensitive was found in plain text, but no encrypted store was found either. Reported as Inconclusive.
 - `PRIVATE_DATA_NOT_ACCESSIBLE`: run-as refused to read the app's data because it is not debuggable, and `adb backup` would not return its data either. Reported as Reduced Risk.
 - `PRIVATE_DATA_BACKUP_POSSIBLE`: run-as was refused, but the app allows backups and `adb backup` would return its data; the backup was not tested. Reported as Inconclusive.
+- `SENSITIVE_DATA_LOGGED`: a canary, secret or personal-data value appeared in the app's runtime log. Reported as At Risk.
+- `USB_DEBUGGING_BLOCKED`: the app showed a warning that USB debugging is on and logged nothing sensitive before it. Reported as Reduced Risk.
+- `SCRIPTED_STEPS_INCOMPLETE`: a scripted step failed and nothing sensitive was logged, so the flow the steps lead to was not tested. Reported as Inconclusive.
+- `NO_SENSITIVE_DATA_LOGGED`: the app logged lines and none held a sensitive value. Reported as Reduced Risk; `metadata.coverage` says whether scripted steps ran or the app was only launched.
+- `NO_APP_LOGS`: the app ran but wrote nothing to the log. Reported as Reduced Risk.
 - `FAILED`: unexpected Android automation failure.
 
 `summary.md`'s `Status` column doesn't show these directly — it shows a 3-way security verdict (`AndroidRiskRunResult.verdict`) that each risk sets itself, alongside `final_status`, at the point it decides the outcome: **At Risk** (the risk was demonstrated, e.g. `SCREEN_CAPTURE_ALLOWED`/`REPACKAGING_SURVIVED`), **Reduced Risk** (the app mitigated it, e.g. `SCREEN_CAPTURE_BLOCKED`/`REPACKAGING_BLOCKED`), or **Inconclusive** — the field's default, and what `REPACKAGING_FAILED`/`FAILED` leave it as. The precise underlying status is always still in that test's `report.json`.
@@ -124,6 +138,10 @@ Private data test fails before reading any files:
 USB debugging private data test fails:
 
 `is it installed on the device` means `dumpsys package` reports nothing for the app. `The app is debuggable, but the device refused run-as` means the manifest is debuggable but the device's `run-as` still refuses it, which some vendor builds do; `metadata.run_as.detail` holds the refusal. `Streaming the private data directories with run-as failed` means tar or the adb connection failed partway, or the device returned something other than a tar archive; the partial copy is deleted. The size limit message is the same as for the rooted test.
+
+Runtime log test fails or is inconclusive:
+
+`dumpsys package reports no user ID` means the app is not installed. `logcat exited` means adb could not start the capture; both attempts, with and without the `uid` format, are described. `logcat stopped before the app was closed` usually means the device disconnected during the test. `The app did not start` means no process for the app was seen and it wrote no lines; check that it launches on this device. For `SCRIPTED_STEPS_INCOMPLETE`, `metadata.steps.failure` names the step and why it failed. `no element matched …` means the element was not on screen within `step_timeout_seconds`: the app may have opened on a different screen, for example already signed in, or the ID or text differs on this build. Dump the screen with `adb shell uiautomator dump` to compare (see [Scripted steps](configuration.md#scripted-steps)).
 
 Keystore or signing failure:
 

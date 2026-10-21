@@ -127,6 +127,52 @@ The test reads only what the app has written by the time it runs: it does not si
 
 Settings (`launch_wait`, `max_archive_mb`, `reveal_values`, `keep_archive`) are shared with `android-feature-07-risk-01` and documented in [Configuration](configuration.md#private-data-android-feature-02-risk-01-and-android-feature-07-risk-01).
 
+## android-feature-02-risk-02
+
+`android-feature-02-risk-02` demonstrates what USB debugging alone can collect from the app's runtime log, following the playbook: with USB debugging on, the device log can be read over adb, so any credentials, tokens or personal data the app logs while it runs can be collected. In the playbook a tester uses Android Studio: its Logcat window shows the log, filtered by the app's package, and its export saves it. Here a script does that work, so it uses `adb logcat`, the command-line tool behind the same log, to stream the log, keep the app's own lines and scan them. The playbook's controls are to block the app while USB debugging is on (control 01) and to redact sensitive patterns before they reach Logcat (control 02).
+
+Requires: `adb` over an authorized USB debugging connection and `appium`, so with Corellium role devices it runs on the non-rooted device, and a single physical phone runs it as is. Developer mode and USB debugging are already on whenever adb connects, so the playbook's setup steps are not repeated. Capturing and filtering the log is in `platforms/android/device/logcat.py`, the scripted steps in `platforms/android/device/scripted_steps.py`, and the USB debugging warning check in `platforms/android/device/debugging_warning.py`, which `android-feature-06-risk-01` also uses.
+
+Stages:
+
+1. Record `metadata.installed_base_apk_sha256`, `metadata.adb_enabled` (`Settings.Global.ADB_ENABLED`, the setting control 01 reads) and `metadata.app_uid`, the app's user ID from `adb shell dumpsys package <package>`. An app with no user ID is not installed, and the run fails.
+2. Stop the app with `am force-stop`, so the capture starts before it does and holds what it logs on start-up. Clear the log buffers with `adb logcat -c`; `metadata.log_buffer_cleared` records whether that worked, and when it did not, `log_buffer_clear_error` says why and the test goes on.
+3. Stream `adb logcat -v threadtime -v uid` to `artifacts/work/android/runtime_logs/<package>/<run timestamp>_logcat.txt`. On devices whose logcat rejects the `uid` format (Android 6 and earlier) the capture restarts without it; `metadata.uid_in_log` records which.
+4. Launch the app with Appium, wait `launch_wait` seconds and record its processes from `ps`. When the app is in the foreground, check its screen for a warning that USB debugging or developer options are on (control 01); `metadata.usb_debugging_warning` lists the words found. With a warning, nothing more is done in the app.
+5. Otherwise perform the playbook's sensitive user actions:
+   - With `steps` set for the app, run them in order (see [Configuration](configuration.md#scripted-steps)), typing synthetic canary values into the app's fields. `metadata.steps` records how many ran, the canaries typed, and the first step that failed with its error; a failed step stops the script.
+   - Without steps, leave the app running for `dwell_seconds`, which shows what it logs on start-up and while idle.
+
+   `metadata.coverage` is `launch_only`, `scripted` or `scripted_partial` when a step failed.
+6. Stop the app, wait a second for logcat to write its last lines, and stop the capture. A capture that ended early, for example because the device disconnected, fails the run.
+7. Keep the lines the app wrote, as the playbook's package filter does: by the app's user ID where a line carries one, and otherwise by the process IDs the app was seen with, which the test checks after launch, during the dwell and before it stops the app. The user ID also keeps the lines of a process that restarted between checks.
+8. Scan the message of each kept line, after the logcat tag:
+   - Every canary typed, as typed, without spaces or dashes, lowercased, URL-encoded, form-encoded and base64-encoded (`CANARY_VALUE`). Canaries are synthetic, so they are reported in full.
+   - Secrets, with the shared secret scanner, and unquoted `key=value` or `key: value` pairs whose key names a password, PIN, OTP, secret, API key, token, session ID, cookie or authorization header (`SENSITIVE_KEY_VALUE`), as log messages usually write them.
+   - Personal data, as `android-feature-07-risk-01` finds it in values: email addresses, NRIC/FIN numbers and Luhn-valid card numbers. These are the patterns control 02 redacts.
+
+   A pattern match on a canary is left out, since the canary finding already reports it.
+9. Write `logcat_<package>.txt` with the app's lines, every value found masked unless `reveal_values` is true, `runtime_log_findings.json` and the critical findings. Delete the unfiltered capture, which holds every app's log lines, unless `keep_raw` is true; it is never copied into the report, and a kept capture's path is `metadata.raw_log`.
+
+Verdicts:
+
+- `SENSITIVE_DATA_LOGGED` (**At Risk**): a canary, secret or personal-data value appeared in the app's log lines. This holds even when the app then showed a USB debugging warning or a scripted step failed, since what was logged was already readable.
+- `USB_DEBUGGING_BLOCKED` (**Reduced Risk**): the app showed a USB debugging warning and logged nothing sensitive before it.
+- `SCRIPTED_STEPS_INCOMPLETE` (**Inconclusive**): a scripted step failed and nothing sensitive was logged, so the flow the steps lead to was not tested; `errors` names the step.
+- `NO_SENSITIVE_DATA_LOGGED` (**Reduced Risk**): the app logged lines and none held a value found. With `coverage: launch_only` this covers only what the app logs on start-up and while idle.
+- `NO_APP_LOGS` (**Reduced Risk**): the app ran but wrote nothing to the log, as a release build that strips its logging does.
+- `FAILED` (**Inconclusive**): the app is not installed or did not start, logcat could not be started or stopped early, or Appium failed; `errors` says which.
+
+Report files: `logcat_<package>.txt` (`runtime_log` evidence), `runtime_log_findings.json` with the masked findings, each with its first line and number of occurrences (`runtime_log_findings` evidence), and `critical_findings.json` and `critical_findings.md` (headed "Android Runtime Log Critical Findings"). The only critical finding is `SENSITIVE_DATA_IN_RUNTIME_LOGS`, with the highest severity found. `metadata` also records `app_pids`, `app_line_count`, `finding_count`, `canaries_found` and `foreground_package`.
+
+How the test differs from the playbook's demonstration:
+
+- The playbook uses Android Studio's Logcat window, which suits a tester working by hand. The test is a script, so it reads the same log with `adb logcat`, and filters it by the app's user ID or process IDs where the Logcat window filters by package name.
+- It clears the log buffers first, so lines from earlier runs are not mistaken for this one.
+- It judges the lines itself, by scanning them, where the playbook leaves the exported log to the tester, and masks the values it finds in the exported log by default.
+- It performs the playbook's sensitive user actions only for apps with scripted steps. Without them it tests start-up and idle logging, which cannot reach screens behind a sign-in or a payment.
+- It recognises control 01 by the warning words on the app's screen. An app that blocks USB debugging some other way, such as exiting without a message, is reported by its log alone.
+
 ## android-feature-07-risk-01
 
 `android-feature-07-risk-01` demonstrates what a rooted device can collect from the app's private data directory, following the playbook: root lists `/data/data/<package>` and reads the files in it. Root can read every app's private files, so the test asks whether the app keeps sensitive data there in plain text, or protects it as the playbook's control does, by encrypting it with a key held in the Android Keystore.
