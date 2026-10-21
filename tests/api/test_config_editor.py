@@ -166,6 +166,22 @@ def test_android_runtime_log_risk_settings_are_editable(config_root):
     assert parse_config(load_yaml_config(entry), entry).runtime_logs == {"dwell_seconds": 15, "keep_raw": True}
 
 
+def test_android_overlay_risk_settings_are_editable(config_root):
+    from mobile_playbook.common.config_loader import load_yaml_config
+    from mobile_playbook.platforms.android.config import parse_config
+
+    entry = config_root / "configs/android.yaml"
+    entry.write_text(entry.read_text() + "  overlay: split/android/overlay.yaml\n")
+    path = config_root / "configs/split/android/overlay.yaml"
+    path.write_text("overlay:\n  # seconds to wait after a launch\n  launch_wait: 5\n")
+
+    ce.put_risk_settings("android", "android-feature-04-risk-01", {"overlay_timeout": 20})
+
+    assert "# seconds to wait after a launch" in path.read_text()
+    assert ce.get_risk_settings("android", "android-feature-04-risk-01") == {"launch_wait": 5, "overlay_timeout": 20}
+    assert parse_config(load_yaml_config(entry), entry).overlay == {"launch_wait": 5, "overlay_timeout": 20}
+
+
 def test_unknown_risk_settings_id_raises(config_root):
     with pytest.raises(Exception):
         ce.get_risk_settings("ios", "ios-does-not-exist")

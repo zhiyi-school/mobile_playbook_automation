@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 import pytest
 
@@ -17,6 +18,8 @@ from mobile_playbook.platforms.android.device.overlay_attacker import (
     OverlayAttackerError,
     attacker_apk_path,
 )
+from mobile_playbook.platforms.android.preflight import check_requirements
+from mobile_playbook.platforms.android.risks import get_risk
 from tests.platforms.android.install_helpers import answer_apk_copy, is_pm_install
 
 
@@ -196,3 +199,43 @@ def test_stop_force_stops_the_attacker_app(tmp_path):
     OverlayAttacker(adb, tmp_path / "a.apk").stop()
 
     assert adb.commands == [["shell", "am", "force-stop", ATTACKER_PACKAGE]]
+
+
+def _overlay_config(apk):
+    return SimpleNamespace(overlay={"attacker_apk": str(apk)})
+
+
+def test_preflight_passes_with_the_attacker_apk_in_place(tmp_path):
+    apk = tmp_path / "attacker.apk"
+    apk.write_bytes(b"apk")
+
+    [(name, ok, message)] = check_requirements(["overlay_attacker"], AttackerAdb(), _overlay_config(apk))
+
+    assert (name, ok) == ("overlay_attacker", True)
+    assert str(apk) in message
+
+
+def test_preflight_passes_when_the_device_already_has_the_attacker_app(tmp_path):
+    [(_, ok, message)] = check_requirements(["overlay_attacker"], AttackerAdb(version=ATTACKER_VERSION), _overlay_config(tmp_path / "missing.apk"))
+
+    assert ok and "already installed" in message
+
+
+@pytest.mark.parametrize("version", [None, "0"])
+def test_preflight_fails_with_the_apk_path_when_the_attacker_app_is_missing_or_old(tmp_path, version):
+    apk = tmp_path / "missing.apk"
+
+    [(_, ok, message)] = check_requirements(["overlay_attacker"], AttackerAdb(version=version), _overlay_config(apk))
+
+    assert not ok
+    assert str(apk) in message and "F4_Overlay_Attacker.apk" in message
+
+
+def test_preflight_without_a_device_checks_only_the_apk(tmp_path):
+    [(_, ok, _)] = check_requirements(["overlay_attacker"], None, _overlay_config(tmp_path / "missing.apk"))
+
+    assert not ok
+
+
+def test_the_overlay_risk_requires_the_attacker_app():
+    assert "overlay_attacker" in get_risk("android-feature-04-risk-01").requires

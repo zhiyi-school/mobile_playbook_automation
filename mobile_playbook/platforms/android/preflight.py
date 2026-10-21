@@ -13,6 +13,7 @@ from mobile_playbook.platforms.android.device.adb import AdbClient
 from mobile_playbook.platforms.android.device.app_version import installed_version
 from mobile_playbook.platforms.android.device.appium_driver import appium_available
 from mobile_playbook.platforms.android.device.capture_helper import BUILD_COMMAND, HELPER_PACKAGE, HELPER_VERSION, helper_apk_path
+from mobile_playbook.platforms.android.device.overlay_attacker import ATTACKER_PACKAGE, ATTACKER_VERSION, attacker_apk_path
 from mobile_playbook.platforms.android.device.root import find_root_shell
 
 logger = logging.getLogger(__name__)
@@ -55,6 +56,8 @@ def check_requirements(requires: list[str], adb: AdbClient | None, config) -> li
             results.append((name, *_check_tcp_tool("Burp proxy", config.tools.get("burp_proxy", ""))))
         elif name == "screen_capture_helper":
             results.append((name, *_check_capture_helper(adb, config)))
+        elif name == "overlay_attacker":
+            results.append((name, *_check_overlay_attacker(adb, config)))
         else:
             logger.debug("android preflight: unknown requirement %s", name)
             results.append((name, False, f"unknown requirement '{name}'"))
@@ -110,6 +113,19 @@ def _check_capture_helper(adb: AdbClient, config) -> tuple[bool, str]:
         return True, "screen-capture helper already installed on the device"
     logger.debug("android preflight: screen-capture helper APK missing at %s and not installed", apk)
     return False, f"screen-capture helper APK not found at {apk}. Build it with `{BUILD_COMMAND}`."
+
+
+# Check that the overlay attacker APK is in place, or that the device already has the current attacker app.
+def _check_overlay_attacker(adb: AdbClient | None, config) -> tuple[bool, str]:
+    apk = attacker_apk_path((getattr(config, "overlay", None) or {}).get("attacker_apk"))
+    if apk.is_file():
+        return True, f"overlay attacker APK found at {apk}"
+    if adb is not None:
+        installed = installed_version(adb, ATTACKER_PACKAGE)
+        if installed is not None and installed.version_name == ATTACKER_VERSION:
+            return True, "overlay attacker app already installed on the device"
+    logger.debug("android preflight: overlay attacker APK missing at %s and not installed", apk)
+    return False, f"overlay attacker APK not found at {apk}. Place F4_Overlay_Attacker.apk in the Android intake folder or set overlay.attacker_apk."
 
 
 # Check that a configured tool URL is set and accepts TCP connections.

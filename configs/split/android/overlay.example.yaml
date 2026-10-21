@@ -1,0 +1,18 @@
+# Example Android overlay settings for android-feature-04-risk-01. Copy to overlay.yaml; see
+# docs/android/configuration.md.
+
+overlay:
+  # Seconds to wait after opening a Settings page or launching the app before reading the screen.
+  launch_wait: 5
+  # Seconds to wait for the overlay attacker app to report a state, such as starting or adding its overlay.
+  overlay_timeout: 15
+  # Seconds a scripted step, a Settings switch lookup or a permission check waits before giving up. Scripted steps are
+  # set per app, under the app's risks.android-feature-04-risk-01.steps in apps.yaml, and take the app to the screen the
+  # overlay is tested over, such as its sign-in screen; without them the overlay is tested over the launch screen.
+  step_timeout_seconds: 10
+  # The overlay attacker APK, relative to the repository root. Defaults to the intake copy.
+  # attacker_apk: artifacts/intake/android/apks/F4_Overlay_Attacker.apk
+  # Synthetic values a scripted "type" step can enter as {canary.<name>}. Never use real credentials or personal data.
+  # A name set here, or under an app's own canaries, replaces the built-in default.
+  # canaries:
+  #   email: "canary.logtest@example.com"

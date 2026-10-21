@@ -37,7 +37,7 @@ class AndroidOverlayRisk(AndroidRisk):
     name = "Android Overlay Test"
     test_case_id = "overlay"
     test_case_type = "appium_overlay"
-    requires = ["adb", "appium"]
+    requires = ["adb", "appium", "overlay_attacker"]
 
     # Follow the overlay playbook, preserve evidence, and remove the attacker and permission after every run.
     def run(self, app_config, global_config, device_client, report_writer):

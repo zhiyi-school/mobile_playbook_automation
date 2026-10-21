@@ -317,3 +317,48 @@ def test_shared_runtime_log_steps_and_bad_canaries_are_rejected():
         "runtime_logs.steps is not supported; scripted steps belong to one app, under its risks.android-feature-02-risk-02 entry",
         "apps[example].risks.android-feature-02-risk-02.canaries must map names of letters, digits and underscores to non-empty text",
     ]
+
+
+def _overlay_errors(overlay=None, app_settings=None):
+    config = parse_config({"overlay": overlay or {}, "apps": [{"id": "example", "package_name": "com.example.app", "risks": {"android-feature-04-risk-01": app_settings or {"enabled": True}}}]})
+    return [error for error in collect_config_errors(config) if "overlay" in error or "android-feature-04-risk-01" in error]
+
+
+def test_overlay_settings_are_parsed_and_default_to_empty():
+    assert parse_config({"overlay": {"launch_wait": 2}, "apps": ["com.example.app"]}).overlay == {"launch_wait": 2}
+    assert parse_config({"apps": ["com.example.app"]}).overlay == {}
+
+
+def test_overlay_steps_may_type_shared_app_and_default_canaries():
+    steps = [{"type": {"id": "a", "value": "{canary.email}"}}, {"type": {"id": "b", "value": "{canary.otp}"}}, {"type": {"id": "c", "value": "{canary.member}"}}, {"tap": {"text": "Sign in"}}]
+
+    assert _overlay_errors({"canaries": {"otp": "000000"}}, {"enabled": True, "canaries": {"member": "M-0001"}, "steps": steps}) == []
+
+
+def test_overlay_step_problems_are_reported_for_the_app():
+    errors = _overlay_errors(app_settings={"enabled": True, "steps": [{"tap": {"xpath": "//x"}}, {"type": {"id": "a", "value": "{canary.otp}"}}]})
+
+    assert errors == [
+        "apps[example].risks.android-feature-04-risk-01.steps[0].tap must name the element with exactly one of id, accessibility_id, text",
+        "apps[example].risks.android-feature-04-risk-01.steps[0].tap.xpath is not a known setting",
+        "apps[example].risks.android-feature-04-risk-01.steps[1].type.value names unknown canary 'otp'",
+    ]
+
+
+def test_shared_overlay_steps_and_bad_canaries_are_rejected():
+    errors = _overlay_errors({"steps": [], "canaries": {"email": ""}}, {"enabled": True, "canaries": "x"})
+
+    assert errors == [
+        "overlay.canaries must map names of letters, digits and underscores to non-empty text",
+        "overlay.steps is not supported; scripted steps belong to one app, under its risks.android-feature-04-risk-01 entry",
+        "apps[example].risks.android-feature-04-risk-01.canaries must map names of letters, digits and underscores to non-empty text",
+    ]
+
+
+def test_overlay_canaries_do_not_satisfy_runtime_log_steps():
+    config = parse_config({
+        "overlay": {"canaries": {"otp": "000000"}},
+        "apps": [{"id": "example", "package_name": "com.example.app", "risks": {"android-feature-02-risk-02": {"enabled": True, "steps": [{"type": {"id": "a", "value": "{canary.otp}"}}]}}}],
+    })
+
+    assert collect_config_errors(config) == ["apps[example].risks.android-feature-02-risk-02.steps[0].type.value names unknown canary 'otp'"]

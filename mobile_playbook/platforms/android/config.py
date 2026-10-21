@@ -32,6 +32,9 @@ logger = logging.getLogger(__name__)
 
 PHYSICAL_ROLES = ("non_rooted",)
 RUNTIME_LOGS_RISK_ID = "android-feature-02-risk-02"
+OVERLAY_RISK_ID = "android-feature-04-risk-01"
+# Risks that take per-app scripted steps, with the global settings section that holds their shared canaries.
+SCRIPTED_STEP_SECTIONS = {RUNTIME_LOGS_RISK_ID: "runtime_logs", OVERLAY_RISK_ID: "overlay"}
 
 
 class ConfigError(Exception):
@@ -77,7 +80,7 @@ def parse_config(raw: dict[str, Any], config_path: Path | None = None) -> Androi
     apps = [_parse_app(item) for item in (raw.get("apps") or [])]
     if logger.isEnabledFor(logging.DEBUG):
         logger.debug("android config: parsed sections=%s apps=%s", list(raw), [app.id for app in apps])
-        for section_name, section_value in (("device", device_raw), ("runner", runner_raw), ("screen_capture", raw.get("screen_capture")), ("apk_static_analysis", raw.get("apk_static_analysis")), ("private_data", raw.get("private_data")), ("runtime_logs", raw.get("runtime_logs")), ("tools", raw.get("tools"))):
+        for section_name, section_value in (("device", device_raw), ("runner", runner_raw), ("screen_capture", raw.get("screen_capture")), ("apk_static_analysis", raw.get("apk_static_analysis")), ("private_data", raw.get("private_data")), ("runtime_logs", raw.get("runtime_logs")), ("overlay", raw.get("overlay")), ("tools", raw.get("tools"))):
             logger.debug("android config: %s=%s", section_name, redacted(section_value) if isinstance(section_value, dict) else type(section_value).__name__)
         logger.debug("android config: repackaging=%s", redacted({key: REDACTED if "pass" in str(key).lower() else value for key, value in repackaging_raw.items()}))
     return AndroidGlobalConfig(
@@ -106,6 +109,7 @@ def parse_config(raw: dict[str, Any], config_path: Path | None = None) -> Androi
         apk_static_analysis=raw.get("apk_static_analysis") or {},
         private_data=raw.get("private_data") or {},
         runtime_logs=raw.get("runtime_logs") or {},
+        overlay=raw.get("overlay") or {},
         config_path=config_path,
     )
 
@@ -135,9 +139,11 @@ def collect_config_errors(config: AndroidGlobalConfig, dry_run: bool = False) ->
     errors.extend(_physical_role_errors(config.device))
     if not config.apps:
         errors.append("apps list must not be empty")
-    errors.extend(canary_errors(config.runtime_logs.get("canaries"), "runtime_logs"))
-    if "steps" in config.runtime_logs:
-        errors.append(f"runtime_logs.steps is not supported; scripted steps belong to one app, under its risks.{RUNTIME_LOGS_RISK_ID} entry")
+    for risk_id, section in SCRIPTED_STEP_SECTIONS.items():
+        settings = getattr(config, section)
+        errors.extend(canary_errors(settings.get("canaries"), section))
+        if "steps" in settings:
+            errors.append(f"{section}.steps is not supported; scripted steps belong to one app, under its risks.{risk_id} entry")
     known = known_risks()
     for app in config.apps:
         label = f"apps[{app.id or '?'}]"
@@ -152,13 +158,13 @@ def collect_config_errors(config: AndroidGlobalConfig, dry_run: bool = False) ->
                 errors.append(f"{label}.risks.{risk_id} is unknown")
             elif not isinstance(risk_config, dict):
                 errors.append(f"{label}.risks.{risk_id} must be a mapping")
-            elif risk_id == RUNTIME_LOGS_RISK_ID:
-                errors.extend(_runtime_log_step_errors(config.runtime_logs, risk_config, f"{label}.risks.{risk_id}"))
+            elif risk_id in SCRIPTED_STEP_SECTIONS:
+                errors.extend(_scripted_step_errors(getattr(config, SCRIPTED_STEP_SECTIONS[risk_id]), risk_config, f"{label}.risks.{risk_id}"))
     return errors
 
 
-# Return the problems with an app's scripted steps and canaries for the runtime log risk.
-def _runtime_log_step_errors(shared: dict[str, Any], settings: dict[str, Any], label: str) -> list[str]:
+# Return the problems with an app's scripted steps and canaries for a risk that takes them.
+def _scripted_step_errors(shared: dict[str, Any], settings: dict[str, Any], label: str) -> list[str]:
     errors = canary_errors(settings.get("canaries"), label)
     names = set(merged_canaries(shared.get("canaries"), settings.get("canaries")))
     return errors + step_errors(settings.get("steps"), names, label)
