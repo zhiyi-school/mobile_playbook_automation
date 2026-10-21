@@ -39,3 +39,20 @@ def test_run_to_file_reports_a_missing_adb_and_a_timeout_as_run_does(tmp_path, m
     code, err = AdbClient("adb").run_to_file(["shell", "true"], tmp_path / "out.bin", timeout=5)
     assert code == 124
     assert err.startswith("adb timed out after 5s")
+
+
+def test_start_to_file_appends_output_and_targets_the_serial(tmp_path, monkeypatch):
+    calls = []
+
+    def fake_popen(command, stdout, stderr, stdin):
+        calls.append((command, stderr, stdin))
+        stdout.write(b"line\n")
+        return "process"
+
+    monkeypatch.setattr(adb_module.subprocess, "Popen", fake_popen)
+    destination = tmp_path / "logcat.txt"
+    destination.write_bytes(b"earlier\n")
+
+    assert AdbClient("adb", "SERIAL1").start_to_file(["logcat", "-v", "threadtime"], destination) == "process"
+    assert destination.read_bytes() == b"earlier\nline\n"
+    assert calls == [(["adb", "-s", "SERIAL1", "logcat", "-v", "threadtime"], subprocess.STDOUT, subprocess.DEVNULL)]

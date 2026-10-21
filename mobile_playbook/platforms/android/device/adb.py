@@ -80,6 +80,15 @@ class AdbClient:
         logger.debug("android adb: argv=%s exited %s in %.2fs (%s bytes written, stderr head=%r)", command, result.returncode, time.monotonic() - started, destination.stat().st_size, stderr[:200])
         return result.returncode, stderr
 
+    # Start an adb command in the background with its stdout and stderr appended to a file, and return the process; a
+    # missing adb raises FileNotFoundError.
+    def start_to_file(self, args: list[str], destination: Path) -> subprocess.Popen:
+        command = self._command(args)
+        logger.debug("android adb: starting argv=%s in the background, output to %s", command, destination)
+        # The child keeps its own copy of the descriptor, so the file can be closed here.
+        with destination.open("ab") as handle:
+            return subprocess.Popen(command, stdout=handle, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
+
     # Return the adb argv for a command, adding the target serial unless the adb host answers the command itself.
     def _command(self, args: list[str]) -> list[str]:
         command = [self.adb_path]
