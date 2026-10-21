@@ -206,7 +206,7 @@ def _scan_text(path: str, data: bytes, text: str, reveal_values: bool, personal_
     findings = scan_text_content(data, path, reveal_values)
     if not personal_data:
         return "code", findings
-    findings += _pii_value_findings(path, text, reveal_values)
+    findings += pii_value_findings(path, text, reveal_values)
     try:
         parsed = json.loads(text)
     except ValueError:
@@ -243,7 +243,7 @@ def _scan_strings(path: str, data: bytes, reveal_values: bool, personal_data: bo
     if not text:
         return []
     findings = scan_text_content(text.encode(), path, reveal_values)
-    return findings + _pii_value_findings(path, text, reveal_values) if personal_data else findings
+    return findings + pii_value_findings(path, text, reveal_values) if personal_data else findings
 
 
 # Flag values stored under secret or personal-data key names, and secret or personal-data values under any key.
@@ -261,14 +261,14 @@ def _key_value_findings(path: str, pairs: list[tuple[str, Any]], reveal_values: 
             findings.append(sensitive_finding(path, "PERSONAL_DATA_KEY_NAME", text, pii_severity, key_path=key, reveal_values=reveal_values))
         if isinstance(value, str) and text:
             findings.extend(classify_sensitive_string(path, text, reveal_values, key_path=key))
-            findings.extend(_pii_value_findings(path, text, reveal_values, key_path=key))
+            findings.extend(pii_value_findings(path, text, reveal_values, key_path=key))
         if len(findings) >= MAX_FINDINGS_PER_FILE:
             break
     return findings
 
 
 # Match email addresses, Singapore NRIC/FIN numbers and Luhn-valid payment card numbers in text.
-def _pii_value_findings(path: str, text: str, reveal_values: bool, key_path: str | None = None) -> list[dict[str, Any]]:
+def pii_value_findings(path: str, text: str, reveal_values: bool, key_path: str | None = None) -> list[dict[str, Any]]:
     findings = []
     for match_type, severity, pattern in (("EMAIL_ADDRESS", "MEDIUM", EMAIL_RE), ("NRIC_FIN", "HIGH", NRIC_FIN_RE), ("PAYMENT_CARD_NUMBER", "HIGH", CARD_RE)):
         for match in pattern.finditer(text):

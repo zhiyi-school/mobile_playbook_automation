@@ -15,6 +15,7 @@ from mobile_playbook.platforms.android.models import AndroidRiskRunResult
 from mobile_playbook.common.logging_setup import redacted
 from mobile_playbook.platforms.android.acquisition.store import STORE_APPS
 from mobile_playbook.platforms.android.device.capture_helper import CaptureHelper, Frame, helper_apk_path
+from mobile_playbook.platforms.android.device.debugging_warning import debugging_keywords
 from mobile_playbook.platforms.android.device.fingerprint import installed_base_apk_sha256
 from mobile_playbook.platforms.android.device.permissions import PERMISSION_CONTROLLER_PACKAGES
 from mobile_playbook.platforms.android.risks.base import AndroidRisk
@@ -29,7 +30,6 @@ BROWSER_PACKAGES = [
     "com.sec.android.app.sbrowser",
 ]
 LAUNCHER_PACKAGES = ["com.google.android.apps.nexuslauncher", "com.sec.android.app.launcher", "com.huawei.android.launcher"]
-DEBUGGING_KEYWORDS = ["developer options", "debugging", "usb debugging", "debugging detected"]
 CAPTURE_KEYWORDS = ["screen recording", "screen sharing", "screen recording/sharing"]
 # dumpsys prints window flags by name without the FLAG_ prefix ("fl=SECURE HARDWARE_ACCELERATED"), or as hex on
 # some builds ("fl=#2000"); the lookbehind skips the private flags line ("pfl=").
@@ -190,7 +190,7 @@ class AndroidScreenCaptureRisk(AndroidRisk):
             logger.debug("%s: reading page_source failed: %s", self.risk_id, exc, exc_info=True)
             return {"error": f"Could not read the app UI: {exc}"}
         observations = {
-            "debugging_keywords": [keyword for keyword in DEBUGGING_KEYWORDS if keyword in source],
+            "debugging_keywords": debugging_keywords(source),
             "capture_keywords": [keyword for keyword in CAPTURE_KEYWORDS if keyword in source],
         }
         logger.debug("%s: page_source %s chars, keyword observations=%s", self.risk_id, len(source), observations)
