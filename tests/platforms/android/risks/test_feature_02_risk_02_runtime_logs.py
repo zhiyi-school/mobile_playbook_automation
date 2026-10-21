@@ -383,7 +383,7 @@ def test_scan_log_lines_finds_secrets_logged_as_key_value_pairs(message, value):
     assert value not in exported[0]
 
 
-@pytest.mark.parametrize("message", ["session: started", "bypass=enabled", "token: null", "Token refresh scheduled"])
+@pytest.mark.parametrize("message", ["session: started", "bypass=enabled", "token: null", "Token refresh scheduled", "execute start, token = android.os.BinderProxy@e00118d", "token=Handler@1a2b3c", "r=ActivityRecord{e332f0b token=android.os.BinderProxy@1ac1b53}", "state (token=android.os.BinderProxy@1ac1b53)"])
 def test_scan_log_lines_ignores_ordinary_messages(message):
     assert scan_log_lines([f"10-21 12:00:00.100 {UID}  4321  4330 D Auth: {message}"], "logcat.txt", reveal_values=False)[0] == []
 

@@ -45,8 +45,11 @@ MAX_FINDINGS = 200
 # key names follow the playbook control's redaction patterns and the shared scanner's secret keys.
 LOG_KEY_VALUE_RE = re.compile(
     r"(?i)(?<![a-z])(password|passwd|pwd|pass|passcode|pin|otp|secret|client[_-]?secret|api[_-]?key|access[_-]?token|refresh[_-]?token|auth[_-]?token|token|session[_-]?id|cookie|authorization)(?![a-z0-9])"
-    r"\s*[=:]\s*(?:(?:bearer|basic)\s+)?(?![\"'])([^\s,;\"'&]{4,})"
+    r"\s*[=:]\s*(?:(?:bearer|basic)\s+)?(?![\"'])([^\s,;\"'&)}\]>]{4,})"
 )
+# Java's default toString(), a class name and hash code such as the framework's "token = android.os.BinderProxy@e00118d"
+# in every app process, names an object rather than holding a secret.
+OBJECT_REFERENCE_RE = re.compile(r"[A-Za-z_$][\w.$]*@[0-9a-fA-F]{1,8}")
 # The threadtime prefix up to the end of the tag ("... D Tag     : "), so a tag such as "Token" is not read as a key.
 LINE_PREFIX_RE = re.compile(r"^(?:.*?\s)?[VDIWEFS] [^:]*?\s*: ")
 
@@ -283,6 +286,8 @@ def _log_key_value_findings(label: str, line: str, reveal_values: bool) -> list[
     findings = []
     for match in LOG_KEY_VALUE_RE.finditer(line):
         key, value = match.group(1), match.group(2)
+        if OBJECT_REFERENCE_RE.fullmatch(value):
+            continue
         if value_looks_secret(value) or (key.lower() in {"pin", "otp", "pass", "pwd", "passcode"} and value.lower() not in {"null", "none", "true", "false"}):
             findings.append(sensitive_finding(label, "SENSITIVE_KEY_VALUE", value, sensitive_key_severity(key), context=key, reveal_values=reveal_values))
     return findings
