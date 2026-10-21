@@ -421,7 +421,8 @@ about to link. Folder sizes count only files the folder does not share, so
 reclaimable space is not counted twice.
 
 State that is not per-run is never a candidate: `ios/traffic_interception/` (the
-Burp capture file and its health record), `android/repackaging/` (the repackaging
+Burp capture file and its health record), `traffic_interception/` (the Burp
+content file and its arming marker), `android/repackaging/` (the repackaging
 keystore and APKs pulled from devices), log files, and any folder whose name is
 not a run id.
 

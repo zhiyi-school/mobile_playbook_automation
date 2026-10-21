@@ -171,7 +171,7 @@ Endpoints: `GET /health`, `GET /next` (token-gated; the phone-side keyboard exte
 
 ### Burp capture reader
 
-`platforms/traffic_interception/burp_capture.py` reads the JSON-lines file the companion Burp extension (`tools/burp/traffic_capture_extension.py`) appends to, so traffic-interception risks on either platform judge the same records. `snapshot_capture()` records the file's identity and size before a test window, and `poll_capture()` reads only the lines appended since, reporting a replaced, truncated or unreadable file instead of reading from it. What sets up a device to proxy through Burp stays with its platform, under `platforms/<platform>/traffic_interception/`.
+`platforms/traffic_interception/burp_capture.py` reads the JSON-lines file the companion Burp extension (`tools/burp/traffic_capture_extension.py`) appends to, so traffic-interception risks on either platform judge the same records. `snapshot_capture()` records the file's identity and size before a test window, and `poll_capture()` reads only the lines appended since, reporting a replaced, truncated or unreadable file instead of reading from it. `burp_content.py` arms the extension's content capture for one test window by writing a marker file that names the Burp listener ports to record and an expiry, then reads back the full exchanges recorded, decoding gzip and deflate response bodies; see [content capture](ios/risks.md#content-capture). What sets up a device to proxy through Burp stays with its platform, under `platforms/<platform>/traffic_interception/`.
 
 ### Behavior validation layer (iOS)
 

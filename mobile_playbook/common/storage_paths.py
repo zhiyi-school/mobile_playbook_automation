@@ -148,6 +148,11 @@ def ios_capture_path() -> Path:
     return ios_work_dir() / "traffic_interception" / "capture.jsonl"
 
 
+# Returns the directory the Burp extension writes armed content capture to, shared by both platforms.
+def burp_content_dir() -> Path:
+    return work_root() / "traffic_interception"
+
+
 # Returns the Android work directory.
 def android_work_dir() -> Path:
     return work_root() / "android"
