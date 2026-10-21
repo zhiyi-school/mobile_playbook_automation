@@ -19,7 +19,7 @@ from mobile_playbook.common.logging_setup import redacted
 from mobile_playbook.common.storage_paths import android_work_dir
 from mobile_playbook.platforms.android.device.debugging_warning import debugging_keywords
 from mobile_playbook.platforms.android.device.fingerprint import installed_base_apk_sha256
-from mobile_playbook.platforms.android.device.logcat import LogcatCapture, LogcatError, app_pids, app_uid, clear_logcat, read_app_lines, start_logcat
+from mobile_playbook.platforms.android.device.logcat import LINE_RE, LogcatCapture, LogcatError, app_pids, app_uid, clear_logcat, read_app_lines, start_logcat
 from mobile_playbook.platforms.android.device.scripted_steps import StepsOutcome, merged_canaries, run_steps
 from mobile_playbook.platforms.android.models import AndroidRiskRunResult
 from mobile_playbook.platforms.android.private_data.findings import write_critical_findings
@@ -50,8 +50,9 @@ LOG_KEY_VALUE_RE = re.compile(
 # Java's default toString(), a class name and hash code such as the framework's "token = android.os.BinderProxy@e00118d"
 # in every app process, names an object rather than holding a secret.
 OBJECT_REFERENCE_RE = re.compile(r"[A-Za-z_$][\w.$]*@[0-9a-fA-F]{1,8}")
-# The threadtime prefix up to the end of the tag ("... D Tag     : "), so a tag such as "Token" is not read as a key.
-LINE_PREFIX_RE = re.compile(r"^(?:.*?\s)?[VDIWEFS] [^:]*?\s*: ")
+# The threadtime header and the tag up to the first ": " ("... D Tag     : "), so neither the header's digits nor a tag
+# such as "Token" are scanned; a tag may itself contain a colon, as "unknown:ViewManagerPropertyUpdater" does.
+LINE_PREFIX_RE = re.compile(LINE_RE.pattern + r".*?: ")
 
 
 class AndroidRuntimeLogsRisk(AndroidRisk):
@@ -236,7 +237,8 @@ def scan_log_lines(lines: list[str], log_name: str, reveal_values: bool, canarie
     exported = []
     for number, line in enumerate(lines, start=1):
         label = f"{log_name}:{number}"
-        message = LINE_PREFIX_RE.sub("", line, count=1)
+        prefix = LINE_PREFIX_RE.match(line) or LINE_RE.match(line)
+        message = line[prefix.end():] if prefix else line
         canary_findings = [sensitive_finding(label, "CANARY_VALUE", value, "HIGH", context=context, reveal_values=True) for value, context in variants.items() if value in message]
         pattern_findings = scan_text_content(message.encode("utf-8"), label, reveal_values) + pii_value_findings(label, message, reveal_values) + _log_key_value_findings(label, message, reveal_values)
         # A pattern match on a canary repeats its canary finding, and would mask a value that is not real.

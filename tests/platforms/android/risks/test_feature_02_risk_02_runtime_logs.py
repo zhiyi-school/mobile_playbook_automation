@@ -504,3 +504,24 @@ def test_canaries_not_typed_are_not_searched_for(tmp_path):
 
     findings = json.loads(report_file(tmp_path, "runtime_log_findings.json").read_text())["findings"]
     assert [item["match_type"] for item in findings] == ["PAYMENT_CARD_NUMBER"]
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "10-21 10:34:07.325 10364 32439  7994 W unknown:ViewManagerPropertyUpdater: Could not find generated setter for class com.example.Manager",
+        "10-21 10:34:07.325 10364 32439  7994 W unknown:ViewManagerPropertyUpdater:no space after the tag",
+        "10-21 10:34:07.325 32439  7994 W unknown:ViewManagerPropertyUpdater: Could not find generated setter",
+    ],
+)
+def test_scan_log_lines_never_reads_the_header_digits_as_a_card_number(line):
+    assert scan_log_lines([line], "logcat.txt", reveal_values=False) == ([], [line])
+
+
+def test_scan_log_lines_scans_the_message_after_a_tag_with_a_colon():
+    line = f"10-21 10:34:07.325 {UID} 32439  7994 D unknown:Auth: signed in as {EMAIL}"
+
+    findings, exported = scan_log_lines([line], "logcat.txt", reveal_values=False)
+
+    assert [item["match_type"] for item in findings] == ["EMAIL_ADDRESS"]
+    assert EMAIL not in exported[0]
