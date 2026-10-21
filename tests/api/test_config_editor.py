@@ -150,6 +150,22 @@ def test_both_android_private_data_risks_edit_the_same_settings(config_root):
     assert ce.get_risk_settings("android", "android-feature-07-risk-01") == {"launch_wait": 5, "max_archive_mb": 50}
 
 
+def test_android_runtime_log_risk_settings_are_editable(config_root):
+    from mobile_playbook.common.config_loader import load_yaml_config
+    from mobile_playbook.platforms.android.config import parse_config
+
+    entry = config_root / "configs/android.yaml"
+    entry.write_text(entry.read_text() + "  runtime_logs: split/android/runtime_logs.yaml\n")
+    path = config_root / "configs/split/android/runtime_logs.yaml"
+    path.write_text("runtime_logs:\n  # seconds the app stays open\n  dwell_seconds: 15\n")
+
+    ce.put_risk_settings("android", "android-feature-02-risk-02", {"keep_raw": True})
+
+    assert "# seconds the app stays open" in path.read_text()
+    assert ce.get_risk_settings("android", "android-feature-02-risk-02") == {"dwell_seconds": 15, "keep_raw": True}
+    assert parse_config(load_yaml_config(entry), entry).runtime_logs == {"dwell_seconds": 15, "keep_raw": True}
+
+
 def test_unknown_risk_settings_id_raises(config_root):
     with pytest.raises(Exception):
         ce.get_risk_settings("ios", "ios-does-not-exist")

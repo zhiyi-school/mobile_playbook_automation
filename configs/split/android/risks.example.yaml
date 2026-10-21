@@ -97,6 +97,50 @@ android-feature-02-risk-01:
           images: []
           commands: []
 
+android-feature-02-risk-02:
+  name: Android Runtime Log Capture Test
+  description: Over USB debugging, the device log can be read with adb logcat, so any credentials, tokens or personal data the app writes to its runtime log while it runs can be collected.
+  tactic: Collection
+  demonstration:
+    - id: setup_table
+      type: table
+      label: Setup
+      rows:
+        - Configuration: Requires
+          Detail: adb over an authorized USB debugging connection and Appium (with Corellium role devices, the non-rooted device); developer mode and USB debugging are already on when adb connects
+        - Configuration: Log read
+          Detail: The device's main, system and crash log buffers through adb logcat, the same stream Android Studio's Logcat window shows
+    - id: steps
+      type: steps
+      label: Demonstration
+      items:
+        - id: step_1
+          text: Record whether USB debugging is on in Settings.Global.ADB_ENABLED and read the app's user ID
+          images: []
+          commands:
+            - adb shell settings get global adb_enabled
+            - adb shell dumpsys package <package>
+        - id: step_2
+          text: Stop the app, clear the log buffers and stream the device log to the workstation, with each line's user ID where the device supports it
+          images: []
+          commands:
+            - adb shell am force-stop <package>
+            - adb logcat -c
+            - adb logcat -v threadtime -v uid > logcat.txt
+        - id: step_3
+          text: Launch the app, wait launch_wait seconds and check its screen for a warning that USB debugging is on; without one, leave it running for dwell_seconds
+          images: []
+          commands: []
+        - id: step_4
+          text: Stop the app and the capture, and keep only the lines the app wrote, by its user ID or, where lines carry none, by its process IDs
+          images: []
+          commands:
+            - adb shell ps -A
+        - id: step_5
+          text: Scan the app's lines for credentials, tokens and personal data, then write logcat_<package>.txt with the values found masked, runtime_log_findings.json and the critical findings, and delete the unfiltered capture unless keep_raw is true
+          images: []
+          commands: []
+
 android-feature-06-risk-01:
   name: "Android Screen Capture Test"
   description: "Describe what this risk demonstrates."

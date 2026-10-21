@@ -1,0 +1,13 @@
+# Example Android runtime_logs settings for android-feature-02-risk-02. Copy to runtime_logs.yaml; see
+# docs/android/configuration.md#runtime-logs-android-feature-02-risk-02.
+
+runtime_logs:
+  # Seconds after launch before the app's screen is checked for a USB debugging warning.
+  launch_wait: 5
+  # Seconds the app stays open while its log is captured.
+  dwell_seconds: 15
+  # Report sensitive values found in the log in full instead of masked, in the findings and the exported log.
+  reveal_values: false
+  # Keep the unfiltered capture, which holds every app's log lines, under artifacts/work/android/runtime_logs/<package>/
+  # instead of deleting it after the app's lines are taken from it. It is never copied into the report.
+  keep_raw: false

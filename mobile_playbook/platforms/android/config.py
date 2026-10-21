@@ -75,7 +75,7 @@ def parse_config(raw: dict[str, Any], config_path: Path | None = None) -> Androi
     apps = [_parse_app(item) for item in (raw.get("apps") or [])]
     if logger.isEnabledFor(logging.DEBUG):
         logger.debug("android config: parsed sections=%s apps=%s", list(raw), [app.id for app in apps])
-        for section_name, section_value in (("device", device_raw), ("runner", runner_raw), ("screen_capture", raw.get("screen_capture")), ("apk_static_analysis", raw.get("apk_static_analysis")), ("private_data", raw.get("private_data")), ("tools", raw.get("tools"))):
+        for section_name, section_value in (("device", device_raw), ("runner", runner_raw), ("screen_capture", raw.get("screen_capture")), ("apk_static_analysis", raw.get("apk_static_analysis")), ("private_data", raw.get("private_data")), ("runtime_logs", raw.get("runtime_logs")), ("tools", raw.get("tools"))):
             logger.debug("android config: %s=%s", section_name, redacted(section_value) if isinstance(section_value, dict) else type(section_value).__name__)
         logger.debug("android config: repackaging=%s", redacted({key: REDACTED if "pass" in str(key).lower() else value for key, value in repackaging_raw.items()}))
     return AndroidGlobalConfig(
@@ -103,6 +103,7 @@ def parse_config(raw: dict[str, Any], config_path: Path | None = None) -> Androi
         repackaging=repackaging_raw,
         apk_static_analysis=raw.get("apk_static_analysis") or {},
         private_data=raw.get("private_data") or {},
+        runtime_logs=raw.get("runtime_logs") or {},
         config_path=config_path,
     )
 
