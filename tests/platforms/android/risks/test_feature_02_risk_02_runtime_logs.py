@@ -106,19 +106,48 @@ class LogcatAdb:
 
     def app_launched(self):
         if self.capture_path is not None:
-            with self.capture_path.open("a") as handle:
-                handle.write("--------- beginning of main\n" + "".join(f"{line}\n" for line in self.log))
+            self.append(["--------- beginning of main", *self.log])
             if self.logcat_ends_early:
                 self.process.returncode = 255
 
+    def append(self, lines):
+        with self.capture_path.open("a") as handle:
+            handle.write("".join(f"{line}\n" for line in lines))
+
+
+class FakeElement:
+    """A field that, when typed into, writes the line `logs` formats with the typed text, as a leaky app would."""
+
+    def __init__(self, adb, actions, logs=None):
+        self.adb = adb
+        self.actions = actions
+        self.logs = logs
+
+    def click(self):
+        self.actions.append("click")
+
+    def clear(self):
+        pass
+
+    def send_keys(self, text):
+        self.actions.append(f"type:{text}")
+        if self.logs:
+            self.adb.append([self.logs.format(text=text)])
+
 
 class FakeDriver:
-    def __init__(self, adb, *, page_source="<hierarchy/>", foreground=PACKAGE, launch_error=None):
+    def __init__(self, adb, *, page_source="<hierarchy/>", foreground=PACKAGE, launch_error=None, fields=None):
         self.adb = adb
         self.page_source = page_source
         self.current_package = foreground
         self.launch_error = launch_error
         self.calls: list[str] = []
+        self.fields = fields or {}
+
+    def find_elements(self, by, target):
+        if target not in self.fields:
+            return []
+        return [FakeElement(self.adb, self.calls, self.fields[target])]
 
     def activate_app(self, package):
         self.calls.append(f"activate:{package}")
@@ -144,7 +173,7 @@ def run_risk(tmp_path, adb, *, driver=None, config=None, app_risk_config=None):
     report_dir.mkdir()
     driver = driver or FakeDriver(adb)
     app_config = SimpleNamespace(id="example", name="Example", package_name=PACKAGE, risks={"android-feature-02-risk-02": app_risk_config or {}})
-    global_config = SimpleNamespace(runtime_logs={"launch_wait": 0, "dwell_seconds": 0, **(config or {})})
+    global_config = SimpleNamespace(runtime_logs={"launch_wait": 0, "dwell_seconds": 0, "step_timeout_seconds": 0, **(config or {})})
     writer = FakeReportWriter(report_dir)
     device_client = SimpleNamespace(adb=adb, make_driver=lambda: driver)
     result = AndroidRuntimeLogsRisk().run(app_config, global_config, device_client, writer)
@@ -363,3 +392,115 @@ def test_scan_log_lines_does_not_read_the_tag_as_a_key():
     line = f"10-21 12:00:00.100 {UID}  4321  4330 I Token   : refreshed ok"
 
     assert scan_log_lines([line], "logcat.txt", reveal_values=False) == ([], [line])
+
+
+SIGN_IN = [
+    {"type": {"id": "email", "value": "{canary.email}"}},
+    {"type": {"id": "password", "value": "{canary.password}"}},
+    {"tap": {"id": "sign_in"}},
+]
+
+
+def scripted_driver(adb, email_log=None, password_log=None, **settings):
+    return FakeDriver(adb, fields={"email": email_log, "password": password_log, "sign_in": None}, **settings)
+
+
+def test_a_canary_typed_in_a_scripted_step_and_logged_is_at_risk_and_reported_in_full(tmp_path):
+    adb = LogcatAdb(PLAIN_LOG)
+    driver = scripted_driver(adb, email_log=f"10-21 12:00:01.000 {UID}  4321  4330 D Login: user {{text}}")
+
+    result = run_risk(tmp_path, adb, driver=driver, app_risk_config={"steps": SIGN_IN})
+
+    assert (result.final_status, result.verdict) == ("SENSITIVE_DATA_LOGGED", "At Risk")
+    assert result.metadata["coverage"] == "scripted"
+    assert result.metadata["steps"] == {"configured": 3, "completed": 3, "failure": None, "canaries_typed": ["email", "password"]}
+    assert result.metadata["canaries_found"] == ["email"]
+    assert "type:canary.logtest@example.com" in driver.calls
+    assert EMAIL in report_file(tmp_path, f"logcat_{PACKAGE}.txt").read_text()
+    findings = json.loads(report_file(tmp_path, "runtime_log_findings.json").read_text())["findings"]
+    assert [(item["match_type"], item["context"], item["value"]) for item in findings] == [("CANARY_VALUE", "email canary, as typed", EMAIL)]
+    assert "CANARY_VALUE (email canary, as typed)" in critical_flags(tmp_path)[0]["evidence"][0]
+
+
+@pytest.mark.parametrize(
+    ("logged", "form"),
+    [
+        ("Q2FuYXJ5LVB3LTdRNHo", "base64"),
+        ("Canary-Pw-7Q4z".lower(), "lowercase"),
+        ("CanaryPw7Q4z", "without separators"),
+    ],
+)
+def test_a_canary_is_found_in_its_encoded_forms(tmp_path, logged, form):
+    adb = LogcatAdb(PLAIN_LOG)
+    driver = scripted_driver(adb, password_log=f"10-21 12:00:01.000 {UID}  4321  4330 D Login: hash input " + logged)
+
+    result = run_risk(tmp_path, adb, driver=driver, app_risk_config={"steps": SIGN_IN})
+
+    assert result.final_status == "SENSITIVE_DATA_LOGGED"
+    contexts = [item["context"] for item in json.loads(report_file(tmp_path, "runtime_log_findings.json").read_text())["findings"]]
+    assert f"password canary, {form}" in contexts
+
+
+def test_a_shared_or_app_canary_replaces_the_default(tmp_path):
+    adb = LogcatAdb(PLAIN_LOG)
+    driver = scripted_driver(adb, email_log=f"10-21 12:00:01.000 {UID}  4321  4330 D Login: user {{text}}")
+
+    run_risk(tmp_path, adb, driver=driver, config={"canaries": {"email": "shared@example.com"}}, app_risk_config={"steps": SIGN_IN, "canaries": {"password": "App-Pw-0000"}})
+
+    assert "type:shared@example.com" in driver.calls
+    assert "type:App-Pw-0000" in driver.calls
+
+
+def test_scripted_steps_that_log_nothing_sensitive_are_reduced_risk(tmp_path):
+    adb = LogcatAdb(PLAIN_LOG)
+
+    result = run_risk(tmp_path, adb, driver=scripted_driver(adb), app_risk_config={"steps": SIGN_IN})
+
+    assert (result.final_status, result.verdict) == ("NO_SENSITIVE_DATA_LOGGED", "Reduced Risk")
+    assert result.metadata["canaries_found"] == []
+
+
+def test_a_failed_step_with_a_clean_log_is_inconclusive(tmp_path):
+    adb = LogcatAdb(PLAIN_LOG)
+    driver = FakeDriver(adb, fields={"email": None})
+
+    result = run_risk(tmp_path, adb, driver=driver, app_risk_config={"steps": SIGN_IN})
+
+    assert (result.final_status, result.verdict) == ("SCRIPTED_STEPS_INCOMPLETE", "Inconclusive")
+    assert result.metadata["coverage"] == "scripted_partial"
+    assert result.metadata["steps"]["completed"] == 1
+    assert result.metadata["steps"]["failure"]["index"] == 1
+    assert result.errors == ["Scripted step 2 of 3 failed, so the flow it leads to was not tested: no element matched id 'password' within 0s"]
+
+
+def test_a_failed_step_after_a_leak_is_still_at_risk(tmp_path):
+    adb = LogcatAdb(PLAIN_LOG)
+    driver = FakeDriver(adb, fields={"email": f"10-21 12:00:01.000 {UID}  4321  4330 D Login: user {{text}}"})
+
+    result = run_risk(tmp_path, adb, driver=driver, app_risk_config={"steps": SIGN_IN})
+
+    assert (result.final_status, result.verdict) == ("SENSITIVE_DATA_LOGGED", "At Risk")
+    assert result.metadata["coverage"] == "scripted_partial"
+    assert result.errors == []
+
+
+def test_steps_are_not_run_when_the_app_warns_about_usb_debugging(tmp_path):
+    adb = LogcatAdb(PLAIN_LOG)
+    driver = scripted_driver(adb, page_source='<Text text="USB debugging detected"/>')
+
+    result = run_risk(tmp_path, adb, driver=driver, app_risk_config={"steps": SIGN_IN})
+
+    assert result.final_status == "USB_DEBUGGING_BLOCKED"
+    assert result.metadata["steps"] == {"configured": 3, "completed": 0, "failure": None, "canaries_typed": []}
+    assert not any(call.startswith("type:") for call in driver.calls)
+
+
+def test_canaries_not_typed_are_not_searched_for(tmp_path):
+    log = [f"10-21 12:00:00.100 {UID}  4321  4330 D Debug: sample card 4111111111111111"]
+    adb = LogcatAdb(log)
+    steps = [{"type": {"id": "email", "value": "{canary.email}"}}]
+
+    run_risk(tmp_path, adb, driver=scripted_driver(adb), app_risk_config={"steps": steps})
+
+    findings = json.loads(report_file(tmp_path, "runtime_log_findings.json").read_text())["findings"]
+    assert [item["match_type"] for item in findings] == ["PAYMENT_CARD_NUMBER"]

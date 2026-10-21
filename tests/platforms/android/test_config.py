@@ -286,3 +286,34 @@ def test_the_phone_serial_cannot_be_a_vm_address():
 def test_physical_roles_need_corellium_baseline_roles(device):
     assert ("device.physical_roles needs device.provider corellium with device.corellium.roles; with provider physical "
             "the phone already runs every risk") in _errors(device)
+
+
+def _runtime_log_errors(runtime_logs=None, app_settings=None):
+    config = parse_config({"runtime_logs": runtime_logs or {}, "apps": [{"id": "example", "package_name": "com.example.app", "risks": {"android-feature-02-risk-02": app_settings or {"enabled": True}}}]})
+    return [error for error in collect_config_errors(config) if "runtime_logs" in error or "android-feature-02-risk-02" in error]
+
+
+def test_runtime_log_steps_may_type_shared_app_and_default_canaries():
+    steps = [{"type": {"id": "a", "value": "{canary.email}"}}, {"type": {"id": "b", "value": "{canary.otp}"}}, {"type": {"id": "c", "value": "{canary.member}"}}]
+
+    assert _runtime_log_errors({"canaries": {"otp": "000000"}}, {"enabled": True, "canaries": {"member": "M-0001"}, "steps": steps}) == []
+
+
+def test_runtime_log_step_problems_are_reported_for_the_app():
+    errors = _runtime_log_errors(app_settings={"enabled": True, "steps": [{"tap": {"xpath": "//x"}}, {"type": {"id": "a", "value": "{canary.otp}"}}]})
+
+    assert errors == [
+        "apps[example].risks.android-feature-02-risk-02.steps[0].tap must name the element with exactly one of id, accessibility_id, text",
+        "apps[example].risks.android-feature-02-risk-02.steps[0].tap.xpath is not a known setting",
+        "apps[example].risks.android-feature-02-risk-02.steps[1].type.value names unknown canary 'otp'",
+    ]
+
+
+def test_shared_runtime_log_steps_and_bad_canaries_are_rejected():
+    errors = _runtime_log_errors({"steps": [], "canaries": {"email": ""}}, {"enabled": True, "canaries": "x"})
+
+    assert errors == [
+        "runtime_logs.canaries must map names of letters, digits and underscores to non-empty text",
+        "runtime_logs.steps is not supported; scripted steps belong to one app, under its risks.android-feature-02-risk-02 entry",
+        "apps[example].risks.android-feature-02-risk-02.canaries must map names of letters, digits and underscores to non-empty text",
+    ]

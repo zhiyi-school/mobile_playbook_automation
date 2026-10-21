@@ -5,10 +5,12 @@ with `adb logcat` while the app runs, as the playbook does with Android Studio's
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
 import re
 import time
+import urllib.parse
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -18,6 +20,7 @@ from mobile_playbook.common.storage_paths import android_work_dir
 from mobile_playbook.platforms.android.device.debugging_warning import debugging_keywords
 from mobile_playbook.platforms.android.device.fingerprint import installed_base_apk_sha256
 from mobile_playbook.platforms.android.device.logcat import LogcatCapture, LogcatError, app_pids, app_uid, clear_logcat, read_app_lines, start_logcat
+from mobile_playbook.platforms.android.device.scripted_steps import StepsOutcome, merged_canaries, run_steps
 from mobile_playbook.platforms.android.models import AndroidRiskRunResult
 from mobile_playbook.platforms.android.private_data.findings import write_critical_findings
 from mobile_playbook.platforms.android.private_data.scan import pii_value_findings
@@ -56,8 +59,8 @@ class AndroidRuntimeLogsRisk(AndroidRisk):
     test_case_type = "adb_logcat_capture"
     requires = ["adb", "appium"]
 
-    # Capture the device log while the app is opened and left running, keep the app's own lines, scan them for
-    # sensitive data and write the result.
+    # Capture the device log while the app is opened and either taken through its scripted steps or left running,
+    # keep the app's own lines, scan them for sensitive data and the canaries typed, and write the result.
     def run(self, app_config, global_config, device_client, report_writer):
         started_at = datetime.now().astimezone()
         package = app_config.package_name
@@ -79,6 +82,9 @@ class AndroidRuntimeLogsRisk(AndroidRisk):
         adb = device_client.adb
         reveal_values = bool(cfg.get("reveal_values", False))
         keep_raw = bool(cfg.get("keep_raw", False))
+        steps = (app_config.risks.get(self.risk_id) or {}).get("steps") or []
+        canaries = merged_canaries((getattr(global_config, "runtime_logs", None) or {}).get("canaries"), cfg.get("canaries"))
+        outcome: StepsOutcome | None = None
         raw_path = android_work_dir() / "runtime_logs" / package.replace(".", "_") / f"{report_writer.run_timestamp}_logcat.txt"
         capture: LogcatCapture | None = None
         driver = None
@@ -89,7 +95,7 @@ class AndroidRuntimeLogsRisk(AndroidRisk):
             if uid is None:
                 raise LogcatError(f"dumpsys package reports no user ID for {package}; is it installed on the device?")
             result.metadata["app_uid"] = uid
-            result.metadata["coverage"] = "launch_only"
+            result.metadata["coverage"] = "scripted" if steps else "launch_only"
             # Stopped first, so the capture starts before the app does and holds what it logs on start-up.
             adb.run(["shell", "am", "force-stop", package])
             cleared = clear_logcat(adb)
@@ -101,7 +107,15 @@ class AndroidRuntimeLogsRisk(AndroidRisk):
             result.metadata["uid_in_log"] = capture.with_uid
             driver = device_client.make_driver()
             pids = self._open_app(driver, adb, package, cfg, result)
-            if not result.metadata["usb_debugging_warning"]:
+            if result.metadata["usb_debugging_warning"]:
+                if steps:
+                    result.metadata["steps"] = StepsOutcome(configured=len(steps)).to_dict()
+            elif steps:
+                outcome = run_steps(driver, steps, canaries, float(cfg.get("step_timeout_seconds", 10)))
+                result.metadata["steps"] = outcome.to_dict()
+                if outcome.failure is not None:
+                    result.metadata["coverage"] = "scripted_partial"
+            else:
                 pids |= self._dwell(adb, package, capture, float(cfg.get("dwell_seconds", 15)))
             _close_app(driver, package)
             pids |= app_pids(adb, package)
@@ -110,7 +124,8 @@ class AndroidRuntimeLogsRisk(AndroidRisk):
                 raise LogcatError("logcat stopped before the app was closed; the device may have disconnected")
             result.metadata["app_pids"] = sorted(pids)
             lines = read_app_lines(raw_path, uid, pids)
-            self._record(lines, bool(pids), reveal_values, app_config, report_dir, result)
+            typed = {name: canaries[name] for name in (outcome.canaries_typed if outcome else [])}
+            self._record(lines, bool(pids), reveal_values, typed, outcome, app_config, report_dir, result)
         except Exception as exc:
             logger.debug("%s[%s]: run failed: %s", self.risk_id, app_config.id, exc, exc_info=True)
             result.final_status = "FAILED"
@@ -167,11 +182,13 @@ class AndroidRuntimeLogsRisk(AndroidRisk):
                 pids |= app_pids(adb, package)
         return pids
 
-    # Scan the app's log lines, write them masked with their findings, and decide the verdict.
-    def _record(self, lines: list[str], app_ran: bool, reveal_values: bool, app_config, report_dir: Path, result: AndroidRiskRunResult) -> None:
-        findings, exported = scan_log_lines(lines, f"logcat_{app_config.package_name}.txt", reveal_values)
+    # Scan the app's log lines, write them masked with their findings, and decide the verdict; a canary found decides
+    # it as any sensitive value does, and an unfinished script leaves an otherwise clean log inconclusive.
+    def _record(self, lines: list[str], app_ran: bool, reveal_values: bool, typed: dict[str, str], outcome: StepsOutcome | None, app_config, report_dir: Path, result: AndroidRiskRunResult) -> None:
+        findings, exported = scan_log_lines(lines, f"logcat_{app_config.package_name}.txt", reveal_values, typed)
         result.metadata["app_line_count"] = len(lines)
         result.metadata["finding_count"] = len(findings)
+        result.metadata["canaries_found"] = sorted({item["context"].split(" ")[0] for item in findings if item["match_type"] == "CANARY_VALUE"})
         log_path = report_dir / f"logcat_{app_config.package_name}.txt"
         log_path.write_text("".join(f"{line}\n" for line in exported))
         result.evidence.append({"kind": "runtime_log", "path": str(log_path), "label": "The app's log lines captured over USB debugging" + ("" if reveal_values else ", with sensitive values masked")})
@@ -187,12 +204,15 @@ class AndroidRuntimeLogsRisk(AndroidRisk):
                     "id": "SENSITIVE_DATA_IN_RUNTIME_LOGS",
                     "severity": highest_severity(findings),
                     "title": "The app writes sensitive data to its runtime log, which can be read over USB debugging",
-                    "evidence": [f"{item['severity']} {item['match_type']} at {item['path']}: {item['reported_value']} ({item['occurrences']} occurrence(s))" for item in findings[:15]],
+                    "evidence": [_evidence_line(item) for item in findings[:15]],
                     "recommendation": "Do not log credentials, tokens or personal data. Redact sensitive patterns before they reach Logcat, and strip debug logging from release builds, for example with R8 -assumenosideeffects rules for android.util.Log.",
                 }
             )
         elif result.metadata["usb_debugging_warning"]:
             result.final_status, result.verdict = "USB_DEBUGGING_BLOCKED", "Reduced Risk"
+        elif outcome is not None and outcome.failure is not None:
+            result.final_status, result.verdict = "SCRIPTED_STEPS_INCOMPLETE", "Inconclusive"
+            result.errors.append(f"Scripted step {outcome.failure['index'] + 1} of {outcome.configured} failed, so the flow it leads to was not tested: {outcome.failure['error']}")
         elif lines:
             result.final_status, result.verdict = "NO_SENSITIVE_DATA_LOGGED", "Reduced Risk"
         elif app_ran:
@@ -204,15 +224,20 @@ class AndroidRuntimeLogsRisk(AndroidRisk):
         write_critical_findings(flags, app_config, report_dir, result, MARKDOWN_TITLE)
 
 
-# Scan each log line for secrets and personal data, returning one finding per distinct value with its first line and
-# number of occurrences, and the lines with every value found masked unless reveal_values is set.
-def scan_log_lines(lines: list[str], log_name: str, reveal_values: bool) -> tuple[list[dict[str, Any]], list[str]]:
+# Scan each log line for the canaries typed, in any of their encodings, and for secrets and personal data, returning
+# one finding per distinct value with its first line and number of occurrences, and the lines with every value found
+# masked unless reveal_values is set. Canaries are synthetic, so they are reported and left in the lines in full.
+def scan_log_lines(lines: list[str], log_name: str, reveal_values: bool, canaries: dict[str, str] | None = None) -> tuple[list[dict[str, Any]], list[str]]:
+    variants = canary_variants(canaries or {})
     distinct: dict[tuple[str, str], dict[str, Any]] = {}
     exported = []
     for number, line in enumerate(lines, start=1):
         label = f"{log_name}:{number}"
         message = LINE_PREFIX_RE.sub("", line, count=1)
-        line_findings = scan_text_content(message.encode("utf-8"), label, reveal_values) + pii_value_findings(label, message, reveal_values) + _log_key_value_findings(label, message, reveal_values)
+        canary_findings = [sensitive_finding(label, "CANARY_VALUE", value, "HIGH", context=context, reveal_values=True) for value, context in variants.items() if value in message]
+        pattern_findings = scan_text_content(message.encode("utf-8"), label, reveal_values) + pii_value_findings(label, message, reveal_values) + _log_key_value_findings(label, message, reveal_values)
+        # A pattern match on a canary repeats its canary finding, and would mask a value that is not real.
+        line_findings = canary_findings + [finding for finding in pattern_findings if finding["_raw_value"] not in variants]
         for finding in line_findings:
             key = (finding["match_type"], finding["_raw_value"])
             if key in distinct:
@@ -221,11 +246,36 @@ def scan_log_lines(lines: list[str], log_name: str, reveal_values: bool) -> tupl
                 distinct[key] = {**finding, "occurrences": 1}
         if not reveal_values:
             # Longest first, so a value inside a longer match is not masked on its own and leaves the rest readable.
-            for raw in sorted({finding["_raw_value"] for finding in line_findings}, key=len, reverse=True):
+            for raw in sorted({finding["_raw_value"] for finding in line_findings if finding["_raw_value"] not in variants}, key=len, reverse=True):
                 line = line.replace(raw, next(item["masked_value"] for item in line_findings if item["_raw_value"] == raw))
         exported.append(line)
     findings = sorted(distinct.values(), key=lambda item: severity_rank(item["severity"]), reverse=True)[:MAX_FINDINGS]
     return findings, exported
+
+
+# Describe one finding for the critical findings report.
+def _evidence_line(item: dict[str, Any]) -> str:
+    kind = f"{item['match_type']} ({item['context']})" if item["context"] else item["match_type"]
+    return f"{item['severity']} {kind} at {item['path']}: {item['reported_value']} ({item['occurrences']} occurrence(s))"
+
+
+# Return each form a canary may be logged in, as typed, without spaces or dashes, lowercased, URL-encoded and base64
+# encoded, mapped to a description naming the canary and the form.
+def canary_variants(canaries: dict[str, str]) -> dict[str, str]:
+    variants: dict[str, str] = {}
+    for name, value in canaries.items():
+        forms = {
+            "as typed": value,
+            "without separators": re.sub(r"[\s-]", "", value),
+            "lowercase": value.lower(),
+            "URL-encoded": urllib.parse.quote(value, safe=""),
+            "form-encoded": urllib.parse.quote_plus(value, safe=""),
+            "base64": base64.b64encode(value.encode()).decode().rstrip("="),
+            "URL-safe base64": base64.urlsafe_b64encode(value.encode()).decode().rstrip("="),
+        }
+        for form, text in forms.items():
+            variants.setdefault(text, f"{name} canary, {form}")
+    return variants
 
 
 # Match unquoted "key=value" and "key: value" pairs whose key names a secret, as log messages usually write them.

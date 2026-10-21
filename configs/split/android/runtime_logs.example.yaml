@@ -11,3 +11,14 @@ runtime_logs:
   # Keep the unfiltered capture, which holds every app's log lines, under artifacts/work/android/runtime_logs/<package>/
   # instead of deleting it after the app's lines are taken from it. It is never copied into the report.
   keep_raw: false
+  # Seconds a scripted step waits for its element to appear. Scripted steps are set per app, under the app's
+  # risks.android-feature-02-risk-02.steps in apps.yaml; with them the app runs its steps instead of dwell_seconds.
+  step_timeout_seconds: 10
+  # Synthetic values a scripted "type" step can enter as {canary.<name>}; the log is searched for each one typed, also
+  # without separators, lowercased, URL-encoded and base64-encoded. Never use real credentials or personal data. These
+  # are the built-in defaults; a name set here, or under an app's own canaries, replaces that value.
+  canaries:
+    email: "canary.logtest@example.com"
+    password: "Canary-Pw-7Q4z"
+    card: "4111 1111 1111 1111"
+    nric: "S0000000Z"

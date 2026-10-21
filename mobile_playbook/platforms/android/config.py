@@ -13,6 +13,7 @@ from typing import Any
 from mobile_playbook.common.logging_setup import REDACTED, redacted
 from mobile_playbook.common.config_loader import load_yaml_config
 from mobile_playbook.platforms.android.acquisition.store import APP_STORES, DEFAULT_APP_STORE
+from mobile_playbook.platforms.android.device.scripted_steps import canary_errors, merged_canaries, step_errors
 from mobile_playbook.platforms.android.models import (
     CORELLIUM_PROVIDER,
     DEVICE_PROVIDERS,
@@ -30,6 +31,7 @@ from mobile_playbook.platforms.corellium.profile import is_baseline_profile, pro
 logger = logging.getLogger(__name__)
 
 PHYSICAL_ROLES = ("non_rooted",)
+RUNTIME_LOGS_RISK_ID = "android-feature-02-risk-02"
 
 
 class ConfigError(Exception):
@@ -133,6 +135,9 @@ def collect_config_errors(config: AndroidGlobalConfig, dry_run: bool = False) ->
     errors.extend(_physical_role_errors(config.device))
     if not config.apps:
         errors.append("apps list must not be empty")
+    errors.extend(canary_errors(config.runtime_logs.get("canaries"), "runtime_logs"))
+    if "steps" in config.runtime_logs:
+        errors.append(f"runtime_logs.steps is not supported; scripted steps belong to one app, under its risks.{RUNTIME_LOGS_RISK_ID} entry")
     known = known_risks()
     for app in config.apps:
         label = f"apps[{app.id or '?'}]"
@@ -147,7 +152,16 @@ def collect_config_errors(config: AndroidGlobalConfig, dry_run: bool = False) ->
                 errors.append(f"{label}.risks.{risk_id} is unknown")
             elif not isinstance(risk_config, dict):
                 errors.append(f"{label}.risks.{risk_id} must be a mapping")
+            elif risk_id == RUNTIME_LOGS_RISK_ID:
+                errors.extend(_runtime_log_step_errors(config.runtime_logs, risk_config, f"{label}.risks.{risk_id}"))
     return errors
+
+
+# Return the problems with an app's scripted steps and canaries for the runtime log risk.
+def _runtime_log_step_errors(shared: dict[str, Any], settings: dict[str, Any], label: str) -> list[str]:
+    errors = canary_errors(settings.get("canaries"), label)
+    names = set(merged_canaries(shared.get("canaries"), settings.get("canaries")))
+    return errors + step_errors(settings.get("steps"), names, label)
 
 
 # Return the problems in the device.corellium settings used when device.provider is corellium.
