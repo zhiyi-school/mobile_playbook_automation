@@ -362,3 +362,35 @@ def test_overlay_canaries_do_not_satisfy_runtime_log_steps():
     })
 
     assert collect_config_errors(config) == ["apps[example].risks.android-feature-02-risk-02.steps[0].type.value names unknown canary 'otp'"]
+
+
+def _accessibility_errors(accessibility=None, app_settings=None):
+    config = parse_config({"accessibility": accessibility or {}, "apps": [{"id": "example", "package_name": "com.example.app", "risks": {"android-feature-05-risk-01": app_settings or {"enabled": True}}}]})
+    return [error for error in collect_config_errors(config) if "accessibility" in error or "android-feature-05-risk-01" in error]
+
+
+def test_accessibility_settings_are_parsed_and_default_to_empty():
+    assert parse_config({"accessibility": {"attack_timeout": 2}, "apps": ["com.example.app"]}).accessibility == {"attack_timeout": 2}
+    assert parse_config({"apps": ["com.example.app"]}).accessibility == {}
+
+
+def test_accessibility_steps_and_logged_out_locator_are_accepted():
+    settings = {"enabled": True, "steps": [{"type": {"id": "a", "value": "{canary.email}"}}, {"tap": {"text": "Sign in"}}], "logged_out": {"id": "com.example.app:id/username"}, "logout_control": {"text": "Logout"}}
+
+    assert _accessibility_errors(app_settings=settings) == []
+
+
+def test_accessibility_locator_problems_are_reported_for_the_app():
+    errors = _accessibility_errors(app_settings={"enabled": True, "logged_out": {"id": "a", "text": "b"}, "logout_control": {"xpath": "//x"}})
+
+    assert errors == [
+        "apps[example].risks.android-feature-05-risk-01.logged_out must name the element with exactly one of id, accessibility_id, text",
+        "apps[example].risks.android-feature-05-risk-01.logout_control must name the element with exactly one of id, accessibility_id, text",
+        "apps[example].risks.android-feature-05-risk-01.logout_control.xpath is not a known setting",
+    ]
+
+
+def test_shared_accessibility_steps_are_rejected():
+    errors = _accessibility_errors({"steps": []}, {"enabled": True})
+
+    assert errors == ["accessibility.steps is not supported; scripted steps belong to one app, under its risks.android-feature-05-risk-01 entry"]

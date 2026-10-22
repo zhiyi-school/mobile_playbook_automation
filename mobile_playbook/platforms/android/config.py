@@ -13,7 +13,7 @@ from typing import Any
 from mobile_playbook.common.logging_setup import REDACTED, redacted
 from mobile_playbook.common.config_loader import load_yaml_config
 from mobile_playbook.platforms.android.acquisition.store import APP_STORES, DEFAULT_APP_STORE
-from mobile_playbook.platforms.android.device.scripted_steps import canary_errors, merged_canaries, step_errors
+from mobile_playbook.platforms.android.device.scripted_steps import canary_errors, locator_errors, merged_canaries, step_errors
 from mobile_playbook.platforms.android.models import (
     CORELLIUM_PROVIDER,
     DEVICE_PROVIDERS,
@@ -33,8 +33,9 @@ logger = logging.getLogger(__name__)
 PHYSICAL_ROLES = ("non_rooted",)
 RUNTIME_LOGS_RISK_ID = "android-feature-02-risk-02"
 OVERLAY_RISK_ID = "android-feature-04-risk-01"
+ACCESSIBILITY_RISK_ID = "android-feature-05-risk-01"
 # Risks that take per-app scripted steps, with the global settings section that holds their shared canaries.
-SCRIPTED_STEP_SECTIONS = {RUNTIME_LOGS_RISK_ID: "runtime_logs", OVERLAY_RISK_ID: "overlay"}
+SCRIPTED_STEP_SECTIONS = {RUNTIME_LOGS_RISK_ID: "runtime_logs", OVERLAY_RISK_ID: "overlay", ACCESSIBILITY_RISK_ID: "accessibility"}
 
 
 class ConfigError(Exception):
@@ -80,7 +81,7 @@ def parse_config(raw: dict[str, Any], config_path: Path | None = None) -> Androi
     apps = [_parse_app(item) for item in (raw.get("apps") or [])]
     if logger.isEnabledFor(logging.DEBUG):
         logger.debug("android config: parsed sections=%s apps=%s", list(raw), [app.id for app in apps])
-        for section_name, section_value in (("device", device_raw), ("runner", runner_raw), ("screen_capture", raw.get("screen_capture")), ("apk_static_analysis", raw.get("apk_static_analysis")), ("private_data", raw.get("private_data")), ("runtime_logs", raw.get("runtime_logs")), ("overlay", raw.get("overlay")), ("tools", raw.get("tools"))):
+        for section_name, section_value in (("device", device_raw), ("runner", runner_raw), ("screen_capture", raw.get("screen_capture")), ("apk_static_analysis", raw.get("apk_static_analysis")), ("private_data", raw.get("private_data")), ("runtime_logs", raw.get("runtime_logs")), ("overlay", raw.get("overlay")), ("accessibility", raw.get("accessibility")), ("tools", raw.get("tools"))):
             logger.debug("android config: %s=%s", section_name, redacted(section_value) if isinstance(section_value, dict) else type(section_value).__name__)
         logger.debug("android config: repackaging=%s", redacted({key: REDACTED if "pass" in str(key).lower() else value for key, value in repackaging_raw.items()}))
     return AndroidGlobalConfig(
@@ -110,6 +111,7 @@ def parse_config(raw: dict[str, Any], config_path: Path | None = None) -> Androi
         private_data=raw.get("private_data") or {},
         runtime_logs=raw.get("runtime_logs") or {},
         overlay=raw.get("overlay") or {},
+        accessibility=raw.get("accessibility") or {},
         config_path=config_path,
     )
 
@@ -160,6 +162,9 @@ def collect_config_errors(config: AndroidGlobalConfig, dry_run: bool = False) ->
                 errors.append(f"{label}.risks.{risk_id} must be a mapping")
             elif risk_id in SCRIPTED_STEP_SECTIONS:
                 errors.extend(_scripted_step_errors(getattr(config, SCRIPTED_STEP_SECTIONS[risk_id]), risk_config, f"{label}.risks.{risk_id}"))
+                if risk_id == ACCESSIBILITY_RISK_ID:
+                    for key in ("logged_out", "logout_control"):
+                        errors.extend(locator_errors(risk_config.get(key), f"{label}.risks.{risk_id}.{key}"))
     return errors
 
 

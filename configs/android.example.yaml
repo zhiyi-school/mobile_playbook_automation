@@ -63,4 +63,5 @@ include:
   private_data: split/android/private_data.yaml
   runtime_logs: split/android/runtime_logs.yaml
   overlay: split/android/overlay.yaml
+  accessibility: split/android/accessibility.yaml
   apps: split/android/apps.yaml

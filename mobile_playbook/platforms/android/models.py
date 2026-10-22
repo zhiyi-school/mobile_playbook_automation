@@ -71,6 +71,7 @@ class AndroidGlobalConfig(SerializableDataclass):
     private_data: dict[str, Any] = field(default_factory=dict)
     runtime_logs: dict[str, Any] = field(default_factory=dict)
     overlay: dict[str, Any] = field(default_factory=dict)
+    accessibility: dict[str, Any] = field(default_factory=dict)
     config_path: Path | None = None
 
 

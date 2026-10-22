@@ -58,7 +58,7 @@ class AndroidAccessibilityUiOperationsRisk(AndroidRisk):
     name = "Android Accessibility UI Operations Test"
     test_case_id = "accessibility_ui_operations"
     test_case_type = "appium_accessibility"
-    requires = ["adb", "appium"]
+    requires = ["adb", "appium", "accessibility_attacker"]
 
     # Follow the playbook's accessibility logout attack, preserve evidence, and turn the attacker's service off afterwards.
     def run(self, app_config, global_config, device_client, report_writer):

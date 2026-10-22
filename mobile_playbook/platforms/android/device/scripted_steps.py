@@ -82,6 +82,20 @@ def step_errors(steps: Any, canary_names: set[str], label: str) -> list[str]:
     return errors
 
 
+# Return the problems with a locator value that must name an element with exactly one of the locator keys.
+def locator_errors(value: Any, label: str) -> list[str]:
+    if value is None:
+        return []
+    if not isinstance(value, dict):
+        return [f"{label} must be a mapping with one of {', '.join(LOCATOR_KEYS)}"]
+    errors = []
+    locators = [key for key in LOCATOR_KEYS if key in value]
+    if len(locators) != 1 or not isinstance(value[locators[0]], str) or not value[locators[0]]:
+        errors.append(f"{label} must name the element with exactly one of {', '.join(LOCATOR_KEYS)}")
+    errors.extend(f"{label}.{key} is not a known setting" for key in value if key not in LOCATOR_KEYS)
+    return errors
+
+
 # Return the problems with one step: one of tap, type, wait or back, with a single locator for tap and type.
 def _one_step_errors(step: Any, canary_names: set[str], label: str) -> list[str]:
     if step == "back":

@@ -238,3 +238,19 @@ def test_duplicate_app_conflict_names_the_existing_app(config_root):
 
     assert excinfo.value.status_code == 409
     assert excinfo.value.detail["app_id"] == "app_one"
+
+
+def test_android_accessibility_risk_settings_are_editable(config_root):
+    from mobile_playbook.common.config_loader import load_yaml_config
+    from mobile_playbook.platforms.android.config import parse_config
+
+    entry = config_root / "configs/android.yaml"
+    entry.write_text(entry.read_text() + "  accessibility: split/android/accessibility.yaml\n")
+    path = config_root / "configs/split/android/accessibility.yaml"
+    path.write_text("accessibility:\n  # seconds to wait after a launch\n  launch_wait: 5\n")
+
+    ce.put_risk_settings("android", "android-feature-05-risk-01", {"attack_timeout": 20})
+
+    assert "# seconds to wait after a launch" in path.read_text()
+    assert ce.get_risk_settings("android", "android-feature-05-risk-01") == {"launch_wait": 5, "attack_timeout": 20}
+    assert parse_config(load_yaml_config(entry), entry).accessibility == {"launch_wait": 5, "attack_timeout": 20}

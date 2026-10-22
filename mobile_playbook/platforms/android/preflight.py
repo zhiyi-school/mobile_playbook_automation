@@ -13,6 +13,9 @@ from mobile_playbook.platforms.android.device.adb import AdbClient
 from mobile_playbook.platforms.android.device.app_version import installed_version
 from mobile_playbook.platforms.android.device.appium_driver import appium_available
 from mobile_playbook.platforms.android.device.capture_helper import BUILD_COMMAND, HELPER_PACKAGE, HELPER_VERSION, helper_apk_path
+from mobile_playbook.platforms.android.device.accessibility_attacker import ATTACKER_PACKAGE as ACCESSIBILITY_ATTACKER_PACKAGE
+from mobile_playbook.platforms.android.device.accessibility_attacker import ATTACKER_VERSION as ACCESSIBILITY_ATTACKER_VERSION
+from mobile_playbook.platforms.android.device.accessibility_attacker import attacker_apk_path as accessibility_attacker_apk_path
 from mobile_playbook.platforms.android.device.overlay_attacker import ATTACKER_PACKAGE, ATTACKER_VERSION, attacker_apk_path
 from mobile_playbook.platforms.android.device.root import find_root_shell
 
@@ -58,6 +61,8 @@ def check_requirements(requires: list[str], adb: AdbClient | None, config) -> li
             results.append((name, *_check_capture_helper(adb, config)))
         elif name == "overlay_attacker":
             results.append((name, *_check_overlay_attacker(adb, config)))
+        elif name == "accessibility_attacker":
+            results.append((name, *_check_accessibility_attacker(adb, config)))
         else:
             logger.debug("android preflight: unknown requirement %s", name)
             results.append((name, False, f"unknown requirement '{name}'"))
@@ -126,6 +131,19 @@ def _check_overlay_attacker(adb: AdbClient | None, config) -> tuple[bool, str]:
             return True, "overlay attacker app already installed on the device"
     logger.debug("android preflight: overlay attacker APK missing at %s and not installed", apk)
     return False, f"overlay attacker APK not found at {apk}. Place F4_Overlay_Attacker.apk in the Android intake folder or set overlay.attacker_apk."
+
+
+# Check that the accessibility attacker APK is in place, or that the device already has the current attacker app.
+def _check_accessibility_attacker(adb: AdbClient | None, config) -> tuple[bool, str]:
+    apk = accessibility_attacker_apk_path((getattr(config, "accessibility", None) or {}).get("attacker_apk"))
+    if apk.is_file():
+        return True, f"accessibility attacker APK found at {apk}"
+    if adb is not None:
+        installed = installed_version(adb, ACCESSIBILITY_ATTACKER_PACKAGE)
+        if installed is not None and installed.version_name == ACCESSIBILITY_ATTACKER_VERSION:
+            return True, "accessibility attacker app already installed on the device"
+    logger.debug("android preflight: accessibility attacker APK missing at %s and not installed", apk)
+    return False, f"accessibility attacker APK not found at {apk}. Place F5R1_Accessibility_Attacker.apk in the Android intake folder or set accessibility.attacker_apk."
 
 
 # Check that a configured tool URL is set and accepts TCP connections.

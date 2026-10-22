@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import shlex
+from types import SimpleNamespace
 
 import pytest
 
@@ -333,3 +334,53 @@ def test_stop_force_stops_the_attacker_app(tmp_path):
     attacker(adb, tmp_path).stop()
 
     assert adb.commands == [["shell", "am", "force-stop", ATTACKER_PACKAGE]]
+
+
+def _config(apk):
+    return SimpleNamespace(accessibility={"attacker_apk": str(apk)})
+
+
+def test_preflight_passes_with_the_attacker_apk_in_place(tmp_path):
+    from mobile_playbook.platforms.android.preflight import check_requirements
+
+    apk = tmp_path / "attacker.apk"
+    apk.write_bytes(b"apk")
+
+    [(name, ok, message)] = check_requirements(["accessibility_attacker"], AttackerAdb(), _config(apk))
+
+    assert (name, ok) == ("accessibility_attacker", True)
+    assert str(apk) in message
+
+
+def test_preflight_passes_when_the_device_already_has_the_attacker_app(tmp_path):
+    from mobile_playbook.platforms.android.preflight import check_requirements
+
+    [(_, ok, message)] = check_requirements(["accessibility_attacker"], AttackerAdb(version=ATTACKER_VERSION), _config(tmp_path / "missing.apk"))
+
+    assert ok and "already installed" in message
+
+
+@pytest.mark.parametrize("version", [None, "0"])
+def test_preflight_fails_with_the_apk_path_when_missing_or_old(tmp_path, version):
+    from mobile_playbook.platforms.android.preflight import check_requirements
+
+    apk = tmp_path / "missing.apk"
+
+    [(_, ok, message)] = check_requirements(["accessibility_attacker"], AttackerAdb(version=version), _config(apk))
+
+    assert not ok
+    assert str(apk) in message and "F5R1_Accessibility_Attacker.apk" in message
+
+
+def test_preflight_without_a_device_checks_only_the_apk(tmp_path):
+    from mobile_playbook.platforms.android.preflight import check_requirements
+
+    [(_, ok, _message)] = check_requirements(["accessibility_attacker"], None, _config(tmp_path / "missing.apk"))
+
+    assert not ok
+
+
+def test_the_risk_requires_the_attacker_app():
+    from mobile_playbook.platforms.android.risks import get_risk
+
+    assert "accessibility_attacker" in get_risk("android-feature-05-risk-01").requires

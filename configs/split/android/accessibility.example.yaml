@@ -1,0 +1,30 @@
+# Example Android accessibility settings for android-feature-05-risk-01. Copy to accessibility.yaml; see
+# docs/android/configuration.md.
+
+accessibility:
+  # Seconds to wait after opening a Settings page or launching the app before reading the screen.
+  launch_wait: 5
+  # Seconds to wait for the attacker's service to scan and click the app once it is opened.
+  attack_timeout: 15
+  # Seconds a scripted step, a Settings lookup, a logout-control check or the service-bound check waits before giving
+  # up. Scripted steps are set per app, under the app's risks.android-feature-05-risk-01.steps in apps.yaml, and sign
+  # the app in and reach a screen with a logout control; without them the app is tested on its launch screen and is
+  # usually inconclusive.
+  step_timeout_seconds: 10
+  # Seconds the attacker's events must stop changing before the attack is read as finished.
+  settle_seconds: 3
+  # The accessibility attacker APK, relative to the repository root. Defaults to the intake copy.
+  # attacker_apk: artifacts/intake/android/apks/F5R1_Accessibility_Attacker.apk
+  # Text that Settings shows, for devices whose labels differ from the defaults. A label left out keeps its default.
+  # settings_labels:
+  #   # The attacker app's name on the Accessibility list and its service page.
+  #   service: "Playbook Accessibility Test"
+  #   # The categories that list downloaded services; the first one found is opened. Defaults cover AOSP, One UI and
+  #   # HarmonyOS.
+  #   categories: ["Installed apps", "Installed services", "Downloaded apps", "Downloaded services"]
+  #   # The button that confirms the "full control" consent prompt.
+  #   allow: ["Allow", "Grant access"]
+  # Synthetic values a scripted "type" step can enter as {canary.<name>}. Never use real credentials or personal data.
+  # A name set here, or under an app's own canaries, replaces the built-in default.
+  # canaries:
+  #   email: "canary.logtest@example.com"

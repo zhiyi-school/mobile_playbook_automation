@@ -7,6 +7,7 @@ from mobile_playbook.platforms.android.device.scripted_steps import (
     DEFAULT_CANARIES,
     canary_errors,
     fill_placeholders,
+    locator_errors,
     merged_canaries,
     run_steps,
     step_errors,
@@ -158,3 +159,16 @@ def test_an_element_that_appears_late_is_waited_for():
 
     assert outcome.completed == 1
     assert driver.actions == ["click:late"]
+
+
+@pytest.mark.parametrize("value,expected", [
+    (None, []),
+    ({"id": "com.example.app:id/username"}, []),
+    ({"accessibility_id": "Username"}, []),
+    ("x", ["logged_out must be a mapping with one of id, accessibility_id, text"]),
+    ({"id": "a", "text": "b"}, ["logged_out must name the element with exactly one of id, accessibility_id, text"]),
+    ({}, ["logged_out must name the element with exactly one of id, accessibility_id, text"]),
+    ({"id": "a", "xpath": "//x"}, ["logged_out.xpath is not a known setting"]),
+])
+def test_locator_errors(value, expected):
+    assert locator_errors(value, "logged_out") == expected
