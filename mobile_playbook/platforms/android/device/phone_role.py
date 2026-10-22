@@ -20,7 +20,6 @@ from mobile_playbook.platforms.android.device.adb_connection import (
     connect_ready,
 )
 from mobile_playbook.platforms.android.device.client import AndroidDeviceClient
-from mobile_playbook.platforms.android.device.permissions import is_installed
 from mobile_playbook.platforms.android.device.pool import PHYSICAL_PHONE, RoleDevice
 from mobile_playbook.platforms.android.device.wifi import WIFI_SERIAL, connect_over_wifi, is_network_serial
 from mobile_playbook.platforms.corellium.client import ROOTED_ANDROID_BUILDS
@@ -95,8 +94,12 @@ def third_party_packages(adb: AdbClient) -> set[str]:
 def uninstall(adb: AdbClient, package: str) -> bool:
     code, out, err = adb.run(["uninstall", package], timeout=60)
     output = f"{out}\n{err}".lower()
-    # Android 12 answers DELETE_FAILED_INTERNAL_ERROR for a package that is not installed, so a failure is rechecked.
-    gone = (code == 0 and "failure" not in output) or not is_installed(adb, package)
+    gone = code == 0 and "failure" not in output
+    if not gone:
+        # Android 12 answers DELETE_FAILED_INTERNAL_ERROR for a package that is not installed, so a failure is
+        # rechecked; only a listing the phone answered can show it gone, never an unreachable phone.
+        listed, out, _ = adb.run(["shell", "pm", "list", "packages", package])
+        gone = listed == 0 and f"package:{package}" not in {line.strip() for line in out.splitlines()}
     logger.debug("android phone: uninstall %s exited %s gone=%s (%s)", package, code, gone, output.strip()[:200])
     return gone
 

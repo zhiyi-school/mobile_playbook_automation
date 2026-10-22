@@ -139,6 +139,14 @@ def test_uninstall_counts_a_package_that_is_not_installed_as_gone(adb_host):
     assert phone_role.uninstall(adb, "com.example.one") is True
 
 
+def test_uninstall_on_an_unreachable_phone_never_counts_the_package_as_gone(adb_host):
+    device = adb_host.add(USB_PHONE, state="device", packages={"com.example.one": ("1", "1")})
+    device.state = "absent"
+
+    assert phone_role.uninstall(AdbClient("adb", USB_PHONE), "com.example.one") is False
+    assert device.packages == {"com.example.one": ("1", "1")}
+
+
 def test_a_wifi_phone_awaiting_approval_asks_the_person_holding_it(adb_host, monkeypatch):
     monkeypatch.setattr(phone_role, "connect_over_wifi", partial(wifi.connect_over_wifi, wait=0, poll=0))
     adb_host.add(USB_PHONE, state="device", wifi_address="192.168.1.20", tcp_port="5555")
