@@ -272,11 +272,12 @@ def _handoff_reason(current: str | None, result: AndroidRiskRunResult) -> str:
     return f"Switched to unknown app: {current}"
 
 
-# Use the app as the playbook's user does, through its scripted steps, and return the canaries typed by name and value.
+# Use the app as the playbook's user does, through its scripted steps typing key by key, and return the canaries typed
+# by name and value.
 def _use_app(driver, adb, package: str, steps: list, canaries: dict[str, str], timeout: float, launch_wait: float, evidence_dir: Path, result: AndroidRiskRunResult) -> dict[str, str]:
     if not steps:
         return {}
-    outcome = run_steps(driver, steps, canaries, timeout)
+    outcome = run_steps(driver, steps, canaries, timeout, keyboard=True)
     result.metadata["steps"] = outcome.to_dict()
     result.metadata["coverage"] = "scripted_partial" if outcome.failure is not None else "scripted"
     _deny_prompts(driver, package, timeout, launch_wait, evidence_dir, result)

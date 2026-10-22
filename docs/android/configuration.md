@@ -544,7 +544,7 @@ risks:
 ```
 
 - `tap`: tap an element.
-- `type`: tap a field, clear it and type `value` into it. `{canary.<name>}` in `value` is replaced with that canary, and the log is searched for each canary typed.
+- `type`: tap a field, clear it and type `value` into it. `{canary.<name>}` in `value` is replaced with that canary, and the log is searched for each canary typed. Appium sets the field's text in one change; `android-feature-05-risk-02` instead presses each key, so accessibility services see the typing (see [Risks](risks.md#android-feature-05-risk-02)).
 - `wait`: wait a number of seconds, for example for a sign-in request to finish, so what the app logs after it is captured.
 - `back`: press the back button.
 

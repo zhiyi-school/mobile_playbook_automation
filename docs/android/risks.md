@@ -123,7 +123,7 @@ Verdict-to-status mapping:
 - `INCONCLUSIVE`: the service was not bound; the app was not in front after launch or after the input; no canary was typed, as when the app has no scripted steps; the steps stopped early; only password fields were typed into; or Event Spy recorded no events from the app at all, so a broken capture cannot be told from a protected one → `A11Y_NOT_TESTED` (**Inconclusive**).
 - `ERROR`, or a stage that fails, such as a missing Event Spy APK, a database that cannot be read with `run-as`, or a service that cannot be confirmed off → `FAILED` (**Inconclusive**), with the reason in `errors`.
 
-The scripted steps type each value with Appium, which sets a field's text in one change. Event Spy then records one text-change event with the whole value, where a person typing produces one per keystroke.
+The scripted steps type each value through Appium as a person would: they tap the field, then press each key with W3C key actions, so Event Spy records one text-change event per keystroke. Appium's element `send_keys` is not used here, because it sets the field's whole text at once and fires no text-change event, which would make a vulnerable app look protected. The other risks' scripted steps still use `send_keys`.
 
 Screenshots are best-effort evidence. Evidence kinds are `accessibility_settings`, `accessibility_service_page`, `accessibility_consent`, `accessibility_permission_prompt`, `accessibility_target_after`, `accessibility_captured_events`, `accessibility_event_spy_screen`, `accessibility_list_after` and `accessibility_service_on`.
 

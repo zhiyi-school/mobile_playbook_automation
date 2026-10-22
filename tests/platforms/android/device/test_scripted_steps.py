@@ -45,6 +45,12 @@ class FakeDriver:
     def back(self):
         self.actions.append("back")
 
+    # W3C actions, as ActionChains sends them; only the key presses are recorded.
+    def execute(self, command, params=None):
+        assert command == "actions"
+        pressed = "".join(action["value"] for device in params["actions"] if device["type"] == "key" for action in device["actions"] if action["type"] == "keyDown")
+        self.actions.append(f"pressed:{pressed}")
+
 
 @pytest.fixture(autouse=True)
 def no_sleep(monkeypatch):
@@ -130,6 +136,15 @@ def test_steps_tap_type_wait_and_go_back_in_order(no_sleep):
         "back",
     ]
     assert 3.0 in no_sleep
+
+
+def test_keyboard_steps_press_each_key_into_the_tapped_field_instead_of_setting_its_text(no_sleep):
+    driver = FakeDriver({("id", "com.example.app:id/email"): "email"})
+
+    outcome = run_steps(driver, [{"type": {"id": "com.example.app:id/email", "value": "{canary.email}"}}], CANARIES, timeout=1, keyboard=True)
+
+    assert outcome.canaries_typed == ["email"]
+    assert driver.actions == ["click:email", "clear:email", "pressed:canary.logtest@example.com"]
 
 
 def test_a_missing_element_stops_the_steps_at_that_step(monkeypatch):

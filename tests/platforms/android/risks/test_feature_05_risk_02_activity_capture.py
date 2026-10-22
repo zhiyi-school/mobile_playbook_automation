@@ -30,12 +30,13 @@ TAP_TARGETS: dict[tuple[int, int], "Element"] = {}
 class Element:
     _next = 0
 
-    def __init__(self, *, text="", cls="android.widget.TextView", checked=None, on_click=None, on_type=None):
+    def __init__(self, *, text="", cls="android.widget.TextView", checked=None, on_click=None, on_type=None, on_tap=None):
         self.text = text
         self.cls = cls
         self.checked = checked
         self.on_click = on_click
         self.on_type = on_type
+        self.on_tap = on_tap
         self.value = ""
         Element._next += 20
         self.cx, self.cy = 100, Element._next
@@ -48,14 +49,21 @@ class Element:
         return None if value is None else str(value).lower()
 
     def click(self):
+        if self.on_tap:
+            self.on_tap(self)
         if self.on_click:
             self.on_click()
 
     def clear(self):
         self.value = ""
 
+    # Setting the text, as Appium's element send_keys does, fires no text-change event on the device.
     def send_keys(self, value):
         self.value += value
+
+    # A key press reaches the field as a keyboard's does, so Event Spy sees each change.
+    def press(self, key):
+        self.value += key
         if self.on_type:
             self.on_type(self.value)
 
@@ -72,6 +80,17 @@ class Driver:
         self.bench = bench
         self.calls = []
         self.screenshots = []
+        self.focused = None
+
+    # W3C key actions, as ActionChains sends them, pressed into the field tapped last.
+    def execute(self, command, params=None):
+        assert command == "actions"
+        for device in params["actions"]:
+            if device["type"] == "key":
+                for action in device["actions"]:
+                    if action["type"] == "keyDown":
+                        self.focused.press(action["value"])
+        return {"value": None}
 
     @property
     def current_package(self):
@@ -158,7 +177,7 @@ class Bench:
             elif mode == "masked":
                 self.capture("TEXT_CHANGE", view_id=view_id, text="•" * len(value))
 
-        return Element(cls="android.widget.EditText", on_type=typed)
+        return Element(cls="android.widget.EditText", on_type=typed, on_tap=lambda element: setattr(self.driver, "focused", element))
 
     def capture(self, event_type, package=PACKAGE, view_id=None, text=None):
         self.captured.append(CapturedEvent(len(self.captured) + 1, 1000 + len(self.captured), event_type, package, None, view_id, text, None, None, None, None))
@@ -246,7 +265,9 @@ def test_only_the_apps_events_are_saved_as_evidence(bench):
     [entry] = [entry for entry in result.evidence if entry["kind"] == "accessibility_captured_events"]
     saved = json.loads(Path(entry["path"]).read_text())
     assert {event["package"] for event in saved} == {PACKAGE}
-    assert [event["text"] for event in saved if event["event_type"] == "TEXT_CHANGE"] == [DEFAULT_CANARIES["card"]]
+    texts = [event["text"] for event in saved if event["event_type"] == "TEXT_CHANGE"]
+    assert texts[0] == DEFAULT_CANARIES["card"][0] and texts[-1] == DEFAULT_CANARIES["card"]
+    assert len(texts) == len(DEFAULT_CANARIES["card"])
     assert {entry["kind"] for entry in result.evidence} >= {"accessibility_target_after", "accessibility_event_spy_screen", "accessibility_list_after", "accessibility_service_on"}
     assert ("activate", EVENT_SPY_PACKAGE) in bench.driver.calls
 
