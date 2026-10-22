@@ -7,8 +7,8 @@ import pytest
 from mobile_playbook.platforms.android.device import accessibility_settings
 from mobile_playbook.platforms.android.device.accessibility_attacker import (
     ATTACKER_LABEL,
-    SERVICE_COMPONENT,
     AccessibilityAttackerError,
+    SERVICE_COMPONENT,
     AccessibilitySettings,
 )
 from mobile_playbook.platforms.android.device.accessibility_settings import (
@@ -16,6 +16,7 @@ from mobile_playbook.platforms.android.device.accessibility_settings import (
     ACCESSIBILITY_SETTINGS_ACTION,
     COMPONENT_NAME_EXTRA,
     SettingsLabels,
+    _tap,
     _text_matcher,
     enable_service,
     open_service_page,
@@ -26,7 +27,13 @@ LIST_ACTION = ["shell", "am", "start", "-a", ACCESSIBILITY_SETTINGS_ACTION]
 DETAILS_ACTION = ["shell", "am", "start", "-a", ACCESSIBILITY_DETAILS_ACTION, "--es", COMPONENT_NAME_EXTRA, SERVICE_COMPONENT]
 
 
+# Elements register their centre so an adb `input tap` at that point reaches the element the code tapped by its bounds.
+TAP_TARGETS: dict[tuple[int, int], "Element"] = {}
+
+
 class Element:
+    _next = 0
+
     def __init__(self, text="", cls="android.widget.TextView", checked=None, enabled=True, offscreen=False, on_click=None):
         self.text = text
         self.cls = cls
@@ -35,15 +42,24 @@ class Element:
         self.offscreen = offscreen
         self.on_click = on_click
         self.clicks = 0
+        Element._next += 20
+        self.cx, self.cy = 100, Element._next
+        TAP_TARGETS[(self.cx, self.cy)] = self
 
     def get_attribute(self, name):
+        if name == "bounds":
+            return f"[{self.cx - 5},{self.cy - 5}][{self.cx + 5},{self.cy + 5}]"
         value = {"checked": self.checked, "enabled": self.enabled}[name]
         return None if value is None else str(value).lower()
 
-    def click(self):
+    def tapped(self):
         self.clicks += 1
         if self.on_click:
             self.on_click(self)
+
+    # Appium click is unused now; the code taps through adb, but keep it so a stray call is still noticed.
+    def click(self):
+        self.tapped()
 
 
 class SettingsDriver:
@@ -82,6 +98,10 @@ def _python_pattern(selector: str) -> re.Pattern:
     return re.compile(python, re.IGNORECASE)
 
 
+def _am_starts(adb):
+    return [c for c in adb.commands if c[:3] == ["shell", "am", "start"]]
+
+
 class Adb:
     def __init__(self, details_output="Starting: Intent { act=android.settings.ACCESSIBILITY_DETAILS_SETTINGS }"):
         self.details_output = details_output
@@ -95,6 +115,11 @@ class Adb:
             if self.on_details:
                 self.on_details()
             return self.details_result or (0, self.details_output, "")
+        if args[:3] == ["shell", "input", "tap"]:
+            target = TAP_TARGETS.get((int(args[3]), int(args[4])))
+            if target is not None:
+                target.tapped()
+            return 0, "", ""
         return 0, "Starting: Intent", ""
 
 
@@ -116,6 +141,7 @@ class Attacker:
 @pytest.fixture(autouse=True)
 def no_waiting(monkeypatch):
     monkeypatch.setattr(accessibility_settings, "POLL_SECONDS", 0)
+    TAP_TARGETS.clear()
 
 
 def go(driver, screen):
@@ -143,31 +169,34 @@ def aosp_screens(driver, attacker, switch_enabled=True, consent_works=True):
     })
 
 
+# HarmonyOS: the checkbox is tickable at once, but Grant access stays disabled until the checkbox's countdown ends.
 def harmony_screens(driver, attacker, countdown_polls=3):
-    checkbox = Element("I'm aware of and willing to assume these risks (4)", cls="android.widget.CheckBox", checked=False, enabled=False)
+    checkbox = Element("I'm aware of and willing to assume these risks (4)", cls="android.widget.CheckBox", checked=False, enabled=True)
+    grant_button = Element("GRANT ACCESS", cls="android.widget.Button", enabled=False)
     countdown = {"left": countdown_polls}
     original_find = driver.find_elements
 
     def find(by, value):
         if driver.screen == "consent" and by == "class name" and value == "android.widget.CheckBox":
             countdown["left"] -= 1
-            checkbox.enabled = countdown["left"] <= 0
+            grant_button.enabled = checkbox.checked and countdown["left"] <= 0
         return original_find(by, value)
 
     def tick(element):
         element.checked = True
 
     def grant(element):
-        if checkbox.checked:
+        if checkbox.checked and element.enabled:
             attacker.enabled = True
 
     checkbox.on_click = tick
+    grant_button.on_click = grant
     driver.find_elements = find
     driver.screens.update({
         "list": [Element("ScreenReader"), Element("Installed services", offscreen=True, on_click=go(driver, "installed"))],
         "installed": [Element("SuperHub"), Element(ATTACKER_LABEL, on_click=go(driver, "service"))],
         "service": [Element(ATTACKER_LABEL), Element(cls="android.widget.Switch", checked=False, on_click=go(driver, "consent"))],
-        "consent": [Element("Security alert"), checkbox, Element("CANCEL"), Element("GRANT ACCESS", cls="android.widget.Button", on_click=grant)],
+        "consent": [Element("Security alert"), checkbox, Element("CANCEL"), grant_button],
     })
     return checkbox
 
@@ -187,7 +216,7 @@ def test_aosp_settings_scrolls_to_the_service_flips_its_main_switch_and_allows_i
 
     assert outcome.method == "settings_ui"
     assert outcome.ui_failures == []
-    assert adb.commands == [LIST_ACTION]
+    assert _am_starts(adb) == [LIST_ACTION]
     assert driver.screens["service"][3].clicks == 0
     assert driver.screenshots == ["accessibility_settings.png", "accessibility_service_page.png", "accessibility_consent.png"]
     assert [item["kind"] for item in outcome.evidence] == ["accessibility_settings", "accessibility_service_page", "accessibility_consent"]
@@ -248,7 +277,7 @@ def test_the_details_page_is_used_when_the_service_is_not_listed(tmp_path):
 
     assert outcome.method == "details_page"
     assert outcome.ui_failures == [f"settings_ui: {ATTACKER_LABEL!r} was not found in Accessibility settings"]
-    assert adb.commands == [LIST_ACTION, DETAILS_ACTION]
+    assert _am_starts(adb) == [LIST_ACTION, DETAILS_ACTION]
 
 
 def test_secure_settings_are_used_when_no_details_page_handles_the_intent(tmp_path):
@@ -346,3 +375,36 @@ def test_the_text_matcher_matches_whole_texts_ignoring_case_and_escapes_quotes()
     assert pattern.fullmatch("GRANT ACCESS")
     assert pattern.fullmatch('say "YES" (1)')
     assert not pattern.fullmatch("Grant access now")
+
+
+def test_grant_access_is_not_tapped_until_the_countdown_enables_it(tmp_path):
+    adb, attacker, driver = setup()
+    grant_taps = []
+    harmony_screens(driver, attacker, countdown_polls=3)
+    grant = next(e for e in driver.screens["consent"] if e.text == "GRANT ACCESS")
+    grant.on_click = lambda e, prev=grant.on_click: (grant_taps.append(grant.enabled), prev(e))
+
+    outcome = enable_service(driver, attacker, BEFORE, tmp_path, timeout=1)
+
+    assert outcome.method == "settings_ui"
+    assert grant_taps and all(was_enabled for was_enabled in grant_taps)
+
+
+def test_tap_reads_the_element_centre_from_its_bounds():
+    taps = []
+    adb = Adb()
+    adb.run = lambda args, timeout=None: taps.append(args) or (0, "", "")
+    _tap(adb, Element())
+
+    tap = taps[-1]
+    assert tap[:3] == ["shell", "input", "tap"]
+    assert tap[3].isdigit() and tap[4].isdigit()
+
+
+def test_tap_fails_when_the_bounds_cannot_be_read():
+    class NoBounds:
+        def get_attribute(self, name):
+            return None
+
+    with pytest.raises(AccessibilityAttackerError, match="could not read the element bounds"):
+        _tap(Adb(), NoBounds())

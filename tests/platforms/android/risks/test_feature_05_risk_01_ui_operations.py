@@ -43,7 +43,13 @@ def events(*names, package=PACKAGE):
 LOGOUT_EVENTS = events("service_connected", "scan", "search", "click", "attack_successful", "scan", "no_logout_found")
 
 
+# Elements register their centre so an adb `input tap` at that point reaches the element enable_service tapped.
+TAP_TARGETS: dict[tuple[int, int], "Element"] = {}
+
+
 class Element:
+    _next = 0
+
     def __init__(self, *, text="", cls="android.widget.TextView", checked=None, enabled=True, on_click=None):
         self.text = text
         self.cls = cls
@@ -52,8 +58,13 @@ class Element:
         self.on_click = on_click
         self.clicks = 0
         self.value = ""
+        Element._next += 20
+        self.cx, self.cy = 100, Element._next
+        TAP_TARGETS[(self.cx, self.cy)] = self
 
     def get_attribute(self, name):
+        if name == "bounds":
+            return f"[{self.cx - 5},{self.cy - 5}][{self.cx + 5},{self.cy + 5}]"
         value = {"checked": self.checked, "enabled": self.enabled}[name]
         return None if value is None else str(value).lower()
 
@@ -202,6 +213,11 @@ class Bench:
         return self.driver
 
     def answer(self, serial, args):
+        if args[:3] == ["shell", "input", "tap"]:
+            target = TAP_TARGETS.get((int(args[3]), int(args[4])))
+            if target is not None:
+                target.click()
+            return 0, "", ""
         if args[:3] == ["shell", "pm", "path"]:
             return 0, "package:/data/app/synthetic/base.apk\n", ""
         if args[:2] == ["shell", "sha256sum"]:
@@ -257,6 +273,7 @@ def bench(tmp_path, monkeypatch, adb_host):
     monkeypatch.setattr(risk.time, "sleep", lambda _: None)
     monkeypatch.setattr(risk, "POLL_SECONDS", 0)
     monkeypatch.setattr(risk, "UNBIND_SECONDS", 0)
+    TAP_TARGETS.clear()
     return Bench(tmp_path, monkeypatch, adb_host)
 
 

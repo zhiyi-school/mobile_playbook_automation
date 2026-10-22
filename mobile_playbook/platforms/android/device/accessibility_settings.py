@@ -6,6 +6,7 @@ to its details page and then to secure settings when the Settings pages cannot b
 from __future__ import annotations
 
 import logging
+import re
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -70,7 +71,7 @@ def enable_service(driver, attacker: AccessibilityAttacker, before: Accessibilit
     entry = find_service_entry(driver, labels, timeout)
     _screenshot(driver, evidence_dir / "accessibility_settings.png", "accessibility_settings", "Accessibility settings", outcome)
     if entry is not None:
-        entry.click()
+        _tap(adb, entry)
         _screenshot(driver, evidence_dir / "accessibility_service_page.png", "accessibility_service_page", "Attacker service page", outcome)
         failure = _turn_on(driver, attacker, labels, timeout, evidence_dir, outcome)
         if failure is None:
@@ -139,6 +140,7 @@ def service_switch(driver, timeout: float):
 
 # Flip the service switch and accept the consent screen, returning None once secure settings list the service, or why not.
 def _turn_on(driver, attacker: AccessibilityAttacker, labels: SettingsLabels, timeout: float, evidence_dir: Path, outcome: EnableOutcome) -> str | None:
+    adb = attacker.adb
     switch = service_switch(driver, timeout)
     if switch is None:
         return "no switch was found on the service page"
@@ -150,7 +152,7 @@ def _turn_on(driver, attacker: AccessibilityAttacker, labels: SettingsLabels, ti
         return None
     if checked not in ("true", "false"):
         return "the service switch has no readable checked state"
-    switch.click()
+    _tap(adb, switch)
     consent_seen = False
     deadline = time.monotonic() + timeout
     while True:
@@ -161,15 +163,28 @@ def _turn_on(driver, attacker: AccessibilityAttacker, labels: SettingsLabels, ti
         if (boxes or allow is not None) and not consent_seen:
             consent_seen = True
             _screenshot(driver, evidence_dir / "accessibility_consent.png", "accessibility_consent", "Accessibility consent prompt", outcome)
-        # HarmonyOS ignores Grant access until its risk checkbox is ticked, and keeps the box disabled during a countdown.
+        # Tap through adb, not Appium: HarmonyOS's Settings window never reports idle, so UiAutomator2 blocks each tap
+        # for its whole idle timeout. The checkbox's countdown keeps Grant access disabled for several seconds, so the
+        # unticked box is tapped and Grant is tapped once it is enabled, each pass, until the service is listed.
         for box in boxes:
             if str(box.get_attribute("enabled")).lower() != "false":
-                box.click()
+                _tap(adb, box)
         if allow is not None and str(allow.get_attribute("enabled")).lower() != "false":
-            allow.click()
+            _tap(adb, allow)
         if time.monotonic() >= deadline:
             return f"the service was not enabled within {timeout:g}s of flipping its switch" + ("" if consent_seen else "; no consent prompt was recognised")
         time.sleep(POLL_SECONDS)
+
+
+# Tap an element's centre through adb, from its reported bounds, bypassing UiAutomator2's per-tap wait for the window
+# to be idle, which never ends on HarmonyOS's Settings.
+def _tap(adb, element) -> None:
+    bounds = element.get_attribute("bounds")
+    numbers = [int(value) for value in re.findall(r"-?\d+", bounds or "")]
+    if len(numbers) != 4:
+        raise AccessibilityAttackerError(f"could not read the element bounds to tap: {bounds!r}")
+    x1, y1, x2, y2 = numbers
+    _shell(adb, ["input", "tap", str((x1 + x2) // 2), str((y1 + y2) // 2)])
 
 
 # Find the first element whose whole text matches one of the given texts, ignoring case, scrolling the page if allowed.
