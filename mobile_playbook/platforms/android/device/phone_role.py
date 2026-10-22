@@ -21,7 +21,8 @@ from mobile_playbook.platforms.android.device.adb_connection import (
 )
 from mobile_playbook.platforms.android.device.client import AndroidDeviceClient
 from mobile_playbook.platforms.android.device.pool import PHYSICAL_PHONE, RoleDevice
-from mobile_playbook.platforms.android.device.wifi import WIFI_SERIAL, connect_over_wifi, is_network_serial
+from mobile_playbook.platforms.android.device.transports import attach_transports
+from mobile_playbook.platforms.android.device.wifi import WIFI_SERIAL, connect_over_wifi, is_network_serial, same_phone
 from mobile_playbook.platforms.corellium.client import ROOTED_ANDROID_BUILDS
 from mobile_playbook.platforms.corellium.selection import ROLES
 
@@ -67,18 +68,32 @@ def _ask_at_the_phone(serial: str) -> Authorizer:
 
 
 # Connect the phone serving the role and wait until it is authorized, booted and in the role's root state, returning
-# its role device; reconnecting later reuses the same serial.
+# its role device. With device.adb_backup on, its other connections, or a Wi-Fi one made for a phone on USB, serve as
+# backups that commands and reconnects move to when the one in use drops.
 def connect_phone(config: Any, role: str, *, exclude: Collection[str] = (), policy: AdbConnectPolicy | None = None) -> RoleDevice:
     if role not in ROLES:
         raise ValueError(f"Unknown device role {role!r}")
     adb_path = config.device.adb_path
     serial = resolve_phone_serial(adb_path, config.device.adb_serial, exclude)
-    ready = partial(connect_ready, adb_path, serial, rooted=ROLES[role], policy=policy or PHONE_POLICY,
-                    authorize=_ask_at_the_phone(serial), connect=is_network_serial(serial))
-    build_type = ready()
+    policy = policy or PHONE_POLICY
+    build_type = connect_ready(adb_path, serial, rooted=ROLES[role], policy=policy, authorize=_ask_at_the_phone(serial),
+                               connect=is_network_serial(serial))
+    adb = AdbClient(adb_path, serial)
+    if config.device.adb_backup:
+        attach_transports(adb, exclude=exclude)
     logger.info("Connected the %s device: physical phone %s (%s build).", role, serial, build_type)
-    return RoleDevice(role, serial, serial, ROLES[role], AndroidDeviceClient(config, AdbClient(adb_path, serial)),
-                      device_type=PHYSICAL_PHONE, reconnect=ready)
+    return RoleDevice(role, serial, serial, ROLES[role], AndroidDeviceClient(config, adb), device_type=PHYSICAL_PHONE,
+                      reconnect=partial(_reconnect_phone, adb, ROLES[role], policy))
+
+
+# Move to any ready connection to the phone, then wait until the connection in use is authorized, booted and in the
+# expected root state; without backups this is the phone's one serial.
+def _reconnect_phone(adb: AdbClient, rooted: bool, policy: AdbConnectPolicy) -> str:
+    if adb.transports is not None:
+        adb.transports.switch()
+    serial = adb.target_serial()
+    return connect_ready(adb.adb_path, serial, rooted=rooted, policy=policy, authorize=_ask_at_the_phone(serial),
+                         connect=is_network_serial(serial))
 
 
 # Return the phone's third-party (user-installed) packages; anything not listed before a run was installed for it.
@@ -122,6 +137,8 @@ def phone_readiness(adb_path: str, configured: str | None, exclude: Collection[s
     if configured == WIFI_SERIAL:
         # A phone on USB alone still counts: the run switches it to Wi-Fi itself.
         network = [serial for serial in states if is_network_serial(serial)]
+        if len(network) > 1 and all(states[serial] == "device" for serial in network) and same_phone(adb_path, network):
+            network = network[:1]
         candidates = network or [serial for serial in states if not is_network_serial(serial)]
         if len(candidates) != 1:
             return "unavailable", "no phone is connected" if not candidates else "several phones are connected", ""

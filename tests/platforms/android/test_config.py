@@ -394,3 +394,13 @@ def test_shared_accessibility_steps_are_rejected():
     errors = _accessibility_errors({"steps": []}, {"enabled": True})
 
     assert errors == ["accessibility.steps is not supported; scripted steps belong to one app, under its risks.android-feature-05-risk-01 entry"]
+
+
+def test_the_backup_adb_connection_is_on_unless_turned_off():
+    assert parse_config({"device": {}, "apps": []}).device.adb_backup is True
+    assert parse_config({"device": {"adb_backup": False}, "apps": []}).device.adb_backup is False
+    assert _errors({"adb_backup": False}) == []
+
+
+def test_a_backup_setting_that_is_not_true_or_false_is_rejected():
+    assert "device.adb_backup must be true or false" in _errors({"adb_backup": "auto"})

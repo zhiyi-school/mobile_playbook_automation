@@ -344,7 +344,13 @@ the run added or replaced on the phone, disconnects only the VMs, confirms each 
 off and releases the phone lock; a failure on one device never skips another.
 `device_connected`, `app_installed` and `device_cleanup` for the phone carry
 `device_type: physical_phone`, its `serial` and model, and the cleanup status
-`cleaned` or `cleanup_incomplete` with the packages `removed` and `left`.
+`cleaned` or `cleanup_incomplete` with the packages `removed` and `left`. A
+package counts as removed only when the phone answers that it is gone. With
+`device.adb_backup` on, `device_connected` also lists the phone's
+`backup_serials`, commands move to a backup when the connection in use drops
+(each move records `device_transport_switched`), and `close()` reconnects the
+phone before cleanup; see
+[Backup adb connection](android/configuration.md#backup-adb-connection).
 
 **Standalone installs.** `install-app` and
 `POST /config/android/apps/{app_id}/install` claim one role device (`non_rooted`

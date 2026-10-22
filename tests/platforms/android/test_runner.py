@@ -126,7 +126,7 @@ def test_keep_screen_on_is_applied_when_connecting_only_if_configured(monkeypatc
     applied = []
     monkeypatch.setattr("mobile_playbook.platforms.android.runner.keep_screen_on_while_charging", lambda adb: applied.append(adb) or True)
     config = SimpleNamespace(
-        device=SimpleNamespace(appium_server_url="http://127.0.0.1:4723", adb_path="adb", adb_serial=None, appium_auto_start={}, provider="physical"),
+        device=SimpleNamespace(appium_server_url="http://127.0.0.1:4723", adb_path="adb", adb_serial=None, adb_backup=False, appium_auto_start={}, provider="physical"),
         runner=SimpleNamespace(keep_screen_on=keep_screen_on),
     )
 

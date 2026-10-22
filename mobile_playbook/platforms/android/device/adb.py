@@ -1,18 +1,27 @@
 """
-Thin subprocess wrapper around the adb command line.
+Thin subprocess wrapper around the adb command line, moving a phone's commands to its backup connection when the one in
+use drops.
 """
 
 from __future__ import annotations
 
 import logging
+import re
 import subprocess
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from mobile_playbook.platforms.android.device.transports import PhoneTransports
 
 logger = logging.getLogger(__name__)
 
 # Commands the adb host answers itself; they never target a device, so they skip resolving `adb_serial: wifi`.
 HOST_COMMANDS = frozenset({"version", "devices", "connect", "disconnect", "start-server", "kill-server", "mdns"})
+
+# What adb prints when the targeted connection is gone, before the command reaches the device.
+CONNECTION_LOST = re.compile(r"(?:adb|error): device (?:'[^']*' not found|offline)|no devices/emulators found")
 
 
 class AdbClient:
@@ -20,16 +29,25 @@ class AdbClient:
 
     DEFAULT_TIMEOUT = 30
 
-    # Store the adb executable and the optional device serial.
-    def __init__(self, adb_path: str = "adb", serial: str | None = None):
+    # Store the adb executable, the optional device serial and, for a phone, its connections to fail over between.
+    def __init__(self, adb_path: str = "adb", serial: str | None = None, transports: PhoneTransports | None = None):
         self.adb_path = adb_path
         self.serial = serial
+        self.transports = transports
         self._wifi_serial: str | None = None
         self._wifi_resolved = False
         logger.debug("android adb: client created (adb_path=%s, serial=%s)", adb_path, serial)
 
-    # Run an adb command and return its exit code, stdout and stderr, using 127 and 124 for missing adb and timeouts.
+    # Run an adb command and return its exit code, stdout and stderr, using 127 and 124 for missing adb and timeouts. A
+    # command that found the phone's connection gone runs once more over its backup connection.
     def run(self, args: list[str], timeout: float | None = DEFAULT_TIMEOUT) -> tuple[int, str, str]:
+        code, stdout, stderr = self._run(args, timeout)
+        if self._moved_after_loss(args, code, stderr):
+            code, stdout, stderr = self._run(args, timeout)
+        return code, stdout, stderr
+
+    # Run an adb command once and return its exit code, stdout and stderr.
+    def _run(self, args: list[str], timeout: float | None) -> tuple[int, str, str]:
         command = self._command(args)
         logger.debug("android adb: running argv=%s (timeout=%s)", command, timeout)
         started = time.monotonic()
@@ -62,8 +80,15 @@ class AdbClient:
         return result.returncode, stdout, stderr
 
     # Run an adb command with its stdout written unchanged to a file and return its exit code and stderr, using 127 and
-    # 124 for missing adb and timeouts as run() does.
+    # 124 for missing adb and timeouts and moving to the backup connection as run() does.
     def run_to_file(self, args: list[str], destination: Path, timeout: float | None = DEFAULT_TIMEOUT) -> tuple[int, str]:
+        code, stderr = self._run_to_file(args, destination, timeout)
+        if self._moved_after_loss(args, code, stderr):
+            code, stderr = self._run_to_file(args, destination, timeout)
+        return code, stderr
+
+    # Run an adb command once with its stdout written to a file and return its exit code and stderr.
+    def _run_to_file(self, args: list[str], destination: Path, timeout: float | None) -> tuple[int, str]:
         command = self._command(args)
         logger.debug("android adb: streaming argv=%s to %s (timeout=%s)", command, destination, timeout)
         started = time.monotonic()
@@ -98,10 +123,21 @@ class AdbClient:
         command.extend(args)
         return command
 
-    # Return the serial device commands use, resolving `wifi` to the phone's Wi-Fi connection once per client.
+    # Report whether a command failed because the phone's connection dropped and commands now use another connection to
+    # the same phone; the failed command never reached the phone, so running it again is safe.
+    def _moved_after_loss(self, args: list[str], code: int, stderr: str) -> bool:
+        if self.transports is None or code == 0 or (args[:1] and args[0] in HOST_COMMANDS) or not CONNECTION_LOST.search(stderr):
+            return False
+        before = self.transports.current
+        return self.transports.switch() not in (None, before)
+
+    # Return the serial device commands use: the phone's connection in use, or `wifi` resolved to the phone's Wi-Fi
+    # connection once per client.
     def target_serial(self) -> str | None:
         from mobile_playbook.platforms.android.device.wifi import WIFI_SERIAL, connect_over_wifi
 
+        if self.transports is not None:
+            return self.transports.current
         if self.serial != WIFI_SERIAL:
             return self.serial
         if not self._wifi_resolved:
@@ -137,11 +173,14 @@ class AdbClient:
         logger.debug("android adb: %s connected devices: %s", len(devices), devices)
         return devices
 
-    # Report whether the configured serial, or any device when none is set, is connected.
+    # Report whether the configured serial, or any device when none is set, is connected, moving to the phone's backup
+    # connection when the one in use has dropped.
     def is_device_connected(self) -> bool:
         serial = self.target_serial()
         if serial:
             connected = serial in self.connected_devices()
+            if not connected and self.transports is not None:
+                connected = self.transports.switch() is not None
             logger.debug("android adb: device %s connected=%s", serial, connected)
             return connected
         connected = bool(self.connected_devices())

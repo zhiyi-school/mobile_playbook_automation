@@ -25,6 +25,7 @@ def _android_config():
         appium_server_url="http://127.0.0.1:4723",
         adb_path="adb",
         adb_serial=None,
+        adb_backup=False,
         appium_auto_start={"enabled": True, "command": ["appium"]},
         provider="physical",
     )

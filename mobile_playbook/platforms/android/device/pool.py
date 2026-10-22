@@ -66,13 +66,15 @@ class AndroidDevicePool:
             )
         return device
 
-    # Return the role's client after confirming adb still lists its device as ready, reconnecting it when not.
+    # Return the role's client after confirming adb still lists the connection it uses as ready, reconnecting it when
+    # not; a phone's connection in use may be a backup rather than its original serial.
     def ready(self, role: str) -> AndroidDeviceClient:
         device = self.device(role)
-        state = AdbClient(self.adb_path).device_states().get(device.serial)
+        serial = device.client.adb.target_serial() if device.device_type == PHYSICAL_PHONE else device.serial
+        state = AdbClient(self.adb_path).device_states().get(serial)
         if state != READY:
             logger.warning("The %s device %s (instance %s) is %s; reconnecting to the same instance.",
-                           role, device.serial, device.instance_id, state or "not connected")
+                           role, serial, device.instance_id, state or "not connected")
             self.recover(role)
         return device.client
 

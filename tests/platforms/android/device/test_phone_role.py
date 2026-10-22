@@ -16,7 +16,7 @@ POLICY = AdbConnectPolicy(timeout=0.3, reconnect_pause=0.001, unauthorized_grace
 
 
 def config(serial):
-    return SimpleNamespace(device=SimpleNamespace(adb_path="adb", adb_serial=serial))
+    return SimpleNamespace(device=SimpleNamespace(adb_path="adb", adb_serial=serial, adb_backup=True))
 
 
 def test_a_phone_on_usb_becomes_the_role_device_without_any_adb_connect(adb_host):

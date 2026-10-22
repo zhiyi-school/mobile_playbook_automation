@@ -189,6 +189,36 @@ def test_a_package_the_phone_refuses_to_remove_is_reported_and_the_vm_still_shut
     assert phone_lock_holder() is None
 
 
+def test_a_phone_whose_usb_drops_mid_run_finishes_and_is_cleaned_over_its_wifi_backup(bench, tmp_path):
+    wifi_serial = "192.168.1.20:5555"
+    bench.phone.serialno, bench.phone.wifi_address, bench.phone.tcp_port = "HW0001", "192.168.1.20", "5555"
+    bench.adb.add(wifi_serial, connects_to="device", serialno="HW0001", packages=bench.phone.packages)
+    bench.risks[PLAIN].on_run = lambda: setattr(bench.phone, "state", "absent")
+
+    outcome = run(bench, tmp_path)
+
+    connected = events(outcome.run_dir, "device_connected")[0]
+    assert (connected["serial"], connected["backup_serials"]) == (PHONE_SERIAL, [wifi_serial])
+    switched = events(outcome.run_dir, "device_transport_switched")
+    assert [(event["previous_serial"], event["serial"]) for event in switched] == [(PHONE_SERIAL, wifi_serial)]
+    cleanup = {event["role"]: event for event in events(outcome.run_dir, "device_cleanup")}
+    assert (cleanup["non_rooted"]["status"], cleanup["non_rooted"]["removed"]) == ("cleaned", [PACKAGE])
+    assert set(bench.phone.packages) == {"com.example.personal"}
+    assert cleanup["rooted"]["status"] == "off"
+    assert read_manifest(outcome.run_dir)["status"] == "completed"
+
+
+def test_a_phone_lost_on_every_connection_reports_its_cleanup_incomplete(bench, tmp_path):
+    bench.risks[PLAIN].on_run = lambda: setattr(bench.phone, "state", "absent")
+
+    outcome = run(bench, tmp_path)
+
+    cleanup = {event["role"]: event for event in events(outcome.run_dir, "device_cleanup")}
+    assert (cleanup["non_rooted"]["status"], cleanup["non_rooted"]["left"]) == ("cleanup_incomplete", [PACKAGE])
+    assert set(bench.phone.packages) == {"com.example.personal", PACKAGE}
+    assert cleanup["rooted"]["status"] == "off" and phone_lock_holder() is None
+
+
 def test_cancelling_mid_run_cleans_the_phone_and_shuts_the_vm_down(bench, tmp_path):
     bench.risks[ROOT].fail_with = KeyboardInterrupt()
 

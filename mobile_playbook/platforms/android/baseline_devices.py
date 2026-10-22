@@ -36,6 +36,7 @@ from mobile_playbook.platforms.android.device.pool import (
     RoleDevice,
     RoleUnavailable,
 )
+from mobile_playbook.platforms.android.device.transports import switch_recorder
 from mobile_playbook.platforms.android.device_roles import PlannedRisk
 from mobile_playbook.platforms.android.models import CORELLIUM_PROVIDER
 from mobile_playbook.platforms.corellium.claims import ClaimSet, ClaimStore
@@ -225,6 +226,7 @@ class BaselineSession:
                 except Exception as exc:
                     logger.warning("Could not close the role device sessions: %s", exc)
             for role, phone in self.phones.items() if self.clean_phone else ():
+                self._reach_phone(role, phone)
                 outcomes[role] = self._clean_phone(role, phone)
             if self.pool is not None:
                 try:
@@ -248,6 +250,17 @@ class BaselineSession:
                 logger.error("Could not remove %s from the phone %s after the run: %s", ", ".join(outcome["left"]),
                              outcome["serial"], outcome.get("error"))
         return outcomes
+
+    # Reconnect the phone before cleanup, moving to its backup connection when the one in use dropped; never raises,
+    # so an unreachable phone still gets a cleanup outcome.
+    def _reach_phone(self, role: str, phone: RoleDevice) -> None:
+        try:
+            if self.pool is not None and role in self.pool.roles:
+                self.pool.ready(role)
+            elif phone.reconnect is not None:
+                phone.reconnect()
+        except Exception as exc:
+            logger.warning("Could not reconnect the phone %s before removing what the run installed: %s", phone.serial, exc)
 
     # Uninstall every package the run installed on the phone, including builds it replaced; never raises.
     def _clean_phone(self, role: str, phone: RoleDevice) -> dict:
@@ -314,8 +327,11 @@ def open_session(config: Any, roles: Sequence[str], builds: Mapping[str, Sequenc
             session.phones[role] = device
             session.phone_packages[role] = third_party_packages(device.client.adb)
             session.phone_models[role] = phone_model(device.client.adb)
+            transports = device.client.adb.transports
+            if transports is not None:
+                transports.on_switch = switch_recorder(event_dir, role)
             append_event(event_dir, "device_connected", role=role, device_type=PHYSICAL_PHONE, serial=device.serial,
-                         model=session.phone_models[role])
+                         model=session.phone_models[role], backup_serials=transports.backups if transports else [])
         pool_devices = dict(session.phones)
         if devices:
             session.lifecycle = CorelliumLifecycle(client, store or ClaimStore(client.api_url), policy or profile.policy)

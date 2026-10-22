@@ -6,6 +6,7 @@ device:
   appium_server_url: "http://127.0.0.1:4723"
   adb_path: "adb"
   adb_serial: null    # A serial from "adb devices", or "wifi" to follow the phone's Wi-Fi address. Unused for corellium.
+  adb_backup: true    # Keep a second adb connection to the phone (Wi-Fi beside USB) and move to it if one drops.
   # Used only when provider is "corellium"; needs CORELLIUM_API_URL, CORELLIUM_API_TOKEN and the project's VPN.
   corellium:
     project: "REPLACE_WITH_CORELLIUM_PROJECT_NAME"  # Name or id; an Android instance in it is picked for testing.

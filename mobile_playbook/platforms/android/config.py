@@ -89,6 +89,7 @@ def parse_config(raw: dict[str, Any], config_path: Path | None = None) -> Androi
             appium_server_url=device_raw.get("appium_server_url") or device_raw.get("appium_server", "http://127.0.0.1:4723"),
             adb_path=device_raw.get("adb_path", "adb"),
             adb_serial=device_raw.get("adb_serial") or device_raw.get("serial"),
+            adb_backup=device_raw.get("adb_backup", True),
             app_store=device_raw.get("app_store") or DEFAULT_APP_STORE,
             appium_auto_start=device_raw.get("appium_auto_start") or {},
             provider=str(device_raw.get("provider") or PHYSICAL_PROVIDER).strip().lower(),
@@ -130,6 +131,8 @@ def collect_config_errors(config: AndroidGlobalConfig, dry_run: bool = False) ->
     errors: list[str] = []
     if not config.device.appium_server_url:
         errors.append("device.appium_server_url is required")
+    if not isinstance(config.device.adb_backup, bool):
+        errors.append("device.adb_backup must be true or false")
     if config.device.app_store not in APP_STORES:
         errors.append(f"device.app_store must be one of: {', '.join(APP_STORES)}")
     if config.device.provider not in DEVICE_PROVIDERS:

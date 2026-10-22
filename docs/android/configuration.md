@@ -25,6 +25,7 @@ device:
   appium_server_url: "http://127.0.0.1:4723"
   adb_path: "adb"
   adb_serial: null
+  adb_backup: true
   app_store: "play_store"
 ```
 
@@ -33,6 +34,14 @@ device:
 Set `adb_serial: "wifi"` to use the phone's Wi-Fi connection without fixing its address. Each adb client finds it the first time it targets the device. An existing Wi-Fi connection is used as is. Otherwise, with exactly one phone attached by USB, its `wlan0` address is read, adb on the phone is switched to Wi-Fi on port 5555 if it is not listening already (`adb tcpip`, which lasts until the phone reboots), and the host connects to it. The phone must be on a network this host can reach. Without a Wi-Fi connection or a single USB phone to find one through, the device counts as not connected and the API log says why. Use this when USB transfers are unreliable, as on some Huawei phones, while keeping the cable attached for charging.
 
 The phone approves adb over Wi-Fi separately from USB: a host approved on USB without **Always allow from this computer** can be asked again when it connects over Wi-Fi, and `adb devices` lists the Wi-Fi connection as `unauthorized` while the phone shows **Allow USB debugging?**. Up to 10 seconds are allowed for someone to approve the prompt; after that the connection is kept and reported as waiting for the phone to allow debugging, so adb commands fail as unauthorized rather than as no device. Unlock the phone, tap **Allow** and tick **Always allow from this computer** so later runs connect without a prompt. Nothing on this host approves the prompt for a phone.
+
+#### Backup adb connection
+
+With `adb_backup: true` (the default), a run keeps a second adb connection to a physical phone and moves to it when the one in use drops, so a loose USB cable or a Wi-Fi blip does not stop the run or its cleanup. After connecting the phone, the run reads its hardware serial (`ro.serialno`) and takes as backups every other ready connection reporting the same one. A phone on USB with no Wi-Fi connection gets one made as described for `wifi` above: its `wlan0` address is read, adb on the phone is switched to Wi-Fi on port 5555 if it is not listening already (USB drops for a moment while adb on the phone restarts), and the host connects to it. A phone on Wi-Fi uses its USB connection, when attached, as the backup.
+
+When an adb command finds the connection gone, it runs once more over a backup, and later commands and Appium sessions use that backup. A dropped Wi-Fi backup is reconnected by its address first, and a connection that appears later, such as the cable plugged back in, serves too once it reports the phone's hardware serial. A Corellium VM's address or a connection to another phone is never used. Each move adds a `device_transport_switched` event (`previous_serial`, `serial`) to the run's `events.jsonl`, and a phone serving one of `physical_roles` also lists its `backup_serials` in its `device_connected` event. Results keep naming the serial the run started with. A risk running when the connection drops still fails, because its Appium session belongs to the lost connection; it is not rerun. Before removing what the run installed, cleanup reconnects the phone, moving to a backup when needed, and reports `cleanup_incomplete` when no connection is left.
+
+The run warns when the phone has no backup, for example when it is on no Wi-Fi network this host can reach, and continues on its one connection. Adb on Wi-Fi accepts only hosts the phone has approved, but it stays switched on until the phone reboots; set `adb_backup: false` on networks where the phone should not listen for adb, and the run then never switches the phone to Wi-Fi. The setting is read from the config file only, not through `PUT /config/android/device`.
 
 #### One user of the phone at a time
 

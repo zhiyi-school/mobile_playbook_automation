@@ -1,5 +1,5 @@
 """
-A synthetic adb server for tests: per-serial states, scripted state sequences, boot progress, build types, app compilation, the background compilation job, APK installs and Wi-Fi addresses.
+A synthetic adb server for tests: per-serial states, scripted state sequences, boot progress, build types, app compilation, the background compilation job, APK installs, Wi-Fi addresses and hardware serials.
 """
 
 from __future__ import annotations
@@ -29,6 +29,7 @@ class FakeDevice:
     bg_dexopt_refusal: str = ""
     wifi_address: str = ""
     tcp_port: str = ""
+    serialno: str = ""
 
 
 COMPILING = "dex2oat32 --zip-fd=9 --zip-location=/data/app/~~a==/com.google.android.gms-b==/base.apk --oat-fd=10"
@@ -83,7 +84,7 @@ class FakeAdbHost:
             return 0, f"disconnected {args[1]}", ""
         device = self.devices.get(serial)
         if device is None or device.state != "device":
-            return 1, "", f"device '{serial}' not found"
+            return 1, "", f"adb: device '{serial}' not found"
         if args == ["shell", "getprop", "sys.boot_completed"]:
             booted = device.boots_after <= 0
             device.boots_after -= 1
@@ -95,6 +96,8 @@ class FakeAdbHost:
         if args[:1] == ["tcpip"]:
             device.tcp_port = args[1]
             return 0, f"restarting in TCP mode port: {args[1]}\n", ""
+        if args == ["shell", "getprop", "ro.serialno"]:
+            return 0, device.serialno + "\n", ""
         if args == ["shell", "getprop", "ro.build.type"]:
             return 0, device.build_type + "\n", ""
         if args == ["shell", "id", "-u"]:

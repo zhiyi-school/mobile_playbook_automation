@@ -31,6 +31,7 @@ from mobile_playbook.platforms.android.device.corellium_roles import connect_cla
 from mobile_playbook.platforms.android.device.phone_lock import PhoneLock, acquire_phone_lock
 from mobile_playbook.platforms.android.device.phone_role import connect_phone
 from mobile_playbook.platforms.android.device.pool import PHYSICAL_PHONE, AndroidDevicePool, RoleDevice
+from mobile_playbook.platforms.android.device.transports import attach_transports, switch_recorder
 from mobile_playbook.platforms.android.device_roles import plan_risk_roles, required_roles, risk_role
 from mobile_playbook.platforms.android.models import PHYSICAL_PROVIDER, AndroidRiskRunResult
 from mobile_playbook.platforms.android.play_services import play_services_problem
@@ -80,12 +81,17 @@ class AndroidPlatformRunner:
             detail = f" Appium log tail:\n{outcome.log_tail}" if outcome.log_tail else ""
             raise RuntimeError(f"android: {outcome.error}{detail}")
 
-    # Ensure Appium is running, auto-starting it when configured, and return a connected device client.
+    # Ensure Appium is running, auto-starting it when configured, and return a connected device client; a physical
+    # phone also gets its backup adb connection when device.adb_backup is on.
     def connect_device(self, config, run_dir: Path | None = None):
         log_dir = run_dir or android_work_dir()
         logger.debug("android runner: connecting device (appium=%s, adb_path=%s, serial=%s, appium log dir=%s)", config.device.appium_server_url, getattr(config.device, "adb_path", None), getattr(config.device, "adb_serial", None), log_dir)
         self._ensure_appium(config, log_dir)
         client = open_device(config).connect()
+        if config.device.provider == PHYSICAL_PROVIDER and config.device.adb_backup:
+            transports = attach_transports(client.adb)
+            if transports is not None:
+                transports.on_switch = switch_recorder(log_dir)
         if config.runner.keep_screen_on:
             kept_on = keep_screen_on_while_charging(client.adb)
             logger.debug("android runner: keep screen on while charging -> %s", kept_on)

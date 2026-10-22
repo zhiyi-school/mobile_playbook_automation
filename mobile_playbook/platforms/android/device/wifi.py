@@ -1,5 +1,6 @@
 """
-Finds a phone's Wi-Fi adb connection for `adb_serial: wifi`, switching adb on the phone to Wi-Fi over USB when needed.
+Finds a phone's Wi-Fi adb connection for `adb_serial: wifi` or as a backup to USB, switching adb on the phone to Wi-Fi
+over USB when needed.
 """
 
 from __future__ import annotations
@@ -10,7 +11,7 @@ import time
 from collections.abc import Collection
 
 from mobile_playbook.platforms.android.device.adb import AdbClient
-from mobile_playbook.platforms.android.device.adb_connection import ABSENT, READY, UNAUTHORIZED
+from mobile_playbook.platforms.android.device.adb_connection import ABSENT, READY, UNAUTHORIZED, hardware_serial
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,8 @@ def connect_over_wifi(adb_path: str = "adb", *, wait: float = CONNECT_WAIT_SECON
     states = {serial: state for serial, state in host.device_states().items() if serial not in exclude}
     network = sorted(serial for serial in states if is_network_serial(serial))
     ready = [serial for serial in network if states[serial] == READY]
+    if len(ready) > 1 and same_phone(adb_path, ready):
+        ready = sorted(ready, key=lambda serial: ("._adb-tls-connect." in serial, serial))[:1]
     if len(ready) == 1:
         logger.debug("android wifi: using existing Wi-Fi connection %s", ready[0])
         return ready[0]
@@ -49,7 +52,13 @@ def connect_over_wifi(adb_path: str = "adb", *, wait: float = CONNECT_WAIT_SECON
         )
         return None
 
-    phone = AdbClient(adb_path, usb[0])
+    return wifi_from_usb(adb_path, usb[0], wait=wait, poll=poll)
+
+
+# Return the Wi-Fi serial of the phone connected over USB, switching adb on it to Wi-Fi when it is not listening there
+# yet, once that connection is ready or still awaiting approval; None when the phone has no Wi-Fi connection.
+def wifi_from_usb(adb_path: str, usb_serial: str, *, wait: float = CONNECT_WAIT_SECONDS, poll: float = POLL_SECONDS) -> str | None:
+    phone = AdbClient(adb_path, usb_serial)
     address = wifi_address(phone)
     if address is None:
         logger.warning("The Android phone on USB has no Wi-Fi address; join it to the same network as this host.")
@@ -62,7 +71,13 @@ def connect_over_wifi(adb_path: str = "adb", *, wait: float = CONNECT_WAIT_SECON
             logger.warning("Could not switch adb on the Android phone to Wi-Fi: %s", (err or out or f"exit {code}").strip())
             return None
         port = WIFI_PORT
-    return _await_connection(host, f"{address}:{port}", wait, poll)
+    return _await_connection(AdbClient(adb_path), f"{address}:{port}", wait, poll)
+
+
+# Report whether every serial is a ready connection to one and the same phone, by the hardware serial each reports.
+def same_phone(adb_path: str, serials: Collection[str]) -> bool:
+    found = {hardware_serial(AdbClient(adb_path, serial)) for serial in serials}
+    return len(found) == 1 and None not in found
 
 
 # Connect to the phone's Wi-Fi serial and wait until it is ready, returning it; one still unauthorized at the end of

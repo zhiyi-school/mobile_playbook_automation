@@ -58,6 +58,13 @@ def boot_completed(phone: AdbClient) -> bool:
     return code == 0 and out.strip() == "1"
 
 
+# Return the hardware serial the device reports, which is the same over every adb connection to it, or None.
+def hardware_serial(phone: AdbClient) -> str | None:
+    code, out, _ = phone.run(["shell", "getprop", "ro.serialno"])
+    value = out.strip() if code == 0 else ""
+    return value or None
+
+
 # Fail unless the device's build type gives the expected root state; userdebug and eng builds are rooted.
 def verify_root_state(phone: AdbClient, serial: str, rooted: bool) -> str:
     code, out, _ = phone.run(["shell", "getprop", "ro.build.type"])

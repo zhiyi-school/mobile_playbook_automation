@@ -140,6 +140,8 @@ Run `adb devices`, unlock the device, approve debugging, and set `device.adb_ser
 
 If the dashboard says more than one test device is connected, `adb devices` lists several entries and `device.adb_serial` is unset; one phone attached over both USB and Wi-Fi counts as two. Set `device.adb_serial` to the entry to test, for example `10.0.0.5:5555` for the Wi-Fi connection, or `wifi` to follow the phone's Wi-Fi address automatically. The API log names the setting when this happens.
 
+If a run fails or reports `cleanup_incomplete` after the phone's USB cable or Wi-Fi dropped, check the run log for "has no backup adb connection" and `events.jsonl` for `backup_serials`. Without a backup, the run had only one connection to the phone; keep the phone on a Wi-Fi network this host can reach and leave `device.adb_backup` on (see [Backup adb connection](configuration.md#backup-adb-connection)). Packages listed in `left` are still on the phone; remove them with `adb uninstall <package>` once it is reachable.
+
 Appium connection failure:
 
 Confirm Appium is running and the UiAutomator2 driver is installed. Set `device.appium_auto_start` (see [Configuration](configuration.md#appium-auto-start)) to have the framework start and monitor Appium itself instead — including recovering automatically if it crashes mid-run. Every launch attempt lands in that run's `appium.log`.
