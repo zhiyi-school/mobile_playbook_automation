@@ -21,6 +21,7 @@ from mobile_playbook.platforms.android.device.accessibility_service import (
 logger = logging.getLogger(__name__)
 
 ACCESSIBILITY_SETTINGS_ACTION = "android.settings.ACCESSIBILITY_SETTINGS"
+SETTINGS_PACKAGE = "com.android.settings"
 ACCESSIBILITY_DETAILS_ACTION = "android.settings.ACCESSIBILITY_DETAILS_SETTINGS"
 COMPONENT_NAME_EXTRA = "android.intent.extra.COMPONENT_NAME"
 UIAUTOMATOR = "-android uiautomator"
@@ -66,7 +67,7 @@ def enable_service(driver, attacker: AccessibilityServiceControl, before: Access
     labels = labels or SettingsLabels(service=attacker.app.label)
     outcome = EnableOutcome()
     adb = attacker.adb
-    _shell(adb, ["am", "start", "-a", ACCESSIBILITY_SETTINGS_ACTION])
+    open_accessibility_settings(adb)
     entry = find_service_entry(driver, labels, timeout)
     _screenshot(driver, evidence_dir / "accessibility_settings.png", "accessibility_settings", "Accessibility settings", outcome)
     if entry is not None:
@@ -100,6 +101,13 @@ def enable_service(driver, attacker: AccessibilityServiceControl, before: Access
     return outcome
 
 
+# Open Accessibility settings on its main list. Settings is stopped first because HarmonyOS delivers the intent to a
+# running Settings task, which stays on whichever page it was left on, such as another service's page.
+def open_accessibility_settings(adb) -> None:
+    _shell(adb, ["am", "force-stop", SETTINGS_PACKAGE])
+    _shell(adb, ["am", "start", "-a", ACCESSIBILITY_SETTINGS_ACTION])
+
+
 # Find the service in Accessibility settings, opening a category of downloaded services first when needed, and open it.
 def open_service_page(driver, labels: SettingsLabels, timeout: float) -> bool:
     entry = find_service_entry(driver, labels, timeout)
@@ -129,7 +137,7 @@ def find_service_entry(driver, labels: SettingsLabels, timeout: float):
 # screenshot is called once the list is showing. Returns the step's outcome and detail.
 def show_service_listed(driver, adb, labels: SettingsLabels, timeout: float, screenshot: Callable[[], None]) -> dict:
     try:
-        _shell(adb, ["am", "start", "-a", ACCESSIBILITY_SETTINGS_ACTION])
+        open_accessibility_settings(adb)
         entry = find_service_entry(driver, labels, timeout)
     except Exception as exc:
         logger.debug("android accessibility settings: showing the list failed: %s", exc, exc_info=True)
