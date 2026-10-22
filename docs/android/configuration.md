@@ -453,6 +453,19 @@ Sign in with a test account. The attacker logs the app out, and its patterns inc
 
 Full risk behavior and status meanings are documented in [Risks](risks.md#android-feature-05-risk-01).
 
+`android-feature-05-risk-02` reads the same block, and each setting can be overridden per app under `risks.android-feature-05-risk-02`. It uses `launch_wait`, `step_timeout_seconds`, `event_spy_apk`, the `categories` and `allow` Settings labels, and `canaries`. `attack_timeout` is the longest it waits for Event Spy's captured events to stop changing, and `settle_seconds` how long they must stay unchanged. Its scripted steps type synthetic canaries into the fields being tested. They are written under `risks.android-feature-05-risk-02.steps`, are checked the same way, and only need to sign in when the fields are behind a sign-in:
+
+```yaml
+risks:
+  android-feature-05-risk-02:
+    enabled: true
+    steps:
+      - tap: {text: "Add card"}
+      - type: {id: "com.example.app:id/card_number", value: "{canary.card}"}
+```
+
+Full risk behavior and status meanings are documented in [Risks](risks.md#android-feature-05-risk-02).
+
 ### Screen capture timing (`android-feature-06-risk-01`)
 
 Global defaults live under a top-level `screen_capture` block and can be overridden per app under `risks.android-feature-06-risk-01`:

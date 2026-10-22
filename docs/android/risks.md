@@ -97,6 +97,38 @@ A biometric or device-credential prompt can only appear on a device with a scree
 
 Settings (`launch_wait`, `attack_timeout`, `step_timeout_seconds`, `settle_seconds`, `attacker_apk`, `settings_labels`, `canaries`) are documented in [Configuration](configuration.md#accessibility-android-feature-05-risk-01-android-feature-05-risk-02).
 
+## android-feature-05-risk-02
+
+`android-feature-05-risk-02` demonstrates whether an app registered as an accessibility service can record what the user does in the target app, following the playbook. Event Spy's service receives focus, text-change and click events from every app and saves each one, with the field's view ID and text, to its own database. The playbook's control is to keep sensitive views from accessibility services with `android:importantForAccessibility="no"`, or on Android 14 and later `android:accessibilityDataSensitive="yes"`.
+
+Requires: `adb`, `appium`, `event_spy_attacker` (`F5R2_Event_Capture_Attacker.apk`, package `com.malicious.eventspy`, in the Android intake folder, or version 1.0 already installed on the device). This is the playbook's own Event Spy sample app; its recovered source is kept with the playbook's sample apps. It is a debuggable build, which lets the test read its database with `run-as`. Its service does not set `flagIncludeNotImportantViews`, so a Reduced Risk result shows that the app's views are kept from a service with default settings, not from one that sets that flag. The test drives Settings through Appium, so the runner must be able to unlock the device (see [Configuration](configuration.md#runner)).
+
+Stages, numbered by the playbook step each one carries out:
+
+1. **Step 01.** Record the device model and API level (`metadata.device`), the installed APK's hash and the current accessibility secure settings, open an Appium session with `appium:disableSuppressAccessibilityService`, and go to the home screen. An Event Spy service left enabled by an interrupted run is dropped from the settings to restore (`metadata.stale_attacker_service`).
+2. **Steps 02 and 03.** These steps write the malicious app, so Event Spy stands in for them and both are recorded as `provided`. Record the APK's SHA-256 (`metadata.event_spy_apk_sha256`), install it unless the device already has version 1.0, clear what it captured before with `adb shell pm clear com.malicious.eventspy`, as its Clear Logs button does, and check that it declares its service (`metadata.attacker_service_declared`).
+3. **Step 04.** Turn Event Spy's service on through Settings as the F5R1 test does, finding it as "Event Spy", and wait for Android to bind it. Then launch the app, deny any system permission dialogs in front of it, and use the app through its scripted steps, which type synthetic canaries into its fields (see [Configuration](configuration.md#accessibility-android-feature-05-risk-01-android-feature-05-risk-02)). Screenshot the app (`accessibility/target_after_input.png`), read Event Spy's database until its events from the app stop changing for `settle_seconds`, or `attack_timeout` passes, and save those events (`accessibility/captured_events.json`). Events from other apps are left out of the report. Finally open Event Spy's own screen, as the playbook's screenshot shows it (`accessibility/event_spy_screen.png`).
+4. **Step 05.** Open Accessibility settings again and show Event Spy in its list (`accessibility/accessibility_list_after.png`).
+5. **Step 06.** Open Event Spy's page and confirm its switch is on (`accessibility/accessibility_service_on.png`). Steps 05 and 06 repeat the playbook's feature-05 steps after step 04 has carried them out, so they only confirm the state. Neither changes the verdict.
+6. Restore both secure settings, force-stop Event Spy and confirm its service is neither enabled nor bound. Then clear its data and uninstall it, so nothing it captured stays on the phone, close the app, end the Appium session and write the report. Cleanup runs even when an earlier stage failed. A service that cannot be confirmed off fails the run. Data that cannot be cleared or an app that cannot be uninstalled is reported in `errors` without changing the verdict. `metadata.cleanup` records `settings_restored`, `service_off`, `data_cleared`, `attacker_uninstalled` and any `errors`.
+
+`metadata.steps_performed` records each step's outcome under `01` to `06`, and `metadata.coverage` is `scripted`, `scripted_partial` or `launch_only`.
+
+Typed values are compared with the captured text without spaces, dashes, slashes, dots, brackets or case, so an app that groups a card number still matches. `metadata.capture` counts the focus, text-change and click events from the app and, for each canary typed, records whether it was `captured`, the `view_id` it was captured from, and whether Android `masked` it as password text. Android masks password fields for every accessibility service, so masking is reported per field but is not counted as the app's protection. `metadata.observation` records what the verdict is decided from, and `metadata.verdict_rule` names the rule that decided it (`canary_captured` or `target_events_without_canaries`).
+
+Verdict-to-status mapping:
+
+- `CAPTURED`: Event Spy recorded a typed canary value from the app in plain text → `A11Y_INPUT_CAPTURED` (**At Risk**). This holds even when later scripted steps failed.
+- `PROTECTED`: every scripted step ran, Event Spy saw the app's focus, click or text-change events, and recorded none of the canaries typed, at least one of them outside a password field → `A11Y_INPUT_PROTECTED` (**Reduced Risk**).
+- `INCONCLUSIVE`: the service was not bound; the app was not in front after launch or after the input; no canary was typed, as when the app has no scripted steps; the steps stopped early; only password fields were typed into; or Event Spy recorded no events from the app at all, so a broken capture cannot be told from a protected one → `A11Y_NOT_TESTED` (**Inconclusive**).
+- `ERROR`, or a stage that fails, such as a missing Event Spy APK, a database that cannot be read with `run-as`, or a service that cannot be confirmed off → `FAILED` (**Inconclusive**), with the reason in `errors`.
+
+The scripted steps type each value with Appium, which sets a field's text in one change. Event Spy then records one text-change event with the whole value, where a person typing produces one per keystroke.
+
+Screenshots are best-effort evidence. Evidence kinds are `accessibility_settings`, `accessibility_service_page`, `accessibility_consent`, `accessibility_permission_prompt`, `accessibility_target_after`, `accessibility_captured_events`, `accessibility_event_spy_screen`, `accessibility_list_after` and `accessibility_service_on`.
+
+Settings are documented in [Configuration](configuration.md#accessibility-android-feature-05-risk-01-android-feature-05-risk-02).
+
 ## android-feature-06-risk-01
 
 `android-feature-06-risk-01` demonstrates whether another app on the device can record the target app's screen, following the playbook: a helper app records the screen through Android's screen-recording API (`MediaProjection`) after the user approves the system prompt, the target app is opened while it records, and the recording shows whether the app's content was captured or came out blank, as a `FLAG_SECURE` window does.

@@ -55,6 +55,19 @@ A screenshot that could not be saved is listed under `metadata.evidence_errors` 
 
 A screenshot that could not be saved is listed under `metadata.evidence_errors` instead.
 
+`android-feature-05-risk-02`:
+
+- `report.json`
+- `logs.txt`
+- `accessibility/accessibility_settings.png`, `accessibility/accessibility_service_page.png` and `accessibility/accessibility_consent.png`, Accessibility settings, Event Spy's service page and its consent prompt as the service was turned on
+- `accessibility/target_after_input.png`, the app's screen after its canaries were typed
+- `accessibility/captured_events.json`, the focus, text-change and click events Event Spy saved from the app
+- `accessibility/event_spy_screen.png`, Event Spy's own screen listing what it captured
+- `accessibility/accessibility_list_after.png` and `accessibility/accessibility_service_on.png`, the Accessibility list and Event Spy's switch after the capture
+- `accessibility/permission_prompt_<n>.png`, each system permission dialog before it was denied
+
+A screenshot that could not be saved is listed under `metadata.evidence_errors` instead.
+
 `android-feature-06-risk-01`:
 
 - `report.json`
@@ -107,7 +120,9 @@ Each test's `report.json` (and `logs.txt`) carries one of these precise statuses
 - `OVERLAY_NOT_TESTED`: the app was not in front, the attacker never added its window, or the window or its visibility could not be read from `dumpsys window`. Reported as Inconclusive; `metadata.verdict` says which.
 - `A11Y_ACTION_PERFORMED`: the attacker's accessibility service clicked the app's logout control, and the app showed its signed-out screen or, with no `logged_out` locator, opened a new window, with no authentication prompt. Reported as At Risk.
 - `A11Y_ACTION_BLOCKED`: the service's click opened a biometric or device-credential prompt and the app stayed signed in, or Appium saw a logout control the service could not find. Reported as Reduced Risk.
-- `A11Y_NOT_TESTED`: the app was not in front, the service was not bound or did not act on the app, its click changed nothing, or the screen had no logout control. Reported as Inconclusive; `metadata.verdict` and `metadata.verdict_rule` say which.
+- `A11Y_NOT_TESTED`: for `android-feature-05-risk-01`, the app was not in front, the service was not bound or did not act on the app, its click changed nothing, or the screen had no logout control. For `android-feature-05-risk-02`, the service was not bound, the app was not in front, no canary was typed, the steps stopped early, only password fields were typed into, or Event Spy recorded nothing from the app. Reported as Inconclusive; `metadata.verdict` and `metadata.verdict_rule` say which.
+- `A11Y_INPUT_CAPTURED`: Event Spy's accessibility service recorded a synthetic value typed into the app in plain text. Reported as At Risk.
+- `A11Y_INPUT_PROTECTED`: Event Spy saw the app but recorded none of the values typed into it. Reported as Reduced Risk.
 - `SCREEN_CAPTURE_ALLOWED`: the recording captured content while the target app remained in the foreground; UI warnings and `FLAG_SECURE` do not override the recording.
 - `SCREEN_CAPTURE_BLOCKED`: the target app remained in the foreground and its recorded frame was blank, with a working pre-launch recording.
 - `SCREEN_CAPTURE_NOT_TESTED`: the app exited, redirected to another app, or a system permission prompt covered it. Reported as Inconclusive because these observations do not prove capture protection. Check that the app works on this device and inspect the captured frame. For a store redirect, check its installation requirements; for a permission prompt, set `runner.auto_grant_permissions: true` (or grant the permission on the device) and run it again.
@@ -169,6 +184,10 @@ Overlay test is not tested although the overlay appears:
 Accessibility test fails or is not tested:
 
 `accessibility attacker APK not found` means `F5R1_Accessibility_Attacker.apk` is not in `artifacts/intake/android/apks/` (or at `accessibility.attacker_apk`) and the device does not have its current version. `INSTALL_FAILED_UPDATE_INCOMPATIBLE` means the device has the attacker app signed with another key; uninstall `com.mobileplaybook.accessibility` and run the test again. `metadata.service_enable.method` other than `settings_ui` means Settings could not be driven; `ui_failures` says why, and `settings_labels` can supply the device's labels. `Android did not bind it` with the service enabled usually means Appium suppressed accessibility services; check that the Appium UiAutomator2 driver honours `disableSuppressAccessibilityService`. `could not be confirmed off` fails the run because the attacker's service may still be on: check with `adb shell settings get secure enabled_accessibility_services`, remove `com.mobileplaybook.accessibility/.AttackAccessibilityService` from it, and run `adb shell am force-stop com.mobileplaybook.accessibility`. `could not be uninstalled` means the phone still lists the attacker app after cleanup; remove it with `adb uninstall com.mobileplaybook.accessibility`. Avoid `uiautomator dump` while the test runs, since it suspends other accessibility services.
+
+Event capture test fails or is not tested:
+
+`Event Spy APK not found` means `F5R2_Event_Capture_Attacker.apk` is not in `artifacts/intake/android/apks/` (or at `accessibility.event_spy_apk`) and the device does not have version 1.0. `cannot be read with run-as` means the installed Event Spy is not the debuggable build; uninstall `com.malicious.eventspy` and run the test again so the intake APK is installed. `could not be uninstalled` or a failed clear means Event Spy, with what it captured, may still be on the phone; remove it with `adb uninstall com.malicious.eventspy`. `recorded no events from the app` with the service bound usually means Appium suppressed accessibility services, as for the F5R1 test. `No canary was typed` means the app has no `type` steps under `risks.android-feature-05-risk-02.steps`.
 
 Screen capture test fails before launching the app:
 

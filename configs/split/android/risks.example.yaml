@@ -237,6 +237,54 @@ android-feature-05-risk-01:
           images: []
           commands: []
 
+android-feature-05-risk-02:
+  name: Android Accessibility Activity Capture Test
+  description: Another app registered as an accessibility service can record what the user does in the app, including the text typed into its fields, as focus, text-change and click events, unless the app keeps those views from accessibility services.
+  tactic: Collection
+  demonstration:
+    - id: setup_table
+      type: table
+      label: Setup
+      rows:
+        - Configuration: Requires
+          Detail: adb, appium, event_spy_attacker (F5R2_Event_Capture_Attacker.apk in the Android intake folder, or Event Spy 1.0 already installed)
+        - Configuration: Coverage
+          Detail: The app's risks.android-feature-05-risk-02.steps type synthetic canaries into its fields. Without them nothing is typed and the result is inconclusive
+    - id: steps
+      type: steps
+      label: Demonstration
+      items:
+        - id: step_1
+          text: Record the device, the installed APK's hash and the current accessibility settings, connect Appium with accessibility suppression disabled, and return to the home screen
+          images: []
+          commands: []
+        - id: step_2
+          text: Install Event Spy, clear what it captured before, and confirm it declares the playbook's accessibility service; the provided app stands in for writing the malicious app
+          images: []
+          commands:
+            - adb shell pm clear com.malicious.eventspy
+            - adb shell pm query-services -a android.accessibilityservice.AccessibilityService
+        - id: step_3
+          text: Event Spy's service configuration listens for focus, text-change and click events and saves them to its local database, as the playbook defines
+          images: []
+          commands: []
+        - id: step_4
+          text: Turn Event Spy's service on in Settings (falling back to its details page then secure settings), confirm it is bound, open the app and type its canaries through the scripted steps, then read what Event Spy saved and show its screen
+          images: []
+          commands:
+            - adb shell am start -a android.settings.ACCESSIBILITY_SETTINGS
+            - adb shell dumpsys accessibility
+            - adb shell run-as com.malicious.eventspy cat databases/event_database
+        - id: step_5
+          text: Show the Accessibility list with Event Spy now listed
+          images: []
+          commands:
+            - adb shell am start -a android.settings.ACCESSIBILITY_SETTINGS
+        - id: step_6
+          text: Confirm Event Spy's switch is on
+          images: []
+          commands: []
+
 android-feature-06-risk-01:
   name: "Android Screen Capture Test"
   description: "Describe what this risk demonstrates."
