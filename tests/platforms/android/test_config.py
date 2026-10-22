@@ -59,7 +59,7 @@ def test_android_config_accepts_structured_apps():
 
 
 def test_android_registry_exposes_ported_risks():
-    assert known_risks() == {"android-feature-01-risk-01", "android-feature-01-risk-02", "android-feature-02-risk-01", "android-feature-02-risk-02", "android-feature-04-risk-01", "android-feature-05-risk-01", "android-feature-06-risk-01", "android-feature-07-risk-01"}
+    assert known_risks() == {"android-feature-01-risk-01", "android-feature-01-risk-02", "android-feature-02-risk-01", "android-feature-02-risk-02", "android-feature-04-risk-01", "android-feature-05-risk-01", "android-feature-05-risk-02", "android-feature-06-risk-01", "android-feature-07-risk-01"}
 
 
 def test_android_dry_run_filters_selected_apps():
@@ -393,7 +393,34 @@ def test_accessibility_locator_problems_are_reported_for_the_app():
 def test_shared_accessibility_steps_are_rejected():
     errors = _accessibility_errors({"steps": []}, {"enabled": True})
 
-    assert errors == ["accessibility.steps is not supported; scripted steps belong to one app, under its risks.android-feature-05-risk-01 entry"]
+    assert errors == ["accessibility.steps is not supported; scripted steps belong to one app, under its risks.android-feature-05-risk-01 or risks.android-feature-05-risk-02 entry"]
+
+
+def _event_capture_errors(accessibility=None, app_settings=None):
+    config = parse_config({"accessibility": accessibility or {}, "apps": [{"id": "example", "package_name": "com.example.app", "risks": {"android-feature-05-risk-02": app_settings or {"enabled": True}}}]})
+    return [error for error in collect_config_errors(config) if "accessibility" in error or "android-feature-05-risk-02" in error]
+
+
+def test_event_capture_steps_may_type_the_shared_accessibility_canaries():
+    steps = [{"type": {"id": "a", "value": "{canary.card}"}}, {"type": {"id": "b", "value": "{canary.plate}"}}, {"tap": {"text": "Add card"}}]
+
+    assert _event_capture_errors({"canaries": {"plate": "SGX0000A"}}, {"enabled": True, "steps": steps}) == []
+
+
+def test_event_capture_step_problems_are_reported_for_the_app():
+    errors = _event_capture_errors(app_settings={"enabled": True, "steps": [{"tap": {"xpath": "//x"}}, {"type": {"id": "a", "value": "{canary.otp}"}}]})
+
+    assert errors == [
+        "apps[example].risks.android-feature-05-risk-02.steps[0].tap must name the element with exactly one of id, accessibility_id, text",
+        "apps[example].risks.android-feature-05-risk-02.steps[0].tap.xpath is not a known setting",
+        "apps[example].risks.android-feature-05-risk-02.steps[1].type.value names unknown canary 'otp'",
+    ]
+
+
+def test_bad_shared_accessibility_canaries_are_reported_once():
+    errors = _event_capture_errors({"canaries": {"email": ""}})
+
+    assert errors == ["accessibility.canaries must map names of letters, digits and underscores to non-empty text"]
 
 
 def test_the_backup_adb_connection_is_on_unless_turned_off():

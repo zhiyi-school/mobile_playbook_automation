@@ -1,5 +1,5 @@
-# Example Android accessibility settings for android-feature-05-risk-01. Copy to accessibility.yaml; see
-# docs/android/configuration.md.
+# Example Android accessibility settings for android-feature-05-risk-01 and android-feature-05-risk-02. Copy to
+# accessibility.yaml; see docs/android/configuration.md.
 
 accessibility:
   # Seconds to wait after opening a Settings page or launching the app before reading the screen.
@@ -15,9 +15,11 @@ accessibility:
   settle_seconds: 3
   # The accessibility attacker APK, relative to the repository root. Defaults to the intake copy.
   # attacker_apk: artifacts/intake/android/apks/F5R1_Accessibility_Attacker.apk
+  # The Event Spy APK for android-feature-05-risk-02, relative to the repository root. Defaults to the intake copy.
+  # event_spy_apk: artifacts/intake/android/apks/F5R2_Event_Capture_Attacker.apk
   # Text that Settings shows, for devices whose labels differ from the defaults. A label left out keeps its default.
   # settings_labels:
-  #   # The attacker app's name on the Accessibility list and its service page.
+  #   # The F5R1 attacker app's name on the Accessibility list and its service page; F5R2 looks for "Event Spy".
   #   service: "Playbook Accessibility Test"
   #   # The categories that list downloaded services; the first one found is opened. Defaults cover AOSP, One UI and
   #   # HarmonyOS.

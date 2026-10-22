@@ -16,6 +16,7 @@ from mobile_playbook.platforms.android.device.accessibility_settings import (
     _text_matcher,
     enable_service,
     open_service_page,
+    show_service_listed,
 )
 
 BEFORE = AccessibilitySettings(enabled_services=None, accessibility_enabled="0")
@@ -438,3 +439,25 @@ def test_the_details_page_names_the_attacker_apps_own_component(tmp_path):
     assert outcome.method == "secure_settings_fallback"
     assert ["shell", "am", "start", "-a", ACCESSIBILITY_DETAILS_ACTION, "--es", COMPONENT_NAME_EXTRA, OTHER_APP.component] in adb.commands
     assert DETAILS_ACTION not in adb.commands
+
+
+FORCE_STOP_SETTINGS = ["shell", "am", "force-stop", "com.android.settings"]
+
+
+def test_settings_is_stopped_before_the_list_opens_so_it_cannot_resume_another_page(tmp_path):
+    adb, attacker, driver = setup()
+    aosp_screens(driver, attacker)
+
+    enable_service(driver, attacker, BEFORE, tmp_path, timeout=1)
+
+    assert adb.commands[:2] == [FORCE_STOP_SETTINGS, LIST_ACTION]
+
+
+def test_the_step_05_list_is_opened_fresh(tmp_path):
+    adb, attacker, driver = setup()
+    driver.screens["list"] = [Element(ATTACKER_LABEL)]
+
+    outcome = show_service_listed(driver, adb, SettingsLabels(service=ATTACKER_LABEL), 1, lambda: None)
+
+    assert outcome["outcome"] == "completed"
+    assert adb.commands[:2] == [FORCE_STOP_SETTINGS, LIST_ACTION]

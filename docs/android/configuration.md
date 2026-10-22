@@ -410,9 +410,9 @@ risks:
 
 Full risk behavior and status meanings are documented in [Risks](risks.md#android-feature-04-risk-01).
 
-### Accessibility (`android-feature-05-risk-01`)
+### Accessibility (`android-feature-05-risk-01`, `android-feature-05-risk-02`)
 
-Global defaults live under a top-level `accessibility` block in `accessibility.yaml` under `configs/split/android/` (see `accessibility.example.yaml`), included from `configs/android.yaml` as `accessibility: split/android/accessibility.yaml`. Without the file the defaults below apply. Each setting can be overridden per app under `risks.android-feature-05-risk-01`:
+Global defaults live under a top-level `accessibility` block in `accessibility.yaml` under `configs/split/android/` (see `accessibility.example.yaml`), included from `configs/android.yaml` as `accessibility: split/android/accessibility.yaml`. Without the file the defaults below apply. Both accessibility risks read this block, and the config editor opens it for either one. Each setting can be overridden per app under `risks.android-feature-05-risk-01`:
 
 ```yaml
 accessibility:
@@ -428,8 +428,9 @@ accessibility:
 - `step_timeout_seconds`: seconds a scripted step, a locator check, a permission check or the wait for the service to be bound takes before giving up (default 10). Turning the service on through Settings waits at least 20 seconds, to allow for HarmonyOS's consent countdown.
 - `settle_seconds`: seconds the attacker's event log must stop changing, after it has scanned the app, before the attack is read as finished (default 3). A logout that opens a confirmation dialog is two clicks a moment apart, so a shorter value can stop before the second.
 - `attacker_apk`: the attacker APK to install when the device lacks its current version; relative paths resolve against the repository root. Defaults to `F5R1_Accessibility_Attacker.apk` in the Android intake folder.
-- `settings_labels`: text that Settings shows, for devices whose labels differ from the defaults. `service` is the attacker's name on the Accessibility list and its page (default `Playbook Accessibility Test`). `categories` lists the entries that open a page of downloaded services, tried in order (default `Installed apps`, `Installed services`, `Downloaded apps`, `Downloaded services`). `allow` lists the consent prompt's confirming buttons (default `Allow`, `Grant access`). Text is matched in full, ignoring case. A label left out keeps its default.
-- `canaries`: synthetic values a scripted step can type, by name, as for the runtime log test.
+- `event_spy_apk`: the Event Spy APK that `android-feature-05-risk-02` installs; relative paths resolve against the repository root. Defaults to `F5R2_Event_Capture_Attacker.apk` in the Android intake folder.
+- `settings_labels`: text that Settings shows, for devices whose labels differ from the defaults. `service` is the `android-feature-05-risk-01` attacker's name on the Accessibility list and its page (default `Playbook Accessibility Test`); `android-feature-05-risk-02` looks for `Event Spy`. `categories` lists the entries that open a page of downloaded services, tried in order (default `Installed apps`, `Installed services`, `Downloaded apps`, `Downloaded services`). `allow` lists the consent prompt's confirming buttons (default `Allow`, `Grant access`). Text is matched in full, ignoring case. A label left out keeps its default.
+- `canaries`: synthetic values a scripted step can type, by name, as for the runtime log test. Both accessibility risks share them.
 
 Scripted steps sign the app in and reach a screen with a logout control. They are written per app under `risks.android-feature-05-risk-01.steps` in `apps.yaml`, use the same step kinds and locators as the runtime log test (see [Scripted steps](#scripted-steps)), and are checked when the configuration loads. Steps belong to one app, so they cannot be set in the shared `accessibility` block. Two per-app locators, each naming an element with exactly one of `id`, `accessibility_id` or `text`, refine the result:
 
@@ -451,6 +452,19 @@ risks:
 Sign in with a test account. The attacker logs the app out, and its patterns include `Exit`, so a screen with an Exit control may be closed instead.
 
 Full risk behavior and status meanings are documented in [Risks](risks.md#android-feature-05-risk-01).
+
+`android-feature-05-risk-02` reads the same block, and each setting can be overridden per app under `risks.android-feature-05-risk-02`. It uses `launch_wait`, `step_timeout_seconds`, `event_spy_apk`, the `categories` and `allow` Settings labels, and `canaries`. `attack_timeout` is the longest it waits for Event Spy's captured events to stop changing, and `settle_seconds` how long they must stay unchanged. Its scripted steps type synthetic canaries into the fields being tested. They are written under `risks.android-feature-05-risk-02.steps`, are checked the same way, and only need to sign in when the fields are behind a sign-in:
+
+```yaml
+risks:
+  android-feature-05-risk-02:
+    enabled: true
+    steps:
+      - tap: {text: "Add card"}
+      - type: {id: "com.example.app:id/card_number", value: "{canary.card}"}
+```
+
+Full risk behavior and status meanings are documented in [Risks](risks.md#android-feature-05-risk-02).
 
 ### Screen capture timing (`android-feature-06-risk-01`)
 
@@ -530,7 +544,7 @@ risks:
 ```
 
 - `tap`: tap an element.
-- `type`: tap a field, clear it and type `value` into it. `{canary.<name>}` in `value` is replaced with that canary, and the log is searched for each canary typed.
+- `type`: tap a field, clear it and type `value` into it. `{canary.<name>}` in `value` is replaced with that canary, and the log is searched for each canary typed. Appium sets the field's text in one change; `android-feature-05-risk-02` instead presses each key, so accessibility services see the typing (see [Risks](risks.md#android-feature-05-risk-02)).
 - `wait`: wait a number of seconds, for example for a sign-in request to finish, so what the app logs after it is captured.
 - `back`: press the back button.
 

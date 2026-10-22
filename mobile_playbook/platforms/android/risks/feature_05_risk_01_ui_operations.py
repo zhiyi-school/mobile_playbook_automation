@@ -20,13 +20,17 @@ from mobile_playbook.platforms.android.device.accessibility_attacker import (
     attacker_apk_path,
     names_attacker_service,
 )
-from mobile_playbook.platforms.android.device.accessibility_service import AccessibilitySettings, enabled_components
+from mobile_playbook.platforms.android.device.accessibility_service import (
+    AccessibilitySettings,
+    enabled_components,
+    remove_attacker_app,
+    turn_service_off,
+)
 from mobile_playbook.platforms.android.device.accessibility_settings import (
-    ACCESSIBILITY_SETTINGS_ACTION,
     SettingsLabels,
+    confirm_switch_on,
     enable_service,
-    find_service_entry,
-    service_switch,
+    show_service_listed,
 )
 from mobile_playbook.platforms.android.device.fingerprint import installed_base_apk_sha256
 from mobile_playbook.platforms.android.device.handoff_packages import BROWSER_PACKAGES, LAUNCHER_PACKAGES
@@ -38,7 +42,6 @@ from mobile_playbook.platforms.android.risks.base import AndroidRisk
 
 logger = logging.getLogger(__name__)
 POLL_SECONDS = 0.5
-UNBIND_SECONDS = 5.0
 # Without this, Appium's UiAutomation connection makes Android unbind other accessibility services, the attacker's too.
 DRIVER_CAPABILITIES = {"appium:disableSuppressAccessibilityService": True}
 # The playbook service's patterns, used to check through Appium whether the screen shows a logout control.
@@ -126,7 +129,7 @@ class AndroidAccessibilityUiOperationsRisk(AndroidRisk):
                 result.metadata["service_enable"] = enabled.to_dict()
                 result.evidence.extend(enabled.evidence)
                 result.metadata.setdefault("evidence_errors", []).extend(enabled.evidence_errors)
-                bound = result.metadata["service_bound"] = _wait_for_bound(attacker, step_timeout)
+                bound = result.metadata["service_bound"] = attacker.wait_until_bound(step_timeout)
                 _adb(adb, ["input", "keyevent", "KEYCODE_HOME"])
                 driver.activate_app(package)
                 events = _wait_for_attack(attacker, package, attack_timeout, settle) if bound else []
@@ -138,9 +141,9 @@ class AndroidAccessibilityUiOperationsRisk(AndroidRisk):
                 performed[step] = {"outcome": "completed", "detail": f"Service turned on via {enabled.method}; {verdict}"}
 
                 step = "05"
-                performed[step] = _view_list(driver, adb, labels, step_timeout, evidence_dir, result)
+                performed[step] = show_service_listed(driver, adb, labels, step_timeout, lambda: _screenshot(driver, evidence_dir / "accessibility_list_after.png", "accessibility_list_after", "Accessibility list with the service on", result))
                 step = "06"
-                performed[step] = _check_switch(driver, labels, step_timeout, evidence_dir, result)
+                performed[step] = confirm_switch_on(driver, labels, step_timeout, lambda: _screenshot(driver, evidence_dir / "accessibility_service_on.png", "accessibility_service_on", "Attacker service switch on", result))
             else:
                 performed[step] = {"outcome": "failed" if verdict.startswith("ERROR") else "skipped", "detail": verdict}
             _finish(result, verdict)
@@ -149,12 +152,12 @@ class AndroidAccessibilityUiOperationsRisk(AndroidRisk):
             performed[step] = {"outcome": "failed", "detail": str(exc)}
             _finish(result, f"ERROR ({exc})")
         finally:
-            _turn_service_off(attacker, before, cleanup)
+            turn_service_off(attacker, before, cleanup)
             if not (cleanup["settings_restored"] and cleanup["service_off"]):
                 result.final_status = "FAILED"
                 result.verdict = "Inconclusive"
                 result.errors.append("The attacker's accessibility service could not be confirmed off: " + "; ".join(cleanup["errors"]))
-            _remove_attacker(attacker, cleanup)
+            remove_attacker_app(attacker, cleanup)
             if not cleanup["attacker_uninstalled"]:
                 result.errors.append(f"The accessibility attacker app could not be uninstalled; remove {ATTACKER_PACKAGE} by hand.")
             if driver is not None:
@@ -308,17 +311,6 @@ def _logout_control(driver, package: str, locator: dict | None, timeout: float) 
     return {"visible": False, "match": None}
 
 
-# Wait for Android to bind the attacker's service, which it does only while Appium leaves accessibility services running.
-def _wait_for_bound(attacker: AccessibilityAttacker, timeout: float) -> bool:
-    deadline = time.monotonic() + timeout
-    while True:
-        if attacker.is_bound():
-            return True
-        if time.monotonic() >= deadline:
-            return False
-        time.sleep(POLL_SECONDS)
-
-
 # Collect the attacker's events for the app until they stop changing for the settle time after a scan, or the timeout.
 def _wait_for_attack(attacker: AccessibilityAttacker, package: str, timeout: float, settle: float) -> list[AttackEvent]:
     deadline = time.monotonic() + timeout
@@ -411,76 +403,6 @@ def _decide(observation: dict) -> tuple[str, str | None]:
     if observation["control_visible"] and observation["searched"]:
         return "BLOCKED (Appium saw a logout control, but the attacker's search of the app found none)", "hidden_logout_control"
     return "INCONCLUSIVE (The screen tested has no logout control the attacker looks for)", None
-
-
-# Show the Accessibility list with the service in it, as playbook step 05 does.
-def _view_list(driver, adb, labels: SettingsLabels, timeout: float, evidence_dir: Path, result: AndroidRiskRunResult) -> dict:
-    try:
-        _adb(adb, ["am", "start", "-a", ACCESSIBILITY_SETTINGS_ACTION])
-        entry = find_service_entry(driver, labels, timeout)
-    except Exception as exc:
-        logger.debug("android accessibility: step 05 failed: %s", exc, exc_info=True)
-        return {"outcome": "failed", "detail": str(exc)}
-    _screenshot(driver, evidence_dir / "accessibility_list_after.png", "accessibility_list_after", "Accessibility list with the service on", result)
-    if entry is None:
-        return {"outcome": "failed", "detail": f"{labels.service!r} was not found in Accessibility settings."}
-    entry.click()
-    return {"outcome": "completed", "detail": f"{labels.service!r} is listed in Accessibility settings."}
-
-
-# Confirm the service page's switch is on, as playbook step 06 does, without flipping it again.
-def _check_switch(driver, labels: SettingsLabels, timeout: float, evidence_dir: Path, result: AndroidRiskRunResult) -> dict:
-    try:
-        switch = service_switch(driver, timeout)
-        checked = None if switch is None else str(switch.get_attribute("checked")).lower()
-    except Exception as exc:
-        logger.debug("android accessibility: step 06 failed: %s", exc, exc_info=True)
-        return {"outcome": "failed", "detail": str(exc)}
-    _screenshot(driver, evidence_dir / "accessibility_service_on.png", "accessibility_service_on", "Attacker service switch on", result)
-    if checked == "true":
-        return {"outcome": "completed", "detail": f"The {labels.service!r} switch is on."}
-    return {"outcome": "failed", "detail": "No service switch was found." if switch is None else f"The {labels.service!r} switch reads {checked!r}."}
-
-
-# Restore the recorded accessibility settings, stop the attacker and confirm its service is no longer enabled or bound.
-def _turn_service_off(attacker: AccessibilityAttacker, before: AccessibilitySettings | None, cleanup: dict) -> None:
-    if before is not None:
-        try:
-            attacker.restore_settings(before)
-            cleanup["settings_restored"] = True
-        except Exception as exc:
-            logger.debug("android accessibility: restoring settings failed: %s", exc, exc_info=True)
-            cleanup["errors"].append(f"restoring settings failed: {exc}")
-    else:
-        cleanup["settings_restored"] = True
-    # After restoring: Android drops a force-stopped app's service from the enabled list, which restoring would undo.
-    try:
-        attacker.stop()
-    except Exception as exc:
-        logger.debug("android accessibility: stopping the attacker failed: %s", exc, exc_info=True)
-        cleanup["errors"].append(f"stopping the attacker failed: {exc}")
-    deadline = time.monotonic() + UNBIND_SECONDS
-    try:
-        while True:
-            cleanup["service_off"] = not attacker.is_enabled() and not attacker.is_bound()
-            if cleanup["service_off"] or time.monotonic() >= deadline:
-                break
-            time.sleep(POLL_SECONDS)
-        if not cleanup["service_off"]:
-            cleanup["errors"].append("the service is still enabled or bound")
-    except Exception as exc:
-        logger.debug("android accessibility: checking the service failed: %s", exc, exc_info=True)
-        cleanup["errors"].append(f"checking the service failed: {exc}")
-
-
-# Uninstall the attacker app so it does not stay on the phone after the test.
-def _remove_attacker(attacker: AccessibilityAttacker, cleanup: dict) -> None:
-    try:
-        attacker.uninstall()
-        cleanup["attacker_uninstalled"] = True
-    except Exception as exc:
-        logger.debug("android accessibility: uninstalling the attacker failed: %s", exc, exc_info=True)
-        cleanup["errors"].append(f"uninstalling the attacker failed: {exc}")
 
 
 # Set the result's verdict, status and errors from the verdict text.

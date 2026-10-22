@@ -15,9 +15,11 @@ logger = logging.getLogger(__name__)
 
 try:
     from appium.webdriver.common.appiumby import AppiumBy
+    from selenium.webdriver.common.action_chains import ActionChains
 except ImportError:
     logger.debug("android scripted steps: AppiumBy unavailable; scripted steps cannot find elements", exc_info=True)
     AppiumBy = None
+    ActionChains = None
 
 STEP_KINDS = ("tap", "type", "wait", "back")
 LOCATOR_KEYS = ("id", "accessibility_id", "text")
@@ -129,12 +131,13 @@ def fill_placeholders(text: str, canaries: dict[str, str]) -> str:
     return PLACEHOLDER_RE.sub(lambda match: canaries[match.group(1)], text)
 
 
-# Run the steps in order, stopping at the first that fails, and return how far they got.
-def run_steps(driver, steps: list, canaries: dict[str, str], timeout: float) -> StepsOutcome:
+# Run the steps in order, stopping at the first that fails, and return how far they got. With keyboard, "type" steps
+# press each key through Appium's W3C key actions instead of setting the field's text.
+def run_steps(driver, steps: list, canaries: dict[str, str], timeout: float, keyboard: bool = False) -> StepsOutcome:
     outcome = StepsOutcome(configured=len(steps))
     for index, step in enumerate(steps):
         try:
-            typed = _run_step(driver, step, canaries, timeout)
+            typed = _run_step(driver, step, canaries, timeout, keyboard)
         except Exception as exc:
             logger.debug("android scripted steps: step %s %s failed: %s", index, step, exc, exc_info=True)
             outcome.failure = {"index": index, "step": step, "error": str(exc)[:500]}
@@ -145,7 +148,7 @@ def run_steps(driver, steps: list, canaries: dict[str, str], timeout: float) -> 
 
 
 # Carry out one step and return the names of the canaries it typed.
-def _run_step(driver, step: Any, canaries: dict[str, str], timeout: float) -> list[str]:
+def _run_step(driver, step: Any, canaries: dict[str, str], timeout: float, keyboard: bool) -> list[str]:
     kind, value = ("back", None) if step == "back" else next(iter(step.items()))
     if kind == "back":
         driver.back()
@@ -159,7 +162,13 @@ def _run_step(driver, step: Any, canaries: dict[str, str], timeout: float) -> li
         return []
     element.click()
     element.clear()
-    element.send_keys(fill_placeholders(value["value"], canaries))
+    text = fill_placeholders(value["value"], canaries)
+    if keyboard:
+        # Key events reach the tapped field as a keyboard's do, so accessibility services see each change; send_keys
+        # sets the whole text at once and fires no text-change event.
+        ActionChains(driver).send_keys(text).perform()
+    else:
+        element.send_keys(text)
     return PLACEHOLDER_RE.findall(value["value"])
 
 

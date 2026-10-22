@@ -254,3 +254,12 @@ def test_android_accessibility_risk_settings_are_editable(config_root):
     assert "# seconds to wait after a launch" in path.read_text()
     assert ce.get_risk_settings("android", "android-feature-05-risk-01") == {"launch_wait": 5, "attack_timeout": 20}
     assert parse_config(load_yaml_config(entry), entry).accessibility == {"launch_wait": 5, "attack_timeout": 20}
+
+
+def test_android_event_capture_risk_edits_the_shared_accessibility_settings(config_root):
+    path = config_root / "configs/split/android/accessibility.yaml"
+    path.write_text("accessibility:\n  launch_wait: 5\n")
+
+    ce.put_risk_settings("android", "android-feature-05-risk-02", {"event_spy_apk": "artifacts/spy.apk"})
+
+    assert ce.get_risk_settings("android", "android-feature-05-risk-01") == {"launch_wait": 5, "event_spy_apk": "artifacts/spy.apk"}

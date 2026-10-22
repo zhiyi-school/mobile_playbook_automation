@@ -7,11 +7,14 @@ import shlex
 import pytest
 
 from mobile_playbook.common.storage_paths import REPOSITORY_ROOT, android_intake_dir
+from mobile_playbook.platforms.android.device import accessibility_service
 from mobile_playbook.platforms.android.device.accessibility_service import (
     AccessibilityAttackerError,
     AccessibilityServiceControl,
     AccessibilitySettings,
     ServiceApp,
+    remove_attacker_app,
+    turn_service_off,
 )
 from tests.platforms.android.install_helpers import answer_apk_copy, is_pm_install
 
@@ -46,6 +49,12 @@ class ServiceAdb:
             self.settings[args[4]] = shlex.split(args[5])[0]
             return 0, "", ""
         return 0, "", ""
+
+
+@pytest.fixture(autouse=True)
+def no_waiting(monkeypatch):
+    monkeypatch.setattr(accessibility_service, "POLL_SECONDS", 0)
+    monkeypatch.setattr(accessibility_service, "UNBIND_SECONDS", 0)
 
 
 def control(adb, tmp_path):
@@ -139,3 +148,42 @@ def test_an_app_the_phone_still_lists_after_uninstall_is_reported(tmp_path):
 
     with pytest.raises(AccessibilityAttackerError, match=f"{APP.package} is still installed"):
         control(StillThere(), tmp_path).uninstall()
+
+
+BOUND = "     Bound services:{Service[label=Example Spy, capabilities=1]}\n"
+
+
+def cleanup():
+    return {"settings_restored": False, "service_off": False, "attacker_uninstalled": False, "errors": []}
+
+
+def test_wait_until_bound_reports_whether_android_bound_the_service(tmp_path):
+    assert control(ServiceAdb(dump=BOUND), tmp_path).wait_until_bound(0)
+    assert not control(ServiceAdb(), tmp_path).wait_until_bound(0)
+
+
+def test_turning_off_restores_the_settings_stops_the_app_and_confirms_it(tmp_path):
+    adb = ServiceAdb(settings={"enabled_accessibility_services": f"{OTHER_SERVICE}:{APP.component}", "accessibility_enabled": "1"})
+    record = cleanup()
+
+    turn_service_off(control(adb, tmp_path), AccessibilitySettings(enabled_services=OTHER_SERVICE, accessibility_enabled="1"), record)
+
+    assert record == {"settings_restored": True, "service_off": True, "attacker_uninstalled": False, "errors": []}
+    assert ["shell", "am", "force-stop", APP.package] in adb.commands
+
+
+def test_a_service_still_bound_is_recorded_as_not_off(tmp_path):
+    record = cleanup()
+
+    turn_service_off(control(ServiceAdb(dump=BOUND), tmp_path), None, record)
+
+    assert (record["settings_restored"], record["service_off"]) == (True, False)
+    assert record["errors"] == ["the service is still enabled or bound"]
+
+
+def test_removing_the_app_records_whether_it_is_gone(tmp_path):
+    record = cleanup()
+
+    remove_attacker_app(control(ServiceAdb(), tmp_path), record)
+
+    assert record["attacker_uninstalled"] is True and record["errors"] == []
