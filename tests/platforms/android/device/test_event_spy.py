@@ -5,6 +5,7 @@ from __future__ import annotations
 import shlex
 import sqlite3
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -16,6 +17,7 @@ from mobile_playbook.platforms.android.device.event_spy import (
     CapturedEvent,
     EventSpy,
 )
+from mobile_playbook.platforms.android.preflight import check_requirements
 
 TARGET = "com.example.bank"
 SCHEMA = (
@@ -59,8 +61,9 @@ def database_files(folder: Path, rows=ROWS, in_wal=()) -> dict[str, bytes]:
 class EventSpyAdb:
     """Fake adb serving Event Spy's private files to run-as and answering pm clear."""
 
-    def __init__(self, files=None, debuggable=True, copy_fails=False, clear_output="Success"):
+    def __init__(self, files=None, debuggable=True, copy_fails=False, clear_output="Success", version=None):
         self.files = dict(files or {})
+        self.version = version
         self.debuggable = debuggable
         self.copy_fails = copy_fails
         self.clear_output = clear_output
@@ -74,6 +77,8 @@ class EventSpyAdb:
             command = shlex.split(shlex.split(args[5])[0])
             assert command[:2] == ["test", "-f"]
             return (0, "", "") if command[2] in self.files else (1, "", "")
+        if args[:3] == ["shell", "dumpsys", "package"]:
+            return (0, f"  versionCode=1\n  versionName={self.version}\n", "") if self.version else (0, "", "")
         if args == ["shell", "pm", "clear", EVENT_SPY_PACKAGE]:
             return 0, f"{self.clear_output}\n", ""
         return 0, "", ""
@@ -159,3 +164,39 @@ def test_clear_deletes_the_apps_data(tmp_path):
 def test_a_refused_clear_is_reported(tmp_path):
     with pytest.raises(AccessibilityAttackerError, match="could not clear Event Spy's data: Failed"):
         spy(EventSpyAdb(clear_output="Failed"), tmp_path).clear()
+
+
+def _config(apk):
+    return SimpleNamespace(accessibility={"event_spy_apk": str(apk)})
+
+
+def test_preflight_passes_with_the_event_spy_apk_in_place(tmp_path):
+    apk = tmp_path / "spy.apk"
+    apk.write_bytes(b"apk")
+
+    [(name, ok, message)] = check_requirements(["event_spy_attacker"], EventSpyAdb(), _config(apk))
+
+    assert (name, ok) == ("event_spy_attacker", True)
+    assert str(apk) in message
+
+
+def test_preflight_passes_when_the_device_already_has_event_spy(tmp_path):
+    [(_, ok, message)] = check_requirements(["event_spy_attacker"], EventSpyAdb(version="1.0"), _config(tmp_path / "missing.apk"))
+
+    assert ok and "already installed" in message
+
+
+@pytest.mark.parametrize("version", [None, "0.9"])
+def test_preflight_fails_with_the_apk_path_when_missing_or_old(tmp_path, version):
+    apk = tmp_path / "missing.apk"
+
+    [(_, ok, message)] = check_requirements(["event_spy_attacker"], EventSpyAdb(version=version), _config(apk))
+
+    assert not ok
+    assert str(apk) in message and "F5R2_Event_Capture_Attacker.apk" in message
+
+
+def test_preflight_defaults_to_the_intake_copy():
+    [(_, ok, message)] = check_requirements(["event_spy_attacker"], None, SimpleNamespace(accessibility={}))
+
+    assert str(EVENT_SPY_APP.apk_path()) in message

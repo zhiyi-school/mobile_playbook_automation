@@ -16,6 +16,7 @@ from mobile_playbook.platforms.android.device.capture_helper import BUILD_COMMAN
 from mobile_playbook.platforms.android.device.accessibility_attacker import ATTACKER_PACKAGE as ACCESSIBILITY_ATTACKER_PACKAGE
 from mobile_playbook.platforms.android.device.accessibility_attacker import ATTACKER_VERSION as ACCESSIBILITY_ATTACKER_VERSION
 from mobile_playbook.platforms.android.device.accessibility_attacker import attacker_apk_path as accessibility_attacker_apk_path
+from mobile_playbook.platforms.android.device.event_spy import EVENT_SPY_APP
 from mobile_playbook.platforms.android.device.overlay_attacker import ATTACKER_PACKAGE, ATTACKER_VERSION, attacker_apk_path
 from mobile_playbook.platforms.android.device.root import find_root_shell
 
@@ -63,6 +64,8 @@ def check_requirements(requires: list[str], adb: AdbClient | None, config) -> li
             results.append((name, *_check_overlay_attacker(adb, config)))
         elif name == "accessibility_attacker":
             results.append((name, *_check_accessibility_attacker(adb, config)))
+        elif name == "event_spy_attacker":
+            results.append((name, *_check_event_spy(adb, config)))
         else:
             logger.debug("android preflight: unknown requirement %s", name)
             results.append((name, False, f"unknown requirement '{name}'"))
@@ -144,6 +147,19 @@ def _check_accessibility_attacker(adb: AdbClient | None, config) -> tuple[bool, 
             return True, "accessibility attacker app already installed on the device"
     logger.debug("android preflight: accessibility attacker APK missing at %s and not installed", apk)
     return False, f"accessibility attacker APK not found at {apk}. Place F5R1_Accessibility_Attacker.apk in the Android intake folder or set accessibility.attacker_apk."
+
+
+# Check that the Event Spy APK is in place, or that the device already has its current build.
+def _check_event_spy(adb: AdbClient | None, config) -> tuple[bool, str]:
+    apk = EVENT_SPY_APP.apk_path((getattr(config, "accessibility", None) or {}).get("event_spy_apk"))
+    if apk.is_file():
+        return True, f"Event Spy APK found at {apk}"
+    if adb is not None:
+        installed = installed_version(adb, EVENT_SPY_APP.package)
+        if installed is not None and installed.version_name == EVENT_SPY_APP.version:
+            return True, "Event Spy already installed on the device"
+    logger.debug("android preflight: Event Spy APK missing at %s and not installed", apk)
+    return False, f"Event Spy APK not found at {apk}. Place {EVENT_SPY_APP.apk_name} in the Android intake folder or set accessibility.event_spy_apk."
 
 
 # Check that a configured tool URL is set and accepts TCP connections.

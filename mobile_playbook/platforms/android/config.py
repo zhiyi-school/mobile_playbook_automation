@@ -34,8 +34,12 @@ PHYSICAL_ROLES = ("non_rooted",)
 RUNTIME_LOGS_RISK_ID = "android-feature-02-risk-02"
 OVERLAY_RISK_ID = "android-feature-04-risk-01"
 ACCESSIBILITY_RISK_ID = "android-feature-05-risk-01"
+EVENT_CAPTURE_RISK_ID = "android-feature-05-risk-02"
 # Risks that take per-app scripted steps, with the global settings section that holds their shared canaries.
-SCRIPTED_STEP_SECTIONS = {RUNTIME_LOGS_RISK_ID: "runtime_logs", OVERLAY_RISK_ID: "overlay", ACCESSIBILITY_RISK_ID: "accessibility"}
+SCRIPTED_STEP_SECTIONS = {
+    RUNTIME_LOGS_RISK_ID: "runtime_logs", OVERLAY_RISK_ID: "overlay", ACCESSIBILITY_RISK_ID: "accessibility",
+    EVENT_CAPTURE_RISK_ID: "accessibility",
+}
 
 
 class ConfigError(Exception):
@@ -144,11 +148,15 @@ def collect_config_errors(config: AndroidGlobalConfig, dry_run: bool = False) ->
     errors.extend(_physical_role_errors(config.device))
     if not config.apps:
         errors.append("apps list must not be empty")
+    risks_by_section: dict[str, list[str]] = {}
     for risk_id, section in SCRIPTED_STEP_SECTIONS.items():
+        risks_by_section.setdefault(section, []).append(risk_id)
+    for section, risk_ids in risks_by_section.items():
         settings = getattr(config, section)
         errors.extend(canary_errors(settings.get("canaries"), section))
         if "steps" in settings:
-            errors.append(f"{section}.steps is not supported; scripted steps belong to one app, under its risks.{risk_id} entry")
+            entries = " or ".join(f"risks.{risk_id}" for risk_id in risk_ids)
+            errors.append(f"{section}.steps is not supported; scripted steps belong to one app, under its {entries} entry")
     known = known_risks()
     for app in config.apps:
         label = f"apps[{app.id or '?'}]"
