@@ -64,6 +64,16 @@ class TextScraper(CapturedEventsApp):
             paths.update(f"{folder}/{name}" for name in (out or "").splitlines() if name.strip() and not name.startswith("."))
         return paths
 
+    # Return the screenshots last modified at or after a time in seconds on the phone's clock; one whose time cannot
+    # be read is left out, so it is never treated as taken during the test.
+    def taken_since(self, paths: set[str], epoch: int) -> set[str]:
+        taken = set()
+        for path in paths:
+            code, out, _ = self.adb.run(["shell", "stat", "-c", "%Y", shlex.quote(path)])
+            if code == 0 and (out or "").strip().isdigit() and int(out.strip()) >= epoch:
+                taken.add(path)
+        return taken
+
     # Copy screenshots to a local folder, returning the copies and an error for each one that could not be copied.
     def pull_screenshots(self, paths: set[str], destination: Path) -> tuple[list[Path], list[str]]:
         destination.mkdir(parents=True, exist_ok=True)

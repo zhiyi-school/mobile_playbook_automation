@@ -285,6 +285,54 @@ android-feature-05-risk-02:
           images: []
           commands: []
 
+android-feature-05-risk-03:
+  name: Android Accessibility On-Screen Text Extraction Test
+  description: Another app registered as an accessibility service can read the text an app shows on screen, and take screenshots of it, unless the app keeps those views from accessibility services.
+  tactic: Collection
+  demonstration:
+    - id: setup_table
+      type: table
+      label: Setup
+      rows:
+        - Configuration: Requires
+          Detail: adb, appium, text_scraper_attacker (F5R3_Text_Scraper_Attacker.apk in the Android intake folder, or Text Scraper 1.0 already installed)
+        - Configuration: Coverage
+          Detail: The app's risks.android-feature-05-risk-03.on_screen_text lists synthetic values the app shows, and its steps reach the screen that shows them. Without values to look for the result is inconclusive
+    - id: steps
+      type: steps
+      label: Demonstration
+      items:
+        - id: step_1
+          text: Record the device, the installed APK's hash and the current accessibility settings, connect Appium with accessibility suppression disabled, and return to the home screen
+          images: []
+          commands: []
+        - id: step_2
+          text: Install Text Scraper, clear what it captured before, and confirm it declares an accessibility service; the provided app stands in for writing the malicious app
+          images: []
+          commands:
+            - adb shell pm clear com.malicious.textscraper
+            - adb shell pm query-services -a android.accessibilityservice.AccessibilityService
+        - id: step_3
+          text: Text Scraper's service walks the active window's views on window state changes, saves their text to its local database and takes a screenshot every 5 seconds once started; its event types and flags differ from the playbook's example
+          images: []
+          commands: []
+        - id: step_4
+          text: Turn Text Scraper's service on in Settings (falling back to its details page then secure settings), confirm it is bound, start its screenshot capture, open the app and use it through the scripted steps, then read what Text Scraper saved from the app, stop the capture and show its screen
+          images: []
+          commands:
+            - adb shell am start -a android.settings.ACCESSIBILITY_SETTINGS
+            - adb shell dumpsys accessibility
+            - adb shell run-as com.malicious.textscraper cat databases/event_database
+        - id: step_5
+          text: Show the Accessibility list with Text Scraper now listed
+          images: []
+          commands:
+            - adb shell am start -a android.settings.ACCESSIBILITY_SETTINGS
+        - id: step_6
+          text: Confirm Text Scraper's switch is on
+          images: []
+          commands: []
+
 android-feature-06-risk-01:
   name: "Android Screen Capture Test"
   description: "Describe what this risk demonstrates."
