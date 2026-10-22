@@ -19,6 +19,7 @@ from mobile_playbook.platforms.android.device.accessibility_attacker import atta
 from mobile_playbook.platforms.android.device.event_spy import EVENT_SPY_APP
 from mobile_playbook.platforms.android.device.overlay_attacker import ATTACKER_PACKAGE, ATTACKER_VERSION, attacker_apk_path
 from mobile_playbook.platforms.android.device.root import find_root_shell
+from mobile_playbook.platforms.android.device.text_scraper import TEXT_SCRAPER_APP
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +67,8 @@ def check_requirements(requires: list[str], adb: AdbClient | None, config) -> li
             results.append((name, *_check_accessibility_attacker(adb, config)))
         elif name == "event_spy_attacker":
             results.append((name, *_check_event_spy(adb, config)))
+        elif name == "text_scraper_attacker":
+            results.append((name, *_check_text_scraper(adb, config)))
         else:
             logger.debug("android preflight: unknown requirement %s", name)
             results.append((name, False, f"unknown requirement '{name}'"))
@@ -160,6 +163,19 @@ def _check_event_spy(adb: AdbClient | None, config) -> tuple[bool, str]:
             return True, "Event Spy already installed on the device"
     logger.debug("android preflight: Event Spy APK missing at %s and not installed", apk)
     return False, f"Event Spy APK not found at {apk}. Place {EVENT_SPY_APP.apk_name} in the Android intake folder or set accessibility.event_spy_apk."
+
+
+# Check that the Text Scraper APK is in place, or that the device already has its current build.
+def _check_text_scraper(adb: AdbClient | None, config) -> tuple[bool, str]:
+    apk = TEXT_SCRAPER_APP.apk_path((getattr(config, "accessibility", None) or {}).get("text_scraper_apk"))
+    if apk.is_file():
+        return True, f"Text Scraper APK found at {apk}"
+    if adb is not None:
+        installed = installed_version(adb, TEXT_SCRAPER_APP.package)
+        if installed is not None and installed.version_name == TEXT_SCRAPER_APP.version:
+            return True, "Text Scraper already installed on the device"
+    logger.debug("android preflight: Text Scraper APK missing at %s and not installed", apk)
+    return False, f"Text Scraper APK not found at {apk}. Place {TEXT_SCRAPER_APP.apk_name} in the Android intake folder or set accessibility.text_scraper_apk."
 
 
 # Check that a configured tool URL is set and accepts TCP connections.
