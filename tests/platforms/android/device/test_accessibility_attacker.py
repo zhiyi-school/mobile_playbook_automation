@@ -17,11 +17,10 @@ from mobile_playbook.platforms.android.device.accessibility_attacker import (
     SERVICE_COMPONENT,
     SERVICE_SHORT_COMPONENT,
     AccessibilityAttacker,
-    AccessibilityAttackerError,
-    AccessibilitySettings,
     AttackEvent,
     attacker_apk_path,
 )
+from mobile_playbook.platforms.android.device.accessibility_service import AccessibilityAttackerError, AccessibilitySettings
 from mobile_playbook.platforms.android.device.install import STAGING_DIR
 from tests.platforms.android.install_helpers import answer_apk_copy, is_pm_install
 

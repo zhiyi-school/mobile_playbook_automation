@@ -202,7 +202,8 @@ class Bench:
         self.settings["enabled_accessibility_services"] = SERVICE_COMPONENT
 
     def enabled(self):
-        from mobile_playbook.platforms.android.device.accessibility_attacker import enabled_components, names_attacker_service
+        from mobile_playbook.platforms.android.device.accessibility_attacker import names_attacker_service
+        from mobile_playbook.platforms.android.device.accessibility_service import enabled_components
         return names_attacker_service(enabled_components(self.settings.get("enabled_accessibility_services")))
 
     def bound(self):
@@ -239,7 +240,8 @@ class Bench:
             bound = "Service[label=Playbook Accessibility Test, capabilities=1]" if self.bound() else ""
             return 0, f"     Bound services:{{{bound}}}\n", ""
         if args[:3] == ["shell", "am", "force-stop"] and args[3] == ATTACKER_PACKAGE:
-            from mobile_playbook.platforms.android.device.accessibility_attacker import enabled_components, names_attacker_service
+            from mobile_playbook.platforms.android.device.accessibility_attacker import names_attacker_service
+            from mobile_playbook.platforms.android.device.accessibility_service import enabled_components
             others = [c for c in enabled_components(self.settings.get("enabled_accessibility_services")) if not names_attacker_service([c])]
             self.settings["enabled_accessibility_services"] = ":".join(others)
             return 0, "", ""

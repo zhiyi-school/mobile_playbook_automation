@@ -13,14 +13,14 @@ from pathlib import Path
 
 from mobile_playbook.platforms.android.acquisition.store import STORE_APPS
 from mobile_playbook.platforms.android.device.accessibility_attacker import (
+    ATTACKER_LABEL,
     ATTACKER_PACKAGE,
     AccessibilityAttacker,
-    AccessibilitySettings,
     AttackEvent,
     attacker_apk_path,
-    enabled_components,
     names_attacker_service,
 )
+from mobile_playbook.platforms.android.device.accessibility_service import AccessibilitySettings, enabled_components
 from mobile_playbook.platforms.android.device.accessibility_settings import (
     ACCESSIBILITY_SETTINGS_ACTION,
     SettingsLabels,
@@ -197,7 +197,7 @@ def _screenshot(driver, path: Path, kind: str, label: str, result: AndroidRiskRu
 
 # Build the Settings labels from the configuration, keeping the defaults for any label it leaves out.
 def _settings_labels(configured) -> SettingsLabels:
-    defaults = SettingsLabels()
+    defaults = SettingsLabels(service=ATTACKER_LABEL)
     configured = configured or {}
     return SettingsLabels(
         service=configured.get("service") or defaults.service,
