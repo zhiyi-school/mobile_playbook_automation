@@ -17,6 +17,7 @@ from mobile_playbook.common.storage_paths import REPOSITORY_ROOT, android_intake
 from mobile_playbook.platforms.android.device.adb import AdbClient
 from mobile_playbook.platforms.android.device.app_version import installed_version
 from mobile_playbook.platforms.android.device.install import install_apks
+from mobile_playbook.platforms.android.device.phone_role import uninstall
 
 logger = logging.getLogger(__name__)
 
@@ -216,6 +217,11 @@ class AccessibilityAttacker:
         if code != 0:
             raise AccessibilityAttackerError(f"adb dumpsys accessibility failed: {err or out}")
         return any(f"label={ATTACKER_LABEL}," in match or f"label={ATTACKER_LABEL}]" in match for match in BOUND_SERVICES_RE.findall(out or ""))
+
+    # Uninstall the attacker app, removing its output with it, and raise unless the phone confirms it is gone.
+    def uninstall(self) -> None:
+        if not uninstall(self.adb, ATTACKER_PACKAGE):
+            raise AccessibilityAttackerError(f"{ATTACKER_PACKAGE} is still installed")
 
     # Stop the attacker app; Android also drops a force-stopped app's service from the enabled list.
     def stop(self) -> None:

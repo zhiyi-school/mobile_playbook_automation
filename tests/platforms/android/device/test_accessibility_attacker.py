@@ -336,6 +336,24 @@ def test_stop_force_stops_the_attacker_app(tmp_path):
     assert adb.commands == [["shell", "am", "force-stop", ATTACKER_PACKAGE]]
 
 
+def test_uninstall_removes_the_attacker_app(tmp_path):
+    adb = AttackerAdb()
+
+    attacker(adb, tmp_path).uninstall()
+
+    assert adb.commands == [["uninstall", ATTACKER_PACKAGE]]
+
+
+def test_an_attacker_app_the_phone_still_lists_is_reported(tmp_path):
+    def answer(args, timeout=None):
+        if args[:1] == ["uninstall"]:
+            return 1, "Failure [DELETE_FAILED_INTERNAL_ERROR]", ""
+        return 0, f"package:{ATTACKER_PACKAGE}\n", ""
+
+    with pytest.raises(AccessibilityAttackerError, match="still installed"):
+        AccessibilityAttacker(SimpleNamespace(run=answer), tmp_path / "a.apk").uninstall()
+
+
 def _config(apk):
     return SimpleNamespace(accessibility={"attacker_apk": str(apk)})
 
