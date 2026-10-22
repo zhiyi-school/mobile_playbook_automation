@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Mapping
+from typing import Any
 
 from mobile_playbook.common.logging_setup import redacted
 
@@ -33,8 +35,9 @@ def appium_available() -> bool:
     return available
 
 
-# Start a no-reset UiAutomator2 Appium session, optionally pinned to one adb serial and launching a package and activity.
-def create_appium_driver(server_url: str, app_package: str | None = None, app_activity: str | None = None, udid: str | None = None):
+# Start a no-reset UiAutomator2 Appium session, optionally pinned to one adb serial, launching a package and activity,
+# and with extra capabilities, given by their full names, applied last.
+def create_appium_driver(server_url: str, app_package: str | None = None, app_activity: str | None = None, udid: str | None = None, extra_capabilities: Mapping[str, Any] | None = None):
     if not appium_available():
         raise RuntimeError("Appium-Python-Client is not installed. Run 'pip install Appium-Python-Client'.")
 
@@ -52,6 +55,8 @@ def create_appium_driver(server_url: str, app_package: str | None = None, app_ac
         options.app_package = app_package
     if app_activity:
         options.app_activity = app_activity
+    for name, value in (extra_capabilities or {}).items():
+        options.set_capability(name, value)
     if logger.isEnabledFor(logging.DEBUG):
         logger.debug("android appium: creating session at %s with capabilities %s", server_url, redacted(options.to_capabilities()))
     started = time.monotonic()

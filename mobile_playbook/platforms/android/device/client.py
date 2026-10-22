@@ -5,6 +5,8 @@ Android device client wrapping adb and Appium driver creation.
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
+from typing import Any
 
 from mobile_playbook.platforms.android.device.adb import AdbClient
 from mobile_playbook.platforms.android.device.appium_driver import create_appium_driver
@@ -43,15 +45,16 @@ class AndroidDeviceClient:
         logger.debug("android device: connected (adb serial=%s)", getattr(self.adb, "serial", None))
         return self
 
-    # Create an Appium driver for the configured server and adb serial, optionally targeting an app package and activity.
-    def make_driver(self, app_package: str | None = None, app_activity: str | None = None):
+    # Create an Appium driver for the configured server and adb serial, optionally targeting an app package and activity
+    # and adding extra capabilities.
+    def make_driver(self, app_package: str | None = None, app_activity: str | None = None, extra_capabilities: Mapping[str, Any] | None = None):
         if self.config is None:
             logger.debug("android device: make_driver called without a device config")
             raise RuntimeError("Android device config is not available")
         # The adb client's serial, so Appium uses the same connection as adb, including a resolved `adb_serial: wifi`.
         udid = self.adb.target_serial()
         logger.debug("android device: making driver (app_package=%s, app_activity=%s, udid=%s)", app_package, app_activity, udid)
-        return create_appium_driver(self.config.device.appium_server_url, app_package, app_activity, udid=udid)
+        return create_appium_driver(self.config.device.appium_server_url, app_package, app_activity, udid=udid, extra_capabilities=extra_capabilities)
 
     # No-op, since the client holds no session to release.
     def quit(self) -> None:

@@ -46,3 +46,34 @@ def test_sessions_allow_a_slow_link_to_install_the_uiautomator2_server(created):
 
     assert created[0]["appium:uiautomator2ServerInstallTimeout"] == 300_000
     assert created[0]["appium:adbExecTimeout"] == 120_000
+
+
+def test_without_extra_capabilities_a_session_has_only_the_defaults(created):
+    make_client("10.0.0.5:5555").make_driver("com.example.app")
+
+    assert created[0] == {
+        "server_url": "http://127.0.0.1:4723",
+        "platformName": "Android",
+        "automationName": "UIAutomator2",
+        "appium:automationName": "UiAutomator2",
+        "appium:noReset": True,
+        "appium:newCommandTimeout": 120,
+        "appium:uiautomator2ServerInstallTimeout": 300_000,
+        "appium:adbExecTimeout": 120_000,
+        "appium:udid": "10.0.0.5:5555",
+        "appium:appPackage": "com.example.app",
+    }
+
+
+def test_extra_capabilities_are_added_to_the_defaults(created):
+    make_client("10.0.0.5:5555").make_driver(extra_capabilities={"appium:disableSuppressAccessibilityService": True})
+
+    assert created[0]["appium:disableSuppressAccessibilityService"] is True
+    assert created[0]["appium:noReset"] is True
+    assert created[0]["appium:udid"] == "10.0.0.5:5555"
+
+
+def test_an_extra_capability_is_applied_after_the_defaults(created):
+    make_client(None).make_driver(extra_capabilities={"appium:newCommandTimeout": 300})
+
+    assert created[0]["appium:newCommandTimeout"] == 300
