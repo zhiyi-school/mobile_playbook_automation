@@ -99,21 +99,26 @@ def enable_service(driver, attacker: AccessibilityAttacker, before: Accessibilit
 
 # Find the service in Accessibility settings, opening a category of downloaded services first when needed, and open it.
 def open_service_page(driver, labels: SettingsLabels, timeout: float) -> bool:
+    entry = find_service_entry(driver, labels, timeout)
+    if entry is None:
+        return False
+    entry.click()
+    return True
+
+
+# Return the service's entry in Accessibility settings, opening a category of downloaded services first when needed.
+def find_service_entry(driver, labels: SettingsLabels, timeout: float):
     deadline = time.monotonic() + timeout
     while True:
         entry = _find_text(driver, (labels.service,), 0)
-        if entry is None:
-            category = _find_text(driver, labels.categories, 0)
-            if category is not None:
-                category.click()
-                entry = _find_text(driver, (labels.service,), max(0.0, deadline - time.monotonic()))
-                if entry is None:
-                    return False
         if entry is not None:
-            entry.click()
-            return True
+            return entry
+        category = _find_text(driver, labels.categories, 0)
+        if category is not None:
+            category.click()
+            return _find_text(driver, (labels.service,), max(0.0, deadline - time.monotonic()))
         if time.monotonic() >= deadline:
-            return False
+            return None
         time.sleep(POLL_SECONDS)
 
 

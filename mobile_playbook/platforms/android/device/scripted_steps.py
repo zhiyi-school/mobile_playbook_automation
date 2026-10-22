@@ -139,7 +139,7 @@ def _run_step(driver, step: Any, canaries: dict[str, str], timeout: float) -> li
     if kind == "wait":
         time.sleep(float(value))
         return []
-    element = _find(driver, value, timeout)
+    element = find_element(driver, value, timeout)
     if kind == "tap":
         element.click()
         return []
@@ -150,7 +150,7 @@ def _run_step(driver, step: Any, canaries: dict[str, str], timeout: float) -> li
 
 
 # Wait up to timeout seconds for the element a locator names and return it.
-def _find(driver, locator: dict[str, str], timeout: float):
+def find_element(driver, locator: dict[str, str], timeout: float):
     if AppiumBy is None:
         raise StepError("the Appium Python client is not installed")
     if "id" in locator:

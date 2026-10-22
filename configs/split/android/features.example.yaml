@@ -12,6 +12,10 @@ feature-04:
   name: "Example feature 04"
   description: "Describe what this feature covers."
 
+feature-05:
+  name: "Example feature 05"
+  description: "Describe what this feature covers."
+
 feature-06:
   name: "Example feature 06"
   description: "Describe what this feature covers."
