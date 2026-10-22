@@ -24,7 +24,8 @@ from mobile_playbook.platforms.android.device.accessibility_settings import (
     enable_service,
     show_service_listed,
 )
-from mobile_playbook.platforms.android.device.event_spy import EVENT_SPY_APP, EVENT_SPY_PACKAGE, CapturedEvent, EventSpy
+from mobile_playbook.platforms.android.device.captured_events import CapturedEvent
+from mobile_playbook.platforms.android.device.event_spy import EVENT_SPY_APP, EVENT_SPY_PACKAGE, EventSpy
 from mobile_playbook.platforms.android.device.fingerprint import installed_base_apk_sha256
 from mobile_playbook.platforms.android.device.handoff_packages import BROWSER_PACKAGES, LAUNCHER_PACKAGES
 from mobile_playbook.platforms.android.device.permission_prompts import deny_permission_prompts

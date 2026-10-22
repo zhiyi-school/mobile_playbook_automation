@@ -11,7 +11,8 @@ import pytest
 
 from mobile_playbook.platforms.android.device import accessibility_service
 from mobile_playbook.platforms.android.device.adb import AdbClient
-from mobile_playbook.platforms.android.device.event_spy import EVENT_SPY_APP, EVENT_SPY_PACKAGE, CapturedEvent, EventSpy
+from mobile_playbook.platforms.android.device.captured_events import CapturedEvent
+from mobile_playbook.platforms.android.device.event_spy import EVENT_SPY_APP, EVENT_SPY_PACKAGE, EventSpy
 from mobile_playbook.platforms.android.device.scripted_steps import DEFAULT_CANARIES
 from mobile_playbook.platforms.android.risks import feature_05_risk_02_activity_capture as risk
 from mobile_playbook.platforms.android.risks import get_risk
