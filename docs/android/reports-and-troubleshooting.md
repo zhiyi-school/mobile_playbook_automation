@@ -43,6 +43,18 @@ These are listed in `evidence` with kind `report`.
 
 A screenshot that could not be saved is listed under `metadata.evidence_errors` instead.
 
+`android-feature-05-risk-01`:
+
+- `report.json`
+- `logs.txt`
+- `accessibility/accessibility_settings.png`, `accessibility/accessibility_service_page.png` and `accessibility/accessibility_consent.png`, Accessibility settings, the attacker's service page and its consent prompt as the service was turned on
+- `accessibility/target_before.png` and `accessibility/target_after.png`, the app's screen before and after the attack
+- `accessibility/attacker_events.json`, the attacker service's event log: each scan, search, click and match
+- `accessibility/accessibility_list_after.png` and `accessibility/accessibility_service_on.png`, the Accessibility list and the service's switch after the attack
+- `accessibility/permission_prompt_<n>.png`, each system permission dialog before it was denied
+
+A screenshot that could not be saved is listed under `metadata.evidence_errors` instead.
+
 `android-feature-06-risk-01`:
 
 - `report.json`
@@ -93,6 +105,9 @@ Each test's `report.json` (and `logs.txt`) carries one of these precise statuses
 - `OVERLAY_ALLOWED`: the attacker's overlay window was shown over the app while it was in front, and the attacker recorded the synthetic values typed into it. Reported as At Risk.
 - `OVERLAY_BLOCKED`: the attacker added its overlay window, but it was hidden while the app was in front. Reported as Reduced Risk.
 - `OVERLAY_NOT_TESTED`: the app was not in front, the attacker never added its window, or the window or its visibility could not be read from `dumpsys window`. Reported as Inconclusive; `metadata.verdict` says which.
+- `A11Y_ACTION_PERFORMED`: the attacker's accessibility service clicked the app's logout control, and the app showed its signed-out screen or, with no `logged_out` locator, opened a new window, with no authentication prompt. Reported as At Risk.
+- `A11Y_ACTION_BLOCKED`: the service's click opened a biometric or device-credential prompt and the app stayed signed in, or Appium saw a logout control the service could not find. Reported as Reduced Risk.
+- `A11Y_NOT_TESTED`: the app was not in front, the service was not bound or did not act on the app, its click changed nothing, or the screen had no logout control. Reported as Inconclusive; `metadata.verdict` and `metadata.verdict_rule` say which.
 - `SCREEN_CAPTURE_ALLOWED`: the recording captured content while the target app remained in the foreground; UI warnings and `FLAG_SECURE` do not override the recording.
 - `SCREEN_CAPTURE_BLOCKED`: the target app remained in the foreground and its recorded frame was blank, with a working pre-launch recording.
 - `SCREEN_CAPTURE_NOT_TESTED`: the app exited, redirected to another app, or a system permission prompt covered it. Reported as Inconclusive because these observations do not prove capture protection. Check that the app works on this device and inspect the captured frame. For a store redirect, check its installation requirements; for a permission prompt, set `runner.auto_grant_permissions: true` (or grant the permission on the device) and run it again.
@@ -148,6 +163,10 @@ Overlay test fails before launching the app:
 Overlay test is not tested although the overlay appears:
 
 `The overlay window visibility fields were not recognised` means the device's `dumpsys window` output has none of the fields the test reads; send `overlay/dumpsys_overlay_window.txt` with the report so the fields can be added. `The overlay held focus and the app behind it could not be read` means `dumpsys activity activities` had no resumed-activity line the test recognises.
+
+Accessibility test fails or is not tested:
+
+`accessibility attacker APK not found` means `F5R1_Accessibility_Attacker.apk` is not in `artifacts/intake/android/apks/` (or at `accessibility.attacker_apk`) and the device does not have its current version. `INSTALL_FAILED_UPDATE_INCOMPATIBLE` means the device has the attacker app signed with another key; uninstall `com.mobileplaybook.accessibility` and run the test again. `metadata.service_enable.method` other than `settings_ui` means Settings could not be driven; `ui_failures` says why, and `settings_labels` can supply the device's labels. `Android did not bind it` with the service enabled usually means Appium suppressed accessibility services; check that the Appium UiAutomator2 driver honours `disableSuppressAccessibilityService`. `could not be confirmed off` fails the run because the attacker's service may still be on: check with `adb shell settings get secure enabled_accessibility_services`, remove `com.mobileplaybook.accessibility/.AttackAccessibilityService` from it, and run `adb shell am force-stop com.mobileplaybook.accessibility`. Avoid `uiautomator dump` while the test runs, since it suspends other accessibility services.
 
 Screen capture test fails before launching the app:
 

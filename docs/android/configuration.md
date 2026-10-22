@@ -302,7 +302,7 @@ Android risk IDs are prefixed `android-feature...`. To configure a risk for an a
      keystore_pass: "REPLACE_WITH_KEYSTORE_PASSWORD"
    ```
 
-   See `configs/split/android/repackaging.example.yaml`, `screen_capture.example.yaml`, `apk_static_analysis.example.yaml`, `private_data.example.yaml`, `runtime_logs.example.yaml` and `overlay.example.yaml` for the rest of these fields, and the field references below for what each controls.
+   See `configs/split/android/repackaging.example.yaml`, `screen_capture.example.yaml`, `apk_static_analysis.example.yaml`, `private_data.example.yaml`, `runtime_logs.example.yaml`, `overlay.example.yaml` and `accessibility.example.yaml` for the rest of these fields, and the field references below for what each controls.
 3. Only add more fields under the app's own `risks.<risk_id>` entry when this one app needs to differ from those shared defaults — nest just the field being changed. Anything left unset there falls back to the global file.
 
 Risks run in the order they're listed under an app's `risks` mapping, not sorted by ID — keep that in mind if the order of your own `risks:` blocks matters to you.
@@ -400,6 +400,48 @@ risks:
 ```
 
 Full risk behavior and status meanings are documented in [Risks](risks.md#android-feature-04-risk-01).
+
+### Accessibility (`android-feature-05-risk-01`)
+
+Global defaults live under a top-level `accessibility` block in `accessibility.yaml` under `configs/split/android/` (see `accessibility.example.yaml`), included from `configs/android.yaml` as `accessibility: split/android/accessibility.yaml`. Without the file the defaults below apply. Each setting can be overridden per app under `risks.android-feature-05-risk-01`:
+
+```yaml
+accessibility:
+  launch_wait: 5
+  attack_timeout: 15
+  step_timeout_seconds: 10
+  settle_seconds: 3
+  # attacker_apk: artifacts/intake/android/apks/F5R1_Accessibility_Attacker.apk
+```
+
+- `launch_wait`: seconds to wait after launching the app before reading the screen (default 5).
+- `attack_timeout`: seconds to wait, after opening the app with the service on, for the attacker's service to scan and click it (default 15).
+- `step_timeout_seconds`: seconds a scripted step, a locator check, a permission check or the wait for the service to be bound takes before giving up (default 10). Turning the service on through Settings waits at least 20 seconds, to allow for HarmonyOS's consent countdown.
+- `settle_seconds`: seconds the attacker's event log must stop changing, after it has scanned the app, before the attack is read as finished (default 3). A logout that opens a confirmation dialog is two clicks a moment apart, so a shorter value can stop before the second.
+- `attacker_apk`: the attacker APK to install when the device lacks its current version; relative paths resolve against the repository root. Defaults to `F5R1_Accessibility_Attacker.apk` in the Android intake folder.
+- `settings_labels`: text that Settings shows, for devices whose labels differ from the defaults. `service` is the attacker's name on the Accessibility list and its page (default `Playbook Accessibility Test`). `categories` lists the entries that open a page of downloaded services, tried in order (default `Installed apps`, `Installed services`, `Downloaded apps`, `Downloaded services`). `allow` lists the consent prompt's confirming buttons (default `Allow`, `Grant access`). Text is matched in full, ignoring case. A label left out keeps its default.
+- `canaries`: synthetic values a scripted step can type, by name, as for the runtime log test.
+
+Scripted steps sign the app in and reach a screen with a logout control. They are written per app under `risks.android-feature-05-risk-01.steps` in `apps.yaml`, use the same step kinds and locators as the runtime log test (see [Scripted steps](#scripted-steps)), and are checked when the configuration loads. Steps belong to one app, so they cannot be set in the shared `accessibility` block. Two per-app locators, each naming an element with exactly one of `id`, `accessibility_id` or `text`, refine the result:
+
+- `logged_out`: an element the app shows only once it is signed out, such as its username field. When set, it decides whether the attacker's click logged the app out. Without it, a click followed by a new window from the app counts as At Risk.
+- `logout_control`: the logout control on the screen tested, used instead of the attacker's own patterns to check that the screen has one before the attack.
+
+```yaml
+risks:
+  android-feature-05-risk-01:
+    enabled: true
+    steps:
+      - type: {id: "com.example.app:id/username", value: "{canary.email}"}
+      - type: {id: "com.example.app:id/password", value: "{canary.password}"}
+      - tap: {id: "com.example.app:id/btn_login"}
+      - wait: 2
+    logged_out: {id: "com.example.app:id/username"}
+```
+
+Sign in with a test account. The attacker logs the app out, and its patterns include `Exit`, so a screen with an Exit control may be closed instead.
+
+Full risk behavior and status meanings are documented in [Risks](risks.md#android-feature-05-risk-01).
 
 ### Screen capture timing (`android-feature-06-risk-01`)
 
@@ -509,12 +551,13 @@ include:
   private_data: split/android/private_data.yaml
   runtime_logs: split/android/runtime_logs.yaml
   overlay: split/android/overlay.yaml
+  accessibility: split/android/accessibility.yaml
   apps: split/android/apps.yaml
 ```
 
 Included paths are resolved relative to the entry-point file — here, that's `configs/`, so each path is prefixed `split/android/`. Inline values and included sections can coexist in the same file — nothing requires every section to go through `include:`, which is how `device`/`runner` stay inline while the rest are pulled in. See `configs/android.example.yaml`, the tracked example of this entry-point file.
 
-The real tools/apk_static_analysis/repackaging/screen_capture/private_data/runtime_logs/overlay/app-roster content lives in `configs/split/android/*.yaml` (all git-ignored, since they contain real app config — only the `*.example.yaml` files under `configs/split/android/` are tracked). `configs/android.yaml` itself is also git-ignored, since it holds the real device config.
+The real tools/apk_static_analysis/repackaging/screen_capture/private_data/runtime_logs/overlay/accessibility/app-roster content lives in `configs/split/android/*.yaml` (all git-ignored, since they contain real app config — only the `*.example.yaml` files under `configs/split/android/` are tracked). `configs/android.yaml` itself is also git-ignored, since it holds the real device config.
 
 ## Environment Files
 
