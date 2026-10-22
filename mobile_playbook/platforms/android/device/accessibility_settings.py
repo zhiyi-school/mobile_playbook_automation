@@ -67,8 +67,10 @@ def enable_service(driver, attacker: AccessibilityAttacker, before: Accessibilit
     outcome = EnableOutcome()
     adb = attacker.adb
     _shell(adb, ["am", "start", "-a", ACCESSIBILITY_SETTINGS_ACTION])
+    entry = find_service_entry(driver, labels, timeout)
     _screenshot(driver, evidence_dir / "accessibility_settings.png", "accessibility_settings", "Accessibility settings", outcome)
-    if open_service_page(driver, labels, timeout):
+    if entry is not None:
+        entry.click()
         _screenshot(driver, evidence_dir / "accessibility_service_page.png", "accessibility_service_page", "Attacker service page", outcome)
         failure = _turn_on(driver, attacker, labels, timeout, evidence_dir, outcome)
         if failure is None:
@@ -78,10 +80,11 @@ def enable_service(driver, attacker: AccessibilityAttacker, before: Accessibilit
     else:
         outcome.ui_failures.append(f"settings_ui: {labels.service!r} was not found in Accessibility settings")
 
-    started = _shell(adb, ["am", "start", "-a", ACCESSIBILITY_DETAILS_ACTION, "--es", COMPONENT_NAME_EXTRA, SERVICE_COMPONENT])
-    # am start reports an intent nothing handles in its output, not its exit code.
-    if "Error" in started:
-        outcome.ui_failures.append(f"details_page: {started.strip()}")
+    code, out, err = adb.run(["shell", "am", "start", "-a", ACCESSIBILITY_DETAILS_ACTION, "--es", COMPONENT_NAME_EXTRA, SERVICE_COMPONENT])
+    # An intent nothing handles is reported only in the output; HarmonyOS refuses the page to the shell with a non-zero
+    # exit and a SecurityException.
+    if code != 0 or "Error" in (out or "") or "Exception" in (out or "") + (err or ""):
+        outcome.ui_failures.append(f"details_page: {_first_line(err or out)}")
     else:
         failure = _turn_on(driver, attacker, labels, timeout, evidence_dir, outcome)
         if failure is None:
@@ -191,10 +194,16 @@ def _find_text(driver, texts: tuple[str, ...], timeout: float, scroll: bool = Tr
 
 
 # Build a UiSelector matching any of the texts exactly, ignoring case, as a Java expression for UiAutomator.
+# Appium's selector parser keeps backslashes, so other characters become "." rather than being escaped.
 def _text_matcher(texts: tuple[str, ...]) -> str:
-    pattern = "(?i)(" + "|".join(f"\\Q{text}\\E" for text in texts) + ")"
-    literal = pattern.replace("\\", "\\\\").replace('"', '\\"')
-    return f'new UiSelector().textMatches("{literal}")'
+    pattern = "(?i)(" + "|".join("".join(char if char.isalnum() or char == " " else "." for char in text) for text in texts) + ")"
+    return f'new UiSelector().textMatches("{pattern}")'
+
+
+# Return the first line of a command's output, which for a failed am start names the reason.
+def _first_line(text: str | None) -> str:
+    lines = [line.strip() for line in (text or "").splitlines() if line.strip()]
+    return lines[0] if lines else "no output"
 
 
 # Run a device shell command and raise when it fails.

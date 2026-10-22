@@ -85,6 +85,7 @@ def _python_pattern(selector: str) -> re.Pattern:
 class Adb:
     def __init__(self, details_output="Starting: Intent { act=android.settings.ACCESSIBILITY_DETAILS_SETTINGS }"):
         self.details_output = details_output
+        self.details_result = None
         self.commands: list[list[str]] = []
         self.on_details = None
 
@@ -93,7 +94,7 @@ class Adb:
         if args == DETAILS_ACTION:
             if self.on_details:
                 self.on_details()
-            return 0, self.details_output, ""
+            return self.details_result or (0, self.details_output, "")
         return 0, "Starting: Intent", ""
 
 
@@ -261,6 +262,22 @@ def test_secure_settings_are_used_when_no_details_page_handles_the_intent(tmp_pa
     assert outcome.method == "secure_settings_fallback"
     assert outcome.ui_failures[1] == "details_page: Error: Activity not started, unable to resolve Intent"
     assert attacker.fallback_calls == [BEFORE]
+
+
+def test_a_details_page_refused_to_the_shell_falls_back_to_secure_settings(tmp_path):
+    adb, attacker, driver = setup()
+    aosp_screens(driver, attacker)
+    driver.screens["list"] = []
+    adb.details_result = (255, "", "Exception occurred while executing 'start':\njava.lang.SecurityException: Permission Denial: requires android.permission.OPEN_ACCESSIBILITY_DETAILS_SETTINGS")
+
+    outcome = enable_service(driver, attacker, BEFORE, tmp_path, timeout=0.2)
+
+    assert outcome.method == "secure_settings_fallback"
+    assert outcome.ui_failures[1] == "details_page: Exception occurred while executing 'start':"
+
+
+def test_the_text_matcher_has_no_backslashes_for_appiums_parser():
+    assert "\\" not in _text_matcher(("Grant access", "Don't allow", 'Say "yes"'))
 
 
 def test_a_disabled_switch_is_reported_as_a_restricted_setting_and_falls_back(tmp_path):
