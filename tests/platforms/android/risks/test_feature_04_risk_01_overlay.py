@@ -16,6 +16,7 @@ from mobile_playbook.platforms.android.device.overlay_attacker import (
     SIGN_IN_BUTTON_ID,
     USERNAME_FIELD_ID,
 )
+from mobile_playbook.platforms.android.device.permission_prompts import DENY_BUTTON_IDS, DENY_TEXT_SELECTOR
 from mobile_playbook.platforms.android.risks import feature_04_risk_01_overlay as overlay
 from tests.platforms.android.prompt_fakes import png
 
@@ -25,6 +26,8 @@ EMAIL = "canary.logtest@example.com"
 PASSWORD = "Canary-Pw-7Q4z"
 FORCE_STOP = ["shell", "am", "force-stop", ATTACKER_PACKAGE]
 RESET_APPOP = ["shell", "appops", "set", ATTACKER_PACKAGE, "SYSTEM_ALERT_WINDOW", "default"]
+PERMISSION_CONTROLLER = "com.android.permissioncontroller"
+INSTALLED_APPS_PROMPT = "Allow Example to read the list of installed apps?"
 
 
 # Build a minimal owned window with the visibility fields emitted by Android window dumps.
@@ -40,8 +43,9 @@ def window_dump(fields="mHasSurface=true isOnScreen=true isVisible=true\n    mSu
 
 class Element:
     # Keep the fake field value or permission switch state and the optional click action.
-    def __init__(self, *, checked="false", on_click=None):
+    def __init__(self, *, checked="false", on_click=None, text=""):
         self.checked = checked
+        self.text = text
         self.on_click = on_click
         self.clicks = 0
         self.value = ""
@@ -75,6 +79,7 @@ class Driver:
         self.screenshots = []
         self.switch = Element(on_click=self.grant)
         self.fields = {USERNAME_FIELD_ID: Element(), PASSWORD_FIELD_ID: Element(), SIGN_IN_BUTTON_ID: Element(on_click=self.submit), "sign_in": Element()}
+        self.deny = Element(on_click=self.deny_prompt)
         self.lookups = []
 
     # Grant the appop when the switch is tapped, as the Settings UI does.
@@ -87,9 +92,26 @@ class Driver:
         self.bench.captures = [{"timestamp": "2026-10-21T03:00:00Z", "username": self.fields[USERNAME_FIELD_ID].value, "password": self.fields[PASSWORD_FIELD_ID].value}]
         self.bench.state = "captured"
 
+    # Close the front permission dialog and show the next one, the app that dialog leaves in front, or the target.
+    def deny_prompt(self):
+        if not self.bench.prompt_repeats:
+            self.bench.prompts.pop(0)
+        if self.bench.prompts:
+            return
+        if self.bench.after_deny:
+            self.current_package = self.bench.after_deny
+            self.bench.after_deny = None
+        else:
+            self.current_package = ATTACKER_PACKAGE if self.bench.overlay_holds_focus and self.bench.shown_count else self.bench.foreground
+
     # Return a switch, scripted target or overlay field selected by the test scenario.
     def find_elements(self, by, value):
         self.lookups.append((by, value))
+        if self.bench.prompts and self.current_package == PERMISSION_CONTROLLER:
+            if value == f"{PERMISSION_CONTROLLER}:id/permission_message":
+                return [Element(text=self.bench.prompts[0])]
+            if value == self.bench.deny_locator:
+                return [self.deny]
         if value == "android:id/switch_widget":
             return [self.switch] if self.bench.switch_kind == "id" else []
         if value == "android.widget.Switch":
@@ -107,6 +129,8 @@ class Driver:
             self.bench.state = "overlay_shown" if self.bench.shown_count else "service_started"
             if self.bench.overlay_holds_focus and self.bench.shown_count:
                 self.current_package = ATTACKER_PACKAGE
+            if self.bench.prompts:
+                self.current_package = PERMISSION_CONTROLLER
 
     # Return the synthetic launcher's captured entry as UI XML.
     @property
@@ -137,6 +161,9 @@ class Driver:
         self.calls.append(("back", None))
         if self.bench.redirect_after_steps:
             self.current_package = self.bench.redirect_after_steps
+        if self.bench.prompt_after_steps:
+            self.bench.prompts.append(self.bench.prompt_after_steps)
+            self.current_package = PERMISSION_CONTROLLER
 
 
 class Writer:
@@ -179,6 +206,11 @@ class Bench:
         self.display_capture = True
         self.termination_error = False
         self.redirect_after_steps = None
+        self.prompts = []
+        self.prompt_repeats = False
+        self.prompt_after_steps = None
+        self.after_deny = None
+        self.deny_locator = DENY_BUTTON_IDS[0]
         self.fail_command = None
         self.dump_error = False
         self.status_missing = False
@@ -652,3 +684,92 @@ def test_resumed_activity_parser_handles_supported_markers(bench, marker):
     result = SimpleNamespace(metadata={})
     assert overlay._foreground_verdict(bench.driver, bench.adb, PACKAGE, result) is None
     assert result.metadata["resumed_package"] == PACKAGE
+
+
+# A first-launch permission dialog is denied and the overlay is still measured over the target behind it.
+def test_permission_prompt_is_denied_and_overlay_is_tested(bench):
+    bench.prompts = [INSTALLED_APPS_PROMPT]
+    result = bench.run()
+    assert (result.final_status, result.verdict) == ("OVERLAY_ALLOWED", "At Risk")
+    assert result.metadata["permission_prompts"] == [{"title": INSTALLED_APPS_PROMPT, "denied": True, "relaunched": False}]
+    assert bench.driver.deny.clicks == 1
+    assert result.metadata["foreground_package"] == PACKAGE
+    assert result.metadata["capture"]["confirmed"] is True
+    assert any(entry["kind"] == "overlay_permission_prompt" and entry["path"].endswith("permission_prompt_1.png") for entry in result.evidence)
+
+
+# The deny button is found by the AOSP ids, the dialog's negative button or its label.
+@pytest.mark.parametrize("locator", [DENY_BUTTON_IDS[1], "android:id/button2", DENY_TEXT_SELECTOR])
+def test_permission_prompt_deny_locators(bench, locator):
+    bench.prompts = [INSTALLED_APPS_PROMPT]
+    bench.deny_locator = locator
+    result = bench.run()
+    assert result.final_status == "OVERLAY_ALLOWED"
+    assert result.metadata["permission_prompts"][0]["denied"] is True
+
+
+# Consecutive dialogs are each denied before the overlay is measured.
+def test_consecutive_permission_prompts_are_each_denied(bench):
+    bench.prompts = [INSTALLED_APPS_PROMPT, "Allow Example to send you notifications?"]
+    result = bench.run()
+    assert result.final_status == "OVERLAY_ALLOWED"
+    assert [prompt["title"] for prompt in result.metadata["permission_prompts"]] == [INSTALLED_APPS_PROMPT, "Allow Example to send you notifications?"]
+
+
+# A dialog that closes the app leads to one relaunch, and the overlay is measured once the app is back.
+def test_permission_prompt_that_closes_the_app_relaunches_it(bench):
+    bench.prompts = [INSTALLED_APPS_PROMPT]
+    bench.after_deny = "com.huawei.android.launcher"
+    result = bench.run()
+    assert result.final_status == "OVERLAY_ALLOWED"
+    assert result.metadata["permission_prompts"] == [{"title": INSTALLED_APPS_PROMPT, "denied": True, "relaunched": True}]
+    assert bench.driver.calls.count(("activate", PACKAGE)) == 2
+
+
+# The attacker's focused overlay in front after the denial is not mistaken for a closed app.
+def test_permission_prompt_with_focused_overlay_does_not_relaunch(bench):
+    bench.prompts = [INSTALLED_APPS_PROMPT]
+    bench.overlay_holds_focus = True
+    result = bench.run()
+    assert result.final_status == "OVERLAY_ALLOWED"
+    assert result.metadata["permission_prompts"][0]["relaunched"] is False
+    assert bench.driver.calls.count(("activate", PACKAGE)) == 1
+
+
+# A dialog without a recognisable deny button stays inconclusive and names the dialog.
+def test_permission_prompt_without_deny_button_is_not_tested(bench):
+    bench.prompts = [INSTALLED_APPS_PROMPT]
+    bench.deny_locator = None
+    result = bench.run()
+    assert (result.final_status, result.verdict) == ("OVERLAY_NOT_TESTED", "Inconclusive")
+    assert INSTALLED_APPS_PROMPT in result.metadata["verdict"]
+    assert result.metadata["permission_prompts"] == [{"title": INSTALLED_APPS_PROMPT, "denied": False, "relaunched": False}]
+    assert bench.captures == []
+
+
+# A dialog that returns after every denial stops at the attempt limit instead of looping.
+def test_repeating_permission_prompt_stops_at_the_limit(bench):
+    bench.prompts = [INSTALLED_APPS_PROMPT]
+    bench.prompt_repeats = True
+    result = bench.run()
+    assert result.final_status == "OVERLAY_NOT_TESTED"
+    assert bench.driver.deny.clicks == 3
+    assert "system prompt" in result.metadata["verdict"]
+
+
+# A dialog raised by the app's scripted steps is denied before the overlay is measured.
+def test_permission_prompt_after_scripted_steps_is_denied(bench):
+    bench.app.risks[RISK] = {"steps": ["back"]}
+    bench.prompt_after_steps = INSTALLED_APPS_PROMPT
+    result = bench.run()
+    assert result.final_status == "OVERLAY_ALLOWED"
+    assert result.metadata["coverage"] == "scripted"
+    assert result.metadata["permission_prompts"][0]["denied"] is True
+
+
+# Without a dialog nothing is tapped and no prompt is recorded.
+def test_no_permission_prompt_records_nothing(bench):
+    result = bench.run()
+    assert result.metadata["permission_prompts"] == []
+    assert bench.driver.deny.clicks == 0
+    assert not any(value in DENY_BUTTON_IDS for _, value in bench.driver.lookups)

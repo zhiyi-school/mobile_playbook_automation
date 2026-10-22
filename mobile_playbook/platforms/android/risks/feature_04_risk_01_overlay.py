@@ -19,6 +19,7 @@ from mobile_playbook.platforms.android.device.overlay_attacker import (
     OverlayAttacker,
     attacker_apk_path,
 )
+from mobile_playbook.platforms.android.device.permission_prompts import deny_permission_prompts
 from mobile_playbook.platforms.android.device.permissions import PERMISSION_CONTROLLER_PACKAGES
 from mobile_playbook.platforms.android.device.scripted_steps import StepsOutcome, merged_canaries, run_steps
 from mobile_playbook.platforms.android.models import AndroidRiskRunResult
@@ -57,6 +58,7 @@ class AndroidOverlayRisk(AndroidRisk):
         }
         result.metadata["coverage"] = "launch_only"
         result.metadata["overlay"] = {"added": False, "visible": None, "window_found": False, "shown_count": 0}
+        result.metadata["permission_prompts"] = []
         driver = None
         attacker = None
         adb = device_client.adb
@@ -90,14 +92,18 @@ class AndroidOverlayRisk(AndroidRisk):
             result.metadata["declares_hide_overlay_windows"] = _declares_hide_overlay_windows(adb, package)
             _adb(adb, ["input", "keyevent", "KEYCODE_HOME"])
             driver.activate_app(package)
-            time.sleep(float(cfg.get("launch_wait", 5)))
+            launch_wait = float(cfg.get("launch_wait", 5))
+            step_timeout = float(cfg.get("step_timeout_seconds", 10))
+            time.sleep(launch_wait)
+            _deny_prompts(driver, package, step_timeout, launch_wait, evidence_dir, result)
             verdict = _foreground_verdict(driver, adb, package, result)
             if verdict is None:
                 steps = app_cfg.get("steps") or []
                 if steps:
-                    outcome: StepsOutcome = run_steps(driver, steps, merged_canaries(shared.get("canaries"), app_cfg.get("canaries")), float(cfg.get("step_timeout_seconds", 10)))
+                    outcome: StepsOutcome = run_steps(driver, steps, merged_canaries(shared.get("canaries"), app_cfg.get("canaries")), step_timeout)
                     result.metadata["steps"] = outcome.to_dict()
                     result.metadata["coverage"] = "scripted_partial" if outcome.failure is not None else "scripted"
+                    _deny_prompts(driver, package, step_timeout, launch_wait, evidence_dir, result)
                 verdict = _foreground_verdict(driver, adb, package, result)
             if verdict is None:
                 status = _wait_for_added(attacker, timeout)
@@ -216,6 +222,18 @@ def _grant_permission(driver, adb, timeout: float, result: AndroidRiskRunResult)
         time.sleep(POLL_SECONDS)
 
 
+# Deny any permission dialogs covering the target, screenshotting each first, and record them in the metadata.
+def _deny_prompts(driver, package: str, timeout: float, launch_wait: float, evidence_dir: Path, result: AndroidRiskRunResult) -> None:
+    prompts = result.metadata["permission_prompts"]
+    offset = len(prompts)
+    prompts.extend(deny_permission_prompts(
+        driver, package, timeout, launch_wait,
+        # The overlay takes input focus once the target is shown, so the attacker in front is not a closed target.
+        in_front=(ATTACKER_PACKAGE,),
+        before_deny=lambda index: _screenshot(driver, evidence_dir / f"permission_prompt_{offset + index + 1}.png", "overlay_permission_prompt", "System permission dialog before denial", result),
+    ))
+
+
 # Return an inconclusive hand-off classification or an automation error unless the target is still foreground.
 def _foreground_verdict(driver, adb, package: str, result: AndroidRiskRunResult) -> str | None:
     try:
@@ -231,7 +249,9 @@ def _foreground_verdict(driver, adb, package: str, result: AndroidRiskRunResult)
     if current == package:
         return None
     if current in PERMISSION_CONTROLLER_PACKAGES:
-        reason = f"A system prompt covered the app: {current}"
+        prompts = result.metadata.get("permission_prompts") or []
+        title = prompts[-1]["title"] if prompts and prompts[-1]["title"] else None
+        reason = f"A system prompt covered the app: {current}" + (f" ({title})" if title else "")
     elif current in STORE_APPS:
         reason = f"Redirected to {STORE_APPS[current]}"
     elif current in BROWSER_PACKAGES:
