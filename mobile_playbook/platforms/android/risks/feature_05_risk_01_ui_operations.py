@@ -13,14 +13,14 @@ from pathlib import Path
 
 from mobile_playbook.platforms.android.acquisition.store import STORE_APPS
 from mobile_playbook.platforms.android.device.accessibility_attacker import (
+    ATTACKER_LABEL,
     ATTACKER_PACKAGE,
     AccessibilityAttacker,
-    AccessibilitySettings,
     AttackEvent,
     attacker_apk_path,
-    enabled_components,
     names_attacker_service,
 )
+from mobile_playbook.platforms.android.device.accessibility_service import AccessibilitySettings, enabled_components
 from mobile_playbook.platforms.android.device.accessibility_settings import (
     ACCESSIBILITY_SETTINGS_ACTION,
     SettingsLabels,
@@ -81,7 +81,7 @@ class AndroidAccessibilityUiOperationsRisk(AndroidRisk):
         performed = result.metadata["steps_performed"] = {step: {"outcome": "not_run", "detail": "Not reached."} for step in STEPS}
         result.metadata["coverage"] = "launch_only"
         result.metadata["permission_prompts"] = []
-        cleanup = result.metadata["cleanup"] = {"settings_restored": False, "service_off": False, "errors": []}
+        cleanup = result.metadata["cleanup"] = {"settings_restored": False, "service_off": False, "attacker_uninstalled": False, "errors": []}
         evidence_dir = report_dir / "accessibility"
         driver = None
         adb = device_client.adb
@@ -154,6 +154,9 @@ class AndroidAccessibilityUiOperationsRisk(AndroidRisk):
                 result.final_status = "FAILED"
                 result.verdict = "Inconclusive"
                 result.errors.append("The attacker's accessibility service could not be confirmed off: " + "; ".join(cleanup["errors"]))
+            _remove_attacker(attacker, cleanup)
+            if not cleanup["attacker_uninstalled"]:
+                result.errors.append(f"The accessibility attacker app could not be uninstalled; remove {ATTACKER_PACKAGE} by hand.")
             if driver is not None:
                 try:
                     driver.terminate_app(package)
@@ -194,7 +197,7 @@ def _screenshot(driver, path: Path, kind: str, label: str, result: AndroidRiskRu
 
 # Build the Settings labels from the configuration, keeping the defaults for any label it leaves out.
 def _settings_labels(configured) -> SettingsLabels:
-    defaults = SettingsLabels()
+    defaults = SettingsLabels(service=ATTACKER_LABEL)
     configured = configured or {}
     return SettingsLabels(
         service=configured.get("service") or defaults.service,
@@ -468,6 +471,16 @@ def _turn_service_off(attacker: AccessibilityAttacker, before: AccessibilitySett
     except Exception as exc:
         logger.debug("android accessibility: checking the service failed: %s", exc, exc_info=True)
         cleanup["errors"].append(f"checking the service failed: {exc}")
+
+
+# Uninstall the attacker app so it does not stay on the phone after the test.
+def _remove_attacker(attacker: AccessibilityAttacker, cleanup: dict) -> None:
+    try:
+        attacker.uninstall()
+        cleanup["attacker_uninstalled"] = True
+    except Exception as exc:
+        logger.debug("android accessibility: uninstalling the attacker failed: %s", exc, exc_info=True)
+        cleanup["errors"].append(f"uninstalling the attacker failed: {exc}")
 
 
 # Set the result's verdict, status and errors from the verdict text.

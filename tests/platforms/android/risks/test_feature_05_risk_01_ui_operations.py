@@ -202,7 +202,8 @@ class Bench:
         self.settings["enabled_accessibility_services"] = SERVICE_COMPONENT
 
     def enabled(self):
-        from mobile_playbook.platforms.android.device.accessibility_attacker import enabled_components, names_attacker_service
+        from mobile_playbook.platforms.android.device.accessibility_attacker import names_attacker_service
+        from mobile_playbook.platforms.android.device.accessibility_service import enabled_components
         return names_attacker_service(enabled_components(self.settings.get("enabled_accessibility_services")))
 
     def bound(self):
@@ -239,7 +240,8 @@ class Bench:
             bound = "Service[label=Playbook Accessibility Test, capabilities=1]" if self.bound() else ""
             return 0, f"     Bound services:{{{bound}}}\n", ""
         if args[:3] == ["shell", "am", "force-stop"] and args[3] == ATTACKER_PACKAGE:
-            from mobile_playbook.platforms.android.device.accessibility_attacker import enabled_components, names_attacker_service
+            from mobile_playbook.platforms.android.device.accessibility_attacker import names_attacker_service
+            from mobile_playbook.platforms.android.device.accessibility_service import enabled_components
             others = [c for c in enabled_components(self.settings.get("enabled_accessibility_services")) if not names_attacker_service([c])]
             self.settings["enabled_accessibility_services"] = ":".join(others)
             return 0, "", ""
@@ -291,8 +293,9 @@ def test_logout_click_with_logged_out_locator_is_at_risk(bench):
     assert (result.final_status, result.verdict) == ("A11Y_ACTION_PERFORMED", "At Risk")
     assert result.metadata["verdict_rule"] == "logged_out_locator"
     assert result.metadata["attack"]["successes"] == [{"strategy": "resource_id", "pattern": "btn_logout"}]
-    assert result.metadata["cleanup"] == {"settings_restored": True, "service_off": True, "errors": []}
+    assert result.metadata["cleanup"] == {"settings_restored": True, "service_off": True, "attacker_uninstalled": True, "errors": []}
     assert not bench.enabled()
+    assert ATTACKER_PACKAGE not in bench.device.packages
     assert {entry["kind"] for entry in result.evidence} >= {"accessibility_attacker_events", "accessibility_target_before", "accessibility_target_after"}
     assert all(Path(entry["path"]).is_file() for entry in result.evidence if entry["path"].endswith((".png", ".json")))
 
@@ -410,6 +413,8 @@ def test_cleanup_always_restores_settings_when_a_step_fails(bench):
     assert result.final_status == "FAILED"
     assert bench.settings == {"enabled_accessibility_services": "com.other/svc", "accessibility_enabled": "1"}
     assert result.metadata["cleanup"]["settings_restored"] is True
+    assert result.metadata["cleanup"]["attacker_uninstalled"] is True
+    assert ATTACKER_PACKAGE not in bench.device.packages
 
 
 def test_a_service_that_cannot_be_turned_off_fails_the_run(bench):
@@ -431,6 +436,19 @@ def test_a_service_that_cannot_be_turned_off_fails_the_run(bench):
     assert result.verdict == "Inconclusive"
     assert result.metadata["cleanup"]["service_off"] is False
     assert any("could not be confirmed off" in error for error in result.errors)
+
+
+def test_an_attacker_app_that_cannot_be_uninstalled_is_reported_without_changing_the_verdict(bench):
+    with_logged_out(bench)
+    bench.signed_out_after = True
+    bench.device.uninstall_fails.add(ATTACKER_PACKAGE)
+
+    result = bench.run()
+
+    assert (result.final_status, result.verdict) == ("A11Y_ACTION_PERFORMED", "At Risk")
+    assert result.metadata["cleanup"]["attacker_uninstalled"] is False
+    assert any("uninstalling the attacker failed" in error for error in result.metadata["cleanup"]["errors"])
+    assert any(f"remove {ATTACKER_PACKAGE} by hand" in error for error in result.errors)
 
 
 def test_a_stale_attacker_service_is_dropped_from_the_settings_to_restore(bench):

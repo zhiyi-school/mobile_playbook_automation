@@ -11,11 +11,9 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from mobile_playbook.platforms.android.device.accessibility_attacker import (
-    ATTACKER_LABEL,
-    SERVICE_COMPONENT,
-    AccessibilityAttacker,
+from mobile_playbook.platforms.android.device.accessibility_service import (
     AccessibilityAttackerError,
+    AccessibilityServiceControl,
     AccessibilitySettings,
 )
 
@@ -34,7 +32,7 @@ POLL_SECONDS = 0.5
 class SettingsLabels:
     """Text that Settings shows for the service, the categories that list downloaded services and the consent button."""
 
-    service: str = ATTACKER_LABEL
+    service: str
     # AOSP lists downloaded services on the main page under "Downloaded apps"; One UI and HarmonyOS list them on a
     # page of their own.
     categories: tuple[str, ...] = ("Installed apps", "Installed services", "Downloaded apps", "Downloaded services")
@@ -62,9 +60,9 @@ class EnableOutcome:
 
 
 # Turn the attacker's service on through Settings, then its details page, then secure settings, confirming each.
-def enable_service(driver, attacker: AccessibilityAttacker, before: AccessibilitySettings, evidence_dir: Path,
+def enable_service(driver, attacker: AccessibilityServiceControl, before: AccessibilitySettings, evidence_dir: Path,
                    timeout: float = 20, labels: SettingsLabels | None = None) -> EnableOutcome:
-    labels = labels or SettingsLabels()
+    labels = labels or SettingsLabels(service=attacker.app.label)
     outcome = EnableOutcome()
     adb = attacker.adb
     _shell(adb, ["am", "start", "-a", ACCESSIBILITY_SETTINGS_ACTION])
@@ -81,7 +79,7 @@ def enable_service(driver, attacker: AccessibilityAttacker, before: Accessibilit
     else:
         outcome.ui_failures.append(f"settings_ui: {labels.service!r} was not found in Accessibility settings")
 
-    code, out, err = adb.run(["shell", "am", "start", "-a", ACCESSIBILITY_DETAILS_ACTION, "--es", COMPONENT_NAME_EXTRA, SERVICE_COMPONENT])
+    code, out, err = adb.run(["shell", "am", "start", "-a", ACCESSIBILITY_DETAILS_ACTION, "--es", COMPONENT_NAME_EXTRA, attacker.app.component])
     # An intent nothing handles is reported only in the output; HarmonyOS refuses the page to the shell with a non-zero
     # exit and a SecurityException.
     if code != 0 or "Error" in (out or "") or "Exception" in (out or "") + (err or ""):
@@ -139,7 +137,7 @@ def service_switch(driver, timeout: float):
 
 
 # Flip the service switch and accept the consent screen, returning None once secure settings list the service, or why not.
-def _turn_on(driver, attacker: AccessibilityAttacker, labels: SettingsLabels, timeout: float, evidence_dir: Path, outcome: EnableOutcome) -> str | None:
+def _turn_on(driver, attacker: AccessibilityServiceControl, labels: SettingsLabels, timeout: float, evidence_dir: Path, outcome: EnableOutcome) -> str | None:
     adb = attacker.adb
     switch = service_switch(driver, timeout)
     if switch is None:

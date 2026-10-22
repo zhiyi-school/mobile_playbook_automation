@@ -5,12 +5,8 @@ import re
 import pytest
 
 from mobile_playbook.platforms.android.device import accessibility_settings
-from mobile_playbook.platforms.android.device.accessibility_attacker import (
-    ATTACKER_LABEL,
-    AccessibilityAttackerError,
-    SERVICE_COMPONENT,
-    AccessibilitySettings,
-)
+from mobile_playbook.platforms.android.device.accessibility_attacker import ATTACKER_APP, ATTACKER_LABEL, SERVICE_COMPONENT
+from mobile_playbook.platforms.android.device.accessibility_service import AccessibilityAttackerError, AccessibilitySettings, ServiceApp
 from mobile_playbook.platforms.android.device.accessibility_settings import (
     ACCESSIBILITY_DETAILS_ACTION,
     ACCESSIBILITY_SETTINGS_ACTION,
@@ -126,6 +122,7 @@ class Adb:
 class Attacker:
     def __init__(self, adb, enabled=False, fallback_enables=True):
         self.adb = adb
+        self.app = ATTACKER_APP
         self.enabled = enabled
         self.fallback_enables = fallback_enables
         self.fallback_calls: list[AccessibilitySettings] = []
@@ -242,7 +239,7 @@ def test_a_category_of_downloaded_services_is_opened_when_the_service_is_not_on_
     driver.screens["list"] = [Element(category, on_click=go(driver, "downloaded"))]
     driver.screens["downloaded"] = [Element(ATTACKER_LABEL, on_click=go(driver, "service"))]
 
-    assert open_service_page(driver, SettingsLabels(), timeout=1)
+    assert open_service_page(driver, SettingsLabels(service=ATTACKER_LABEL), timeout=1)
     assert driver.screen == "service"
 
 
@@ -408,3 +405,36 @@ def test_tap_fails_when_the_bounds_cannot_be_read():
 
     with pytest.raises(AccessibilityAttackerError, match="could not read the element bounds"):
         _tap(Adb(), NoBounds())
+
+
+OTHER_APP = ServiceApp(package="com.example.spy", version="1.0", apk_name="Spy.apk", label="Example Spy",
+                       service_class="com.example.spy.SpyService")
+
+
+def test_the_service_is_found_by_the_attacker_apps_own_label(tmp_path):
+    adb, attacker, driver = setup()
+    attacker.app = OTHER_APP
+
+    def allow(element):
+        attacker.enabled = True
+
+    driver.screens.update({
+        "list": [Element(ATTACKER_LABEL), Element(OTHER_APP.label, on_click=go(driver, "service"))],
+        "service": [Element(cls="android.widget.Switch", checked=False, on_click=go(driver, "consent"))],
+        "consent": [Element("Allow", cls="android.widget.Button", on_click=allow)],
+    })
+
+    outcome = enable_service(driver, attacker, BEFORE, tmp_path, timeout=1)
+
+    assert outcome.method == "settings_ui"
+
+
+def test_the_details_page_names_the_attacker_apps_own_component(tmp_path):
+    adb, attacker, driver = setup()
+    attacker.app = OTHER_APP
+
+    outcome = enable_service(driver, attacker, BEFORE, tmp_path, timeout=0)
+
+    assert outcome.method == "secure_settings_fallback"
+    assert ["shell", "am", "start", "-a", ACCESSIBILITY_DETAILS_ACTION, "--es", COMPONENT_NAME_EXTRA, OTHER_APP.component] in adb.commands
+    assert DETAILS_ACTION not in adb.commands

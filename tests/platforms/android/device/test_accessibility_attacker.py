@@ -17,11 +17,10 @@ from mobile_playbook.platforms.android.device.accessibility_attacker import (
     SERVICE_COMPONENT,
     SERVICE_SHORT_COMPONENT,
     AccessibilityAttacker,
-    AccessibilityAttackerError,
-    AccessibilitySettings,
     AttackEvent,
     attacker_apk_path,
 )
+from mobile_playbook.platforms.android.device.accessibility_service import AccessibilityAttackerError, AccessibilitySettings
 from mobile_playbook.platforms.android.device.install import STAGING_DIR
 from tests.platforms.android.install_helpers import answer_apk_copy, is_pm_install
 
@@ -334,6 +333,24 @@ def test_stop_force_stops_the_attacker_app(tmp_path):
     attacker(adb, tmp_path).stop()
 
     assert adb.commands == [["shell", "am", "force-stop", ATTACKER_PACKAGE]]
+
+
+def test_uninstall_removes_the_attacker_app(tmp_path):
+    adb = AttackerAdb()
+
+    attacker(adb, tmp_path).uninstall()
+
+    assert adb.commands == [["uninstall", ATTACKER_PACKAGE]]
+
+
+def test_an_attacker_app_the_phone_still_lists_is_reported(tmp_path):
+    def answer(args, timeout=None):
+        if args[:1] == ["uninstall"]:
+            return 1, "Failure [DELETE_FAILED_INTERNAL_ERROR]", ""
+        return 0, f"package:{ATTACKER_PACKAGE}\n", ""
+
+    with pytest.raises(AccessibilityAttackerError, match="still installed"):
+        AccessibilityAttacker(SimpleNamespace(run=answer), tmp_path / "a.apk").uninstall()
 
 
 def _config(apk):
