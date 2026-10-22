@@ -8,6 +8,7 @@ from __future__ import annotations
 import logging
 import re
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -122,6 +123,37 @@ def find_service_entry(driver, labels: SettingsLabels, timeout: float):
         if time.monotonic() >= deadline:
             return None
         time.sleep(POLL_SECONDS)
+
+
+# Show the Accessibility list with the service in it and open the service's page, as playbook feature-05 step 02 does;
+# screenshot is called once the list is showing. Returns the step's outcome and detail.
+def show_service_listed(driver, adb, labels: SettingsLabels, timeout: float, screenshot: Callable[[], None]) -> dict:
+    try:
+        _shell(adb, ["am", "start", "-a", ACCESSIBILITY_SETTINGS_ACTION])
+        entry = find_service_entry(driver, labels, timeout)
+    except Exception as exc:
+        logger.debug("android accessibility settings: showing the list failed: %s", exc, exc_info=True)
+        return {"outcome": "failed", "detail": str(exc)}
+    screenshot()
+    if entry is None:
+        return {"outcome": "failed", "detail": f"{labels.service!r} was not found in Accessibility settings."}
+    entry.click()
+    return {"outcome": "completed", "detail": f"{labels.service!r} is listed in Accessibility settings."}
+
+
+# Confirm the open service page's switch is on, as playbook feature-05 step 03 shows, without flipping it again;
+# screenshot is called once the switch has been read. Returns the step's outcome and detail.
+def confirm_switch_on(driver, labels: SettingsLabels, timeout: float, screenshot: Callable[[], None]) -> dict:
+    try:
+        switch = service_switch(driver, timeout)
+        checked = None if switch is None else str(switch.get_attribute("checked")).lower()
+    except Exception as exc:
+        logger.debug("android accessibility settings: reading the switch failed: %s", exc, exc_info=True)
+        return {"outcome": "failed", "detail": str(exc)}
+    screenshot()
+    if checked == "true":
+        return {"outcome": "completed", "detail": f"The {labels.service!r} switch is on."}
+    return {"outcome": "failed", "detail": "No service switch was found." if switch is None else f"The {labels.service!r} switch reads {checked!r}."}
 
 
 # Return the service page's main switch, the topmost on the page, or None when none appears in time.

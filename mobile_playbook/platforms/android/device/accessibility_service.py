@@ -8,6 +8,7 @@ from __future__ import annotations
 import logging
 import re
 import shlex
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -22,6 +23,8 @@ logger = logging.getLogger(__name__)
 ENABLED_SERVICES_KEY = "enabled_accessibility_services"
 ACCESSIBILITY_ENABLED_KEY = "accessibility_enabled"
 BOUND_SERVICES_RE = re.compile(r"^\s*Bound services:\{(.*)\}\s*$", re.MULTILINE)
+POLL_SECONDS = 0.5
+UNBIND_SECONDS = 5.0
 
 
 class AccessibilityAttackerError(Exception):
@@ -138,6 +141,16 @@ class AccessibilityServiceControl:
         label = self.app.label
         return any(f"label={label}," in match or f"label={label}]" in match for match in BOUND_SERVICES_RE.findall(out or ""))
 
+    # Wait for Android to bind the service, which it does only while Appium leaves accessibility services running.
+    def wait_until_bound(self, timeout: float) -> bool:
+        deadline = time.monotonic() + timeout
+        while True:
+            if self.is_bound():
+                return True
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(POLL_SECONDS)
+
     # Uninstall the attacker app, removing its output with it, and raise unless the phone confirms it is gone.
     def uninstall(self) -> None:
         if not uninstall(self.adb, self.app.package):
@@ -164,3 +177,45 @@ class AccessibilityServiceControl:
         code, out, err = self.adb.run(["shell", "settings", *args])
         if code != 0 or "Bad arguments" in (out or "") or "Bad arguments" in (err or ""):
             raise AccessibilityAttackerError(f"adb settings {' '.join(args)} failed: {err or out}")
+
+
+# Restore the recorded accessibility settings, stop the app and confirm its service is no longer enabled or bound,
+# recording in cleanup what worked and why anything failed.
+def turn_service_off(control: AccessibilityServiceControl, before: AccessibilitySettings | None, cleanup: dict) -> None:
+    if before is not None:
+        try:
+            control.restore_settings(before)
+            cleanup["settings_restored"] = True
+        except Exception as exc:
+            logger.debug("android accessibility: restoring settings failed: %s", exc, exc_info=True)
+            cleanup["errors"].append(f"restoring settings failed: {exc}")
+    else:
+        cleanup["settings_restored"] = True
+    # After restoring: Android drops a force-stopped app's service from the enabled list, which restoring would undo.
+    try:
+        control.stop()
+    except Exception as exc:
+        logger.debug("android accessibility: stopping the attacker failed: %s", exc, exc_info=True)
+        cleanup["errors"].append(f"stopping the attacker failed: {exc}")
+    deadline = time.monotonic() + UNBIND_SECONDS
+    try:
+        while True:
+            cleanup["service_off"] = not control.is_enabled() and not control.is_bound()
+            if cleanup["service_off"] or time.monotonic() >= deadline:
+                break
+            time.sleep(POLL_SECONDS)
+        if not cleanup["service_off"]:
+            cleanup["errors"].append("the service is still enabled or bound")
+    except Exception as exc:
+        logger.debug("android accessibility: checking the service failed: %s", exc, exc_info=True)
+        cleanup["errors"].append(f"checking the service failed: {exc}")
+
+
+# Uninstall the attacker app so it does not stay on the phone after the test, recording the outcome in cleanup.
+def remove_attacker_app(control: AccessibilityServiceControl, cleanup: dict) -> None:
+    try:
+        control.uninstall()
+        cleanup["attacker_uninstalled"] = True
+    except Exception as exc:
+        logger.debug("android accessibility: uninstalling the attacker failed: %s", exc, exc_info=True)
+        cleanup["errors"].append(f"uninstalling the attacker failed: {exc}")

@@ -15,6 +15,7 @@ from mobile_playbook.platforms.android.device.accessibility_attacker import (
     SERVICE_COMPONENT,
     SERVICE_SHORT_COMPONENT,
 )
+from mobile_playbook.platforms.android.device import accessibility_service
 from mobile_playbook.platforms.android.device.adb import AdbClient
 from mobile_playbook.platforms.android.risks import feature_05_risk_01_ui_operations as risk
 from tests.platforms.android.prompt_fakes import png
@@ -274,7 +275,8 @@ class Bench:
 def bench(tmp_path, monkeypatch, adb_host):
     monkeypatch.setattr(risk.time, "sleep", lambda _: None)
     monkeypatch.setattr(risk, "POLL_SECONDS", 0)
-    monkeypatch.setattr(risk, "UNBIND_SECONDS", 0)
+    monkeypatch.setattr(accessibility_service, "POLL_SECONDS", 0)
+    monkeypatch.setattr(accessibility_service, "UNBIND_SECONDS", 0)
     TAP_TARGETS.clear()
     return Bench(tmp_path, monkeypatch, adb_host)
 
