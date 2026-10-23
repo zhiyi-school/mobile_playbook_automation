@@ -1,10 +1,11 @@
-# Example Android accessibility settings for android-feature-05-risk-01 and android-feature-05-risk-02. Copy to
-# accessibility.yaml; see docs/android/configuration.md.
+# Example Android accessibility settings for android-feature-05-risk-01, android-feature-05-risk-02 and
+# android-feature-05-risk-03. Copy to accessibility.yaml; see docs/android/configuration.md.
 
 accessibility:
   # Seconds to wait after opening a Settings page or launching the app before reading the screen.
   launch_wait: 5
-  # Seconds to wait for the attacker's service to scan and click the app once it is opened.
+  # Seconds to wait for the attacker's service to scan and click the app once it is opened. F5R2 and F5R3 wait this
+  # long at most for what Event Spy or Text Scraper saved to stop changing.
   attack_timeout: 15
   # Seconds a scripted step, a Settings lookup, a logout-control check or the service-bound check waits before giving
   # up. Scripted steps are set per app, under the app's risks.android-feature-05-risk-01.steps in apps.yaml, and sign
@@ -17,9 +18,17 @@ accessibility:
   # attacker_apk: artifacts/intake/android/apks/F5R1_Accessibility_Attacker.apk
   # The Event Spy APK for android-feature-05-risk-02, relative to the repository root. Defaults to the intake copy.
   # event_spy_apk: artifacts/intake/android/apks/F5R2_Event_Capture_Attacker.apk
+  # The Text Scraper APK for android-feature-05-risk-03, relative to the repository root. Defaults to the intake copy.
+  # text_scraper_apk: artifacts/intake/android/apks/F5R3_Text_Scraper_Attacker.apk
+  # F5R3: seconds to stay on the app's last screen so Text Scraper takes its screenshots, one every 5 seconds.
+  # capture_seconds: 12
+  # F5R3: packages whose windows open when a screenshot is taken. Text Scraper saves the app's text under their name,
+  # so their rows count as the app's while it is in front. Defaults to HarmonyOS's screenshot window.
+  # screenshot_packages: ["com.huawei.HwMultiScreenShot"]
   # Text that Settings shows, for devices whose labels differ from the defaults. A label left out keeps its default.
   # settings_labels:
-  #   # The F5R1 attacker app's name on the Accessibility list and its service page; F5R2 looks for "Event Spy".
+  #   # The F5R1 attacker app's name on the Accessibility list and its service page; F5R2 looks for "Event Spy" and
+  #   # F5R3 for "Text Scraper".
   #   service: "Playbook Accessibility Test"
   #   # The categories that list downloaded services; the first one found is opened. Defaults cover AOSP, One UI and
   #   # HarmonyOS.

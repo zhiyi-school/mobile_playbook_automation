@@ -393,7 +393,7 @@ def test_accessibility_locator_problems_are_reported_for_the_app():
 def test_shared_accessibility_steps_are_rejected():
     errors = _accessibility_errors({"steps": []}, {"enabled": True})
 
-    assert errors == ["accessibility.steps is not supported; scripted steps belong to one app, under its risks.android-feature-05-risk-01 or risks.android-feature-05-risk-02 entry"]
+    assert errors == ["accessibility.steps is not supported; scripted steps belong to one app, under its risks.android-feature-05-risk-01 or risks.android-feature-05-risk-02 or risks.android-feature-05-risk-03 entry"]
 
 
 def _event_capture_errors(accessibility=None, app_settings=None):
@@ -415,6 +415,30 @@ def test_event_capture_step_problems_are_reported_for_the_app():
         "apps[example].risks.android-feature-05-risk-02.steps[0].tap.xpath is not a known setting",
         "apps[example].risks.android-feature-05-risk-02.steps[1].type.value names unknown canary 'otp'",
     ]
+
+
+def _screen_text_errors(app_settings):
+    config = parse_config({"apps": [{"id": "example", "package_name": "com.example.app", "risks": {"android-feature-05-risk-03": app_settings}}]})
+    return [error for error in collect_config_errors(config) if "android-feature-05-risk-03" in error]
+
+
+def test_screen_text_values_and_steps_are_accepted():
+    steps = [{"tap": {"text": "Accounts"}}, {"type": {"id": "a", "value": "{canary.email}"}}]
+
+    assert _screen_text_errors({"enabled": True, "on_screen_text": ["S$ 12,345.67", "Jane Tan"], "steps": steps}) == []
+
+
+@pytest.mark.parametrize("values", ["S$ 12,345.67", ["S$ 12,345.67", ""], [123]])
+def test_screen_text_values_that_are_not_a_list_of_text_are_rejected(values):
+    assert _screen_text_errors({"enabled": True, "on_screen_text": values}) == [
+        "apps[example].risks.android-feature-05-risk-03.on_screen_text must be a list of the non-empty text values the app shows",
+    ]
+
+
+def test_screen_text_step_problems_are_reported_for_the_app():
+    errors = _screen_text_errors({"enabled": True, "steps": [{"type": {"id": "a", "value": "{canary.otp}"}}]})
+
+    assert errors == ["apps[example].risks.android-feature-05-risk-03.steps[0].type.value names unknown canary 'otp'"]
 
 
 def test_bad_shared_accessibility_canaries_are_reported_once():

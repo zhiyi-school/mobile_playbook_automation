@@ -410,9 +410,9 @@ risks:
 
 Full risk behavior and status meanings are documented in [Risks](risks.md#android-feature-04-risk-01).
 
-### Accessibility (`android-feature-05-risk-01`, `android-feature-05-risk-02`)
+### Accessibility (`android-feature-05-risk-01`, `android-feature-05-risk-02`, `android-feature-05-risk-03`)
 
-Global defaults live under a top-level `accessibility` block in `accessibility.yaml` under `configs/split/android/` (see `accessibility.example.yaml`), included from `configs/android.yaml` as `accessibility: split/android/accessibility.yaml`. Without the file the defaults below apply. Both accessibility risks read this block, and the config editor opens it for either one. Each setting can be overridden per app under `risks.android-feature-05-risk-01`:
+Global defaults live under a top-level `accessibility` block in `accessibility.yaml` under `configs/split/android/` (see `accessibility.example.yaml`), included from `configs/android.yaml` as `accessibility: split/android/accessibility.yaml`. Without the file the defaults below apply. The accessibility risks all read this block, and the config editor opens it for any of them. Each setting can be overridden per app under `risks.android-feature-05-risk-01`:
 
 ```yaml
 accessibility:
@@ -429,8 +429,11 @@ accessibility:
 - `settle_seconds`: seconds the attacker's event log must stop changing, after it has scanned the app, before the attack is read as finished (default 3). A logout that opens a confirmation dialog is two clicks a moment apart, so a shorter value can stop before the second.
 - `attacker_apk`: the attacker APK to install when the device lacks its current version; relative paths resolve against the repository root. Defaults to `F5R1_Accessibility_Attacker.apk` in the Android intake folder.
 - `event_spy_apk`: the Event Spy APK that `android-feature-05-risk-02` installs; relative paths resolve against the repository root. Defaults to `F5R2_Event_Capture_Attacker.apk` in the Android intake folder.
-- `settings_labels`: text that Settings shows, for devices whose labels differ from the defaults. `service` is the `android-feature-05-risk-01` attacker's name on the Accessibility list and its page (default `Playbook Accessibility Test`); `android-feature-05-risk-02` looks for `Event Spy`. `categories` lists the entries that open a page of downloaded services, tried in order (default `Installed apps`, `Installed services`, `Downloaded apps`, `Downloaded services`). `allow` lists the consent prompt's confirming buttons (default `Allow`, `Grant access`). Text is matched in full, ignoring case. A label left out keeps its default.
-- `canaries`: synthetic values a scripted step can type, by name, as for the runtime log test. Both accessibility risks share them.
+- `text_scraper_apk`: the Text Scraper APK that `android-feature-05-risk-03` installs; relative paths resolve against the repository root. Defaults to `F5R3_Text_Scraper_Attacker.apk` in the Android intake folder.
+- `capture_seconds`: seconds `android-feature-05-risk-03` stays on the app's last screen so Text Scraper takes its screenshots, one every 5 seconds (default 12).
+- `screenshot_packages`: packages whose windows open when a screenshot is taken (default `com.huawei.HwMultiScreenShot`). Text Scraper saves the app's text under their name, so `android-feature-05-risk-03` counts their rows as the app's while it is in front.
+- `settings_labels`: text that Settings shows, for devices whose labels differ from the defaults. `service` is the `android-feature-05-risk-01` attacker's name on the Accessibility list and its page (default `Playbook Accessibility Test`); `android-feature-05-risk-02` looks for `Event Spy` and `android-feature-05-risk-03` for `Text Scraper`. `categories` lists the entries that open a page of downloaded services, tried in order (default `Installed apps`, `Installed services`, `Downloaded apps`, `Downloaded services`). `allow` lists the consent prompt's confirming buttons (default `Allow`, `Grant access`). Text is matched in full, ignoring case. A label left out keeps its default.
+- `canaries`: synthetic values a scripted step can type, by name, as for the runtime log test. The accessibility risks share them.
 
 Scripted steps sign the app in and reach a screen with a logout control. They are written per app under `risks.android-feature-05-risk-01.steps` in `apps.yaml`, use the same step kinds and locators as the runtime log test (see [Scripted steps](#scripted-steps)), and are checked when the configuration loads. Steps belong to one app, so they cannot be set in the shared `accessibility` block. Two per-app locators, each naming an element with exactly one of `id`, `accessibility_id` or `text`, refine the result:
 
@@ -465,6 +468,25 @@ risks:
 ```
 
 Full risk behavior and status meanings are documented in [Risks](risks.md#android-feature-05-risk-02).
+
+`android-feature-05-risk-03` reads the same block, and each setting can be overridden per app under `risks.android-feature-05-risk-03`. It uses `launch_wait`, `step_timeout_seconds`, `text_scraper_apk`, `capture_seconds`, `screenshot_packages`, the `categories` and `allow` Settings labels, and `canaries`. `attack_timeout` is the longest it waits for what Text Scraper saved to stop changing, and `settle_seconds` how long it must stay unchanged. Two per-app settings decide what is looked for:
+
+- `on_screen_text`: a list of the text values the app shows on the screen being tested, such as a test account's name or balance. Use a test account, so the values are synthetic. Values are matched ignoring spaces, dashes, slashes, dots, brackets, commas and case, so `S$ 12,345.67` matches `S$12345.67`. Without it, and without a typed canary that can be judged, the result is inconclusive.
+- `steps`: scripted steps that sign in and reach that screen, checked the same way as the other accessibility risks' steps. A canary they type is also looked for, but only when Text Scraper read the screen again after the typing, since it reads a screen only when its window changes. A step that opens another window afterwards, such as a confirmation, makes that happen.
+
+```yaml
+risks:
+  android-feature-05-risk-03:
+    enabled: true
+    on_screen_text: ["S$ 12,345.67", "Jane Tan"]
+    steps:
+      - type: {id: "com.example.app:id/username", value: "{canary.email}"}
+      - type: {id: "com.example.app:id/password", value: "{canary.password}"}
+      - tap: {id: "com.example.app:id/btn_login"}
+      - wait: 3
+```
+
+Full risk behavior and status meanings are documented in [Risks](risks.md#android-feature-05-risk-03).
 
 ### Screen capture timing (`android-feature-06-risk-01`)
 

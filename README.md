@@ -20,6 +20,7 @@ It uses platform-prefixed risk IDs:
 | `android-feature-04-risk-01` | Android | Another app's overlay window drawn over the app, or hidden by `setHideOverlayWindows` |
 | `android-feature-05-risk-01` | Android | An accessibility service clicking the app's logout control, or stopped by an authentication prompt |
 | `android-feature-05-risk-02` | Android | An accessibility service recording the text typed into the app's fields, or kept from them |
+| `android-feature-05-risk-03` | Android | An accessibility service reading the text the app shows on screen, or kept from it |
 | `android-feature-06-risk-01` | Android | Screen recording / `FLAG_SECURE` capture blocking |
 | `android-feature-07-risk-01` | Android | Sensitive data readable in the private data directory on a rooted device |
 

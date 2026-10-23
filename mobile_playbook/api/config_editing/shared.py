@@ -47,6 +47,7 @@ RISK_SETTINGS = {
         "android-feature-04-risk-01": ("overlay", Path("split/android/overlay.yaml")),
         "android-feature-05-risk-01": ("accessibility", Path("split/android/accessibility.yaml")),
         "android-feature-05-risk-02": ("accessibility", Path("split/android/accessibility.yaml")),
+        "android-feature-05-risk-03": ("accessibility", Path("split/android/accessibility.yaml")),
         "android-feature-06-risk-01": ("screen_capture", Path("split/android/screen_capture.yaml")),
         "android-feature-07-risk-01": ("private_data", Path("split/android/private_data.yaml")),
     },

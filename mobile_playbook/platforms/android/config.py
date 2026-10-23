@@ -35,10 +35,11 @@ RUNTIME_LOGS_RISK_ID = "android-feature-02-risk-02"
 OVERLAY_RISK_ID = "android-feature-04-risk-01"
 ACCESSIBILITY_RISK_ID = "android-feature-05-risk-01"
 EVENT_CAPTURE_RISK_ID = "android-feature-05-risk-02"
+SCREEN_TEXT_RISK_ID = "android-feature-05-risk-03"
 # Risks that take per-app scripted steps, with the global settings section that holds their shared canaries.
 SCRIPTED_STEP_SECTIONS = {
     RUNTIME_LOGS_RISK_ID: "runtime_logs", OVERLAY_RISK_ID: "overlay", ACCESSIBILITY_RISK_ID: "accessibility",
-    EVENT_CAPTURE_RISK_ID: "accessibility",
+    EVENT_CAPTURE_RISK_ID: "accessibility", SCREEN_TEXT_RISK_ID: "accessibility",
 }
 
 
@@ -176,6 +177,8 @@ def collect_config_errors(config: AndroidGlobalConfig, dry_run: bool = False) ->
                 if risk_id == ACCESSIBILITY_RISK_ID:
                     for key in ("logged_out", "logout_control"):
                         errors.extend(locator_errors(risk_config.get(key), f"{label}.risks.{risk_id}.{key}"))
+                if risk_id == SCREEN_TEXT_RISK_ID:
+                    errors.extend(_on_screen_text_errors(risk_config.get("on_screen_text"), f"{label}.risks.{risk_id}.on_screen_text"))
     return errors
 
 
@@ -184,6 +187,15 @@ def _scripted_step_errors(shared: dict[str, Any], settings: dict[str, Any], labe
     errors = canary_errors(settings.get("canaries"), label)
     names = set(merged_canaries(shared.get("canaries"), settings.get("canaries")))
     return errors + step_errors(settings.get("steps"), names, label)
+
+
+# Return the problems with the values an app shows on screen, which must be a list of non-empty text.
+def _on_screen_text_errors(values: Any, label: str) -> list[str]:
+    if values is None:
+        return []
+    if not isinstance(values, list) or any(not isinstance(value, str) or not value.strip() for value in values):
+        return [f"{label} must be a list of the non-empty text values the app shows"]
+    return []
 
 
 # Return the problems in the device.corellium settings used when device.provider is corellium.
