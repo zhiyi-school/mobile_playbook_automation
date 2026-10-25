@@ -31,7 +31,12 @@ from mobile_playbook.platforms.android.device.permission_prompts import deny_per
 from mobile_playbook.platforms.android.device.permissions import PERMISSION_CONTROLLER_PACKAGES
 from mobile_playbook.platforms.android.device.phone_role import phone_model
 from mobile_playbook.platforms.android.device.scripted_steps import merged_canaries, run_steps
-from mobile_playbook.platforms.android.device.text_scraper import TEXT_SCRAPER_APP, TEXT_SCRAPER_PACKAGE, TextScraper
+from mobile_playbook.platforms.android.device.text_scraper import (
+    TEXT_SCRAPER_APP,
+    TEXT_SCRAPER_PACKAGE,
+    TEXT_SCRAPER_VIEW_IDS,
+    TextScraper,
+)
 from mobile_playbook.platforms.android.models import AndroidRiskRunResult
 from mobile_playbook.platforms.android.risks.base import AndroidRisk
 
@@ -148,7 +153,7 @@ class AndroidAccessibilityScreenTextRisk(AndroidRisk):
                 time.sleep(dwell)
                 _screenshot(driver, evidence_dir / "target_screen.png", "accessibility_target_screen", "App screen being read", result)
                 window_end = _device_epoch(adb) + 1
-                rows = _scraped(_wait_for_rows(scraper, read_timeout, settle), package, screenshot_packages, window_start, window_end)
+                rows = _scraped(_wait_for_rows(scraper, read_timeout, settle), package, screenshot_packages, window_start, window_end, result)
                 _save_rows(rows, evidence_dir, result)
                 _show_text_scraper(driver, scraper, launch_wait, step_timeout, evidence_dir, result)
                 wanted = {f"on_screen_text[{index}]": value for index, value in enumerate(on_screen_text)}
@@ -363,14 +368,19 @@ def _wait_for_rows(scraper: TextScraper, timeout: float, settle: float) -> list[
 
 
 # Keep the rows Text Scraper saved from walking the app's views while it was in front: those under the app's package
-# or a screenshot window's, stamped between its launch and the end of the test.
-def _scraped(rows: list[CapturedEvent], package: str, screenshot_packages: tuple[str, ...], start: int, end: int) -> list[CapturedEvent]:
-    return [
+# or a screenshot window's, stamped between its launch and the end of the test. The app's first window event can
+# arrive while Text Scraper's own screen is still active, which saves that screen's list of captures under the app's
+# name, so rows from its own views are dropped and counted.
+def _scraped(rows: list[CapturedEvent], package: str, screenshot_packages: tuple[str, ...], start: int, end: int, result: AndroidRiskRunResult) -> list[CapturedEvent]:
+    in_front = [
         row for row in rows
         if row.event_type in SCRAPED_EVENT_TYPES
         and (row.package == package or row.package in screenshot_packages)
         and start * 1000 <= row.timestamp <= end * 1000
     ]
+    kept = [row for row in in_front if row.view_id not in TEXT_SCRAPER_VIEW_IDS]
+    result.metadata["own_screen_rows_dropped"] = len(in_front) - len(kept)
+    return kept
 
 
 # Save the rows Text Scraper scraped from the app as evidence; other apps' rows are left out of the report.

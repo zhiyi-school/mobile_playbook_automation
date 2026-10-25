@@ -145,6 +145,8 @@ class Bench:
         self.capturing = False
         self.screenshots = {"old_photo.jpg": 10}
         self.undeletable = False
+        self.offline_after_service_off = False
+        self.offline = False
         self.button = Element(text=START_LABEL, on_click=self._toggle_capture)
         self.switch = Element(cls="android.widget.Switch", checked=False, on_click=self._grant)
         self.service_entry = Element(text=TEXT_SCRAPER_APP.label)
@@ -226,6 +228,8 @@ class Bench:
             self.rows, self.capturing = [], False
             return 0, "Success\n", ""
         if args[:3] == ["shell", "ls", "-1"]:
+            if self.offline:
+                return 1, "", "adb: device 'SCRAPE-TEST' not found"
             if args[3] != SHOTS:
                 return 1, "", "No such file or directory"
             return 0, "".join(f"{name}\n" for name in self.screenshots), ""
@@ -255,6 +259,7 @@ class Bench:
             return 0, f"     Bound services:{{{bound}}}\n", ""
         if args == ["shell", "am", "force-stop", TEXT_SCRAPER_PACKAGE]:
             self.capturing = False
+            self.offline = self.offline_after_service_off
             others = [c for c in accessibility_service.enabled_components(self.settings.get("enabled_accessibility_services")) if not TEXT_SCRAPER_APP.names_service([c])]
             self.settings["enabled_accessibility_services"] = ":".join(others)
             return 0, "", ""
@@ -391,6 +396,35 @@ def test_rows_read_from_text_scrapers_own_screen_do_not_count(bench):
 
     assert result.verdict == "Reduced Risk"
     assert result.metadata["screenshots"]["capture_started"] is True
+
+
+def test_text_scrapers_own_screen_saved_under_the_apps_name_does_not_count(bench):
+    bench.hidden = {f"{PACKAGE}:id/balance"}
+    original = bench.open
+
+    # The app's first window event can arrive while Text Scraper's screen, listing what it captured, is still active.
+    def open_over_text_scrapers_screen(package):
+        if package == PACKAGE and bench.bound():
+            bench.rows.append(CapturedEvent(len(bench.rows) + 1, bench.tick() * 1000, "UI_TEXT", PACKAGE, None, "tv_details", f"App: com.other | Text: {BALANCE}", None, None, None, None))
+        original(package)
+
+    bench.open = open_over_text_scrapers_screen
+
+    result = bench.run()
+
+    assert result.verdict == "Reduced Risk"
+    assert result.metadata["own_screen_rows_dropped"] == 1
+
+
+def test_screenshots_that_cannot_be_listed_at_cleanup_are_not_reported_deleted(bench):
+    bench.offline_after_service_off = True
+
+    result = bench.run()
+
+    assert result.metadata["cleanup"]["screenshots_deleted"] is False
+    assert any("could not list" in error for error in result.metadata["cleanup"]["errors"])
+    assert any("screenshots could not be checked" in error for error in result.errors)
+    assert result.verdict == "At Risk"
 
 
 def test_no_value_to_look_for_is_inconclusive_with_a_summary(bench):

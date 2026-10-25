@@ -25,6 +25,11 @@ UIAUTOMATOR = "-android uiautomator"
 SCREENSHOT_BUTTON = f'new UiSelector().resourceId("{TEXT_SCRAPER_PACKAGE}:id/btn_screenshot")'
 START_LABEL = "Start Screenshot Capture (Every 5s)"
 STOP_LABEL = "Stop Screenshot Capture"
+# The view IDs on Text Scraper's own screen, as its rows record them without the package.
+TEXT_SCRAPER_VIEW_IDS = frozenset({
+    "btn_clear", "btn_enable_service", "btn_export", "btn_screenshot", "recycler_events", "spinner_filter",
+    "tv_details", "tv_event_count", "tv_event_type", "tv_timestamp",
+})
 # Where the system saves screenshots: Pictures/Screenshots on HarmonyOS and Pixels, DCIM/Screenshots on Samsung.
 SCREENSHOT_DIRS = ("/sdcard/Pictures/Screenshots", "/sdcard/DCIM/Screenshots")
 MEDIA_IMAGES_URI = "content://media/external/images/media"
@@ -53,13 +58,16 @@ class TextScraper(CapturedEventsApp):
         if not _wait_for_label(driver, wanted, timeout):
             raise AccessibilityAttackerError(f"Text Scraper's screenshot button did not change to {wanted!r} after the tap")
 
-    # Return the device paths of the screenshots now in the system's screenshot folders; a missing folder is empty.
+    # Return the device paths of the screenshots now in the system's screenshot folders; a missing folder is empty,
+    # while any other failure raises, so an unreachable phone is never read as one without screenshots.
     def screenshots(self) -> set[str]:
         paths = set()
         for folder in SCREENSHOT_DIRS:
-            code, out, _ = self.adb.run(["shell", "ls", "-1", folder])
+            code, out, err = self.adb.run(["shell", "ls", "-1", folder])
             if code != 0:
-                continue
+                if "No such file or directory" in f"{out}{err}":
+                    continue
+                raise AccessibilityAttackerError(f"could not list {folder}: {(err or out or f'exit {code}').strip()}")
             # Names starting with "." are files still being written, which MediaStore names .pending-*.
             paths.update(f"{folder}/{name}" for name in (out or "").splitlines() if name.strip() and not name.startswith("."))
         return paths
@@ -91,12 +99,19 @@ class TextScraper(CapturedEventsApp):
     def delete_screenshots(self, paths: set[str]) -> set[str]:
         for path in sorted(paths):
             self.adb.run(["shell", "rm", "-f", shlex.quote(path)])
-            # Without this the gallery keeps listing a removed screenshot until the media scanner runs again.
-            where = "_data=" + "'" + path.replace("'", "''") + "'"
+            # Android 11 and later update the gallery when the file goes; older versions keep listing it until the
+            # media scanner runs. MediaStore records the path under /storage/emulated/0, so it is matched by its end.
+            where = f"_data LIKE '%{_like_literal(path.removeprefix('/sdcard'))}' ESCAPE '\\'"
             code, out, err = self.adb.run(["shell", "content", "delete", "--uri", MEDIA_IMAGES_URI, "--where", shlex.quote(where)])
             if code != 0:
                 logger.debug("android text scraper: media entry for %s not deleted: %s", path, err or out)
         return paths & self.screenshots()
+
+
+# Return text for a SQL LIKE pattern that matches it literally, escaping wildcards with a backslash and quotes by
+# doubling them.
+def _like_literal(text: str) -> str:
+    return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_").replace("'", "''")
 
 
 # Find Text Scraper's screenshot button, waiting for its screen to appear.

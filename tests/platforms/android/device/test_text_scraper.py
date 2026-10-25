@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import shlex
+import sqlite3
 from types import SimpleNamespace
 
 import pytest
@@ -57,8 +58,11 @@ class Driver:
 class ScreenshotAdb:
     """Fake adb with screenshot folders that ls, pull, rm and content delete act on."""
 
-    def __init__(self, folders, pull_fails=(), rm_fails=(), modified=None):
+    def __init__(self, folders, pull_fails=(), rm_fails=(), modified=None, offline=False):
         self.folders = {folder: list(names) for folder, names in folders.items()}
+        self.offline = offline
+        # MediaStore's rows, which record each file under /storage/emulated/0 rather than /sdcard.
+        self.media = {f"/storage/emulated/0{folder.removeprefix('/sdcard')}/{name}" for folder, names in folders.items() for name in names}
         self.modified = dict(modified or {})
         self.pull_fails = set(pull_fails)
         self.rm_fails = set(rm_fails)
@@ -67,6 +71,8 @@ class ScreenshotAdb:
     def run(self, args, timeout=None):
         self.commands.append(list(args))
         if args[:3] == ["shell", "ls", "-1"]:
+            if self.offline:
+                return 1, "", "adb: device 'SERIAL' not found"
             if args[3] not in self.folders:
                 return 1, "", f"ls: {args[3]}: No such file or directory"
             return 0, "".join(f"{name}\n" for name in self.folders[args[3]]), ""
@@ -78,6 +84,15 @@ class ScreenshotAdb:
                 return 1, "", "adb: error: failed to stat remote object"
             open(args[2], "wb").write(b"jpeg")
             return 0, "1 file pulled", ""
+        if args[:3] == ["shell", "content", "delete"]:
+            where = shlex.split(args[-1])[0]
+            connection = sqlite3.connect(":memory:")
+            connection.execute("CREATE TABLE images (_data TEXT)")
+            connection.executemany("INSERT INTO images VALUES (?)", [(path,) for path in self.media])
+            connection.execute(f"DELETE FROM images WHERE {where}")
+            self.media = {row[0] for row in connection.execute("SELECT _data FROM images")}
+            connection.close()
+            return 0, "", ""
         if args[:3] == ["shell", "rm", "-f"]:
             path = shlex.split(args[3])[0]
             if path not in self.rm_fails:
@@ -177,15 +192,27 @@ def test_screenshots_are_pulled_with_an_error_for_each_failure(tmp_path):
 
 
 def test_only_the_given_screenshots_are_deleted_with_their_media_entries(tmp_path):
-    adb = ScreenshotAdb({PICTURES: ["mine.jpg", "Owner's photo.jpg", "theirs.jpg"]})
-    taken = {f"{PICTURES}/mine.jpg", f"{PICTURES}/Owner's photo.jpg"}
+    adb = ScreenshotAdb({PICTURES: ["shot_1.jpg", "Owner's photo.jpg", "shotX1.jpg", "theirs.jpg"]})
+    taken = {f"{PICTURES}/shot_1.jpg", f"{PICTURES}/Owner's photo.jpg"}
 
     remaining = scraper(adb, tmp_path).delete_screenshots(taken)
 
     assert remaining == set()
-    assert adb.folders[PICTURES] == ["theirs.jpg"]
-    media = [command for command in adb.commands if command[1:3] == ["content", "delete"]]
-    assert [shlex.split(command[-1])[0] for command in media] == ["_data='/sdcard/Pictures/Screenshots/Owner''s photo.jpg'", "_data='/sdcard/Pictures/Screenshots/mine.jpg'"]
+    assert adb.folders[PICTURES] == ["shotX1.jpg", "theirs.jpg"]
+    assert adb.media == {"/storage/emulated/0/Pictures/Screenshots/shotX1.jpg", "/storage/emulated/0/Pictures/Screenshots/theirs.jpg"}
+
+
+def test_a_listing_that_fails_for_another_reason_raises(tmp_path):
+    with pytest.raises(AccessibilityAttackerError, match="could not list /sdcard/Pictures/Screenshots: adb: device 'SERIAL' not found"):
+        scraper(ScreenshotAdb({PICTURES: ["mine.jpg"]}, offline=True), tmp_path).screenshots()
+
+
+def test_deletion_on_a_phone_that_cannot_be_listed_raises_instead_of_reporting_none_left(tmp_path):
+    adb = ScreenshotAdb({PICTURES: ["mine.jpg"]}, rm_fails={f"{PICTURES}/mine.jpg"})
+    adb.offline = True
+
+    with pytest.raises(AccessibilityAttackerError, match="could not list"):
+        scraper(adb, tmp_path).delete_screenshots({f"{PICTURES}/mine.jpg"})
 
 
 def test_screenshots_left_after_deletion_are_returned(tmp_path):
