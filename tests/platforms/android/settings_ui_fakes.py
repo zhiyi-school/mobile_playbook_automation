@@ -13,8 +13,9 @@ TAP_TARGETS: dict[tuple[int, int], "Element"] = {}
 class Element:
     _next = 0
 
-    def __init__(self, text="", cls="android.widget.TextView", checked=None, enabled=True, offscreen=False, on_click=None):
+    def __init__(self, text="", cls="android.widget.TextView", checked=None, enabled=True, offscreen=False, on_click=None, desc=""):
         self.text = text
+        self.desc = desc
         self.cls = cls
         self.checked = checked
         self.enabled = enabled
@@ -28,8 +29,13 @@ class Element:
     def get_attribute(self, name):
         if name == "bounds":
             return f"[{self.cx - 5},{self.cy - 5}][{self.cx + 5},{self.cy + 5}]"
+        if name in ("class", "text"):
+            return {"class": self.cls, "text": self.text}[name]
         value = {"checked": self.checked, "enabled": self.enabled}[name]
         return None if value is None else str(value).lower()
+
+    def clear(self):
+        self.text = ""
 
     def tapped(self):
         self.clicks += 1
@@ -45,6 +51,7 @@ class SettingsDriver:
     """Fake Appium driver showing one Settings screen at a time; UiSelector text regexes are evaluated as Java would."""
 
     def __init__(self, screens, screen, scrollable=True, screenshots_work=True):
+        self.page_source = "<hierarchy/>"
         self.screens = screens
         self.screen = screen
         self.scrollable = scrollable
@@ -61,6 +68,9 @@ class SettingsDriver:
         scrolling = value.startswith("new UiScrollable")
         if scrolling and not self.scrollable:
             raise RuntimeError("UiScrollable found no scrollable view")
+        if "descriptionMatches" in value:
+            pattern = python_pattern(value.replace("descriptionMatches", "textMatches"))
+            return [element for element in elements if pattern.fullmatch(element.desc) and not element.offscreen]
         pattern = python_pattern(value)
         return [element for element in elements if pattern.fullmatch(element.text) and (scrolling or not element.offscreen)]
 
