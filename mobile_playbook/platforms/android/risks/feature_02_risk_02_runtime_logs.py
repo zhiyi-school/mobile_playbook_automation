@@ -5,12 +5,10 @@ with `adb logcat` while the app runs, as the playbook does with Android Studio's
 
 from __future__ import annotations
 
-import base64
 import json
 import logging
 import re
 import time
-import urllib.parse
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -20,7 +18,7 @@ from mobile_playbook.common.storage_paths import android_work_dir
 from mobile_playbook.platforms.android.device.debugging_warning import debugging_keywords
 from mobile_playbook.platforms.android.device.fingerprint import installed_base_apk_sha256
 from mobile_playbook.platforms.android.device.logcat import LINE_RE, LogcatCapture, LogcatError, app_pids, app_uid, clear_logcat, read_app_lines, start_logcat
-from mobile_playbook.platforms.android.device.scripted_steps import StepsOutcome, merged_canaries, run_steps
+from mobile_playbook.platforms.android.device.scripted_steps import StepsOutcome, canary_variants, merged_canaries, run_steps
 from mobile_playbook.platforms.android.models import AndroidRiskRunResult
 from mobile_playbook.platforms.android.private_data.findings import write_critical_findings
 from mobile_playbook.platforms.android.private_data.scan import pii_value_findings
@@ -262,25 +260,6 @@ def scan_log_lines(lines: list[str], log_name: str, reveal_values: bool, canarie
 def _evidence_line(item: dict[str, Any]) -> str:
     kind = f"{item['match_type']} ({item['context']})" if item["context"] else item["match_type"]
     return f"{item['severity']} {kind} at {item['path']}: {item['reported_value']} ({item['occurrences']} occurrence(s))"
-
-
-# Return each form a canary may be logged in, as typed, without spaces or dashes, lowercased, URL-encoded and base64
-# encoded, mapped to a description naming the canary and the form.
-def canary_variants(canaries: dict[str, str]) -> dict[str, str]:
-    variants: dict[str, str] = {}
-    for name, value in canaries.items():
-        forms = {
-            "as typed": value,
-            "without separators": re.sub(r"[\s-]", "", value),
-            "lowercase": value.lower(),
-            "URL-encoded": urllib.parse.quote(value, safe=""),
-            "form-encoded": urllib.parse.quote_plus(value, safe=""),
-            "base64": base64.b64encode(value.encode()).decode().rstrip("="),
-            "URL-safe base64": base64.urlsafe_b64encode(value.encode()).decode().rstrip("="),
-        }
-        for form, text in forms.items():
-            variants.setdefault(text, f"{name} canary, {form}")
-    return variants
 
 
 # Match unquoted "key=value" and "key: value" pairs whose key names a secret, as log messages usually write them.

@@ -5,9 +5,11 @@ synthetic canary values into its fields.
 
 from __future__ import annotations
 
+import base64
 import logging
 import re
 import time
+import urllib.parse
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -70,6 +72,25 @@ def merged_canaries(*layers: Any) -> dict[str, str]:
         if isinstance(layer, dict):
             canaries.update(layer)
     return canaries
+
+
+# Return each form a canary may be logged or sent in, as typed, without spaces or dashes, lowercased, URL-encoded and base64
+# encoded, mapped to a description naming the canary and the form.
+def canary_variants(canaries: dict[str, str]) -> dict[str, str]:
+    variants: dict[str, str] = {}
+    for name, value in canaries.items():
+        forms = {
+            "as typed": value,
+            "without separators": re.sub(r"[\s-]", "", value),
+            "lowercase": value.lower(),
+            "URL-encoded": urllib.parse.quote(value, safe=""),
+            "form-encoded": urllib.parse.quote_plus(value, safe=""),
+            "base64": base64.b64encode(value.encode()).decode().rstrip("="),
+            "URL-safe base64": base64.urlsafe_b64encode(value.encode()).decode().rstrip("="),
+        }
+        for form, text in forms.items():
+            variants.setdefault(text, f"{name} canary, {form}")
+    return variants
 
 
 # Return the problems with a list of scripted steps, whose placeholders may name only the given canaries.
