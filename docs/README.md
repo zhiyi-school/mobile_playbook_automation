@@ -14,6 +14,7 @@ HTTP, and optionally publishes completed results to a Supabase dashboard.
 | [architecture.md](architecture.md) | How a run executes end to end, and what each layer owns |
 | [corellium-lifecycle.md](corellium-lifecycle.md) | Shared Corellium VM selection, baseline restoration, exclusive claims and recovery |
 | [api.md](api.md) | Every HTTP endpoint, run lifecycle, SARIF, sync status |
+| [burp-capture.md](burp-capture.md) | The Burp extension both platforms' traffic interception risks read, and its capture files |
 | [developer-playbook.md](developer-playbook.md) | The external remediation playbook: terminology, format, status, caching |
 | [operations.md](operations.md) | The sync and assessment workers, log files, and pruning old run data |
 | [troubleshooting.md](troubleshooting.md) | Symptom-to-cause tables |

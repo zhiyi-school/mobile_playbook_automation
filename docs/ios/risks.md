@@ -79,34 +79,13 @@ The other capture outcomes remain `Inconclusive`:
 
 Silence alone proves neither pipeline failure nor certificate/public-key pinning. Treat every `Inconclusive` result as a prompt to inspect the capture pipeline and raw Burp history, not as proof that the application resisted interception.
 
-The dashboard-facing `summary`/`evidence` fields (in `dashboard_results.json`, via `GET /runs/{run_id}/summary`) go beyond the bare `final_status` for this risk specifically: `summary` reads as e.g. `"14 decrypted request(s) captured through Burp (api.example.com, ...)"` when matching HTTPS was captured, and `evidence` includes a `report` entry named "Burp capture results" pointing at that run's `burp_capture.json`. That file contains matched HTTPS metadata only. The capture file this risk reads holds method, URL components, status, body lengths, and stated response content type; it does not store raw headers, cookies, authorization values, request bodies, or response bodies. This risk never arms the extension's [content capture](#content-capture), so no content is recorded during its runs. Unmatched request contents are not persisted in either `burp_capture.json` or `report.json`.
+The dashboard-facing `summary`/`evidence` fields (in `dashboard_results.json`, via `GET /runs/{run_id}/summary`) go beyond the bare `final_status` for this risk specifically: `summary` reads as e.g. `"14 decrypted request(s) captured through Burp (api.example.com, ...)"` when matching HTTPS was captured, and `evidence` includes a `report` entry named "Burp capture results" pointing at that run's `burp_capture.json`. That file contains matched HTTPS metadata only. The capture file this risk reads holds method, URL components, status, body lengths, and stated response content type; it does not store raw headers, cookies, authorization values, request bodies, or response bodies. This risk never arms the extension's [content capture](../burp-capture.md#content-capture), so no content is recorded during its runs. Unmatched request contents are not persisted in either `burp_capture.json` or `report.json`.
 
 The `launch_result.capture_summary` object in `report.json` records `new_line_count`, `valid_entry_count`, `malformed_entry_count`, `https_entry_count`, `non_https_entry_count`, `matched_count`, `matched_https_count`, `unmatched_entry_count`, `created_during_window`, `source_changed`, `source_unavailable`, `trailing_partial_line`, `expected_hosts`, `hosts`, and `evidence_path`. These aggregate diagnostics describe the capture window without retaining unmatched request details.
 
-### Capturing Burp's traffic into `capture.jsonl`
+### Capturing Burp's traffic
 
-This risk doesn't talk to Burp's own APIs — Burp has no simple built-in "give me proxy history" endpoint. Instead, a small companion Burp extension (loaded once into Burp, like any other Burp extension) appends one metadata-only JSON object per completed exchange to `burp.capture_path`:
-
-```json
-{"schema_version": 1, "scheme": "https", "host": "api.example.com", "port": 443, "method": "GET", "path": "/profile", "status_code": 200, "request_body_length": 0, "response_body_length": 1234, "response_content_type": "JSON"}
-```
-
-This mirrors how this framework already exposes evidence to itself elsewhere (`events.jsonl`, `appium.log`) — a plain append-only file that both sides agree on, rather than a live API integration.
-
-[tools/burp/traffic_capture_extension.py](../../tools/burp/traffic_capture_extension.py) is a ready-to-load Jython Burp extension that writes this format. One-time setup:
-
-1. Use the standalone Jython JAR vendored at `tools/vendor/jython/jython-standalone-2.7.4.jar`, or download one from `https://www.jython.org/download`.
-2. In Burp Suite, open Extender > Options > Python Environment and point it at that JAR.
-3. Open Extender > Extensions > Add, choose extension type `Python`, and select `tools/burp/traffic_capture_extension.py`.
-4. Compare the capture file the extension prints when it loads with the one [scripts/check_burp_interception.py](#checking-the-whole-chain-before-a-batch-of-runs) prints when it runs — both halves must name the same path. The extension resolves it on its own, as `artifacts/work/ios/traffic_interception/capture.jsonl` under the repository it was loaded from, so nothing in the file needs editing. It is dependency-free and does not read the backend's storage settings, so set `MPA_BURP_CAPTURE_PATH` to an absolute path when Burp runs somewhere that path does not exist, or when `WORK_DIR` puts the capture file elsewhere. If it cannot locate the repository it records nothing and says so in the Extender output.
-
-It hasn't been exercised against a real Burp Suite instance; treat it as a starting point to verify, not a guaranteed-working drop-in.
-
-#### Content capture
-
-The same extension can also record each exchange in full: its URL, request and response headers, and request and response bodies, each body base64 encoded and cut at a size limit. It does this only while a risk arms it, and only for the Burp listener ports the risk names, so iOS traffic through another listener is never recorded in full. A risk arms it with `arm_content_capture()` in `platforms/traffic_interception/burp_content.py`, which writes the marker `content.armed` beside the content file `content.jsonl` with the listener ports, the body limit and an expiry. The extension checks the marker on every proxied response and stops recording when it is removed or expires, so a run that dies without disarming does not leave content capture on. Arming deletes any earlier `content.jsonl`, and refuses while another unexpired window is armed.
-
-Both files live in `artifacts/work/traffic_interception/` under the repository the extension was loaded from. Set `MPA_BURP_CONTENT_DIR` to an absolute directory when Burp runs somewhere that path does not exist, or when `WORK_DIR` moves the work folder; the risk then has to use the same directory. The content file holds raw request bodies such as passwords and tokens, so the risk that reads it deletes it once it has been scanned. Reload the extension in Burp after updating it, and check that its Extender output prints the marker path.
+This risk reads the capture file that the companion Burp extension writes, one metadata-only record per exchange. Loading the extension, the record format, where the file lives and `MPA_BURP_CAPTURE_PATH` are described in [Burp Traffic Capture](../burp-capture.md), which both platforms share.
 
 ### Checking the whole chain before a batch of runs
 

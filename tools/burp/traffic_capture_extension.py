@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 Burp/Jython capture extension for the traffic interception risks: proxy metadata for every exchange, and full content only
-while a risk arms it; see docs/ios/risks.md#capturing-burps-traffic-into-capturejsonl.
+while a risk arms it; see docs/burp-capture.md.
 """
 
 from burp import IBurpExtender
