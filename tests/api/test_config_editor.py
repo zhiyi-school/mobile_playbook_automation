@@ -166,6 +166,22 @@ def test_android_runtime_log_risk_settings_are_editable(config_root):
     assert parse_config(load_yaml_config(entry), entry).runtime_logs == {"dwell_seconds": 15, "keep_raw": True}
 
 
+def test_android_traffic_interception_risk_settings_are_editable(config_root):
+    from mobile_playbook.common.config_loader import load_yaml_config
+    from mobile_playbook.platforms.android.config import parse_config
+
+    entry = config_root / "configs/android.yaml"
+    entry.write_text(entry.read_text() + "  traffic_interception: split/android/traffic_interception.yaml\n")
+    path = config_root / "configs/split/android/traffic_interception.yaml"
+    path.write_text("traffic_interception:\n  # the CA's name under User certificates\n  ca_display_name: PortSwigger CA\n")
+
+    ce.put_risk_settings("android", "android-feature-03-risk-01", {"proxy_port": 8081})
+
+    assert "# the CA's name under User certificates" in path.read_text()
+    assert ce.get_risk_settings("android", "android-feature-03-risk-01") == {"ca_display_name": "PortSwigger CA", "proxy_port": 8081}
+    assert parse_config(load_yaml_config(entry), entry).traffic_interception == {"ca_display_name": "PortSwigger CA", "proxy_port": 8081}
+
+
 def test_android_overlay_risk_settings_are_editable(config_root):
     from mobile_playbook.common.config_loader import load_yaml_config
     from mobile_playbook.platforms.android.config import parse_config

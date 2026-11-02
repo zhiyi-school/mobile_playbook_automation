@@ -1,0 +1,42 @@
+# Example Android traffic_interception settings for android-feature-03-risk-01. Copy to traffic_interception.yaml; see
+# docs/android/configuration.md#traffic-interception-android-feature-03-risk-01.
+
+traffic_interception:
+  # The device's proxy host: "auto" uses this host's current LAN address, which the device must be able to reach.
+  proxy_host: "auto"
+  # Burp listener port the device's proxy points at; unset, the port of tools.burp_proxy. The playbook uses 8081.
+  # proxy_port: 8081
+  # The name View security certificates > User shows for Burp's CA once it is installed.
+  ca_display_name: "PortSwigger CA"
+  # Optional: Burp's CA exported in DER or PEM format, relative to the repository root. Unset, it is downloaded from
+  # http://burp/cert through tools.burp_proxy.
+  # ca_cert_path: "artifacts/burp/ca.der"
+  # Hosts that are the app's own servers, including their subdomains. The proxy is device-wide, so other traffic is
+  # the app's only when it carries a canary the steps typed. Set them per app under its own risk entry.
+  expected_hosts: []
+  # Seconds after launch before the app's screen is checked for a proxy warning.
+  launch_wait: 5
+  # Seconds the app stays open for an app without scripted steps.
+  dwell_seconds: 15
+  # Seconds to wait after the last step for the app's requests to reach Burp.
+  traffic_wait_seconds: 5
+  # Report sensitive values found in the traffic in full instead of masked.
+  reveal_values: false
+  # Keep a copy of the raw capture, which holds unmasked request bodies, under
+  # artifacts/work/android/traffic_interception/<package>/ instead of deleting it.
+  keep_raw: false
+  # Seconds a scripted step waits for its element to appear. Steps are set per app, under the app's
+  # risks.android-feature-03-risk-01.steps in apps.yaml.
+  step_timeout_seconds: 10
+  # Seconds each Settings screen is given while the CA is installed.
+  settings_timeout_seconds: 20
+  # Seconds Chrome is given to load https://example.com through Burp before the setup is reported as broken.
+  check_timeout_seconds: 20
+  # Synthetic values a scripted "type" step can enter as {canary.<name>}; the traffic is searched for each one typed,
+  # also URL-encoded, form-encoded and base64-encoded. Never use real credentials or personal data. A name set here, or
+  # under an app's own canaries, replaces the built-in value.
+  canaries:
+    email: "canary.logtest@example.com"
+    password: "Canary-Pw-7Q4z"
+    card: "4111 1111 1111 1111"
+    nric: "S0000000Z"

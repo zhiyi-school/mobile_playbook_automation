@@ -63,6 +63,7 @@ include:
   screen_capture: split/android/screen_capture.yaml
   private_data: split/android/private_data.yaml
   runtime_logs: split/android/runtime_logs.yaml
+  traffic_interception: split/android/traffic_interception.yaml
   overlay: split/android/overlay.yaml
   accessibility: split/android/accessibility.yaml
   apps: split/android/apps.yaml

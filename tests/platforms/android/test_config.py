@@ -319,6 +319,41 @@ def test_shared_runtime_log_steps_and_bad_canaries_are_rejected():
     ]
 
 
+def _traffic_errors(traffic_interception=None, app_settings=None):
+    config = parse_config({"traffic_interception": traffic_interception or {}, "apps": [{"id": "example", "package_name": "com.example.app", "risks": {"android-feature-03-risk-01": app_settings or {"enabled": True}}}]})
+    return [error for error in collect_config_errors(config) if "traffic_interception" in error or "android-feature-03-risk-01" in error]
+
+
+def test_traffic_interception_settings_are_parsed_and_default_to_empty():
+    assert parse_config({"traffic_interception": {"proxy_port": 8081}, "apps": ["com.example.app"]}).traffic_interception == {"proxy_port": 8081}
+    assert parse_config({"apps": ["com.example.app"]}).traffic_interception == {}
+
+
+def test_traffic_interception_accepts_hosts_ports_and_app_steps():
+    steps = [{"type": {"id": "a", "value": "{canary.email}"}}, {"type": {"id": "b", "value": "{canary.otp}"}}, {"tap": {"text": "Sign in"}}]
+
+    assert _traffic_errors(
+        {"proxy_host": "auto", "proxy_port": 8081, "ca_display_name": "PortSwigger CA", "canaries": {"otp": "000000"}},
+        {"enabled": True, "expected_hosts": ["api.example.com", "example.net"], "steps": steps},
+    ) == []
+
+
+def test_traffic_interception_problems_are_reported_for_the_shared_section_and_the_app():
+    errors = _traffic_errors(
+        {"proxy_port": 70000, "ca_display_name": "", "steps": []},
+        {"enabled": True, "expected_hosts": ["https://api.example.com/v1"], "proxy_port": True, "steps": [{"type": {"id": "a", "value": "{canary.otp}"}}]},
+    )
+
+    assert errors == [
+        "traffic_interception.proxy_port must be a port number between 1 and 65535",
+        "traffic_interception.ca_display_name must be non-empty text",
+        "traffic_interception.steps is not supported; scripted steps belong to one app, under its risks.android-feature-03-risk-01 entry",
+        "apps[example].risks.android-feature-03-risk-01.steps[0].type.value names unknown canary 'otp'",
+        "apps[example].risks.android-feature-03-risk-01.expected_hosts must be a list of host names, such as api.example.com, without a scheme or path",
+        "apps[example].risks.android-feature-03-risk-01.proxy_port must be a port number between 1 and 65535",
+    ]
+
+
 def _overlay_errors(overlay=None, app_settings=None):
     config = parse_config({"overlay": overlay or {}, "apps": [{"id": "example", "package_name": "com.example.app", "risks": {"android-feature-04-risk-01": app_settings or {"enabled": True}}}]})
     return [error for error in collect_config_errors(config) if "overlay" in error or "android-feature-04-risk-01" in error]

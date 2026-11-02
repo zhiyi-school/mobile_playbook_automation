@@ -23,6 +23,16 @@ apps:
         #   - type: {accessibility_id: "Password", value: "{canary.password}"}
         #   - tap: {text: "Sign in"}
         #   - wait: 3
+      android-feature-03-risk-01:
+        enabled: true
+        # The app's own servers; traffic to them read through Burp is the app's.
+        expected_hosts: ["api.example.com"]
+        # Optional: the same kind of steps as above, so a sign-in passes through Burp with canary values.
+        # steps:
+        #   - type: {id: "com.example.app:id/email", value: "{canary.email}"}
+        #   - type: {accessibility_id: "Password", value: "{canary.password}"}
+        #   - tap: {text: "Sign in"}
+        #   - wait: 3
       android-feature-06-risk-01:
         enabled: true
       android-feature-07-risk-01:

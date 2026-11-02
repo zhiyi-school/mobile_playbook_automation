@@ -246,10 +246,10 @@ Before every Android test that uses the device, the runner wakes the device's sc
 tools:
   mobsf_url: "http://localhost:8000"
   mobsf_api_key: ""
-  burp_proxy: "http://127.0.0.1:8080"
+  burp_proxy: "http://127.0.0.1:8081"
 ```
 
-`mobsf_url` and `mobsf_api_key` are the defaults for `android-feature-01-risk-01` when its `apk_static_analysis.analyzer` sets no `mobsf_url` or `api_key`, so MobSF is configured in one place. `burp_proxy` is reserved for a future proxy integration; no Android risk reads it.
+`mobsf_url` and `mobsf_api_key` are the defaults for `android-feature-01-risk-01` when its `apk_static_analysis.analyzer` sets no `mobsf_url` or `api_key`, so MobSF is configured in one place. `burp_proxy` is the Burp listener `android-feature-03-risk-01` uses: preflight checks it is reachable from this host, Burp's CA is downloaded through it, and its port is the one the device's proxy points at unless `traffic_interception.proxy_port` is set. The playbook uses port 8081, and the listener must be bound to all interfaces so the device can reach it.
 
 ## Apps
 
@@ -311,7 +311,7 @@ Android risk IDs are prefixed `android-feature...`. To configure a risk for an a
      keystore_pass: "REPLACE_WITH_KEYSTORE_PASSWORD"
    ```
 
-   See `configs/split/android/repackaging.example.yaml`, `screen_capture.example.yaml`, `apk_static_analysis.example.yaml`, `private_data.example.yaml`, `runtime_logs.example.yaml`, `overlay.example.yaml` and `accessibility.example.yaml` for the rest of these fields, and the field references below for what each controls.
+   See `configs/split/android/repackaging.example.yaml`, `screen_capture.example.yaml`, `apk_static_analysis.example.yaml`, `private_data.example.yaml`, `runtime_logs.example.yaml`, `traffic_interception.example.yaml`, `overlay.example.yaml` and `accessibility.example.yaml` for the rest of these fields, and the field references below for what each controls.
 3. Only add more fields under the app's own `risks.<risk_id>` entry when this one app needs to differ from those shared defaults — nest just the field being changed. Anything left unset there falls back to the global file.
 
 Risks run in the order they're listed under an app's `risks` mapping, not sorted by ID — keep that in mind if the order of your own `risks:` blocks matters to you.
@@ -576,6 +576,60 @@ A step that fails stops the script, and the result records it; see [Risks](risks
 
 Full risk behavior and status meanings are documented in [Risks](risks.md).
 
+### Traffic interception (`android-feature-03-risk-01`)
+
+Global defaults live under a top-level `traffic_interception` block in `traffic_interception.yaml` under `configs/split/android/` (see `traffic_interception.example.yaml`), included from `configs/android.yaml` as `traffic_interception: split/android/traffic_interception.yaml`. Without the file the defaults below apply. Each setting can be overridden per app under `risks.android-feature-03-risk-01`, where `expected_hosts` and `steps` usually belong:
+
+```yaml
+traffic_interception:
+  proxy_host: "auto"
+  ca_display_name: "PortSwigger CA"
+  expected_hosts: []
+  launch_wait: 5
+  dwell_seconds: 15
+  traffic_wait_seconds: 5
+  reveal_values: false
+  keep_raw: false
+  step_timeout_seconds: 10
+  settings_timeout_seconds: 20
+  check_timeout_seconds: 20
+```
+
+- `proxy_host`: the address written into the device's proxy; `auto` (the default) uses this host's current LAN address. The device must be able to reach it, so a loopback address is rejected.
+- `proxy_port`: the Burp listener port the device's proxy points at (default: the port of `tools.burp_proxy`, or 8081 when it has none). Content capture records only this listener's traffic.
+- `ca_display_name`: the name View security certificates > User shows for Burp's CA (default `PortSwigger CA`). The CA is installed only when this name is not listed.
+- `ca_cert_path`: Burp's CA exported in DER or PEM format, relative to the repository root. Unset, it is downloaded from `http://burp/cert` through `tools.burp_proxy`.
+- `ca_device_path`: where the CA is copied on the device (default `/sdcard/Download/ca.crt`, as the playbook does). A different file already there stops the run with `CA_PATH_OCCUPIED`.
+- `expected_hosts`: the app's own servers, as host names without a scheme or path; their subdomains match too. The device's proxy carries every app's traffic, so an exchange counts as the app's only when its host is listed here or it carries a canary the steps typed. Leave it empty only for an app whose steps type canaries.
+- `launch_wait`: seconds after launch before the app's screen is checked for a proxy warning (default 5).
+- `dwell_seconds`: seconds the app stays open for an app without scripted steps (default 15).
+- `traffic_wait_seconds`: seconds to wait after the last step, or the dwell, for the app's last requests to reach Burp (default 5).
+- `reveal_values`: report sensitive values found in the traffic in full instead of masked, in the findings and in `intercepted_traffic.json` (default false). Canaries are always reported in full.
+- `keep_raw`: keep a copy of the raw capture, which holds unmasked request and response bodies, under `artifacts/work/android/traffic_interception/<package>/<run timestamp>_content.jsonl` (default false). It is never copied into the report, and kept copies are not pruned with old run folders, so remove them by hand.
+- `step_timeout_seconds`: seconds a scripted step waits for its element to appear (default 10).
+- `settings_timeout_seconds`: seconds each Settings screen is given while the CA is installed (default 20).
+- `check_timeout_seconds`: seconds Chrome is given to load the check page through Burp before the setup is reported as `INTERCEPTION_NOT_VERIFIED` (default 20).
+- `check_url` and `browser_package`: the page and browser that check the setup (defaults `https://example.com` and `com.android.chrome`). The browser must trust user CAs, as Chrome does, and be past its first-run screens.
+- `max_body_bytes`: the most of each request or response body Burp records (default 65536).
+- `capture_path` and `content_dir`: where the Burp extension writes, relative to the repository root. Unset, they follow `WORK_DIR` like the extension's own defaults; see [content capture](../ios/risks.md#content-capture).
+- `canaries`: the synthetic values a scripted step can type, as for [runtime logs](#runtime-logs-android-feature-02-risk-02). The traffic is searched for each canary typed, in the same encodings.
+
+Scripted steps are written per app under `risks.android-feature-03-risk-01.steps` in `apps.yaml`, in the same form as [scripted steps](#scripted-steps) for runtime logs, so a sign-in passes through Burp with canary values:
+
+```yaml
+risks:
+  android-feature-03-risk-01:
+    enabled: true
+    expected_hosts: ["api.example.com"]
+    steps:
+      - type: {id: "com.example.app:id/email", value: "{canary.email}"}
+      - type: {accessibility_id: "Password", value: "{canary.password}"}
+      - tap: {text: "Sign in"}
+      - wait: 3
+```
+
+The configuration check reports `expected_hosts` that are not host names, a `proxy_port` outside 1–65535, empty `proxy_host`, `ca_display_name` or `ca_cert_path` values, and steps set in the shared block. Full risk behavior and status meanings are in [Risks](risks.md#android-feature-03-risk-01).
+
 ## Split Android Configs
 
 `configs/android.yaml` has `device` and `runner` written inline, plus an `include:` mapping (section name → file path) for the sections that live under `configs/split/android/`:
@@ -595,6 +649,7 @@ include:
   screen_capture: split/android/screen_capture.yaml
   private_data: split/android/private_data.yaml
   runtime_logs: split/android/runtime_logs.yaml
+  traffic_interception: split/android/traffic_interception.yaml
   overlay: split/android/overlay.yaml
   accessibility: split/android/accessibility.yaml
   apps: split/android/apps.yaml
@@ -602,7 +657,7 @@ include:
 
 Included paths are resolved relative to the entry-point file — here, that's `configs/`, so each path is prefixed `split/android/`. Inline values and included sections can coexist in the same file — nothing requires every section to go through `include:`, which is how `device`/`runner` stay inline while the rest are pulled in. See `configs/android.example.yaml`, the tracked example of this entry-point file.
 
-The real tools/apk_static_analysis/repackaging/screen_capture/private_data/runtime_logs/overlay/accessibility/app-roster content lives in `configs/split/android/*.yaml` (all git-ignored, since they contain real app config — only the `*.example.yaml` files under `configs/split/android/` are tracked). `configs/android.yaml` itself is also git-ignored, since it holds the real device config.
+The real tools/apk_static_analysis/repackaging/screen_capture/private_data/runtime_logs/traffic_interception/overlay/accessibility/app-roster content lives in `configs/split/android/*.yaml` (all git-ignored, since they contain real app config — only the `*.example.yaml` files under `configs/split/android/` are tracked). `configs/android.yaml` itself is also git-ignored, since it holds the real device config.
 
 ## Environment Files
 

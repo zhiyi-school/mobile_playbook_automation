@@ -44,6 +44,7 @@ RISK_SETTINGS = {
         "android-feature-01-risk-02": ("repackaging", Path("split/android/repackaging.yaml")),
         "android-feature-02-risk-01": ("private_data", Path("split/android/private_data.yaml")),
         "android-feature-02-risk-02": ("runtime_logs", Path("split/android/runtime_logs.yaml")),
+        "android-feature-03-risk-01": ("traffic_interception", Path("split/android/traffic_interception.yaml")),
         "android-feature-04-risk-01": ("overlay", Path("split/android/overlay.yaml")),
         "android-feature-05-risk-01": ("accessibility", Path("split/android/accessibility.yaml")),
         "android-feature-05-risk-02": ("accessibility", Path("split/android/accessibility.yaml")),

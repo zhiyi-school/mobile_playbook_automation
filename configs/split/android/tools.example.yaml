@@ -3,4 +3,5 @@
 tools:
   mobsf_url: "http://localhost:8000"
   mobsf_api_key: ""
-  burp_proxy: "http://127.0.0.1:8080"
+  # Burp listener for android-feature-03-risk-01, bound to all interfaces; the playbook uses port 8081.
+  burp_proxy: "http://127.0.0.1:8081"

@@ -32,13 +32,15 @@ logger = logging.getLogger(__name__)
 
 PHYSICAL_ROLES = ("non_rooted",)
 RUNTIME_LOGS_RISK_ID = "android-feature-02-risk-02"
+TRAFFIC_INTERCEPTION_RISK_ID = "android-feature-03-risk-01"
 OVERLAY_RISK_ID = "android-feature-04-risk-01"
 ACCESSIBILITY_RISK_ID = "android-feature-05-risk-01"
 EVENT_CAPTURE_RISK_ID = "android-feature-05-risk-02"
 SCREEN_TEXT_RISK_ID = "android-feature-05-risk-03"
 # Risks that take per-app scripted steps, with the global settings section that holds their shared canaries.
 SCRIPTED_STEP_SECTIONS = {
-    RUNTIME_LOGS_RISK_ID: "runtime_logs", OVERLAY_RISK_ID: "overlay", ACCESSIBILITY_RISK_ID: "accessibility",
+    RUNTIME_LOGS_RISK_ID: "runtime_logs", TRAFFIC_INTERCEPTION_RISK_ID: "traffic_interception", OVERLAY_RISK_ID: "overlay",
+    ACCESSIBILITY_RISK_ID: "accessibility",
     EVENT_CAPTURE_RISK_ID: "accessibility", SCREEN_TEXT_RISK_ID: "accessibility",
 }
 
@@ -86,7 +88,7 @@ def parse_config(raw: dict[str, Any], config_path: Path | None = None) -> Androi
     apps = [_parse_app(item) for item in (raw.get("apps") or [])]
     if logger.isEnabledFor(logging.DEBUG):
         logger.debug("android config: parsed sections=%s apps=%s", list(raw), [app.id for app in apps])
-        for section_name, section_value in (("device", device_raw), ("runner", runner_raw), ("screen_capture", raw.get("screen_capture")), ("apk_static_analysis", raw.get("apk_static_analysis")), ("private_data", raw.get("private_data")), ("runtime_logs", raw.get("runtime_logs")), ("overlay", raw.get("overlay")), ("accessibility", raw.get("accessibility")), ("tools", raw.get("tools"))):
+        for section_name, section_value in (("device", device_raw), ("runner", runner_raw), ("screen_capture", raw.get("screen_capture")), ("apk_static_analysis", raw.get("apk_static_analysis")), ("private_data", raw.get("private_data")), ("runtime_logs", raw.get("runtime_logs")), ("traffic_interception", raw.get("traffic_interception")), ("overlay", raw.get("overlay")), ("accessibility", raw.get("accessibility")), ("tools", raw.get("tools"))):
             logger.debug("android config: %s=%s", section_name, redacted(section_value) if isinstance(section_value, dict) else type(section_value).__name__)
         logger.debug("android config: repackaging=%s", redacted({key: REDACTED if "pass" in str(key).lower() else value for key, value in repackaging_raw.items()}))
     return AndroidGlobalConfig(
@@ -116,6 +118,7 @@ def parse_config(raw: dict[str, Any], config_path: Path | None = None) -> Androi
         apk_static_analysis=raw.get("apk_static_analysis") or {},
         private_data=raw.get("private_data") or {},
         runtime_logs=raw.get("runtime_logs") or {},
+        traffic_interception=raw.get("traffic_interception") or {},
         overlay=raw.get("overlay") or {},
         accessibility=raw.get("accessibility") or {},
         config_path=config_path,
@@ -155,6 +158,8 @@ def collect_config_errors(config: AndroidGlobalConfig, dry_run: bool = False) ->
     for section, risk_ids in risks_by_section.items():
         settings = getattr(config, section)
         errors.extend(canary_errors(settings.get("canaries"), section))
+        if section == "traffic_interception":
+            errors.extend(_traffic_interception_errors(settings, section))
         if "steps" in settings:
             entries = " or ".join(f"risks.{risk_id}" for risk_id in risk_ids)
             errors.append(f"{section}.steps is not supported; scripted steps belong to one app, under its {entries} entry")
@@ -177,6 +182,8 @@ def collect_config_errors(config: AndroidGlobalConfig, dry_run: bool = False) ->
                 if risk_id == ACCESSIBILITY_RISK_ID:
                     for key in ("logged_out", "logout_control"):
                         errors.extend(locator_errors(risk_config.get(key), f"{label}.risks.{risk_id}.{key}"))
+                if risk_id == TRAFFIC_INTERCEPTION_RISK_ID:
+                    errors.extend(_traffic_interception_errors(risk_config, f"{label}.risks.{risk_id}"))
                 if risk_id == SCREEN_TEXT_RISK_ID:
                     errors.extend(_on_screen_text_errors(risk_config.get("on_screen_text"), f"{label}.risks.{risk_id}.on_screen_text"))
     return errors
@@ -196,6 +203,23 @@ def _on_screen_text_errors(values: Any, label: str) -> list[str]:
     if not isinstance(values, list) or any(not isinstance(value, str) or not value.strip() for value in values):
         return [f"{label} must be a list of the non-empty text values the app shows"]
     return []
+
+
+# Return the problems with the traffic interception settings that decide where the device's traffic goes, which CA is
+# looked for and which hosts are the app's.
+def _traffic_interception_errors(settings: dict[str, Any], label: str) -> list[str]:
+    errors = []
+    hosts = settings.get("expected_hosts")
+    if hosts is not None and (not isinstance(hosts, list) or any(not isinstance(host, str) or not host.strip() or "/" in host for host in hosts)):
+        errors.append(f"{label}.expected_hosts must be a list of host names, such as api.example.com, without a scheme or path")
+    port = settings.get("proxy_port")
+    if port is not None and (isinstance(port, bool) or not isinstance(port, int) or not 1 <= port <= 65535):
+        errors.append(f"{label}.proxy_port must be a port number between 1 and 65535")
+    for key in ("proxy_host", "ca_display_name", "ca_cert_path"):
+        value = settings.get(key)
+        if value is not None and (not isinstance(value, str) or not value.strip()):
+            errors.append(f"{label}.{key} must be non-empty text")
+    return errors
 
 
 # Return the problems in the device.corellium settings used when device.provider is corellium.

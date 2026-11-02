@@ -72,6 +72,7 @@ class AndroidGlobalConfig(SerializableDataclass):
     apk_static_analysis: dict[str, Any] = field(default_factory=dict)
     private_data: dict[str, Any] = field(default_factory=dict)
     runtime_logs: dict[str, Any] = field(default_factory=dict)
+    traffic_interception: dict[str, Any] = field(default_factory=dict)
     overlay: dict[str, Any] = field(default_factory=dict)
     accessibility: dict[str, Any] = field(default_factory=dict)
     config_path: Path | None = None
