@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
-from mobile_playbook.orchestration.selection import validate_risk_selection
+from mobile_playbook.orchestration.selection import disabled_risk_selection, validate_risk_selection
 
 
 def test_validate_risk_selection_passes_when_none_selected():
@@ -64,3 +66,29 @@ def test_narrowing_leaves_the_config_alone_when_nothing_matches_or_nothing_is_se
     narrow_to_app_selection(config, "unknown")
 
     assert config.apps == apps
+
+
+def _app(app_id, **risks):
+    return SimpleNamespace(
+        id=app_id, name=app_id, package_name="", bundle_id="", risks={risk: {"enabled": on} for risk, on in risks.items()}
+    )
+
+
+def test_disabled_risk_selection_is_empty_without_a_risk_filter():
+    assert disabled_risk_selection([_app("parking", r1=False)], None, None) == set()
+
+
+def test_disabled_risk_selection_names_a_risk_the_selected_app_disables():
+    apps = [_app("parking", r1=True, r2=False), _app("care", r2=True)]
+
+    assert disabled_risk_selection(apps, {"r1", "r2"}, {"parking"}) == {"r2"}
+
+
+def test_disabled_risk_selection_accepts_a_risk_any_selected_app_enables():
+    apps = [_app("parking", r2=False), _app("care", r2=True)]
+
+    assert disabled_risk_selection(apps, {"r2"}, None) == set()
+
+
+def test_disabled_risk_selection_treats_an_unlisted_risk_as_disabled():
+    assert disabled_risk_selection([_app("parking", r1=True)], {"r3"}, {"parking"}) == {"r3"}

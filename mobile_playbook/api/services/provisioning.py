@@ -213,10 +213,10 @@ def _android_configuration(app: dict) -> tuple[str, str | None, str | None]:
     return "in_progress", "The app is not installed on the test device yet; it is installed before testing.", package_name
 
 
-# Count the app's enabled risks.
-def _enabled_risk_count(app: dict) -> int:
-    risks = app.get("risks") or {}
-    return len([r for r, settings in risks.items() if (settings or {}).get("enabled")])
+# Return the ids of the app's enabled risks, sorted.
+def _enabled_risks(app: dict | None) -> list[str]:
+    risks = (app or {}).get("risks") or {}
+    return sorted(r for r, settings in risks.items() if (settings or {}).get("enabled"))
 
 
 # Build the three independent setup stages and the resolved app id.
@@ -243,7 +243,7 @@ def _setup_stages(platform: str, app: dict | None) -> tuple[list[Stage], str | N
     else:
         state, detail, resolved_id = _android_configuration(app)
 
-    if state == "done" and _enabled_risk_count(app) == 0:
+    if state == "done" and not _enabled_risks(app):
         logger.warning("App %r has no enabled risks.", app.get("id"))
         state, detail = "failed", "No security tests are enabled for this app."
 
@@ -372,7 +372,7 @@ def _readiness(platform: str, app: dict | None, stages: list[Stage]) -> dict:
     config_blocker = (
         None if configuration_ready else _CONFIG_BLOCKER_BY_STAGE_STATE.get(config_state, "configuration_incomplete")
     )
-    if app is not None and _enabled_risk_count(app) == 0:
+    if app is not None and not _enabled_risks(app):
         configuration_ready, config_blocker = False, "no_tests_enabled"
     baselines = platform == "android" and _android_uses_baselines()
     # An Android app in progress is one not yet installed, which the worker installs; with baselines the run installs
@@ -439,6 +439,7 @@ def _config_failure(platform: str, app_id: str, detail: str) -> dict:
         "status": "failed",
         "stages": [_stage("configuration_applied", "Configuration applied", "failed", detail)],
         "error": detail,
+        "enabled_risks": [],
         "configuration_ready": False,
         "device_required": True,
         "device_ready": False,
@@ -482,5 +483,6 @@ def describe(platform: str, app_id: str) -> dict:
         "status": status,
         "stages": stages,
         "error": _first_failure(stages) if status == "failed" else None,
+        "enabled_risks": _enabled_risks(app),
         **_readiness(platform, app, stages),
     }
