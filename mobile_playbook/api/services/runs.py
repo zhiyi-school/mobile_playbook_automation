@@ -18,6 +18,7 @@ from mobile_playbook.api.settings import REPOSITORY_ROOT
 from mobile_playbook.dashboard_sync.trigger import trigger_dashboard_sync
 from mobile_playbook.orchestration.selection import (
     app_matches_selector,
+    disabled_risk_selection,
     narrow_to_app_selection,
     selected_app_csv,
     selected_csv,
@@ -143,6 +144,16 @@ def create_run(body: RunRequest) -> dict:
     except ValueError as exc:
         logger.debug("api: run selection rejected: %s", exc)
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    disabled = disabled_risk_selection(config.apps, selected_risks, selected_apps)
+    if disabled:
+        logger.debug("api: run refused; %s not enabled for the selected apps.", sorted(disabled))
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "blocker_code": "risk_disabled",
+                "message": f"Not enabled for the selected app(s): {', '.join(sorted(disabled))}.",
+            },
+        )
     narrow_to_app_selection(config, body.apps)
     if body.build_version is not None:
         pin_build_version(config, body.platform, selected_apps, body.build_version)

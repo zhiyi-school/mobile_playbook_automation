@@ -475,3 +475,26 @@ def test_http_readiness_reads_corellium_dotenv_without_exports_or_device_actions
     assert "worker-only-secret" not in str(report)
     assert report["blocker_code"] is None
     _assert_discloses_nothing(report)
+
+
+def test_reports_the_apps_enabled_risks_over_http(config_root):
+    from mobile_playbook.api.app import app
+    from tests.asgi_helpers import call
+
+    app_id = ce.add_ios_app(
+        {
+            "name": "Example Wallet",
+            "artifact": {"source": "intake_ipa"},
+            "risks": {"ios-feature-01-risk-01": {"enabled": True}, "ios-feature-01-risk-02": {"enabled": False}},
+        }
+    )["id"]
+
+    status, report = asyncio.run(call(app, "GET", f"/config/ios/apps/{app_id}/provisioning"))
+
+    assert status == 200
+    assert report["enabled_risks"] == ["ios-feature-01-risk-01"]
+
+
+def test_an_unknown_or_broken_app_enables_no_risks(config_root):
+    assert provisioning.describe("ios", "never_added")["enabled_risks"] == []
+    assert provisioning.describe("ios", _append_broken_app(config_root))["enabled_risks"] == []

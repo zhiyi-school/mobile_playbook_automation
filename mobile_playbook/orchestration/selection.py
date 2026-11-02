@@ -84,6 +84,22 @@ def validate_risk_selection(known_risk_ids: set[str], selected_risks: set[str] |
     logger.debug("selection: risk filter %s is valid", sorted(selected_risks))
 
 
+# Return the selected risk ids that none of the selected apps enables.
+def disabled_risk_selection(apps: list[Any], selected_risks: set[str] | None, selected_apps: set[str] | None) -> set[str]:
+    if not selected_risks:
+        return set()
+    enabled = {
+        risk_id
+        for app in apps
+        if app_matches_selector(app, selected_apps)
+        for risk_id, settings in (getattr(app, "risks", None) or {}).items()
+        if (settings or {}).get("enabled", False)
+    }
+    disabled = selected_risks - enabled
+    logger.debug("selection: risks %s are disabled for every selected app", sorted(disabled))
+    return disabled
+
+
 # Lowercase a selector and drop every non-alphanumeric character.
 def _normalize_selector(value: str) -> str:
     return "".join(ch.lower() for ch in value if ch.isalnum())

@@ -1,20 +1,29 @@
 from __future__ import annotations
 
+import asyncio
 import threading
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from fastapi import HTTPException
+from fastapi import FastAPI, HTTPException
 
+from mobile_playbook.api.routes import runs as runs_routes
 from mobile_playbook.api.run_registry import JobRegistry
 from mobile_playbook.api.schemas import RunRequest
 from mobile_playbook.api.services import runs as runs_service
+from tests.asgi_helpers import call
 
 
 class Outcome:
     def __init__(self, run_dir: Path):
         self.run_dir = run_dir
+
+
+def _app(app_id: str, **risks: bool) -> SimpleNamespace:
+    return SimpleNamespace(
+        id=app_id, name=app_id, package_name="", bundle_id="", risks={risk: {"enabled": on} for risk, on in risks.items()}
+    )
 
 
 @pytest.fixture
@@ -42,6 +51,11 @@ def test_in_flight_run_reports_the_apps_and_risks_it_covers(isolated_registry, m
         return Outcome(tmp_path / run_timestamp)
 
     monkeypatch.setattr(runs_service, "run_platform", blocking_run_platform)
+    monkeypatch.setattr(
+        runs_service,
+        "load_config_or_400",
+        lambda platform, config_path: SimpleNamespace(apps=[_app("parents_gateway", **{"ios-feature-01-risk-01": True})]),
+    )
 
     runs_service.create_run(
         RunRequest(
@@ -136,3 +150,41 @@ def test_default_api_output_is_the_configured_root_from_any_working_directory(
     runs_service.create_run(RunRequest(platform="ios", config_path="configs/ios.yaml"))
 
     assert seen == [tmp_path]
+
+
+@pytest.fixture
+def runs_http(isolated_registry, monkeypatch, tmp_path):
+    apps = [
+        _app("parking", **{"ios-feature-01-risk-01": True, "ios-feature-01-risk-02": False}),
+        _app("care", **{"ios-feature-01-risk-02": True}),
+    ]
+    monkeypatch.setattr(runs_service, "load_config_or_400", lambda platform, config_path: SimpleNamespace(apps=apps))
+    started: list[object] = []
+    monkeypatch.setattr(runs_service, "execute_run", lambda *args: started.append(args))
+    app = FastAPI()
+    app.include_router(runs_routes.router)
+    return app, isolated_registry, started
+
+
+def test_a_risk_disabled_for_the_selected_app_is_refused_without_claiming_the_device(runs_http):
+    app, registry, started = runs_http
+
+    status, body = asyncio.run(
+        call(app, "POST", "/runs", {"platform": "ios", "config_path": "configs/ios.yaml", "apps": "parking", "risks": "ios-feature-01-risk-02"})
+    )
+
+    assert status == 422
+    assert body["detail"]["blocker_code"] == "risk_disabled"
+    assert "ios-feature-01-risk-02" in body["detail"]["message"]
+    assert started == []
+    assert registry.try_claim_platform("ios")
+
+
+def test_a_risk_enabled_for_the_selected_app_starts(runs_http):
+    app, _, _ = runs_http
+
+    status, body = asyncio.run(
+        call(app, "POST", "/runs", {"platform": "ios", "config_path": "configs/ios.yaml", "apps": "parking", "risks": "ios-feature-01-risk-01"})
+    )
+
+    assert status == 202, body
