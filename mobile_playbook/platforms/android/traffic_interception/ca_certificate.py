@@ -76,11 +76,12 @@ def load_ca(path: Path) -> bytes:
 
 
 # Make the CA trusted as a user CA: when Settings does not list it yet, copy it to the device and install it through
-# Settings, then confirm Settings lists it. A different file already at device_path is never overwritten.
+# Settings, then confirm Settings lists it. A different file already at device_path is never overwritten. The outcome
+# passed in is filled as setup goes, so a caller still has its screenshots and pushed file when setup fails.
 def ensure_user_ca(driver, adb, ca: bytes, display_name: str, evidence_dir: Path, *, device_path: str = DEVICE_CA_PATH,
-                   timeout: float = 20, labels: CaSettingsLabels | None = None) -> CaOutcome:
+                   timeout: float = 20, labels: CaSettingsLabels | None = None, outcome: CaOutcome | None = None) -> CaOutcome:
     labels = labels or CaSettingsLabels()
-    outcome = CaOutcome()
+    outcome = outcome if outcome is not None else CaOutcome()
     try:
         if user_ca_listed(driver, adb, display_name, labels, timeout):
             outcome.action = "already_installed"

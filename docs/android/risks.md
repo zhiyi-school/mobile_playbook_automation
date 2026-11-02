@@ -307,6 +307,52 @@ How the test differs from the playbook's demonstration:
 - It performs the playbook's sensitive user actions only for apps with scripted steps. Without them it tests start-up and idle logging, which cannot reach screens behind a sign-in or a payment.
 - It recognises control 01 by the warning words on the app's screen. An app that blocks USB debugging some other way, such as exiting without a message, is reported by its log alone.
 
+## android-feature-03-risk-01
+
+`android-feature-03-risk-01` demonstrates what an HTTP proxy can collect from the app's network traffic, following the playbook: with the device's global HTTP proxy pointed at Burp and Burp's CA installed as a user CA, the app's requests and responses pass through Burp, so any credentials, tokens or personal data in them can be read. The playbook's controls are certificate pinning, for example with OkHttp's `CertificatePinner` (control 01), and detecting an active proxy and stopping the app (control 02).
+
+Requires: `adb`, `appium` and `burp`, so with Corellium role devices it runs on the non-rooted device, and a single physical phone runs it as is. Burp must be running with a proxy listener bound to all interfaces on the port in `tools.burp_proxy` (the playbook uses 8081), and with the traffic capture extension loaded (see [content capture](../ios/risks.md#content-capture)). Device setup is in `platforms/android/traffic_interception/`; the Settings labels it follows are One UI's, as seen on a Galaxy A34 running Android 16, and installing a user CA there needs no screen lock.
+
+Stages:
+
+1. Record `metadata.installed_base_apk_sha256`.
+2. **Step 03.** Point the device's global HTTP proxy at Burp with `adb shell settings put global http_proxy <HOST_IP>:<port>`. `<HOST_IP>` is this host's LAN address, or `proxy_host` when set. `metadata.device_proxy` records the proxy the device had before and the one set.
+3. **Step 04.** Download Burp's CA in DER format from `http://burp/cert` through the listener, or read the file `ca_cert_path` names, exported from Burp in DER or PEM format.
+4. **Steps 05 and 06.** Open View security certificates on its User tab. When it lists `ca_display_name` (`PortSwigger CA` by default), the CA is already trusted and nothing is installed. Otherwise copy the CA to `/sdcard/Download/ca.crt` with `adb push`, search Settings for "CA certificate", open it, press Install anyway (`ca_install_warning.png`), choose `ca.crt` in the file picker, and confirm User lists the CA (`ca_user_certificates.png`). A different file already at `/sdcard/Download/ca.crt` is never overwritten: the run stops with `CA_PATH_OCCUPIED`. The CA stays installed after the run. `metadata.ca` records the `action` (`already_installed` or `installed`) and whether the file was copied.
+5. Open `https://example.com` in Chrome, which trusts user CAs, and wait for Burp's capture file to record it decrypted. This checks the proxy, the CA and the extension together, so a broken setup is reported as `INTERCEPTION_NOT_VERIFIED` rather than mistaken for an app that resists interception. `metadata.interception_check` records the result.
+6. Arm the extension's content capture for the listener's port, so Burp records each exchange in full while the app runs.
+7. **Step 07.** Stop the app, open it, wait `launch_wait` seconds and screenshot it (`app_launched.png`). When it is in the foreground, check its screen for a proxy or VPN warning (control 02); `metadata.proxy_warning` lists the words found. Without a warning, run the app's scripted `steps` with synthetic canary values, as `android-feature-02-risk-02` does, or without steps leave it running for `dwell_seconds`. Wait `traffic_wait_seconds` for its last requests, then close it. `metadata.coverage` is `launch_only`, `scripted` or `scripted_partial`.
+8. **Step 08.** Stop recording and read the exchanges recorded through the listener. An exchange is the app's when its host is one of `expected_hosts` or their subdomains, or when it carries a canary the steps typed; the device-wide proxy also carries other apps' traffic, which is left out. Scan each of the app's exchanges, in its URL, headers and bodies, for:
+   - every canary typed, in the forms `android-feature-02-risk-02` looks for (`CANARY_VALUE`);
+   - the values of `Authorization`, `Cookie`, `Set-Cookie` and other credential headers (`SENSITIVE_HEADER`);
+   - secrets, with the shared secret scanner, and personal data, as `android-feature-07-risk-01` finds it.
+9. Write `intercepted_traffic.json` with the app's exchanges, every value found masked unless `reveal_values` is true, `intercepted_traffic_findings.json` and the critical findings. Delete the raw capture, which holds unmasked request bodies, unless `keep_raw` is true, which keeps a copy under `artifacts/work/android/traffic_interception/<package>/` (`metadata.raw_capture`).
+10. Reset the proxy with `:0`, as the playbook does, or put back the proxy the device had before, and delete `ca.crt` from the device when this run copied it there.
+
+Verdicts:
+
+- `SENSITIVE_DATA_INTERCEPTED` (**At Risk**): the app's traffic was read through Burp and carried a canary, a credential header, a secret or personal data.
+- `TRAFFIC_INTERCEPTED` (**At Risk**): the app's traffic was read through Burp. Any decrypted or cleartext exchange of the app's is At Risk, whether or not it carries sensitive data, and whatever warning the app showed or step failed.
+- `PROXY_DETECTED` (**Reduced Risk**): the app showed a proxy or VPN warning and none of its traffic was read.
+- `SCRIPTED_STEPS_INCOMPLETE` (**Inconclusive**): a scripted step failed and none of the app's traffic was read.
+- `APP_TRAFFIC_NOT_IDENTIFIED` (**Inconclusive**): Burp read traffic, but none to an expected host or carrying a canary; `errors` lists the hosts seen, so `expected_hosts` can be set.
+- `TRAFFIC_INTERCEPTION_NOT_OBSERVED` (**Inconclusive**): Burp read nothing while the app ran. Apps that target Android 7 and later do not trust user CAs unless their network security configuration allows it, so most release builds end here whether or not they pin certificates; the result does not show pinning.
+- `INTERCEPTION_NOT_VERIFIED`, `CA_UNAVAILABLE`, `CA_PATH_OCCUPIED`, `CA_PUSH_FAILED`, `CA_INSTALL_UI_FAILED`, `CA_NOT_TRUSTED`, `DEVICE_PROXY_SET_FAILED`, `CONTENT_CAPTURE_BUSY` (**Inconclusive**): setup did not finish, so the app was not tested; `errors` and `metadata.setup_failure` say why. Settings failures save `ca_setup_failure.png` and `ca_setup_failure.xml`.
+- `DEVICE_PROXY_RESTORE_FAILED` (**Inconclusive**): the proxy could not be reset. An At Risk result keeps its verdict and says so in `errors`. Either way, reset it with `adb shell settings put global http_proxy :0`.
+- `FAILED` (**Inconclusive**): Appium or adb failed unexpectedly; `errors` says how.
+
+Report files: `intercepted_traffic.json` (`intercepted_traffic` evidence), `intercepted_traffic_findings.json` with the masked findings and their occurrences (`intercepted_traffic_findings` evidence), the screenshots above, and `critical_findings.json` and `critical_findings.md` (headed "Android Traffic Interception Critical Findings"). The critical findings are `TRAFFIC_INTERCEPTED`, HIGH when any exchange was cleartext HTTP and MEDIUM otherwise, and `SENSITIVE_DATA_IN_INTERCEPTED_TRAFFIC`, with the highest severity found. `metadata` also records `app_hosts`, `other_hosts`, `app_exchange_count`, `cleartext_exchange_count`, `finding_count`, `canaries_found`, `capture` and `foreground_package`.
+
+How the test differs from the playbook's demonstration:
+
+- Burp's listener is set up by hand, as in step 02, and its CA is downloaded from `http://burp/cert` rather than exported from Burp's interface; both give the same DER certificate.
+- The CA is installed only when Settings does not already list it, and stays installed after the run. The playbook does not say whether to remove it.
+- When the device already had a proxy, that proxy is put back instead of `:0`.
+- Chrome's check of the setup is not in the playbook. It tells a broken setup from an app that resists interception.
+- The playbook inspects Burp's history by hand. The test reads the exchanges the extension records and judges them by scanning, keeping only the app's by host or canary because the proxy is device-wide.
+- It performs the playbook's sensitive user action only for apps with scripted steps. Without them it tests what the app sends on start-up and while idle.
+- It recognises control 02 by warning words on the app's screen. An app that blocks a proxy some other way, such as exiting without a message, is judged by its traffic alone. Control 01 shows as `TRAFFIC_INTERCEPTION_NOT_OBSERVED`, which a user CA the app does not trust also produces.
+
 ## android-feature-07-risk-01
 
 `android-feature-07-risk-01` demonstrates what a rooted device can collect from the app's private data directory, following the playbook: root lists `/data/data/<package>` and reads the files in it. Root can read every app's private files, so the test asks whether the app keeps sensitive data there in plain text, or protects it as the playbook's control does, by encrypting it with a key held in the Android Keystore.

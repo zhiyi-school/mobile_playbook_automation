@@ -141,6 +141,53 @@ android-feature-02-risk-02:
           images: []
           commands: []
 
+android-feature-03-risk-01:
+  name: Android HTTP Proxy Traffic Interception Test
+  description: With the device's HTTP proxy pointed at Burp and Burp's CA installed as a user CA, the app's network traffic can be intercepted, so credentials, tokens or personal data it sends or receives can be collected.
+  tactic: Collection
+  demonstration:
+    - id: setup_table
+      type: table
+      label: Setup
+      rows:
+        - Configuration: Requires
+          Detail: adb, Appium and Burp Suite with a proxy listener on port 8081 bound to all interfaces and the traffic capture extension loaded (with Corellium role devices, the non-rooted device; tested on a physical Galaxy A34 with One UI 8.5)
+        - Configuration: CA trust
+          Detail: Burp's CA is installed as a user CA through Settings, as the playbook does; apps targeting Android 7 and later trust user CAs only when their network security configuration allows it
+    - id: steps
+      type: steps
+      label: Demonstration
+      items:
+        - id: step_1
+          text: Point the device's global HTTP proxy at Burp's listener on this host
+          images: []
+          commands:
+            - adb shell settings put global http_proxy <HOST_IP>:8081
+        - id: step_2
+          text: Download Burp's CA certificate in DER format through its listener, and copy it to the device's Download folder unless it is already listed under User certificates
+          images: []
+          commands:
+            - GET http://burp/cert
+            - adb push ca.crt /sdcard/Download/ca.crt
+        - id: step_3
+          text: Install the CA through Settings search for CA certificate, Install anyway and the file picker, and confirm it is listed under View security certificates > User
+          images: []
+          commands: []
+        - id: step_4
+          text: Open https://example.com in Chrome and confirm Burp records it decrypted, so a broken setup is not mistaken for an app resisting interception
+          images: []
+          commands:
+            - adb shell am start -a android.intent.action.VIEW -d https://example.com -p com.android.chrome
+        - id: step_5
+          text: Have Burp record full exchanges, open the app, check its screen for a proxy warning, then take it through its scripted sign-in steps with canary values, or leave it running for dwell_seconds
+          images: []
+          commands: []
+        - id: step_6
+          text: Keep the exchanges to the app's expected hosts or carrying a canary, scan them for credentials, tokens and personal data, write intercepted_traffic.json with values masked, intercepted_traffic_findings.json and the critical findings, then reset the proxy
+          images: []
+          commands:
+            - adb shell settings put global http_proxy :0
+
 android-feature-04-risk-01:
   name: Android Overlay Test
   description: Another app allowed to display over other apps may draw its own window over the app's screens, because the app does not hide non-system overlay windows while it is shown.

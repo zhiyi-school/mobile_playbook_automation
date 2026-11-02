@@ -114,6 +114,16 @@ A screenshot that could not be saved is listed under `metadata.evidence_errors` 
 - `critical_findings.json` and `critical_findings.md`, the ranked flags
 - the unfiltered capture under `artifacts/work/android/runtime_logs/<package>/`, only when `keep_raw` is true
 
+`android-feature-03-risk-01`:
+
+- `report.json`
+- `logs.txt`
+- `intercepted_traffic.json`, the app's requests and responses read through Burp, with the sensitive values found masked unless `reveal_values` is true
+- `intercepted_traffic_findings.json`, each value found with where it was and its number of occurrences
+- `ca_install_warning.png` and `ca_user_certificates.png` when the CA was installed, `ca_setup_failure.png` and `ca_setup_failure.xml` when Settings could not be driven, and `app_launched.png`
+- `critical_findings.json` and `critical_findings.md`, the ranked flags
+- a copy of the raw capture under `artifacts/work/android/traffic_interception/<package>/`, only when `keep_raw` is true
+
 `android-feature-07-risk-01`:
 
 - `report.json`
@@ -155,6 +165,12 @@ Each test's `report.json` (and `logs.txt`) carries one of these precise statuses
 - `SCRIPTED_STEPS_INCOMPLETE`: a scripted step failed and nothing sensitive was logged, so the flow the steps lead to was not tested. Reported as Inconclusive.
 - `NO_SENSITIVE_DATA_LOGGED`: the app logged lines and none held a sensitive value. Reported as Reduced Risk; `metadata.coverage` says whether scripted steps ran or the app was only launched.
 - `NO_APP_LOGS`: the app ran but wrote nothing to the log. Reported as Reduced Risk.
+- `SENSITIVE_DATA_INTERCEPTED`: the app's traffic was read through Burp and carried a canary, a credential header, a secret or personal data. Reported as At Risk.
+- `TRAFFIC_INTERCEPTED`: the app's traffic was read through Burp, with nothing sensitive found in it. Reported as At Risk.
+- `PROXY_DETECTED`: the app showed a proxy or VPN warning and none of its traffic was read. Reported as Reduced Risk.
+- `APP_TRAFFIC_NOT_IDENTIFIED`: Burp read traffic, but none to the app's `expected_hosts` or carrying a canary. Reported as Inconclusive.
+- `TRAFFIC_INTERCEPTION_NOT_OBSERVED`: Burp read nothing while the app ran; the app may not trust user CAs, may pin certificates or may bypass the proxy. Reported as Inconclusive.
+- `INTERCEPTION_NOT_VERIFIED`, `CA_UNAVAILABLE`, `CA_PATH_OCCUPIED`, `CA_PUSH_FAILED`, `CA_INSTALL_UI_FAILED`, `CA_NOT_TRUSTED`, `DEVICE_PROXY_SET_FAILED`, `CONTENT_CAPTURE_BUSY`, `DEVICE_PROXY_RESTORE_FAILED`: traffic interception setup or cleanup did not finish; see [Risks](risks.md#android-feature-03-risk-01). Reported as Inconclusive.
 - `FAILED`: unexpected Android automation failure.
 
 `summary.md`'s `Status` column doesn't show these directly — it shows a 3-way security verdict (`AndroidRiskRunResult.verdict`) that each risk sets itself, alongside `final_status`, at the point it decides the outcome: **At Risk** (the risk was demonstrated, e.g. `SCREEN_CAPTURE_ALLOWED`/`REPACKAGING_SURVIVED`), **Reduced Risk** (the app mitigated it, e.g. `SCREEN_CAPTURE_BLOCKED`/`REPACKAGING_BLOCKED`), or **Inconclusive** — the field's default, and what `REPACKAGING_FAILED`/`FAILED` leave it as. The precise underlying status is always still in that test's `report.json`.
