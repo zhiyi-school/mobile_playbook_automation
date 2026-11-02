@@ -1,19 +1,16 @@
 from __future__ import annotations
 
-import re
-
 import pytest
 
-from mobile_playbook.platforms.android.device import accessibility_settings
+from mobile_playbook.platforms.android.device import accessibility_settings, settings_ui
 from mobile_playbook.platforms.android.device.accessibility_attacker import ATTACKER_APP, ATTACKER_LABEL, SERVICE_COMPONENT
 from mobile_playbook.platforms.android.device.accessibility_service import AccessibilityAttackerError, AccessibilitySettings, ServiceApp
+from tests.platforms.android.settings_ui_fakes import TAP_TARGETS, Element, SettingsDriver
 from mobile_playbook.platforms.android.device.accessibility_settings import (
     ACCESSIBILITY_DETAILS_ACTION,
     ACCESSIBILITY_SETTINGS_ACTION,
     COMPONENT_NAME_EXTRA,
     SettingsLabels,
-    _tap,
-    _text_matcher,
     enable_service,
     open_service_page,
     show_service_listed,
@@ -22,77 +19,6 @@ from mobile_playbook.platforms.android.device.accessibility_settings import (
 BEFORE = AccessibilitySettings(enabled_services=None, accessibility_enabled="0")
 LIST_ACTION = ["shell", "am", "start", "-a", ACCESSIBILITY_SETTINGS_ACTION]
 DETAILS_ACTION = ["shell", "am", "start", "-a", ACCESSIBILITY_DETAILS_ACTION, "--es", COMPONENT_NAME_EXTRA, SERVICE_COMPONENT]
-
-
-# Elements register their centre so an adb `input tap` at that point reaches the element the code tapped by its bounds.
-TAP_TARGETS: dict[tuple[int, int], "Element"] = {}
-
-
-class Element:
-    _next = 0
-
-    def __init__(self, text="", cls="android.widget.TextView", checked=None, enabled=True, offscreen=False, on_click=None):
-        self.text = text
-        self.cls = cls
-        self.checked = checked
-        self.enabled = enabled
-        self.offscreen = offscreen
-        self.on_click = on_click
-        self.clicks = 0
-        Element._next += 20
-        self.cx, self.cy = 100, Element._next
-        TAP_TARGETS[(self.cx, self.cy)] = self
-
-    def get_attribute(self, name):
-        if name == "bounds":
-            return f"[{self.cx - 5},{self.cy - 5}][{self.cx + 5},{self.cy + 5}]"
-        value = {"checked": self.checked, "enabled": self.enabled}[name]
-        return None if value is None else str(value).lower()
-
-    def tapped(self):
-        self.clicks += 1
-        if self.on_click:
-            self.on_click(self)
-
-    # Appium click is unused now; the code taps through adb, but keep it so a stray call is still noticed.
-    def click(self):
-        self.tapped()
-
-
-class SettingsDriver:
-    """Fake Appium driver showing one Settings screen at a time; UiSelector text regexes are evaluated as Java would."""
-
-    def __init__(self, screens, screen, scrollable=True, screenshots_work=True):
-        self.screens = screens
-        self.screen = screen
-        self.scrollable = scrollable
-        self.screenshots_work = screenshots_work
-        self.screenshots: list[str] = []
-        self.polls = 0
-
-    def find_elements(self, by, value):
-        self.polls += 1
-        elements = self.screens.get(self.screen, [])
-        if by == "class name":
-            return [element for element in elements if element.cls == value and not element.offscreen]
-        assert by == "-android uiautomator"
-        scrolling = value.startswith("new UiScrollable")
-        if scrolling and not self.scrollable:
-            raise RuntimeError("UiScrollable found no scrollable view")
-        pattern = _python_pattern(value)
-        return [element for element in elements if pattern.fullmatch(element.text) and (scrolling or not element.offscreen)]
-
-    def get_screenshot_as_file(self, path):
-        self.screenshots.append(path.rsplit("/", 1)[1])
-        return self.screenshots_work
-
-
-def _python_pattern(selector: str) -> re.Pattern:
-    literal = re.search(r'textMatches\("((?:[^"\\]|\\.)*)"\)', selector)[1]
-    java = literal.replace('\\"', '"').replace("\\\\", "\\")
-    assert java.startswith("(?i)")
-    python = re.sub(r"\\Q(.*?)\\E", lambda match: re.escape(match[1]), java[4:])
-    return re.compile(python, re.IGNORECASE)
 
 
 def _am_starts(adb):
@@ -139,6 +65,7 @@ class Attacker:
 @pytest.fixture(autouse=True)
 def no_waiting(monkeypatch):
     monkeypatch.setattr(accessibility_settings, "POLL_SECONDS", 0)
+    monkeypatch.setattr(settings_ui, "POLL_SECONDS", 0)
     TAP_TARGETS.clear()
 
 
@@ -303,9 +230,6 @@ def test_a_details_page_refused_to_the_shell_falls_back_to_secure_settings(tmp_p
     assert outcome.ui_failures[1] == "details_page: Exception occurred while executing 'start':"
 
 
-def test_the_text_matcher_has_no_backslashes_for_appiums_parser():
-    assert "\\" not in _text_matcher(("Grant access", "Don't allow", 'Say "yes"'))
-
 
 def test_a_disabled_switch_is_reported_as_a_restricted_setting_and_falls_back(tmp_path):
     adb, attacker, driver = setup()
@@ -365,16 +289,6 @@ def test_missing_screenshots_are_recorded_without_stopping(tmp_path):
     assert outcome.evidence_errors[0] == "accessibility_settings.png: Appium did not save the file"
 
 
-def test_the_text_matcher_matches_whole_texts_ignoring_case_and_escapes_quotes():
-    selector = _text_matcher(("Grant access", 'Say "yes" (1)'))
-    pattern = _python_pattern(selector)
-
-    assert selector.startswith('new UiSelector().textMatches("(?i)(')
-    assert pattern.fullmatch("GRANT ACCESS")
-    assert pattern.fullmatch('say "YES" (1)')
-    assert not pattern.fullmatch("Grant access now")
-
-
 def test_grant_access_is_not_tapped_until_the_countdown_enables_it(tmp_path):
     adb, attacker, driver = setup()
     grant_taps = []
@@ -386,26 +300,6 @@ def test_grant_access_is_not_tapped_until_the_countdown_enables_it(tmp_path):
 
     assert outcome.method == "settings_ui"
     assert grant_taps and all(was_enabled for was_enabled in grant_taps)
-
-
-def test_tap_reads_the_element_centre_from_its_bounds():
-    taps = []
-    adb = Adb()
-    adb.run = lambda args, timeout=None: taps.append(args) or (0, "", "")
-    _tap(adb, Element())
-
-    tap = taps[-1]
-    assert tap[:3] == ["shell", "input", "tap"]
-    assert tap[3].isdigit() and tap[4].isdigit()
-
-
-def test_tap_fails_when_the_bounds_cannot_be_read():
-    class NoBounds:
-        def get_attribute(self, name):
-            return None
-
-    with pytest.raises(AccessibilityAttackerError, match="could not read the element bounds"):
-        _tap(Adb(), NoBounds())
 
 
 OTHER_APP = ServiceApp(package="com.example.spy", version="1.0", apk_name="Spy.apk", label="Example Spy",

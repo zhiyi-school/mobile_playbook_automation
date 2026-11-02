@@ -6,7 +6,6 @@ to its details page and then to secure settings when the Settings pages cannot b
 from __future__ import annotations
 
 import logging
-import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -17,6 +16,7 @@ from mobile_playbook.platforms.android.device.accessibility_service import (
     AccessibilityServiceControl,
     AccessibilitySettings,
 )
+from mobile_playbook.platforms.android.device.settings_ui import find_text, tap_element
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +24,6 @@ ACCESSIBILITY_SETTINGS_ACTION = "android.settings.ACCESSIBILITY_SETTINGS"
 SETTINGS_PACKAGE = "com.android.settings"
 ACCESSIBILITY_DETAILS_ACTION = "android.settings.ACCESSIBILITY_DETAILS_SETTINGS"
 COMPONENT_NAME_EXTRA = "android.intent.extra.COMPONENT_NAME"
-UIAUTOMATOR = "-android uiautomator"
 SWITCH_CLASS = "android.widget.Switch"
 CHECKBOX_CLASS = "android.widget.CheckBox"
 POLL_SECONDS = 0.5
@@ -71,7 +70,7 @@ def enable_service(driver, attacker: AccessibilityServiceControl, before: Access
     entry = find_service_entry(driver, labels, timeout)
     _screenshot(driver, evidence_dir / "accessibility_settings.png", "accessibility_settings", "Accessibility settings", outcome)
     if entry is not None:
-        _tap(adb, entry)
+        tap_element(adb, entry)
         _screenshot(driver, evidence_dir / "accessibility_service_page.png", "accessibility_service_page", "Attacker service page", outcome)
         failure = _turn_on(driver, attacker, labels, timeout, evidence_dir, outcome)
         if failure is None:
@@ -121,13 +120,13 @@ def open_service_page(driver, labels: SettingsLabels, timeout: float) -> bool:
 def find_service_entry(driver, labels: SettingsLabels, timeout: float):
     deadline = time.monotonic() + timeout
     while True:
-        entry = _find_text(driver, (labels.service,), 0)
+        entry = find_text(driver, (labels.service,), 0)
         if entry is not None:
             return entry
-        category = _find_text(driver, labels.categories, 0)
+        category = find_text(driver, labels.categories, 0)
         if category is not None:
             category.click()
-            return _find_text(driver, (labels.service,), max(0.0, deadline - time.monotonic()))
+            return find_text(driver, (labels.service,), max(0.0, deadline - time.monotonic()))
         if time.monotonic() >= deadline:
             return None
         time.sleep(POLL_SECONDS)
@@ -190,14 +189,14 @@ def _turn_on(driver, attacker: AccessibilityServiceControl, labels: SettingsLabe
         return None
     if checked not in ("true", "false"):
         return "the service switch has no readable checked state"
-    _tap(adb, switch)
+    tap_element(adb, switch)
     consent_seen = False
     deadline = time.monotonic() + timeout
     while True:
         if attacker.is_enabled():
             return None
         boxes = [box for box in driver.find_elements("class name", CHECKBOX_CLASS) if str(box.get_attribute("checked")).lower() == "false"]
-        allow = _find_text(driver, labels.allow, 0, scroll=False)
+        allow = find_text(driver, labels.allow, 0, scroll=False)
         if (boxes or allow is not None) and not consent_seen:
             consent_seen = True
             _screenshot(driver, evidence_dir / "accessibility_consent.png", "accessibility_consent", "Accessibility consent prompt", outcome)
@@ -206,51 +205,12 @@ def _turn_on(driver, attacker: AccessibilityServiceControl, labels: SettingsLabe
         # unticked box is tapped and Grant is tapped once it is enabled, each pass, until the service is listed.
         for box in boxes:
             if str(box.get_attribute("enabled")).lower() != "false":
-                _tap(adb, box)
+                tap_element(adb, box)
         if allow is not None and str(allow.get_attribute("enabled")).lower() != "false":
-            _tap(adb, allow)
+            tap_element(adb, allow)
         if time.monotonic() >= deadline:
             return f"the service was not enabled within {timeout:g}s of flipping its switch" + ("" if consent_seen else "; no consent prompt was recognised")
         time.sleep(POLL_SECONDS)
-
-
-# Tap an element's centre through adb, from its reported bounds, bypassing UiAutomator2's per-tap wait for the window
-# to be idle, which never ends on HarmonyOS's Settings.
-def _tap(adb, element) -> None:
-    bounds = element.get_attribute("bounds")
-    numbers = [int(value) for value in re.findall(r"-?\d+", bounds or "")]
-    if len(numbers) != 4:
-        raise AccessibilityAttackerError(f"could not read the element bounds to tap: {bounds!r}")
-    x1, y1, x2, y2 = numbers
-    _shell(adb, ["input", "tap", str((x1 + x2) // 2), str((y1 + y2) // 2)])
-
-
-# Find the first element whose whole text matches one of the given texts, ignoring case, scrolling the page if allowed.
-def _find_text(driver, texts: tuple[str, ...], timeout: float, scroll: bool = True):
-    matcher = _text_matcher(texts)
-    selectors = [matcher]
-    if scroll:
-        selectors.insert(0, f"new UiScrollable(new UiSelector().scrollable(true)).scrollIntoView({matcher})")
-    deadline = time.monotonic() + timeout
-    while True:
-        for selector in selectors:
-            try:
-                found = driver.find_elements(UIAUTOMATOR, selector)
-            except Exception as exc:
-                logger.debug("android accessibility settings: selector %s failed: %s", selector, exc)
-                found = []
-            if found:
-                return found[0]
-        if time.monotonic() >= deadline:
-            return None
-        time.sleep(POLL_SECONDS)
-
-
-# Build a UiSelector matching any of the texts exactly, ignoring case, as a Java expression for UiAutomator.
-# Appium's selector parser keeps backslashes, so other characters become "." rather than being escaped.
-def _text_matcher(texts: tuple[str, ...]) -> str:
-    pattern = "(?i)(" + "|".join("".join(char if char.isalnum() or char == " " else "." for char in text) for text in texts) + ")"
-    return f'new UiSelector().textMatches("{pattern}")'
 
 
 # Return the first line of a command's output, which for a failed am start names the reason.
