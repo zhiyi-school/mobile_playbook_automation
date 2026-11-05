@@ -145,7 +145,8 @@ class AndroidPlatformRunner:
                       if isinstance(build, StoreBuild) and build.app_id not in apks}
         for app_id, (role, build) in store_only.items():
             app = next(item for item, _ in planned if str(item.id) == app_id)
-            pulled = session.pull_base_apk(role, build.package, android_work_dir() / "phone_builds" / build.package.replace(".", "_"))
+            pulled = session.pull_base_apk(role, build.package, android_work_dir() / "phone_builds" / build.package.replace(".", "_"),
+                                           session.installed[(role, app_id)].sha256)
             if pulled is None:
                 logger.warning("Could not copy the store build of %s from the phone, so the run's artifact may name "
                                "another build of it.", app_id)

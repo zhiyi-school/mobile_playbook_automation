@@ -281,18 +281,28 @@ class BaselineSession:
         return record
 
     # Copy the base APK of the app installed on a role device into destination and return it, or None when the device
-    # lists no base APK or the copy fails; an earlier copy there is replaced.
-    def pull_base_apk(self, role: str, package: str, destination: Path) -> Path | None:
+    # lists no base APK, both attempts fail or the copy is not the installed build; an earlier copy there is replaced.
+    def pull_base_apk(self, role: str, package: str, destination: Path, sha256: str | None) -> Path | None:
         adb = self.pool.device(role).client.adb
-        base = next((path for path in installed_apk_paths(adb, package) if path.endswith("/base.apk")), None)
-        if base is None:
-            return None
         destination.mkdir(parents=True, exist_ok=True)
         target = destination / "base.apk"
-        target.unlink(missing_ok=True)
-        code, _, err = adb.run(["pull", base, str(target)], timeout=120)
-        if code != 0 or not target.is_file():
-            logger.debug("android baseline: pulling %s from the %s device failed (exit %s): %s", base, role, code, err)
+        # A pull that fails as the phone's connection drops reports only its progress, so adb never moves to the
+        # backup connection for it; the second attempt's commands find the drop and move.
+        for attempt in (1, 2):
+            target.unlink(missing_ok=True)
+            base = next((path for path in installed_apk_paths(adb, package) if path.endswith("/base.apk")), None)
+            if base is None:
+                return None
+            code, _, err = adb.run(["pull", base, str(target)], timeout=120)
+            if code == 0 and target.is_file():
+                break
+            logger.debug("android baseline: pull %s of %s from the %s device failed (exit %s): %s", attempt, base, role,
+                         code, err)
+        else:
+            return None
+        if sha256 is not None and artifact_digest(target) != sha256:
+            logger.warning("The copy of %s from the %s device is not the build installed there.", package, role)
+            target.unlink(missing_ok=True)
             return None
         return target
 

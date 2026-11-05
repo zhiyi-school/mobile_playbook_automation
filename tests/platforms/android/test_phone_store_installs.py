@@ -1,3 +1,5 @@
+import pathlib
+
 import pytest
 
 from mobile_playbook.platforms.android.acquisition import play_store
@@ -181,15 +183,50 @@ def test_an_app_also_tested_on_a_vm_keeps_its_intake_apk_as_the_artifact(bench, 
     assert phone_commands(bench, "pull") == []
 
 
-def test_a_store_build_that_cannot_be_copied_still_lets_the_run_finish(bench, store, tmp_path, caplog):
-    original = bench.adb._answer
+def refuse_pulls(bench, count):
+    original, refused = bench.adb._answer, []
 
-    def refuse_pull(serial, args):
-        if serial == PHONE_SERIAL and args[:1] == ["pull"]:
-            return 1, "", "adb: error: failed to copy"
+    def answer(serial, args):
+        if serial == PHONE_SERIAL and args[:1] == ["pull"] and len(refused) < count:
+            refused.append(args)
+            return 1, "", f"[  0%] {args[1]}"
         return original(serial, args)
 
-    bench.adb._answer = refuse_pull
+    bench.adb._answer = answer
+    return refused
+
+
+def test_a_copy_that_fails_once_is_retried(bench, store, tmp_path):
+    refused = refuse_pulls(bench, 1)
+
+    outcome = run(bench, tmp_path, PLAIN)
+
+    assert len(refused) == 1 and len(phone_commands(bench, "pull")) == 2
+    assert read_manifest(outcome.run_dir)["artifacts"]["one"] == base_apk_sha256(PACKAGE, PLAY_VERSION)
+
+
+def test_a_copy_that_is_not_the_installed_build_is_discarded(bench, store, tmp_path, caplog):
+    from mobile_playbook.common.storage_paths import android_work_dir
+
+    original = bench.adb._answer
+
+    def truncated(serial, args):
+        answer = original(serial, args)
+        if serial == PHONE_SERIAL and args[:1] == ["pull"]:
+            pathlib.Path(args[2]).write_bytes(b"truncated")
+        return answer
+
+    bench.adb._answer = truncated
+
+    with caplog.at_level("WARNING"):
+        run(bench, tmp_path, PLAIN)
+
+    assert "is not the build installed there" in caplog.text
+    assert not (android_work_dir() / "phone_builds/com_example_one/base.apk").exists()
+
+
+def test_a_store_build_that_cannot_be_copied_still_lets_the_run_finish(bench, store, tmp_path, caplog):
+    refuse_pulls(bench, 2)
 
     with caplog.at_level("WARNING"):
         outcome = run(bench, tmp_path, PLAIN)

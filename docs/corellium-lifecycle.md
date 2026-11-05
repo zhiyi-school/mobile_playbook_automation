@@ -314,7 +314,10 @@ restores, starts and installs nothing. For a run that needs devices, in order:
    tested only on the phone's store build, the run copies the installed
    `base.apk` to `<work>/android/phone_builds/<package>/` and its `artifacts`
    digest and icon come from that copy, matching the SHA-256 in
-   `app_installed`; if the copy fails, the run warns and continues. When an app's
+   `app_installed`. A failed copy is tried once more, which also moves it to
+   the phone's backup adb connection when the one in use dropped; a copy whose
+   SHA-256 is not the installed build's is discarded, and when no copy is
+   made the run warns and continues. When an app's
    devices report different versions, the run logs and records an
    `app_versions_differ` warning, and the run's tested version is the VMs'
    intake version, which its `artifacts` digest names.
