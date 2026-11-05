@@ -77,8 +77,9 @@ class Phone:
         return [command for command in self.commands if command[0] == "push"]
 
 
-def one_ui(installed=False, picker_opens_in_download=False, warning_appears=True, done_installs=True):
-    """The One UI 8.5 screens met on the way to installing a CA certificate, as seen on a Galaxy A34."""
+def one_ui(installed=False, picker_opens_in_download=False, warning_appears=True, done_installs=True, search_field="android.widget.AutoCompleteTextView"):
+    """The One UI 8.5 screens met on the way to installing a CA certificate, as seen on a Galaxy A34, whose Settings
+    search field is an AutoCompleteTextView; AOSP's is an EditText."""
     driver = SettingsDriver({}, "home")
     state = {"installed": installed}
     go = lambda screen: lambda element: setattr(driver, "screen", screen)  # noqa: E731
@@ -93,7 +94,7 @@ def one_ui(installed=False, picker_opens_in_download=False, warning_appears=True
     driver.screens.update({
         "home": [Element("Connections"), Element(desc="Search", on_click=go("search"))],
         "search": [
-            Element("developer", cls="android.widget.EditText"),
+            Element("developer", cls=search_field),
             Element("CA certificate", on_click=go("storage")),
             Element("More security settings > Install from device storage"),
         ],
@@ -272,6 +273,29 @@ def test_a_tap_is_not_repeated_while_settings_is_still_changing_page(tmp_path):
 
     assert "wifi_flow" not in state
     assert outcome.action == "installed"
+
+
+def test_an_aosp_edittext_search_field_works_too(tmp_path):
+    driver, state = one_ui(search_field="android.widget.EditText")
+
+    outcome = ensure_user_ca(driver, Phone(driver), CA, DISPLAY_NAME, tmp_path, timeout=1)
+
+    assert outcome.action == "installed"
+    assert state["installed"] is True
+
+
+def test_the_search_query_is_never_taken_for_its_result(tmp_path):
+    # On the Galaxy A34 the search field itself reads "CA certificate" once typed; listed first here, it must be skipped.
+    driver, state = one_ui()
+    phone = Phone(driver)
+    # The field is tapped once to focus it before typing; a tap after typing would take the query for a result.
+    query = Element("CA certificate", cls="android.widget.AutoCompleteTextView", on_click=lambda element: phone.typed and state.update(query_tapped=True))
+    driver.screens["search"].insert(0, query)
+
+    ensure_user_ca(driver, phone, CA, DISPLAY_NAME, tmp_path, timeout=1)
+
+    assert "query_tapped" not in state
+    assert state["installed"] is True
 
 
 def test_settings_reopened_on_an_old_search_is_cleared_before_typing(tmp_path):

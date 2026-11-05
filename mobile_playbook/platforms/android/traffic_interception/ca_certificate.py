@@ -26,7 +26,8 @@ DEVICE_CA_PATH = "/sdcard/Download/ca.crt"
 SETTINGS_PACKAGE = "com.android.settings"
 SETTINGS_ACTION = "android.settings.SETTINGS"
 TRUSTED_CREDENTIALS_USER_ACTION = "com.android.settings.TRUSTED_CREDENTIALS_USER"
-EDIT_TEXT_CLASS = "android.widget.EditText"
+# AOSP Settings searches in an EditText; One UI uses an AutoCompleteTextView, which UiAutomator reports by its own name.
+TEXT_FIELD_CLASSES = ("android.widget.EditText", "android.widget.AutoCompleteTextView")
 POLL_SECONDS = 0.5
 SEARCH_BUTTON_SELECTOR = 'new UiSelector().descriptionMatches("(?i)search")'
 # Certificates Burp generates are about 1 KB; anything far outside this range is not one.
@@ -165,7 +166,7 @@ def install_user_ca(driver, adb, file_name: str, labels: CaSettingsLabels, timeo
 # Type the query into Settings search, opening the search field first when Settings shows its main page.
 def _search(driver, adb, query: str, timeout: float) -> None:
     deadline = time.monotonic() + timeout
-    while not (fields := driver.find_elements("class name", EDIT_TEXT_CLASS)):
+    while not (fields := _text_fields(driver)):
         button = driver.find_elements(UIAUTOMATOR, SEARCH_BUTTON_SELECTOR)
         if button:
             _tap_and_settle(driver, adb, button[0], SEARCH_BUTTON_SELECTOR, deadline)
@@ -213,9 +214,14 @@ def _tap_and_settle(driver, adb, element, selector: str, deadline: float) -> Non
 # result.
 def _labelled(driver, texts: tuple[str, ...]):
     for element in driver.find_elements(UIAUTOMATOR, text_matcher(texts)):
-        if element.get_attribute("class") != EDIT_TEXT_CLASS:
+        if element.get_attribute("class") not in TEXT_FIELD_CLASSES:
             return element
     return None
+
+
+# Return the text fields on the screen, of any class Settings uses for its search field.
+def _text_fields(driver) -> list:
+    return [field for cls in TEXT_FIELD_CLASSES for field in driver.find_elements("class name", cls)]
 
 
 # Start a Settings page fresh; Settings is stopped first because it otherwise reopens on the page it was left on.
