@@ -24,6 +24,11 @@ logger = logging.getLogger(__name__)
 BURP_CA_URL = "http://burp/cert"
 DEVICE_CA_PATH = "/sdcard/Download/ca.crt"
 SETTINGS_PACKAGE = "com.android.settings"
+# Settings' own pages and its search page, which Settings Intelligence draws.
+SETTINGS_SEARCH_PACKAGES = (SETTINGS_PACKAGE, "com.android.settings.intelligence")
+# File pickers the install opens inside Settings' task: One UI's My Files and the two DocumentsUI builds. Stopping
+# Settings leaves them in that task, so a picker left open would come back in front of Settings.
+FILE_PICKER_PACKAGES = ("com.sec.android.app.myfiles", "com.google.android.documentsui", "com.android.documentsui")
 SETTINGS_ACTION = "android.settings.SETTINGS"
 TRUSTED_CREDENTIALS_USER_ACTION = "com.android.settings.TRUSTED_CREDENTIALS_USER"
 # AOSP Settings searches in an EditText; One UI uses an AutoCompleteTextView, which UiAutomator reports by its own name.
@@ -163,10 +168,13 @@ def install_user_ca(driver, adb, file_name: str, labels: CaSettingsLabels, timeo
     _choose_file(driver, adb, file_name, labels, timeout)
 
 
-# Type the query into Settings search, opening the search field first when Settings shows its main page.
+# Type the query into Settings search, opening the search field first when Settings shows its main page. A text field
+# of another app in front of Settings is never typed into.
 def _search(driver, adb, query: str, timeout: float) -> None:
     deadline = time.monotonic() + timeout
-    while not (fields := _text_fields(driver)):
+    while not (fields := [field for field in _text_fields(driver) if field.get_attribute("package") in SETTINGS_SEARCH_PACKAGES]):
+        if others := sorted({str(field.get_attribute("package")) for field in _text_fields(driver)}):
+            raise RuntimeError(f"{', '.join(others)} was in front of Settings, so its search field was not used")
         button = driver.find_elements(UIAUTOMATOR, SEARCH_BUTTON_SELECTOR)
         if button:
             _tap_and_settle(driver, adb, button[0], SEARCH_BUTTON_SELECTOR, deadline)
@@ -224,9 +232,11 @@ def _text_fields(driver) -> list:
     return [field for cls in TEXT_FIELD_CLASSES for field in driver.find_elements("class name", cls)]
 
 
-# Start a Settings page fresh; Settings is stopped first because it otherwise reopens on the page it was left on.
+# Start a Settings page fresh; Settings and the file pickers are stopped first because Settings otherwise reopens on
+# the page, or the picker, it was left on.
 def _open_settings(adb, intent: list[str]) -> None:
-    adb.run(["shell", "am", "force-stop", SETTINGS_PACKAGE])
+    for package in (SETTINGS_PACKAGE, *FILE_PICKER_PACKAGES):
+        adb.run(["shell", "am", "force-stop", package])
     code, out, err = adb.run(["shell", "am", "start", *intent])
     if code != 0 or "Error" in (out or ""):
         raise RuntimeError(f"am start {' '.join(intent)} failed: {err or out}")

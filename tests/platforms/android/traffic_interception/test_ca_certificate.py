@@ -340,3 +340,52 @@ def test_a_different_file_at_the_ca_path_stops_before_settings_is_driven(tmp_pat
     assert error.value.status == "CA_PATH_OCCUPIED"
     assert phone.typed == []
     assert state["installed"] is False
+
+
+MY_FILES = "com.sec.android.app.myfiles"
+
+
+class PhoneWithStalePicker(Phone):
+    """Fake phone where My Files was left open in Settings' task: until it is stopped, Settings opens behind its search."""
+
+    def __init__(self, driver):
+        super().__init__(driver)
+        self.picker_open = True
+
+    def run(self, args, timeout=None):
+        if args == ["shell", "am", "force-stop", MY_FILES]:
+            self.picker_open = False
+        answer = super().run(args, timeout)
+        if args[:4] == ["shell", "am", "start", "-a"] and self.picker_open:
+            self.driver.screen = "my_files_search"
+        return answer
+
+
+def my_files_search():
+    return [Element("Search by name only"), Element("No results found"),
+            Element("", cls="android.widget.AutoCompleteTextView", package=MY_FILES)]
+
+
+def test_a_file_picker_left_open_is_stopped_before_settings_is_opened(tmp_path):
+    driver, state = one_ui()
+    driver.screens["my_files_search"] = my_files_search()
+    phone = PhoneWithStalePicker(driver)
+
+    outcome = ensure_user_ca(driver, phone, CA, DISPLAY_NAME, tmp_path, timeout=1)
+
+    assert outcome.action == "installed" and state["installed"] is True
+    assert phone.typed == ["CA%scertificate"]
+    stop = phone.commands.index(["shell", "am", "force-stop", MY_FILES])
+    assert stop < phone.commands.index(["shell", "am", "start", "-a", TRUSTED_CREDENTIALS_USER_ACTION])
+
+
+def test_another_apps_search_field_in_front_of_settings_is_never_typed_into(tmp_path):
+    driver, state = one_ui()
+    driver.screens["home"] = [Element("", cls="android.widget.EditText", package="com.example.notes")]
+    phone = Phone(driver)
+
+    with pytest.raises(TrafficInterceptionSetupError, match="com.example.notes was in front of Settings") as error:
+        ensure_user_ca(driver, phone, CA, DISPLAY_NAME, tmp_path, timeout=1)
+
+    assert error.value.status == "CA_INSTALL_UI_FAILED"
+    assert phone.typed == [] and state["installed"] is False

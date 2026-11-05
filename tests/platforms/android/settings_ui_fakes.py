@@ -13,8 +13,10 @@ TAP_TARGETS: dict[tuple[int, int], "Element"] = {}
 class Element:
     _next = 0
 
-    def __init__(self, text="", cls="android.widget.TextView", checked=None, enabled=True, offscreen=False, on_click=None, desc=""):
+    def __init__(self, text="", cls="android.widget.TextView", checked=None, enabled=True, offscreen=False, on_click=None, desc="",
+                 package="com.android.settings"):
         self.text = text
+        self.package = package
         self.desc = desc
         self.cls = cls
         self.checked = checked
@@ -29,8 +31,8 @@ class Element:
     def get_attribute(self, name):
         if name == "bounds":
             return f"[{self.cx - 5},{self.cy - 5}][{self.cx + 5},{self.cy + 5}]"
-        if name in ("class", "text"):
-            return {"class": self.cls, "text": self.text}[name]
+        if name in ("class", "text", "package"):
+            return {"class": self.cls, "text": self.text, "package": self.package}[name]
         value = {"checked": self.checked, "enabled": self.enabled}[name]
         return None if value is None else str(value).lower()
 
