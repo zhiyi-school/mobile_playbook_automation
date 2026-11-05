@@ -490,3 +490,37 @@ def test_the_backup_adb_connection_is_on_unless_turned_off():
 
 def test_a_backup_setting_that_is_not_true_or_false_is_rejected():
     assert "device.adb_backup must be true or false" in _errors({"adb_backup": "auto"})
+
+
+@pytest.mark.parametrize("store", ["play_store", "aurora_store", "apk"])
+def test_the_phone_serving_a_role_can_install_from_a_store(store):
+    config = parse_config({"device": _hybrid_device(phone_app_store=store), "apps": ["com.example.parking"]})
+
+    assert config.device.phone_app_store == store
+    assert config.device.app_store == "apk"
+    assert collect_config_errors(config) == []
+
+
+def test_phone_app_store_defaults_to_intake_apks():
+    assert parse_config({"device": _hybrid_device(), "apps": ["com.example.parking"]}).device.phone_app_store == "apk"
+    assert parse_config({}).device.phone_app_store == "apk"
+
+
+@pytest.mark.parametrize("store", ["galaxy_store", 1, ["play_store"]])
+def test_an_unknown_phone_app_store_is_rejected(store):
+    assert _errors(_hybrid_device(phone_app_store=store)) == [
+        "device.phone_app_store must be one of: apk, play_store, aurora_store"]
+
+
+@pytest.mark.parametrize("device", [
+    {"provider": "physical", "phone_app_store": "play_store"},
+    _baseline_device(phone_app_store="play_store"),
+], ids=["physical provider", "baseline roles without a phone"])
+def test_a_phone_app_store_needs_a_phone_role(device):
+    assert _errors(device) == [
+        "device.phone_app_store needs device.physical_roles; it chooses how apps are installed on that phone"]
+
+
+def test_the_vms_still_need_intake_apks_when_the_phone_uses_a_store():
+    assert _errors(_hybrid_device(app_store="play_store", phone_app_store="play_store")) == [
+        "device.app_store must be apk when device.corellium.roles is set, because each run installs the intake APK on its restored devices"]

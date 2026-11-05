@@ -1,5 +1,5 @@
 """
-Resolves the install method named by device.app_store and names the store apps that tamper checks treat as a redirect.
+Resolves the install method named by device.app_store or device.phone_app_store and names the store apps that tamper checks treat as a redirect.
 """
 
 from __future__ import annotations
@@ -65,3 +65,10 @@ STORE_APPS: dict[str, str] = {
 # Return the install method an Android config selects; the config loader has already rejected unknown names.
 def app_store_for(config) -> AppStore:
     return APP_STORES[config.device.app_store]
+
+
+# Return the install method for a device role: device.phone_app_store for a phone role, intake APKs for a VM role.
+def install_method_for(config, role: str) -> AppStore:
+    if role in config.device.physical_roles:
+        return APP_STORES[config.device.phone_app_store]
+    return APP_STORES["apk"]

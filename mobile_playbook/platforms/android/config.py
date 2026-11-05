@@ -102,6 +102,7 @@ def parse_config(raw: dict[str, Any], config_path: Path | None = None) -> Androi
             provider=str(device_raw.get("provider") or PHYSICAL_PROVIDER).strip().lower(),
             corellium=device_raw.get("corellium") or {},
             physical_roles=_physical_roles(device_raw.get("physical_roles")),
+            phone_app_store=device_raw.get("phone_app_store") or "apk",
         ),
         runner=AndroidRunnerConfig(
             work_dir=_configured_work_dir(runner_raw.get("work_dir") or paths_raw.get("work_dir")),
@@ -150,6 +151,7 @@ def collect_config_errors(config: AndroidGlobalConfig, dry_run: bool = False) ->
         if is_baseline_profile(config.device.corellium) and config.device.app_store != "apk":
             errors.append("device.app_store must be apk when device.corellium.roles is set, because each run installs the intake APK on its restored devices")
     errors.extend(_physical_role_errors(config.device))
+    errors.extend(_phone_app_store_errors(config.device))
     if not config.apps:
         errors.append("apps list must not be empty")
     risks_by_section: dict[str, list[str]] = {}
@@ -267,6 +269,15 @@ def _physical_role_errors(device: AndroidDeviceConfig) -> list[str]:
             if isinstance(selector, dict) and selector.get("adb_address") == serial.strip():
                 errors.append(f"device.adb_serial {serial!r} is the adb_address of the {role} VM; it must name the phone")
     return errors
+
+
+# Return the problems with device.phone_app_store, the install method for apps on a phone serving physical_roles.
+def _phone_app_store_errors(device: AndroidDeviceConfig) -> list[str]:
+    if not isinstance(device.phone_app_store, str) or device.phone_app_store not in APP_STORES:
+        return [f"device.phone_app_store must be one of: {', '.join(APP_STORES)}"]
+    if device.phone_app_store != "apk" and not device.physical_roles:
+        return ["device.phone_app_store needs device.physical_roles; it chooses how apps are installed on that phone"]
+    return []
 
 
 # Return physical_roles as a tuple when it is a list, keeping any other value for validation to report.

@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from mobile_playbook.platforms.android.acquisition import apk, aurora_store, play_store, store
-from mobile_playbook.platforms.android.acquisition.store import APP_STORES, app_store_for
+from mobile_playbook.platforms.android.acquisition.store import APP_STORES, app_store_for, install_method_for
 from mobile_playbook.platforms.android.config import ConfigError, parse_config, validate_config
 from mobile_playbook.platforms.android.device.app_version import InstalledVersion
 
@@ -90,3 +91,22 @@ def test_an_installed_app_without_a_readable_version_keeps_its_outcome(monkeypat
     method = replace(APP_STORES["play_store"], install=lambda *args: installed)
 
     assert method.install_and_read_version(object(), lambda: None, "com.example.one", Path("diagnostics")) == installed
+
+
+def _config(physical_roles, phone_app_store="apk"):
+    return SimpleNamespace(device=SimpleNamespace(physical_roles=physical_roles, phone_app_store=phone_app_store))
+
+
+@pytest.mark.parametrize("phone_store", ["play_store", "aurora_store", "apk"])
+def test_a_phone_role_installs_with_the_phone_app_store(phone_store):
+    config = _config(("non_rooted",), phone_store)
+
+    assert install_method_for(config, "non_rooted") is APP_STORES[phone_store]
+    assert install_method_for(config, "rooted") is APP_STORES["apk"]
+
+
+def test_vm_roles_install_intake_apks_without_a_phone():
+    config = _config(())
+
+    assert install_method_for(config, "non_rooted") is APP_STORES["apk"]
+    assert install_method_for(config, "rooted") is APP_STORES["apk"]

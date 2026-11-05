@@ -162,6 +162,7 @@ device:
   app_store: "apk"
   adb_serial: "wifi"              # or the phone's USB serial, or host:port
   physical_roles: ["non_rooted"]
+  phone_app_store: "play_store"   # optional; unset installs the intake APK on the phone too
   corellium:
     auto_start: true
     auto_stop: true
@@ -178,6 +179,8 @@ device:
 ```
 
 `physical_roles` accepts only `non_rooted`, needs `provider: corellium` with `corellium.roles`, and a role is served by the phone or a VM, never both. `adb_serial` is required and must not be a VM's `adb_address`. With `wifi`, the phone's Wi-Fi connection is found as described under [Device](#device), and a Corellium VM's adb address is never taken for it.
+
+`phone_app_store` chooses how apps reach the phone serving `physical_roles`: `apk` (the default when unset) installs the intake APK, as on the VMs, and `play_store` or `aurora_store` installs the app from that store. Any other value fails config validation, and so does a store without `physical_roles`. `app_store` stays `apk`, because the VMs always get the intake APK. The setting is read from the config file only, not through `PUT /config/android/device`.
 
 For each run, in order:
 
