@@ -28,6 +28,7 @@ SETTINGS_ACTION = "android.settings.SETTINGS"
 TRUSTED_CREDENTIALS_USER_ACTION = "com.android.settings.TRUSTED_CREDENTIALS_USER"
 EDIT_TEXT_CLASS = "android.widget.EditText"
 POLL_SECONDS = 0.5
+SEARCH_BUTTON_SELECTOR = 'new UiSelector().descriptionMatches("(?i)search")'
 # Certificates Burp generates are about 1 KB; anything far outside this range is not one.
 MIN_CA_BYTES = 200
 MAX_CA_BYTES = 16384
@@ -152,7 +153,7 @@ def install_user_ca(driver, adb, file_name: str, labels: CaSettingsLabels, timeo
     while (install := find_text(driver, labels.install_anyway, 0, scroll=False)) is None:
         entry = _labelled(driver, labels.ca_entry)
         if entry is not None:
-            tap_element(adb, entry)
+            _tap_and_settle(driver, adb, entry, text_matcher(labels.ca_entry), deadline)
         if time.monotonic() >= deadline:
             raise RuntimeError(f"the CA certificate warning with {labels.install_anyway[0]!r} did not appear")
         time.sleep(POLL_SECONDS)
@@ -165,9 +166,9 @@ def install_user_ca(driver, adb, file_name: str, labels: CaSettingsLabels, timeo
 def _search(driver, adb, query: str, timeout: float) -> None:
     deadline = time.monotonic() + timeout
     while not (fields := driver.find_elements("class name", EDIT_TEXT_CLASS)):
-        button = driver.find_elements(UIAUTOMATOR, 'new UiSelector().descriptionMatches("(?i)search")')
+        button = driver.find_elements(UIAUTOMATOR, SEARCH_BUTTON_SELECTOR)
         if button:
-            tap_element(adb, button[0])
+            _tap_and_settle(driver, adb, button[0], SEARCH_BUTTON_SELECTOR, deadline)
         if time.monotonic() >= deadline:
             raise RuntimeError("the Settings search field did not appear")
         time.sleep(POLL_SECONDS)
@@ -186,7 +187,7 @@ def _choose_file(driver, adb, file_name: str, labels: CaSettingsLabels, timeout:
     while (entry := find_text(driver, (file_name,), 0)) is None:
         folder = find_text(driver, labels.folder, 0, scroll=False)
         if folder is not None:
-            tap_element(adb, folder)
+            _tap_and_settle(driver, adb, folder, text_matcher(labels.folder), deadline)
         if time.monotonic() >= deadline:
             raise RuntimeError(f"{file_name} was not found in the file picker")
         time.sleep(POLL_SECONDS)
@@ -194,6 +195,18 @@ def _choose_file(driver, adb, file_name: str, labels: CaSettingsLabels, timeout:
     done = find_text(driver, labels.done, min(timeout, 5), scroll=False)
     if done is not None:
         tap_element(adb, done)
+
+
+# Tap an element, then wait until the selector no longer finds an element where it was, or the deadline passes. Settings
+# shows the next page before Appium reports it, so tapping again sooner lands on whatever the new page has there, such
+# as Wi-Fi certificate where the search result for CA certificate was.
+def _tap_and_settle(driver, adb, element, selector: str, deadline: float) -> None:
+    bounds = element.get_attribute("bounds")
+    tap_element(adb, element)
+    while time.monotonic() < deadline:
+        if all(found.get_attribute("bounds") != bounds for found in driver.find_elements(UIAUTOMATOR, selector)):
+            return
+        time.sleep(POLL_SECONDS)
 
 
 # Return the first element showing one of the texts that is not a text field, so a search query is not taken for its

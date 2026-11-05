@@ -243,6 +243,37 @@ def test_the_ca_is_installed_through_settings_search_as_the_playbook_does(tmp_pa
     assert ["shell", "am", "force-stop", "com.android.settings"] in phone.commands
 
 
+def test_a_tap_is_not_repeated_while_settings_is_still_changing_page(tmp_path):
+    # On a Galaxy A34, Install from device storage shows Wi-Fi certificate where the search result was. Appium keeps
+    # reporting the old page for a moment after the tap, while a second tap already lands on the new page.
+    driver, state = one_ui()
+    result = next(element for element in driver.screens["search"] if element.text == "CA certificate")
+    wifi = Element("Wi-Fi certificate", on_click=lambda element: state.update(wifi_flow=True))
+    reported_pages_left = {"count": 0}
+    find_elements = driver.find_elements
+
+    def opened_storage_slowly(element):
+        if not reported_pages_left["count"]:
+            TAP_TARGETS[(result.cx, result.cy)] = wifi
+            reported_pages_left["count"] = 4
+
+    def stale_find(by, value):
+        if driver.screen == "search" and reported_pages_left["count"]:
+            reported_pages_left["count"] -= 1
+            if not reported_pages_left["count"]:
+                driver.screen = "storage"
+        return find_elements(by, value)
+
+    result.on_click = opened_storage_slowly
+    driver.find_elements = stale_find
+    phone = Phone(driver)
+
+    outcome = ensure_user_ca(driver, phone, CA, DISPLAY_NAME, tmp_path, timeout=1)
+
+    assert "wifi_flow" not in state
+    assert outcome.action == "installed"
+
+
 def test_settings_reopened_on_an_old_search_is_cleared_before_typing(tmp_path):
     driver, _ = one_ui()
     driver.screens["home"] = driver.screens["search"]
