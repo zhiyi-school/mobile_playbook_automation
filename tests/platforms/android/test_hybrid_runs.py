@@ -1,16 +1,9 @@
-import json
-
 import pytest
 
-from mobile_playbook.orchestration.scan_runner import RunOptions, run_platform
-from mobile_playbook.platforms.android.config import load_config
 from mobile_playbook.platforms.android.device import phone_role
 from mobile_playbook.platforms.android.device.adb_connection import AdbConnectionError
 from mobile_playbook.platforms.android.device.phone_lock import PhoneBusy, acquire_phone_lock, phone_lock_holder
-from mobile_playbook.platforms.android.results import normalize_android_result
 from mobile_playbook.platforms.corellium.client import CorelliumError
-from mobile_playbook.reporting.report_writer import ReportWriter
-from mobile_playbook.reporting.run_events import read_events
 from mobile_playbook.reporting.run_manifest import read_manifest
 from tests.platforms.android.baseline_fakes import (
     PACKAGE,
@@ -22,6 +15,11 @@ from tests.platforms.android.baseline_fakes import (
     STATIC,
     STOCK_VM,
     BaselineBench,
+    events,
+    last_run_dir,
+    phone_commands,
+    report,
+    run,
 )
 
 MUTATIONS = {"restore", "start", "stop", "unpause"}
@@ -32,31 +30,6 @@ def bench(tmp_path, monkeypatch):
     bench = BaselineBench(tmp_path, monkeypatch, risks=(PLAIN, ROOT, STATIC), physical_roles=("non_rooted",))
     bench.phone.packages["com.example.personal"] = ("1.0", "1")
     return bench
-
-
-def run(bench, tmp_path, *risks):
-    return run_platform(
-        load_config(bench.config_path), bench.runner(),
-        RunOptions(out_dir=tmp_path / "reports", selected_tests=set(risks) or None),
-        lambda out, ts: ReportWriter(out, ts, result_adapter=normalize_android_result, platform="android"),
-    )
-
-
-def events(run_dir, kind=None):
-    found, _ = read_events(run_dir)
-    return [event for event in found if kind is None or event["type"] == kind]
-
-
-def last_run_dir(tmp_path):
-    return max((tmp_path / "reports").iterdir())
-
-
-def report(run_dir, risk_id):
-    return json.loads((run_dir / "android/one" / risk_id / "synthetic/report.json").read_text())
-
-
-def phone_commands(bench, *prefix):
-    return [args for serial, args in bench.adb.commands if serial == PHONE_SERIAL and args[:len(prefix)] == list(prefix)]
 
 
 def test_a_mixed_run_tests_on_the_phone_and_the_rooted_vm_and_cleans_both_up(bench, tmp_path):

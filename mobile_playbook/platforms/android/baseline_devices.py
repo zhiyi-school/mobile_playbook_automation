@@ -1,6 +1,6 @@
 """
 Prepares a run's role devices, Corellium VMs restored from their baselines and a physical phone where configured,
-installs the intended builds, and afterwards removes what the run installed on the phone and confirms each VM off.
+installs the intended builds, and afterwards removes what the run added to the phone and confirms each VM off.
 """
 
 from __future__ import annotations
@@ -14,10 +14,13 @@ from pathlib import Path
 from typing import Any
 
 from mobile_playbook.artifact_store.store import artifact_digest
+from mobile_playbook.common.storage_paths import android_work_dir
 from mobile_playbook.platforms.android.acquisition import apk as apk_install
 from mobile_playbook.platforms.android.acquisition.intake_apk import find_intake_apk
 from mobile_playbook.platforms.android.acquisition.play_store import InstallOutcome, installer_of
+from mobile_playbook.platforms.android.acquisition.store import APP_STORES, install_method_for
 from mobile_playbook.platforms.android.device.app_version import installed_version
+from mobile_playbook.platforms.android.device import fingerprint
 from mobile_playbook.platforms.android.device.install import disable_background_dexopt, install_apks, wait_for_dexopt
 from mobile_playbook.platforms.android.device.corellium import adb_serial
 from mobile_playbook.platforms.android.device.permissions import is_installed
@@ -60,10 +63,11 @@ class BuildUnavailable(RuntimeError):
 class BuildInstallError(RuntimeError):
     """The intended build could not be installed on a role device, or the device reports a different build."""
 
-    # Keep the apk install-failure state alongside the message.
-    def __init__(self, message: str, state: str = "error"):
+    # Keep the apk install-failure state, or a store's own failed outcome, alongside the message.
+    def __init__(self, message: str, state: str = "error", outcome: InstallOutcome | None = None):
         super().__init__(message)
         self.state = state
+        self.outcome = outcome
 
 
 @dataclass(frozen=True)
@@ -80,6 +84,15 @@ class IntendedBuild:
 
 
 @dataclass(frozen=True)
+class StoreBuild:
+    """An app a run installs on the phone from its store, which chooses the build."""
+
+    app_id: str
+    package: str
+    store: str
+
+
+@dataclass(frozen=True)
 class InstalledBuild:
     """An intended build verified on one role device."""
 
@@ -89,9 +102,10 @@ class InstalledBuild:
     package: str
     version_name: str | None
     version_code: str | None
-    sha256: str
+    sha256: str | None
     installer: str | None
     seconds: float
+    source: str = "apk"
 
 
 # Report whether an Android config uses the role-based Corellium baseline lifecycle.
@@ -115,18 +129,24 @@ def intended_build(app: Any) -> IntendedBuild:
                          artifact_digest(found.path), found.split_paths)
 
 
-# Return each role's builds in plan order, one per app that has a risk on that role, before any device is touched.
-def intended_builds(plan: Iterable[PlannedRisk]) -> dict[str, list[IntendedBuild]]:
-    builds: dict[str, IntendedBuild] = {}
-    by_role: dict[str, list[IntendedBuild]] = {}
+# Return each role's builds in plan order, one per app that has a risk on that role, before any device is touched;
+# only roles that install intake APKs need one.
+def intended_builds(plan: Iterable[PlannedRisk], config: Any) -> dict[str, list[IntendedBuild | StoreBuild]]:
+    apks: dict[str, IntendedBuild] = {}
+    by_role: dict[str, list[IntendedBuild | StoreBuild]] = {}
     for item in plan:
         if item.role is None:
             continue
         app_id = str(item.app.id)
-        if app_id not in builds:
-            builds[app_id] = intended_build(item.app)
-        if builds[app_id] not in by_role.setdefault(item.role, []):
-            by_role[item.role].append(builds[app_id])
+        method = install_method_for(config, item.role)
+        if method.key == "apk":
+            if app_id not in apks:
+                apks[app_id] = intended_build(item.app)
+            build: IntendedBuild | StoreBuild = apks[app_id]
+        else:
+            build = StoreBuild(app_id, item.app.package_name, method.key)
+        if build not in by_role.setdefault(item.role, []):
+            by_role[item.role].append(build)
     return by_role
 
 
@@ -145,6 +165,7 @@ class BaselineSession:
         self.phone_packages: dict[str, set[str]] = {}
         self.phone_models: dict[str, str | None] = {}
         self.replaced: dict[str, set[str]] = {}
+        self.store_installed: dict[str, dict[str, str | None]] = {}
         self.clean_phone = True
         self.installed: dict[tuple[str, str], InstalledBuild] = {}
         self.outcomes: dict[str, dict] | None = None
@@ -165,8 +186,10 @@ class BaselineSession:
         return identity
 
     # Install the intended build on the role device and verify its package and version; on a phone any copy already
-    # there is uninstalled first.
-    def install(self, build: IntendedBuild, role: str) -> InstalledBuild:
+    # there is uninstalled first, except one its store installed.
+    def install(self, build: IntendedBuild | StoreBuild, role: str) -> InstalledBuild:
+        if isinstance(build, StoreBuild):
+            return self._install_from_store(build, role)
         device = self.pool.device(role)
         adb = device.client.adb
         if apk_install.adb_installs_need_confirmation(adb):
@@ -210,6 +233,47 @@ class BaselineSession:
                      instance_id=device.instance_id, serial=device.serial, package=build.package,
                      version=record.version_name, build_number=record.version_code, artifact_sha256=build.sha256,
                      apk=build.apk.name)
+        return record
+
+    # Keep the app when the phone's store installed it, otherwise install it from that store, first removing a copy
+    # anything else installed, and record the build the phone reports.
+    def _install_from_store(self, build: StoreBuild, role: str) -> InstalledBuild:
+        device = self.pool.device(role)
+        adb = device.client.adb
+        store = APP_STORES[build.store]
+        started = time.monotonic()
+        action = "installed"
+        if is_installed(adb, build.package):
+            if fingerprint.installer_of(adb, build.package) == store.installer_package:
+                action = "kept"
+            else:
+                action = "replaced"
+                logger.info("Uninstalling the copy of %s on the phone %s that %s did not install.", build.package,
+                            device.serial, store.name)
+                if not uninstall(adb, build.package):
+                    message = f"Could not uninstall the copy of {build.package} on the phone {device.serial} that {store.name} did not install"
+                    raise BuildInstallError(message, outcome=store.failure("error", message))
+        if action != "kept":
+            logger.info("Installing %s from %s on the %s device (%s).", build.package, store.name, role, device.serial)
+            outcome = store.install_and_read_version(adb, device.client.make_driver, build.package,
+                                                     android_work_dir() / store.key / "diagnostics")
+            if outcome.status not in ("installed", "already_installed"):
+                raise BuildInstallError(f"Could not install {build.package} from {store.name} on the {role} device: "
+                                        f"{outcome.detail}", outcome=outcome)
+        version = installed_version(adb, build.package)
+        if version is None:
+            message = f"The {role} device reports no version of {build.package} after installing it from {store.name}"
+            raise BuildInstallError(message, outcome=store.failure("error", message))
+        installer = fingerprint.installer_of(adb, build.package)
+        record = InstalledBuild(build.app_id, role, device.instance_id, build.package, version.version_name,
+                                version.version_code, fingerprint.installed_base_apk_sha256(adb, build.package),
+                                installer, time.monotonic() - started, source=store.key)
+        self.installed[(role, build.app_id)] = record
+        self.store_installed.setdefault(role, {})[build.package] = store.installer_package
+        append_event(self.event_dir, "app_installed", app_id=build.app_id, role=role, device_type=device.device_type,
+                     instance_id=device.instance_id, serial=device.serial, package=build.package,
+                     version=record.version_name, build_number=record.version_code, artifact_sha256=record.sha256,
+                     source=store.key, installer=installer, action=action)
         return record
 
     # Quit sessions, remove what the run installed on the phone, disconnect the VMs and confirm each VM off
@@ -262,7 +326,8 @@ class BaselineSession:
         except Exception as exc:
             logger.warning("Could not reconnect the phone %s before removing what the run installed: %s", phone.serial, exc)
 
-    # Uninstall every package the run installed on the phone, including builds it replaced; never raises.
+    # Uninstall every package the run added to the phone, including builds it replaced, but keep apps its store
+    # installed while that store is still their installer; never raises.
     def _clean_phone(self, role: str, phone: RoleDevice) -> dict:
         adb = phone.client.adb
         outcome: dict[str, Any] = {"device_type": PHYSICAL_PHONE, "serial": phone.serial}
@@ -272,6 +337,14 @@ class BaselineSession:
             wanted |= third_party_packages(adb) - self.phone_packages.get(role, set())
         except Exception as exc:
             outcome["error"] = f"could not list the phone's packages: {exc}"
+        kept = []
+        for package, installer_package in sorted(self.store_installed.get(role, {}).items()):
+            try:
+                if fingerprint.installer_of(adb, package) == installer_package:
+                    kept.append(package)
+            except Exception as exc:
+                logger.debug("android phone: reading the installer of %s failed: %s", package, exc, exc_info=True)
+        wanted -= set(kept)
         left = []
         for package in sorted(wanted):
             try:
@@ -282,7 +355,7 @@ class BaselineSession:
             if not removed:
                 left.append(package)
         outcome.update(status="cleanup_incomplete" if left or "error" in outcome else "cleaned",
-                       removed=sorted(set(wanted) - set(left)), left=left)
+                       removed=sorted(set(wanted) - set(left)), left=left, kept=kept)
         return outcome
 
 
@@ -301,7 +374,7 @@ def _vm_addresses(devices: Sequence[ResolvedDevice], role_settings: Mapping[str,
 # Prepare every required role device once: the phone for physical roles, checked before any VM is touched, and for
 # the others resolve, claim, restore and start each Corellium VM, connect it and install the builds. Any failure
 # cleans up what was set up before the error propagates.
-def open_session(config: Any, roles: Sequence[str], builds: Mapping[str, Sequence[IntendedBuild]], event_dir: Path,
+def open_session(config: Any, roles: Sequence[str], builds: Mapping[str, Sequence[IntendedBuild | StoreBuild]], event_dir: Path,
                  run_id: str, connect: Connect, *, client: CorelliumClient | None = None, store: ClaimStore | None = None,
                  policy: LifecyclePolicy | None = None, phone: ConnectPhone | None = None,
                  clean_phone: bool = True) -> BaselineSession:
@@ -361,6 +434,7 @@ def open_session(config: Any, roles: Sequence[str], builds: Mapping[str, Sequenc
         for role in roles:
             for build in builds.get(role, ()):
                 session.install(build, role)
+        _warn_on_differing_versions(session.installed.values(), event_dir)
     except BaseException as exc:
         logger.debug("android baseline: setup of %s failed: %s", run_id, exc, exc_info=True)
         try:
@@ -369,6 +443,24 @@ def open_session(config: Any, roles: Sequence[str], builds: Mapping[str, Sequenc
             logger.error("Could not clean up the role devices after a setup failure: %s", cleanup_error)
         raise
     return session
+
+
+# Record a warning for each app whose role devices report different versions, as when the phone's store offers
+# another build than the intake APK on the VMs; each device still tests the build it has.
+def _warn_on_differing_versions(installed: Iterable[InstalledBuild], event_dir: Path) -> None:
+    by_app: dict[str, list[InstalledBuild]] = {}
+    for build in installed:
+        by_app.setdefault(build.app_id, []).append(build)
+    for app_id, builds in by_app.items():
+        if len({(build.version_name, build.version_code) for build in builds}) < 2:
+            continue
+        described = "; ".join(f"{build.role} has {build.version_name} (build {build.version_code or 'unknown'}) from "
+                              f"{APP_STORES[build.source].name}" for build in builds)
+        message = f"The devices test different versions of {app_id}: {described}."
+        logger.warning(message)
+        append_event(event_dir, "app_versions_differ", app_id=app_id, message=message, devices=[
+            {"role": build.role, "version": build.version_name, "build_number": build.version_code,
+             "source": build.source, "artifact_sha256": build.sha256} for build in builds])
 
 
 # Install apps on one role's device and return each app's outcome: a VM is restored first and shut down again, and a
@@ -408,7 +500,7 @@ def _install_outcome(session: BaselineSession, build: IntendedBuild, role: str) 
     try:
         record = session.install(build, role)
     except BuildInstallError as exc:
-        return apk_install.failure(exc.state, str(exc))
+        return exc.outcome or apk_install.failure(exc.state, str(exc))
     return InstallOutcome(status="installed", installer=record.installer, seconds=record.seconds,
                           version_name=record.version_name, version_code=record.version_code)
 

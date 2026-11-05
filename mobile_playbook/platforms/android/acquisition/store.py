@@ -24,6 +24,7 @@ class AppStore:
     name: str
     install: Callable[..., InstallOutcome]
     failure: Callable[..., InstallOutcome]
+    installer_package: str | None = None
 
     # Install the app with this method and, once it is on the device, add the version installed there to the outcome.
     def install_and_read_version(
@@ -46,12 +47,14 @@ APP_STORES: dict[str, AppStore] = {
         name=play_store.STORE_NAME,
         install=play_store.install_from_play_store,
         failure=play_store.failure,
+        installer_package=play_store.PLAY_STORE_PACKAGE,
     ),
     "aurora_store": AppStore(
         key="aurora_store",
         name=aurora_store.STORE_NAME,
         install=aurora_store.install_from_aurora_store,
         failure=aurora_store.failure,
+        installer_package=aurora_store.AURORA_STORE_PACKAGE,
     ),
 }
 DEFAULT_APP_STORE = "play_store"

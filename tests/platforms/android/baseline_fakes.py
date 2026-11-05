@@ -1,10 +1,12 @@
 """
-A synthetic Corellium baseline bench: two automation VMs, their adb devices, an intake APK and a baseline config.
+A synthetic Corellium baseline bench: two automation VMs, their adb devices, an intake APK and a baseline config,
+with helpers that run it and read what the run recorded.
 """
 
 from __future__ import annotations
 
 import functools
+import json
 import zipfile
 from dataclasses import replace
 from datetime import datetime
@@ -12,6 +14,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from mobile_playbook.orchestration.appium_server import AppiumStartResult
+from mobile_playbook.orchestration.scan_runner import RunOptions, run_platform
 from mobile_playbook.platforms.android import play_services
 from mobile_playbook.platforms.android import runner as runner_module
 from mobile_playbook.platforms.android.acquisition import intake_apk
@@ -19,12 +22,16 @@ from mobile_playbook.platforms.android.device import adb as adb_module
 from mobile_playbook.platforms.android.device import adb_connection, corellium_roles
 from mobile_playbook.platforms.android.device.adb_connection import AdbConnectPolicy
 from mobile_playbook.platforms.android.device.debugging_prompt import DebuggingAuthorizer
+from mobile_playbook.platforms.android.config import load_config
 from mobile_playbook.platforms.android.models import AndroidRiskRunResult
+from mobile_playbook.platforms.android.results import normalize_android_result
 from mobile_playbook.platforms.android.runner import AndroidPlatformRunner
 from mobile_playbook.platforms.corellium import profile as profile_module
 from mobile_playbook.platforms.corellium.claims import ClaimStore
 from mobile_playbook.platforms.corellium.client import CorelliumClient
 from mobile_playbook.platforms.corellium.lifecycle import LifecyclePolicy
+from mobile_playbook.reporting.report_writer import ReportWriter
+from mobile_playbook.reporting.run_events import read_events
 from tests.platforms.android.adb_fakes import FakeAdbHost
 from tests.platforms.android.manifest_fakes import manifest_tree
 from tests.platforms.corellium.helpers import FakeAPI, device
@@ -72,7 +79,7 @@ class EvidenceRisk:
         ), report_dir)
 
 
-def baseline_device_yaml(roles=("non_rooted", "rooted"), physical_roles=(), phone_serial=PHONE_SERIAL) -> str:
+def baseline_device_yaml(roles=("non_rooted", "rooted"), physical_roles=(), phone_serial=PHONE_SERIAL, phone_app_store=None) -> str:
     selectors = {
         "non_rooted": f"      non_rooted:\n        project: automation\n        instance: {STOCK_VM}\n        adb_address: \"{STOCK_SERIAL}\"\n",
         "rooted": f"      rooted:\n        project: automation\n        instance: {ROOTED_VM}\n        adb_address: \"{ROOTED_SERIAL}\"\n",
@@ -83,6 +90,7 @@ def baseline_device_yaml(roles=("non_rooted", "rooted"), physical_roles=(), phon
         "  app_store: apk\n"
         "  appium_server_url: \"http://127.0.0.1:4723\"\n"
         + (f"  adb_serial: \"{phone_serial}\"\n  physical_roles: [{', '.join(physical_roles)}]\n" if physical_roles else "")
+        + (f"  phone_app_store: {phone_app_store}\n" if phone_app_store else "")
         + "  corellium:\n"
         "    auto_start: true\n"
         "    auto_stop: true\n"
@@ -96,7 +104,7 @@ def baseline_device_yaml(roles=("non_rooted", "rooted"), physical_roles=(), phon
     )
 
 
-def write_config(root: Path, risks, roles=("non_rooted", "rooted"), physical_roles=()) -> Path:
+def write_config(root: Path, risks, roles=("non_rooted", "rooted"), physical_roles=(), phone_app_store=None) -> Path:
     configs = root / "configs"
     (configs / "split/android").mkdir(parents=True, exist_ok=True)
     (configs / "split/android/apps.yaml").write_text(
@@ -104,7 +112,7 @@ def write_config(root: Path, risks, roles=("non_rooted", "rooted"), physical_rol
         + "".join(f"      {risk}:\n        enabled: true\n" for risk in risks)
     )
     (configs / "android.yaml").write_text(
-        baseline_device_yaml(roles, physical_roles) + "\nrunner:\n  auto_grant_permissions: false\n\ninclude:\n  apps: split/android/apps.yaml\n"
+        baseline_device_yaml(roles, physical_roles, phone_app_store=phone_app_store) + "\nrunner:\n  auto_grant_permissions: false\n\ninclude:\n  apps: split/android/apps.yaml\n"
     )
     return configs / "android.yaml"
 
@@ -112,7 +120,8 @@ def write_config(root: Path, risks, roles=("non_rooted", "rooted"), physical_rol
 class BaselineBench:
     """Wires the fakes together; CLI and API code paths reach the same fakes through the default constructors."""
 
-    def __init__(self, root: Path, monkeypatch, *, risks=(PLAIN, ROOT), roles=("non_rooted", "rooted"), physical_roles=()):
+    def __init__(self, root: Path, monkeypatch, *, risks=(PLAIN, ROOT), roles=("non_rooted", "rooted"), physical_roles=(),
+                 phone_app_store=None):
         self.root = root
         self.api = FakeAPI(device(STOCK_VM, "non_rooted"), device(ROOTED_VM, "rooted"))
         monkeypatch.setenv("CORELLIUM_STATE_DIR", str(root / "corellium-state"))
@@ -152,7 +161,7 @@ class BaselineBench:
         self.appium_reachable: list[bool] = []
         monkeypatch.setattr(runner_module, "tcp_reachable",
                             lambda url, timeout: self.appium_reachable.pop(0) if self.appium_reachable else True)
-        self.config_path = write_config(root, risks, roles, physical_roles)
+        self.config_path = write_config(root, risks, roles, physical_roles, phone_app_store)
         if physical_roles:
             self.phone = self.adb.add(PHONE_SERIAL, state="device", build_type="user")
 
@@ -174,3 +183,28 @@ class BaselineBench:
 
     def turn_on(self, instance_id: str) -> None:
         self.api.data["instances"][instance_id] = replace(self.api.data["instances"][instance_id], state="on")
+
+
+def run(bench, tmp_path, *risks):
+    return run_platform(
+        load_config(bench.config_path), bench.runner(),
+        RunOptions(out_dir=tmp_path / "reports", selected_tests=set(risks) or None),
+        lambda out, ts: ReportWriter(out, ts, result_adapter=normalize_android_result, platform="android"),
+    )
+
+
+def events(run_dir, kind=None):
+    found, _ = read_events(run_dir)
+    return [event for event in found if kind is None or event["type"] == kind]
+
+
+def last_run_dir(tmp_path):
+    return max((tmp_path / "reports").iterdir())
+
+
+def report(run_dir, risk_id):
+    return json.loads((run_dir / "android/one" / risk_id / "synthetic/report.json").read_text())
+
+
+def phone_commands(bench, *prefix):
+    return [args for serial, args in bench.adb.commands if serial == PHONE_SERIAL and args[:len(prefix)] == list(prefix)]

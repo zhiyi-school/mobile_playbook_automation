@@ -23,7 +23,7 @@ from mobile_playbook.orchestration.platform_runner import (
     requires_device,
 )
 from mobile_playbook.platforms.android import baseline_devices
-from mobile_playbook.platforms.android.baseline_devices import TaggedReportWriter, claim_run_id, intended_builds, uses_baselines
+from mobile_playbook.platforms.android.baseline_devices import IntendedBuild, TaggedReportWriter, claim_run_id, intended_builds, uses_baselines
 from mobile_playbook.platforms.android.device.app_version import installed_version
 from mobile_playbook.platforms.android.device.client import open_device
 from mobile_playbook.platforms.android.device.corellium import reconnect_corellium
@@ -127,7 +127,7 @@ class AndroidPlatformRunner:
                 self._release_phone()
                 raise
         plan = plan_risk_roles(planned, get_risk)
-        builds = intended_builds(plan)
+        builds = intended_builds(plan, config)
         session = baseline_devices.open_session(
             config, required_roles(plan), builds, run_dir, claim_run_id(run_timestamp),
             partial(self._connect_claimed, config, run_dir),
@@ -135,7 +135,8 @@ class AndroidPlatformRunner:
             phone=partial(self._connect_phone, config, run_dir),
         )
         # The run's artifact digest then names the installed intake APK rather than an older pulled copy.
-        for build in {build.app_id: build for role_builds in builds.values() for build in role_builds}.values():
+        apks = {build.app_id: build for role_builds in builds.values() for build in role_builds if isinstance(build, IntendedBuild)}
+        for build in apks.values():
             app = next(item for item, _ in planned if str(item.id) == build.app_id)
             app.artifact = {**(app.artifact or {}), "apk": str(build.apk)}
         self._sessions[id(session.pool)] = session
@@ -221,7 +222,8 @@ class AndroidPlatformRunner:
         yield from iter_enabled_tests(config, selected_tests, selected_apps, get_risk)
 
     # Return the version name and version code of the app installed on the device, or None when it reports none.
-    # Role devices must agree on the version they report.
+    # VMs must agree on the version they report; a phone's store build may differ, and the VMs' intake build is then
+    # the run's tested version because the run's artifact names it.
     def installed_app_version(self, app, device_client) -> tuple[str, str | None] | None:
         if isinstance(device_client, AndroidDevicePool):
             found = {}
@@ -229,6 +231,10 @@ class AndroidPlatformRunner:
                 version = installed_version(device_client.device(role).client.adb, app.package_name)
                 if version is not None:
                     found[role] = (version.version_name, version.version_code)
+            on_vms = {role: version for role, version in found.items()
+                      if device_client.device(role).device_type != PHYSICAL_PHONE}
+            if on_vms and len(set(found.values())) > 1:
+                found = on_vms
             if len(set(found.values())) > 1:
                 raise RuntimeError(f"The devices report different installed versions of {app.package_name}: {found}")
             return next(iter(found.values()), None)

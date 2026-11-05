@@ -1,9 +1,10 @@
 """
-A synthetic adb server for tests: per-serial states, scripted state sequences, boot progress, build types, app compilation, the background compilation job, APK installs, Wi-Fi addresses and hardware serials.
+A synthetic adb server for tests: per-serial states, scripted state sequences, boot progress, build types, app compilation, the background compilation job, APK installs and their installers, Wi-Fi addresses and hardware serials.
 """
 
 from __future__ import annotations
 
+import hashlib
 import subprocess
 import time
 from dataclasses import dataclass, field
@@ -21,6 +22,7 @@ class FakeDevice:
     script: list[str] = field(default_factory=list)
     root_uid: bool = False
     packages: dict[str, tuple[str, str]] = field(default_factory=dict)
+    installers: dict[str, str] = field(default_factory=dict)
     files: dict[str, Path] = field(default_factory=dict)
     play_services: bool = True
     uninstall_fails: set[str] = field(default_factory=set)
@@ -131,6 +133,7 @@ class FakeAdbHost:
                 package = self.apks.get(device.files[remote].name) if remote in device.files else None
                 if package is not None:
                     device.packages[package[0]] = package[1:]
+                    device.installers.pop(package[0], None)
                     return 0, "Success\n", ""
             return 0, "Failure [INSTALL_FAILED_INVALID_APK]\n", ""
         if args == ["shell", "pm", "list", "packages", "-e", "com.google.android.gms"]:
@@ -141,7 +144,23 @@ class FakeAdbHost:
             if args[1] in device.uninstall_fails or args[1] not in device.packages:
                 return 1, "Failure [DELETE_FAILED_INTERNAL_ERROR]\n", ""
             del device.packages[args[1]]
+            device.installers.pop(args[1], None)
             return 0, "Success\n", ""
+        if args[:5] == ["shell", "pm", "list", "packages", "-i"] and len(args) == 6:
+            package = args[5]
+            installer = device.installers.get(package, "null")
+            return 0, f"package:{package}  installer={installer}\n" if package in device.packages else "", ""
+        if args[:3] == ["shell", "pm", "path"]:
+            return 0, f"package:/data/app/{args[3]}-1/base.apk\n" if args[3] in device.packages else "", ""
+        if args[:2] == ["shell", "sha256sum"]:
+            package = args[2].split("/")[3].removesuffix("-1")
+            if package not in device.packages:
+                return 1, "", "No such file or directory"
+            return 0, f"{base_apk_sha256(package, device.packages[package])}  {args[2]}\n", ""
         if args[:4] == ["shell", "pm", "list", "packages"] and len(args) == 5:
             return 0, f"package:{args[4]}\n" if args[4] in device.packages else "", ""
         return 0, "", ""
+
+
+def base_apk_sha256(package: str, version: tuple[str, str]) -> str:
+    return hashlib.sha256(f"{package}:{version[0]}:{version[1]}".encode()).hexdigest()
