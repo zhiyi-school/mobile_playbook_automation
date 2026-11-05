@@ -614,7 +614,7 @@ traffic_interception:
 - `step_timeout_seconds`: seconds a scripted step waits for its element to appear (default 10).
 - `settings_timeout_seconds`: seconds each Settings screen is given while the CA is installed (default 20).
 - `check_timeout_seconds`: seconds Chrome is given to load the check page through Burp before the setup is reported as `INTERCEPTION_NOT_VERIFIED` (default 20).
-- `check_url` and `browser_package`: the page and browser that check the setup (defaults `https://example.com` and `com.android.chrome`). The browser must trust user CAs, as Chrome does, and be past its first-run screens.
+- `check_url` and `browser_package`: the page and browser that check the setup (defaults `https://example.com` and `com.android.chrome`). Each check adds a unique `interception_check` query parameter to the page so the browser cannot answer from its cache. The browser must trust user CAs, as Chrome does, and be past its first-run screens.
 - `max_body_bytes`: the most of each request or response body Burp records (default 65536).
 - `capture_path` and `content_dir`: where the Burp extension writes, relative to the repository root. Unset, they follow `WORK_DIR` like the extension's own defaults; see [Burp Traffic Capture](../burp-capture.md).
 - `canaries`: the synthetic values a scripted step can type, as for [runtime logs](#runtime-logs-android-feature-02-risk-02). The traffic is searched for each canary typed, in the same encodings.

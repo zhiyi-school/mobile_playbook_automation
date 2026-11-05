@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
@@ -46,8 +47,28 @@ def test_decrypted_https_for_the_check_host_verifies_the_setup(tmp_path):
     result = check_interception(adb, capture, timeout=1)
 
     assert result["status"] == "VERIFIED"
-    assert adb.commands[0] == ["shell", "am", "start", "-a", "android.intent.action.VIEW", "-d", "https://example.com", "-p", "com.android.chrome"]
+    assert adb.commands[0][:6] == ["shell", "am", "start", "-a", "android.intent.action.VIEW", "-d"]
+    assert adb.commands[0][7:] == ["-p", "com.android.chrome"]
+    assert adb.commands[0][6] == result["url"]
     assert adb.commands[-1] == FORCE_STOP_CHROME
+
+
+def _opened_url(adb):
+    return urlsplit(adb.commands[0][6])
+
+
+def test_each_check_opens_a_url_the_browser_has_not_cached(tmp_path):
+    capture = tmp_path / "capture.jsonl"
+    first, second = (Browser(capture, [_entry("example.com")]) for _ in range(2))
+
+    check_interception(first, capture, url="https://example.com/page?lang=en", timeout=1)
+    check_interception(second, capture, url="https://example.com/page?lang=en", timeout=1)
+
+    opened = [_opened_url(first), _opened_url(second)]
+    assert [(url.scheme, url.netloc, url.path) for url in opened] == [("https", "example.com", "/page")] * 2
+    queries = [parse_qs(url.query) for url in opened]
+    assert all(query["lang"] == ["en"] for query in queries)
+    assert queries[0]["interception_check"] != queries[1]["interception_check"]
 
 
 @pytest.mark.parametrize("lines", [[], [_entry("example.com", scheme="http")], [_entry("clients4.google.com")]])
@@ -67,7 +88,7 @@ def test_a_browser_that_does_not_open_is_not_verified(tmp_path):
     capture = tmp_path / "capture.jsonl"
     adb = Browser(capture, [], start_result=(0, "Error: Activity not started, unable to resolve Intent", ""))
 
-    with pytest.raises(TrafficInterceptionSetupError, match="opening https://example.com in com.android.chrome failed") as error:
+    with pytest.raises(TrafficInterceptionSetupError, match=r"opening https://example.com/\?interception_check=\w+ in com.android.chrome failed") as error:
         check_interception(adb, capture, timeout=1)
 
     assert error.value.status == "INTERCEPTION_NOT_VERIFIED"

@@ -7,9 +7,10 @@ from __future__ import annotations
 
 import logging
 import time
+import uuid
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlunsplit
 
 from mobile_playbook.platforms.android.traffic_interception.device_proxy import TrafficInterceptionSetupError
 from mobile_playbook.platforms.traffic_interception.burp_capture import poll_capture, snapshot_capture
@@ -22,11 +23,20 @@ BROWSER_PACKAGE = "com.android.chrome"
 POLL_SECONDS = 1.0
 
 
+# Return the URL with a query parameter unique to this check, so the browser fetches it through the proxy instead of
+# showing a copy from its cache, which would leave nothing for Burp to record.
+def _uncached(url: str) -> str:
+    parts = urlsplit(url)
+    query = f"{parts.query}&" if parts.query else ""
+    return urlunsplit(parts._replace(path=parts.path or "/", query=f"{query}interception_check={uuid.uuid4().hex}"))
+
+
 # Open the check URL in the browser and wait for a decrypted HTTPS exchange with its host in the capture file, raising
 # INTERCEPTION_NOT_VERIFIED when none arrives within the timeout. The browser is stopped afterwards either way.
 def check_interception(adb, capture_path: Path, *, url: str = CHECK_URL, browser_package: str = BROWSER_PACKAGE,
                        timeout: float = 20) -> dict[str, Any]:
     host = urlsplit(url).hostname or url
+    url = _uncached(url)
     cursor = snapshot_capture(capture_path)
     state: dict[str, Any] = {"url": url, "browser_package": browser_package, "capture_path": str(cursor.path)}
     try:
