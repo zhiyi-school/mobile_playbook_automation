@@ -272,9 +272,13 @@ shared scan runner calls the platform's `connect_planned_device()` with the
 planned risks when any of them needs a device, so a static-only run claims,
 restores, starts and installs nothing. For a run that needs devices, in order:
 
-1. The runner derives the required roles from the selected apps and risks and
-   finds each app's intake APK (`intake_apk.find_intake_apk`) with its version
-   and SHA-256. A missing APK fails the run before any VM is touched.
+1. The runner derives the required roles from the selected apps and risks and,
+   with `intended_builds()`, picks each role's build through
+   `install_method_for()`: the app's intake APK (`intake_apk.find_intake_apk`)
+   with its version and SHA-256, or, for a phone role with
+   `device.phone_app_store` set to a store, a store build naming only the
+   package. A missing APK fails the run before any VM is touched; an app whose
+   risks all run on a store phone needs none.
 2. The profile is loaded; a required role it does not list fails the run
    without substituting the other role. `resolve_roles()` resolves only the
    required roles to exact instance and snapshot IDs.
@@ -305,7 +309,11 @@ restores, starts and installs nothing. For a run that needs devices, in order:
    After the install, the package must be installed and report the APK's
    `versionName` and `versionCode`; otherwise setup fails. The run's
    `artifacts` digest for the app is the installed APK's SHA-256, even when an
-   older pulled copy exists in the work folder.
+   older pulled copy exists in the work folder. A store build is installed on
+   the phone as described under **Physical phone roles** below. When an app's
+   devices report different versions, the run logs and records an
+   `app_versions_differ` warning, and the run's tested version is the VMs'
+   intake version, which its `artifacts` digest names.
 6. Risks run in their planned order, each on its role's device. Each result
    written on a role device carries `metadata.device` with the role,
    `device_type` (`corellium_vm`), instance ID, baseline ID, adb `serial` and
@@ -329,8 +337,11 @@ restores, reinstalls, starts, stops, releases or selects a device.
 baseline, claim run ID), `device_prepared`, `device_connected` (role,
 `device_type`, instance, adb `serial`), `app_installed` (app, role,
 `device_type`, instance, adb `serial`, package, version, build number,
-`artifact_sha256`, APK file name) and `device_cleanup` (role, instance, baseline, `off` or
-`cleanup_pending` with the error) alongside the existing `app_version` events.
+`artifact_sha256`, and the APK file name or, for a store build, `source`,
+`installer` and `action`), `app_versions_differ` (app, message, and each
+device's role, version, build number, `source` and `artifact_sha256`) and
+`device_cleanup` (role, instance, baseline, `off` or `cleanup_pending` with the
+error) alongside the existing `app_version` events.
 The claim store keeps the same identities and every phase in `history()`.
 
 **Physical phone roles.** A role listed in `device.physical_roles` is served by
@@ -339,13 +350,23 @@ the configured phone instead of a VM; see
 `open_session()` takes the phone lock and connects the phone through
 `device/phone_role.connect_phone()` before claiming any VM, excluding every VM adb
 address, and records its third-party packages. Only VM roles are resolved, claimed
-and prepared. `BaselineSession.close()` quits sessions, uninstalls every package
-the run added or replaced on the phone, disconnects only the VMs, confirms each VM
-off and releases the phone lock; a failure on one device never skips another.
-`device_connected`, `app_installed` and `device_cleanup` for the phone carry
+and prepared. With `device.phone_app_store` set to a store, `install()` keeps an
+app whose installer (`pm list packages -i`) is that store's package, installs a
+missing one with the store's `install_and_read_version()` over an Appium session
+on the phone, and first uninstalls a copy any other installer put there. A
+failed store install raises `BuildInstallError` carrying the store's own
+outcome, so its `blocker_code` reaches the caller unchanged. `app_installed`
+then names the version the phone reports, the `installer`, `source` (the store
+key), `action` (`kept`, `installed` or `replaced`) and, as `artifact_sha256`,
+the SHA-256 of the installed `base.apk` hashed on the phone.
+`BaselineSession.close()` quits sessions, uninstalls every package the run added
+or replaced on the phone except store-installed apps whose installer is still
+that store, disconnects only the VMs, confirms each VM off and releases the
+phone lock; a failure on one device never skips another. `device_connected`,
+`app_installed` and `device_cleanup` for the phone carry
 `device_type: physical_phone`, its `serial` and model, and the cleanup status
-`cleaned` or `cleanup_incomplete` with the packages `removed` and `left`. A
-package counts as removed only when the phone answers that it is gone. With
+`cleaned` or `cleanup_incomplete` with the packages `removed`, `left` and
+`kept`. A package counts as removed only when the phone answers that it is gone. With
 `device.adb_backup` on, `device_connected` also lists the phone's
 `backup_serials`, commands move to a backup when the connection in use drops
 (each move records `device_transport_switched`), and `close()` reconnects the
@@ -356,9 +377,12 @@ phone before cleanup; see
 `POST /config/android/apps/{app_id}/install` claim one role device (`non_rooted`
 unless `--role rooted` or `?role=rooted` is given), restore and start it,
 install and verify the intake APK, and confirm it off, on success and on
-failure. On a physical phone role the earlier copy is uninstalled, the app stays
-installed afterwards, and a phone in use is `409` `platform_busy` (the CLI exits 1). An app without an intake APK fails as `app_unavailable` without touching
-a VM. The next assessment still restores its own baseline and installs its own
+failure. On a physical phone role the app stays installed afterwards, and a
+phone in use is `409` `platform_busy` (the CLI exits 1). With intake APKs the
+earlier copy is uninstalled first; with a store the install follows the run's
+store rules above, starting Appium for the phone, and an app the store already
+installed is `already_installed`. An app without an intake APK fails as
+`app_unavailable` without touching a VM; a store install needs none. The next assessment still restores its own baseline and installs its own
 build. Events and debugging-prompt diagnostics go to
 `<work>/android/apk/diagnostics/`.
 
@@ -367,8 +391,16 @@ roles the app's enabled risks need, with read-only calls: the profile,
 `resolve_roles()` (projects, instances and snapshots) and `pending()` from the
 claim store. It never claims, restores, starts, approves debugging or installs.
 The configuration stage is done once the app's intake APK exists, so a missing
-APK reads as `app_build_missing` and the assessment worker never runs its
-pre-run install for these configs. A required role reads as:
+APK reads as `app_build_missing`, and the assessment worker never installs an
+intake APK before the run. The APK is needed only when the app enables a risk on
+a role that installs one: every VM role, and the phone role unless
+`device.phone_app_store` names a store. For a store phone role, readiness also
+asks the phone, with `pm list packages <package>` on the serial
+`ready_phone_serial()` finds, whether the app is there. A missing app reads as
+`app_not_installed` once any APK the app needs exists, so the worker installs it
+through the install endpoint before the run; a phone that cannot be asked
+leaves the configuration stage `unknown`, and the device row below explains the
+phone. A required role reads as:
 
 | Role state | Readiness |
 | --- | --- |
@@ -384,8 +416,9 @@ pre-run install for these configs. A required role reads as:
 
 An unavailable rooted VM therefore blocks only apps with a risk that needs root.
 A physical phone role is checked with read-only adb calls (`adb version`,
-`adb devices` and `getprop ro.build.type`), never through Corellium, so an app
-tested only on the phone needs neither Corellium credentials nor a VM.
+`adb devices`, `getprop ro.build.type` and, with a store, `pm list packages`),
+never through Corellium, so an app tested only on the phone needs neither
+Corellium credentials nor a VM.
 
 **Recovery.** `lifecycle.recover_abandoned()` reads Corellium credentials from
 the repository `.env`, returns at once without credentials or pending claims,

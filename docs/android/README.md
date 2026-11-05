@@ -151,12 +151,19 @@ Omit `--apps` to install every configured app that is missing. The command
 exits `1` when any app was not installed. An app already installed is left as
 it is, including an older version.
 
-With Corellium baseline role devices (`device.corellium.roles`), the worker
-never installs before a run: each run restores its VMs and installs the app's
-intake APK on them. `install-app` then restores the non-rooted VM, or the
-rooted one with `--role rooted`, installs each selected app's intake APK, checks
-its version and shuts the VM down again; see
+With Corellium baseline role devices (`device.corellium.roles`), each run
+restores its VMs and installs the app's intake APK on them, so the worker never
+installs an intake APK before a run. `install-app` then restores the non-rooted
+VM, or the rooted one with `--role rooted`, installs each selected app's intake
+APK, checks its version and shuts the VM down again; see
 [Runs, installs and readiness](../corellium-lifecycle.md#runs-installs-and-readiness).
+When a physical phone serves the non-rooted role with `device.phone_app_store`
+set to a store, the phone's apps come from that store instead: readiness
+reports an app missing from the phone as `app_not_installed`, the worker installs
+it before the run, and `install-app` installs it on the phone. The app stays on
+the phone between runs, and a copy that store did not install is replaced from
+the store; see
+[A physical phone with a rooted VM](configuration.md#baseline-role-devices).
 
 `device.app_store` in `configs/android.yaml` chooses the install method.
 Restart the API and the assessment worker after changing it.
@@ -251,6 +258,13 @@ version and the `versionCode` is the build number. It is read three times:
   assessment, and adds an `app_version` event with `version` and
   `build_number` to `events.jsonl`. This is the version the run tested, and it
   is read for every run, including CLI runs and reruns that skip the install.
+- **On each role device in a baseline run.** Each result's `metadata.device`
+  names the version, build number and SHA-256 of the build on the device that
+  ran it. A phone installing from its store records the version and the
+  `base.apk` SHA-256 it reports, so the run names the store build it tested.
+  When the phone's store build and the VMs' intake APK differ, the run adds an
+  `app_versions_differ` warning event, and the version recorded for the run is
+  the intake APK's.
 - **After an app's last risk in a run.** When the version or build number
   differs from the one read at the start, the run adds an
   `app_version_changed` warning event with both versions. The repackaging risk

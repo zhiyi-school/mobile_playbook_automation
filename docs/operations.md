@@ -224,7 +224,9 @@ With Corellium baseline role devices (`device.corellium.roles`), `no_device`
 names the rooted or non-rooted VM that has no eligible instance with a
 compatible baseline, `platform_busy` also covers a VM still claimed by a run or
 awaiting shutdown cleanup, and a missing intake APK reads as
-`app_build_missing`. See
+`app_build_missing`. An app missing from a phone that installs from its store
+(`device.phone_app_store`) reads as `app_not_installed` and is installed by the
+worker. See
 [Runs, installs and readiness](corellium-lifecycle.md#runs-installs-and-readiness).
 
 ### Corellium VMs awaiting cleanup
