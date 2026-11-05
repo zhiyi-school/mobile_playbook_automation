@@ -26,7 +26,7 @@ from mobile_playbook.orchestration.selection import (
     validate_risk_selection,
 )
 from mobile_playbook.orchestration.appium_server import ensure_appium_running
-from mobile_playbook.platforms.android.acquisition.store import app_store_for
+from mobile_playbook.platforms.android.acquisition.store import app_store_for, install_method_for
 from mobile_playbook.platforms.android.baseline_devices import uses_baselines
 from mobile_playbook.platforms.android.device_roles import NON_ROOTED
 from mobile_playbook.platforms.android.config import ConfigError as AndroidConfigError
@@ -457,9 +457,10 @@ def _acquire(config, selected_apps: set[str] | None, out_dir: Path) -> int:
 
 
 # Installs each missing app in the config with the configured install method, printing each outcome; 1 when any is not
-# installed. With Corellium baselines it restores the role device, installs each intake APK and shuts the device down.
+# installed. With Corellium baselines a VM role is restored, given each intake APK and shut down, and a phone role
+# installs with device.phone_app_store.
 def _install_apps(config, role: str | None = None) -> int:
-    store = app_store_for(config)
+    store = install_method_for(config, role or NON_ROOTED) if uses_baselines(config) else app_store_for(config)
     work = android_work_dir() / store.key
     if role is not None and not uses_baselines(config):
         print("FAILED: --role needs device.corellium.roles in the Android config.", file=sys.stderr)

@@ -19,7 +19,8 @@ from mobile_playbook.platforms.android.device.permissions import is_installed as
 from mobile_playbook.platforms.android.device.phone_lock import phone_lock_holder
 from mobile_playbook.platforms.android.models import PHYSICAL_PROVIDER
 from mobile_playbook.platforms.android.acquisition.intake_apk import find_intake_apk
-from mobile_playbook.platforms.android.baseline_devices import role_readiness, uses_baselines
+from mobile_playbook.platforms.android.acquisition.store import install_method_for
+from mobile_playbook.platforms.android.baseline_devices import phone_has_app, role_readiness, uses_baselines
 from mobile_playbook.platforms.android.device_roles import plan_risk_roles, required_roles
 from mobile_playbook.api.run_registry import registry
 from mobile_playbook.common.storage_paths import config_path, ios_intake_dir
@@ -181,17 +182,56 @@ def _android_device(device: AndroidDeviceClient | None) -> str:
     return "no_device"
 
 
+# Return the roles the app's enabled risks run on, or None when they cannot be planned.
+def _android_roles(config, app: dict) -> list[str] | None:
+    enabled = {risk for risk, settings in (app.get("risks") or {}).items() if (settings or {}).get("enabled")}
+    try:
+        return required_roles(plan_risk_roles(iter_enabled_tests(config, enabled, {app.get("id")}, get_android_risk), get_android_risk))
+    except Exception:
+        logger.debug("api: device roles for app %r could not be planned.", app.get("id"), exc_info=True)
+        return None
+
+
+# Return whether the app's baseline runs need its intake APK, and whether the phone installs it from a store; an app
+# whose roles cannot be planned, or that needs no device, needs the APK.
+def _baseline_installs(config, app: dict) -> tuple[bool, bool]:
+    roles = _android_roles(config, app)
+    if not roles:
+        return True, False
+    from_store = [role for role in roles if install_method_for(config, role).key != "apk"]
+    return len(from_store) < len(roles), bool(from_store)
+
+
+# Report whether a baseline app is waiting only for its store install on the phone, which the worker asks for.
+def _awaiting_phone_install(app: dict | None) -> bool:
+    config = _android_config()
+    if app is None or config is None or not uses_baselines(config):
+        return False
+    needs_apk, from_store = _baseline_installs(config, app)
+    return from_store and (not needs_apk or find_intake_apk(app.get("package_name") or "") is not None)
+
+
 # Return the state, detail and package name of an Android app's test configuration.
 def _android_configuration(app: dict) -> tuple[str, str | None, str | None]:
     package_name = app.get("package_name") or None
     logger.debug("api: checking Android configuration for app %r (package=%r).", app.get("id"), package_name)
     if not package_name:
         return "failed", "This app's test configuration is incomplete.", None
-    if _android_uses_baselines():
-        # Each run installs the intake APK on its restored devices, so the build on disk is what must be ready.
-        if find_intake_apk(package_name) is None:
+    config = _android_config()
+    if config is not None and uses_baselines(config):
+        # Each run installs the intake APK on its restored devices, so the build on disk is what must be ready; the
+        # phone's store apps must be on the phone, and the worker installs a missing one before the run.
+        needs_apk, from_store = _baseline_installs(config, app)
+        if needs_apk and find_intake_apk(package_name) is None:
             logger.debug("api: no intake APK of %s for baseline installs yet.", package_name)
             return "in_progress", "Waiting for the app build to be provided.", package_name
+        if from_store:
+            on_phone = phone_has_app(config, package_name)
+            logger.debug("api: package %s on the test phone: %s.", package_name, on_phone)
+            if on_phone is None:
+                return "unknown", "No test device is currently connected.", package_name
+            if not on_phone:
+                return "in_progress", "The app is not installed on the test device yet; it is installed before testing.", package_name
         return "done", None, package_name
 
     client = _android_device_client()
@@ -294,11 +334,8 @@ _CONFIG_BLOCKER_BY_STAGE_STATE = {
 # from read-only lookups; a role the app does not need is never checked.
 def _baseline_device(app: dict) -> tuple[bool, str | None, str | None]:
     config = _android_config()
-    enabled = {risk for risk, settings in (app.get("risks") or {}).items() if (settings or {}).get("enabled")}
-    try:
-        roles = required_roles(plan_risk_roles(iter_enabled_tests(config, enabled, {app.get("id")}, get_android_risk), get_android_risk))
-    except Exception:
-        logger.debug("api: device roles for app %r could not be planned.", app.get("id"), exc_info=True)
+    roles = _android_roles(config, app)
+    if roles is None:
         return False, "configuration_incomplete", None
     for role in role_readiness(config, roles):
         logger.debug("api: %s device for app %r is %s (%s).", role.role, app.get("id"), role.state, role.detail)
@@ -376,8 +413,8 @@ def _readiness(platform: str, app: dict | None, stages: list[Stage]) -> dict:
         configuration_ready, config_blocker = False, "no_tests_enabled"
     baselines = platform == "android" and _android_uses_baselines()
     # An Android app in progress is one not yet installed, which the worker installs; with baselines the run installs
-    # the intake APK itself, so a missing build stays a missing build.
-    if platform == "android" and config_blocker == "app_build_missing" and not baselines:
+    # the intake APK itself, so a missing build stays a missing build unless only the phone's store install is missing.
+    if platform == "android" and config_blocker == "app_build_missing" and (not baselines or _awaiting_phone_install(app)):
         config_blocker = "app_not_installed"
 
     device_needed = _device_required(platform, app)

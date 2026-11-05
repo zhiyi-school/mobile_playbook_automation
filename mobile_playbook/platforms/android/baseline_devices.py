@@ -19,6 +19,7 @@ from mobile_playbook.platforms.android.acquisition import apk as apk_install
 from mobile_playbook.platforms.android.acquisition.intake_apk import find_intake_apk
 from mobile_playbook.platforms.android.acquisition.play_store import InstallOutcome, installer_of
 from mobile_playbook.platforms.android.acquisition.store import APP_STORES, install_method_for
+from mobile_playbook.platforms.android.device.adb import AdbClient
 from mobile_playbook.platforms.android.device.app_version import installed_version
 from mobile_playbook.platforms.android.device import fingerprint
 from mobile_playbook.platforms.android.device.install import disable_background_dexopt, install_apks, wait_for_dexopt
@@ -29,6 +30,7 @@ from mobile_playbook.platforms.android.device.phone_role import (
     connect_phone,
     phone_model,
     phone_readiness,
+    ready_phone_serial,
     third_party_packages,
     uninstall,
 )
@@ -106,6 +108,7 @@ class InstalledBuild:
     installer: str | None
     seconds: float
     source: str = "apk"
+    action: str = "installed"
 
 
 # Report whether an Android config uses the role-based Corellium baseline lifecycle.
@@ -267,7 +270,7 @@ class BaselineSession:
         installer = fingerprint.installer_of(adb, build.package)
         record = InstalledBuild(build.app_id, role, device.instance_id, build.package, version.version_name,
                                 version.version_code, fingerprint.installed_base_apk_sha256(adb, build.package),
-                                installer, time.monotonic() - started, source=store.key)
+                                installer, time.monotonic() - started, source=store.key, action=action)
         self.installed[(role, build.app_id)] = record
         self.store_installed.setdefault(role, {})[build.package] = store.installer_package
         append_event(self.event_dir, "app_installed", app_id=build.app_id, role=role, device_type=device.device_type,
@@ -468,10 +471,14 @@ def _warn_on_differing_versions(installed: Iterable[InstalledBuild], event_dir: 
 # PhoneBusy propagates so callers can report the phone as busy.
 def install_apps(config: Any, apps: Sequence[Any], role: str, event_dir: Path, connect: Connect, *,
                  client: CorelliumClient | None = None, store: ClaimStore | None = None,
-                 policy: LifecyclePolicy | None = None) -> list[tuple[Any, InstallOutcome]]:
+                 policy: LifecyclePolicy | None = None, phone: ConnectPhone | None = None) -> list[tuple[Any, InstallOutcome]]:
     outcomes: dict[str, InstallOutcome] = {}
-    builds = []
+    builds: list[IntendedBuild | StoreBuild] = []
+    method = install_method_for(config, role)
     for app in apps:
+        if method.key != "apk":
+            builds.append(StoreBuild(app.id, app.package_name, method.key))
+            continue
         try:
             builds.append(intended_build(app))
         except BuildUnavailable:
@@ -479,13 +486,13 @@ def install_apps(config: Any, apps: Sequence[Any], role: str, event_dir: Path, c
     if builds:
         try:
             session = open_session(config, (role,), {}, event_dir, claim_run_id("install"), connect,
-                                   client=client, store=store, policy=policy, clean_phone=False)
+                                   client=client, store=store, policy=policy, phone=phone, clean_phone=False)
         except PhoneBusy:
             raise
         except Exception as exc:
             logger.warning("The %s device could not be prepared for installs: %s", role, exc)
             for build in builds:
-                outcomes[build.app_id] = apk_install.failure("error", f"The {role} test device is not available: {exc}")
+                outcomes[build.app_id] = method.failure("error", f"The {role} test device is not available: {exc}")
         else:
             try:
                 for build in builds:
@@ -496,12 +503,13 @@ def install_apps(config: Any, apps: Sequence[Any], role: str, event_dir: Path, c
 
 
 # Install one build through the session and describe the result as an install outcome.
-def _install_outcome(session: BaselineSession, build: IntendedBuild, role: str) -> InstallOutcome:
+def _install_outcome(session: BaselineSession, build: IntendedBuild | StoreBuild, role: str) -> InstallOutcome:
     try:
         record = session.install(build, role)
     except BuildInstallError as exc:
         return exc.outcome or apk_install.failure(exc.state, str(exc))
-    return InstallOutcome(status="installed", installer=record.installer, seconds=record.seconds,
+    status = "already_installed" if record.action == "kept" else "installed"
+    return InstallOutcome(status=status, installer=record.installer, seconds=record.seconds,
                           version_name=record.version_name, version_code=record.version_code)
 
 
@@ -584,6 +592,16 @@ def _phone_role_readiness(config: Any, profile: Any, role: str) -> RoleReadiness
     state, detail, cause = phone_readiness(config.device.adb_path, config.device.adb_serial,
                                            _vm_addresses((), profile.role_settings))
     return RoleReadiness(role, state, detail, cause)
+
+
+# Report whether the app is on the phone serving the physical roles, from read-only adb calls that never connect or
+# install anything; None when the phone is not ready to be asked.
+def phone_has_app(config: Any, package: str) -> bool | None:
+    profile = load_profile(config.device.corellium, PLATFORM)
+    serial = ready_phone_serial(config.device.adb_path, config.device.adb_serial, _vm_addresses((), profile.role_settings))
+    if serial is None:
+        return None
+    return is_installed(AdbClient(config.device.adb_path, serial), package)
 
 
 # Report whether an inventory instance is one the role could select, so its ownership explains an empty selection.

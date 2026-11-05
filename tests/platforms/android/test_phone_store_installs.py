@@ -1,10 +1,6 @@
-from dataclasses import replace
-
 import pytest
 
 from mobile_playbook.platforms.android.acquisition import play_store
-from mobile_playbook.platforms.android.acquisition.play_store import InstallOutcome
-from mobile_playbook.platforms.android.acquisition.store import APP_STORES
 from mobile_playbook.platforms.android.baseline_devices import BuildInstallError, BuildUnavailable
 from mobile_playbook.platforms.android.device.phone_lock import phone_lock_holder
 from mobile_playbook.reporting.run_manifest import read_manifest
@@ -21,26 +17,11 @@ from tests.platforms.android.baseline_fakes import (
     phone_commands,
     report,
     run,
+    use_fake_play_store,
 )
 
 PLAY = play_store.PLAY_STORE_PACKAGE
 PLAY_VERSION = ("3.3.0", "330")
-
-
-class FakePlayStore:
-    def __init__(self, bench):
-        self.bench = bench
-        self.installs: list[str] = []
-        self.fail_with: str | None = None
-        self.version = PLAY_VERSION
-
-    def install(self, adb, make_driver, package, diagnostics_root):
-        self.installs.append(package)
-        if self.fail_with:
-            return play_store.failure(self.fail_with)
-        self.bench.phone.packages[package] = self.version
-        self.bench.phone.installers[package] = PLAY
-        return InstallOutcome(status="installed", installer=PLAY)
 
 
 @pytest.fixture
@@ -53,9 +34,7 @@ def bench(tmp_path, monkeypatch):
 
 @pytest.fixture
 def store(bench, monkeypatch):
-    fake = FakePlayStore(bench)
-    monkeypatch.setitem(APP_STORES, "play_store", replace(APP_STORES["play_store"], install=fake.install))
-    return fake
+    return use_fake_play_store(bench, monkeypatch)
 
 
 def installed_event(run_dir):

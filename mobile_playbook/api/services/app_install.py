@@ -15,7 +15,7 @@ from mobile_playbook.api.config_editing.shared import ENTRY_FILES
 from mobile_playbook.api.run_registry import registry
 from mobile_playbook.common.storage_paths import android_work_dir, config_path
 from mobile_playbook.orchestration.appium_server import ensure_appium_running
-from mobile_playbook.platforms.android.acquisition.store import app_store_for
+from mobile_playbook.platforms.android.acquisition.store import app_store_for, install_method_for
 from mobile_playbook.platforms.android.baseline_devices import uses_baselines
 from mobile_playbook.platforms.android.device_roles import NON_ROOTED
 from mobile_playbook.platforms.android.models import PHYSICAL_PROVIDER
@@ -31,7 +31,8 @@ logger = logging.getLogger(__name__)
 
 
 # Install the app if it is missing and return the outcome; 409 while another run holds the Android device. With
-# Corellium baselines the role device (non_rooted unless rooted is asked for) is restored, installed on and shut down.
+# Corellium baselines the role (non_rooted unless rooted is asked for) installs on its VM, restored and shut down
+# again, or on the phone serving it with device.phone_app_store.
 def install_app(platform: str, app_id: str, role: str | None = None) -> dict:
     if platform != "android":
         raise HTTPException(status_code=422, detail="Only Android apps are installed by the automation host")
@@ -66,7 +67,7 @@ def install_app(platform: str, app_id: str, role: str | None = None) -> dict:
             status_code=409,
             detail={"blocker_code": "platform_busy", "message": "Another run is already using the test device."},
         )
-    store = app_store_for(config)
+    store = install_method_for(config, role or NON_ROOTED) if baselines else app_store_for(config)
     try:
         work = android_work_dir() / store.key
         if baselines:

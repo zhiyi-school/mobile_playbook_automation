@@ -23,6 +23,7 @@ from mobile_playbook.orchestration.platform_runner import (
     requires_device,
 )
 from mobile_playbook.platforms.android import baseline_devices
+from mobile_playbook.platforms.android.acquisition.store import install_method_for
 from mobile_playbook.platforms.android.baseline_devices import IntendedBuild, TaggedReportWriter, claim_run_id, intended_builds, uses_baselines
 from mobile_playbook.platforms.android.device.app_version import installed_version
 from mobile_playbook.platforms.android.device.client import open_device
@@ -142,11 +143,14 @@ class AndroidPlatformRunner:
         self._sessions[id(session.pool)] = session
         return session.pool
 
-    # Install apps on one role's restored Corellium device and shut it down, returning each app's install outcome.
+    # Install apps on one role's device and return each app's install outcome: a restored Corellium VM is shut down
+    # again, and a phone installing from its store gets Appium first, since the store installers drive its UI.
     def install_on_baseline(self, config, apps, role: str, work_dir: Path):
+        from_store = install_method_for(config, role).key != "apk"
         return baseline_devices.install_apps(
             config, apps, role, work_dir, partial(self._connect_claimed, config, work_dir),
             client=self.corellium_client, store=self.claim_store, policy=self.lifecycle_policy,
+            phone=partial(self._connect_phone, config, work_dir) if from_store else None,
         )
 
     # Ensure Appium is running and connect the physical phone serving a role, never one of the excluded VM addresses.

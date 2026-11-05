@@ -25,13 +25,16 @@ from tests.platforms.android.baseline_fakes import (
     STOCK_SERIAL,
     STOCK_VM,
     BaselineBench,
+    use_fake_play_store,
 )
 
 MUTATIONS = {"restore", "start", "stop", "unpause"}
 
 
-def bench_for(tmp_path, monkeypatch, *risks, roles=("non_rooted", "rooted"), physical_roles=()) -> BaselineBench:
-    bench = BaselineBench(tmp_path, monkeypatch, risks=risks, roles=roles, physical_roles=physical_roles)
+def bench_for(tmp_path, monkeypatch, *risks, roles=("non_rooted", "rooted"), physical_roles=(),
+              phone_app_store=None) -> BaselineBench:
+    bench = BaselineBench(tmp_path, monkeypatch, risks=risks, roles=roles, physical_roles=physical_roles,
+                          phone_app_store=phone_app_store)
     monkeypatch.setattr(provisioning, "get_android_risk", bench.risks.get)
     return bench
 
@@ -300,3 +303,117 @@ def test_a_standalone_install_can_still_choose_the_rooted_vm_beside_a_phone(tmp_
     assert status == 200, body
     assert bench.actions(ROOTED_VM, "restore", "start", "stop") == ["restore", "start", "stop"]
     assert not [args for serial, args in bench.adb.commands if serial == PHONE_SERIAL]
+
+
+def store_bench(tmp_path, monkeypatch):
+    bench = bench_for(tmp_path, monkeypatch, PLAIN, ROOT, physical_roles=("non_rooted",), phone_app_store="play_store")
+    return bench, use_fake_play_store(bench, monkeypatch)
+
+
+def install(role=None):
+    query = f"?role={role}" if role else ""
+    return asyncio.run(call(api(), "POST", f"/config/android/apps/one/install{query}"))
+
+
+def test_a_phone_store_app_missing_from_the_phone_needs_no_apk_and_is_left_for_the_worker_to_install(
+        tmp_path, monkeypatch, registry):
+    bench, store = store_bench(tmp_path, monkeypatch)
+    bench.apk.unlink()
+
+    body = readiness_for(PLAIN, bench)
+
+    assert (body["runnable"], body["configuration_ready"], body["device_ready"]) == (False, False, True)
+    assert (body["blocker_code"], body["retryable"]) == ("app_not_installed", True)
+    assert body["detail"] == "The app is not installed on the test device yet; it is installed before testing."
+    assert store.installs == [] and bench.api.data["calls"] == []
+
+
+def test_a_phone_store_app_on_the_phone_is_runnable_without_an_apk(tmp_path, monkeypatch, registry):
+    bench, _ = store_bench(tmp_path, monkeypatch)
+    bench.apk.unlink()
+    bench.phone.packages[PACKAGE] = ("3.3.0", "330")
+
+    body = readiness_for(PLAIN, bench)
+
+    assert (body["runnable"], body["blocker_code"]) == (True, None)
+    assert {tuple(args) for _, args in bench.adb.commands} <= {
+        ("version",), ("devices",), ("shell", "getprop", "ro.build.type"), ("shell", "pm", "list", "packages", PACKAGE)}
+
+
+def test_an_app_also_tested_on_a_vm_still_waits_for_its_apk_before_its_phone_install(tmp_path, monkeypatch, registry):
+    bench, store = store_bench(tmp_path, monkeypatch)
+    bench.apk.unlink()
+
+    body = readiness()
+
+    assert (body["blocker_code"], body["configuration_ready"]) == ("app_build_missing", False)
+    assert store.installs == []
+
+
+def test_an_app_on_both_devices_with_its_apk_asks_for_the_phone_install(tmp_path, monkeypatch, registry):
+    store_bench(tmp_path, monkeypatch)
+
+    body = readiness()
+
+    assert (body["blocker_code"], body["configuration_ready"]) == ("app_not_installed", False)
+
+
+def test_a_disconnected_phone_reports_the_device_rather_than_an_install(tmp_path, monkeypatch, registry):
+    bench, _ = store_bench(tmp_path, monkeypatch)
+    bench.phone.state = "absent"
+
+    body = readiness_for(PLAIN, bench)
+
+    assert (body["blocker_code"], body["configuration_ready"], body["device_ready"]) == ("no_device", True, False)
+    assert body["detail"] == "Waiting for the non-rooted test phone to be connected and to approve USB debugging."
+
+
+def test_an_install_on_the_phone_role_uses_its_store_and_keeps_the_app(tmp_path, monkeypatch, registry):
+    from mobile_playbook.platforms.android.device.phone_lock import phone_lock_holder
+
+    bench, store = store_bench(tmp_path, monkeypatch)
+    bench.apk.unlink()
+
+    status, body = install()
+
+    assert status == 200, body
+    assert (body["status"], body["installer"]) == ("installed", "com.android.vending")
+    assert (body["version_name"], body["version_code"], body["blocker_code"]) == ("3.3.0", "330", None)
+    assert store.installs == [PACKAGE] and bench.phone.packages[PACKAGE] == ("3.3.0", "330")
+    assert bench.api.data["calls"] == []
+    assert phone_lock_holder() is None and not registry.is_platform_busy("android")
+    assert readiness_for(PLAIN, bench)["runnable"] is True
+
+
+def test_an_install_of_an_app_the_store_already_installed_leaves_it_as_it_is(tmp_path, monkeypatch, registry):
+    bench, store = store_bench(tmp_path, monkeypatch)
+    bench.phone.packages[PACKAGE] = ("3.1.0", "310")
+    bench.phone.installers[PACKAGE] = "com.android.vending"
+
+    status, body = install("non_rooted")
+
+    assert status == 200, body
+    assert (body["status"], body["version_name"]) == ("already_installed", "3.1.0")
+    assert store.installs == [] and bench.phone.packages[PACKAGE] == ("3.1.0", "310")
+
+
+def test_a_failed_phone_store_install_is_a_200_with_the_stores_blocker_code(tmp_path, monkeypatch, registry):
+    bench, store = store_bench(tmp_path, monkeypatch)
+    store.fail_with = "paid"
+
+    status, body = install()
+
+    assert status == 200, body
+    assert (body["status"], body["blocker_code"], body["retryable"]) == ("failed", "app_paid", False)
+    assert PACKAGE not in bench.phone.packages and not registry.is_platform_busy("android")
+
+
+def test_the_rooted_role_still_installs_the_intake_apk_on_its_vm_beside_a_store_phone(tmp_path, monkeypatch, registry):
+    bench, store = store_bench(tmp_path, monkeypatch)
+
+    status, body = install("rooted")
+
+    assert status == 200, body
+    assert (body["status"], body["version_name"]) == ("installed", "3.2.1")
+    assert bench.actions(ROOTED_VM, "restore", "start", "stop") == ["restore", "start", "stop"]
+    assert store.installs == [] and not [args for serial, args in bench.adb.commands if serial == PHONE_SERIAL]

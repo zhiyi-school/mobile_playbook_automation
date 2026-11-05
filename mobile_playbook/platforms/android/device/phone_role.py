@@ -129,9 +129,20 @@ def phone_model(adb: AdbClient) -> str | None:
 # Return the configured phone's readiness, why, and its adb state when that is the cause, from read-only adb calls
 # that never connect, switch the phone to Wi-Fi or install anything: ready, unavailable or unreachable.
 def phone_readiness(adb_path: str, configured: str | None, exclude: Collection[str] = ()) -> tuple[str, str, str]:
+    return _phone_status(adb_path, configured, exclude)[:3]
+
+
+# Return the adb serial of the configured phone when it is ready, from the same read-only calls as phone_readiness.
+def ready_phone_serial(adb_path: str, configured: str | None, exclude: Collection[str] = ()) -> str | None:
+    state, _, _, serial = _phone_status(adb_path, configured, exclude)
+    return serial if state == "ready" else None
+
+
+# Return the phone's readiness, why, its adb state when that is the cause, and the serial it was found at.
+def _phone_status(adb_path: str, configured: str | None, exclude: Collection[str]) -> tuple[str, str, str, str]:
     host = AdbClient(adb_path)
     if not host.is_available():
-        return "unreachable", "adb is not available on this host", ""
+        return "unreachable", "adb is not available on this host", "", ""
     states = {serial: state for serial, state in host.device_states().items() if serial not in exclude}
     configured = (configured or "").strip()
     if configured == WIFI_SERIAL:
@@ -141,22 +152,22 @@ def phone_readiness(adb_path: str, configured: str | None, exclude: Collection[s
             network = network[:1]
         candidates = network or [serial for serial in states if not is_network_serial(serial)]
         if len(candidates) != 1:
-            return "unavailable", "no phone is connected" if not candidates else "several phones are connected", ""
+            return "unavailable", "no phone is connected" if not candidates else "several phones are connected", "", ""
         serial = candidates[0]
     else:
         serial = configured
     state = states.get(serial)
     if state is None:
-        return "unavailable", "the phone is not connected", ABSENT
+        return "unavailable", "the phone is not connected", ABSENT, serial
     if state == UNAUTHORIZED:
         transport = "Wi-Fi adb connection" if is_network_serial(serial) else "adb connection"
         return "unavailable", (
             f"the phone's {transport} is waiting for it to allow debugging from this host; unlock the phone and tap "
             "Allow on its USB debugging prompt, ticking Always allow from this computer"
-        ), UNAUTHORIZED
+        ), UNAUTHORIZED, serial
     if state != "device":
-        return "unavailable", f"the phone is {state}", state
+        return "unavailable", f"the phone is {state}", state, serial
     code, out, _ = AdbClient(adb_path, serial).run(["shell", "getprop", "ro.build.type"])
     if code == 0 and out.strip() in ROOTED_ANDROID_BUILDS:
-        return "unavailable", f"the phone runs a rooted {out.strip()} build", ""
-    return "ready", "", ""
+        return "unavailable", f"the phone runs a rooted {out.strip()} build", "", serial
+    return "ready", "", "", serial

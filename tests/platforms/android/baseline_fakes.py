@@ -1,6 +1,6 @@
 """
 A synthetic Corellium baseline bench: two automation VMs, their adb devices, an intake APK and a baseline config,
-with helpers that run it and read what the run recorded.
+with a fake Play Store for the phone and helpers that run it and read what the run recorded.
 """
 
 from __future__ import annotations
@@ -17,7 +17,9 @@ from mobile_playbook.orchestration.appium_server import AppiumStartResult
 from mobile_playbook.orchestration.scan_runner import RunOptions, run_platform
 from mobile_playbook.platforms.android import play_services
 from mobile_playbook.platforms.android import runner as runner_module
-from mobile_playbook.platforms.android.acquisition import intake_apk
+from mobile_playbook.platforms.android.acquisition import intake_apk, play_store
+from mobile_playbook.platforms.android.acquisition.play_store import InstallOutcome
+from mobile_playbook.platforms.android.acquisition.store import APP_STORES
 from mobile_playbook.platforms.android.device import adb as adb_module
 from mobile_playbook.platforms.android.device import adb_connection, corellium_roles
 from mobile_playbook.platforms.android.device.adb_connection import AdbConnectPolicy
@@ -208,3 +210,29 @@ def report(run_dir, risk_id):
 
 def phone_commands(bench, *prefix):
     return [args for serial, args in bench.adb.commands if serial == PHONE_SERIAL and args[:len(prefix)] == list(prefix)]
+
+
+class FakePlayStore:
+    """Installs the app on the bench's phone as the Play Store would, or fails with a store failure state."""
+
+    def __init__(self, bench, version=("3.3.0", "330")):
+        self.bench = bench
+        self.version = version
+        self.installs: list[str] = []
+        self.fail_with: str | None = None
+
+    def install(self, adb, make_driver, package, diagnostics_root):
+        self.installs.append(package)
+        if self.fail_with:
+            return play_store.failure(self.fail_with)
+        if package in self.bench.phone.packages:
+            return InstallOutcome(status="already_installed", installer=self.bench.phone.installers.get(package))
+        self.bench.phone.packages[package] = self.version
+        self.bench.phone.installers[package] = play_store.PLAY_STORE_PACKAGE
+        return InstallOutcome(status="installed", installer=play_store.PLAY_STORE_PACKAGE)
+
+
+def use_fake_play_store(bench, monkeypatch) -> FakePlayStore:
+    fake = FakePlayStore(bench)
+    monkeypatch.setitem(APP_STORES, "play_store", replace(APP_STORES["play_store"], install=fake.install))
+    return fake

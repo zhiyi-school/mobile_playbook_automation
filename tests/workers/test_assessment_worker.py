@@ -628,6 +628,38 @@ def test_an_app_tested_on_the_phone_beside_a_vm_starts_its_run_without_a_pre_run
     assert api.installs == []
 
 
+def test_a_phone_store_app_is_installed_from_the_store_before_its_run_starts(tmp_path, monkeypatch):
+    from mobile_playbook.api.run_registry import JobRegistry
+    from mobile_playbook.api.services import app_install, provisioning
+    from tests.platforms.android.baseline_fakes import PACKAGE, PLAIN, BaselineBench, use_fake_play_store
+
+    bench = BaselineBench(tmp_path, monkeypatch, risks=(PLAIN,), physical_roles=("non_rooted",),
+                          phone_app_store="play_store")
+    bench.apk.unlink()
+    play = use_fake_play_store(bench, monkeypatch)
+    monkeypatch.setattr(provisioning, "get_android_risk", bench.risks.get)
+    registry = JobRegistry(persist_path=None)
+    for module in (app_install, provisioning):
+        monkeypatch.setattr(module, "registry", registry)
+
+    class ServiceApi(FakeApi):
+        def readiness(self, platform, app_external_id):
+            self.readiness_calls += 1
+            return provisioning.describe(platform, "one")
+
+        def install_app(self, platform, app_external_id):
+            self.installs.append((platform, app_external_id))
+            return app_install.install_app(platform, "one")
+
+    store, api = android_store(), ServiceApi()
+
+    assert run(store, api) == "started"
+
+    assert api.installs == [("android", "example_app")] and play.installs == [PACKAGE]
+    assert api.readiness_calls == 2 and api.started[0]["apps"] == "example_app"
+    assert PACKAGE in bench.phone.packages and bench.api.data["calls"] == []
+
+
 def test_the_worker_loop_shuts_down_and_releases_vms_an_ended_run_left_pending(tmp_path, monkeypatch):
     from mobile_playbook.workers import assessment_worker
     from tests.platforms.android.baseline_fakes import PLAIN, STOCK_VM, BaselineBench
