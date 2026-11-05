@@ -310,7 +310,11 @@ restores, starts and installs nothing. For a run that needs devices, in order:
    `versionName` and `versionCode`; otherwise setup fails. The run's
    `artifacts` digest for the app is the installed APK's SHA-256, even when an
    older pulled copy exists in the work folder. A store build is installed on
-   the phone as described under **Physical phone roles** below. When an app's
+   the phone as described under **Physical phone roles** below. For an app
+   tested only on the phone's store build, the run copies the installed
+   `base.apk` to `<work>/android/phone_builds/<package>/` and its `artifacts`
+   digest and icon come from that copy, matching the SHA-256 in
+   `app_installed`; if the copy fails, the run warns and continues. When an app's
    devices report different versions, the run logs and records an
    `app_versions_differ` warning, and the run's tested version is the VMs'
    intake version, which its `artifacts` digest names.

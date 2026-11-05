@@ -20,6 +20,7 @@ from mobile_playbook.platforms.android.acquisition.intake_apk import find_intake
 from mobile_playbook.platforms.android.acquisition.play_store import InstallOutcome, installer_of
 from mobile_playbook.platforms.android.acquisition.store import APP_STORES, install_method_for
 from mobile_playbook.platforms.android.device.adb import AdbClient
+from mobile_playbook.platforms.android.device.apks import installed_apk_paths
 from mobile_playbook.platforms.android.device.app_version import installed_version
 from mobile_playbook.platforms.android.device import fingerprint
 from mobile_playbook.platforms.android.device.install import disable_background_dexopt, install_apks, wait_for_dexopt
@@ -278,6 +279,22 @@ class BaselineSession:
                      version=record.version_name, build_number=record.version_code, artifact_sha256=record.sha256,
                      source=store.key, installer=installer, action=action)
         return record
+
+    # Copy the base APK of the app installed on a role device into destination and return it, or None when the device
+    # lists no base APK or the copy fails; an earlier copy there is replaced.
+    def pull_base_apk(self, role: str, package: str, destination: Path) -> Path | None:
+        adb = self.pool.device(role).client.adb
+        base = next((path for path in installed_apk_paths(adb, package) if path.endswith("/base.apk")), None)
+        if base is None:
+            return None
+        destination.mkdir(parents=True, exist_ok=True)
+        target = destination / "base.apk"
+        target.unlink(missing_ok=True)
+        code, _, err = adb.run(["pull", base, str(target)], timeout=120)
+        if code != 0 or not target.is_file():
+            logger.debug("android baseline: pulling %s from the %s device failed (exit %s): %s", base, role, code, err)
+            return None
+        return target
 
     # Quit sessions, remove what the run installed on the phone, disconnect the VMs and confirm each VM off
     # independently, then free the phone; idempotent, and a failure on one device never skips another.

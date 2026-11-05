@@ -36,6 +36,9 @@ artifacts/
                          unpacked bundles still referenced by evidence
     android/play_store/, android/aurora_store/
                          Appium log and screen diagnostics from store installs
+    android/phone_builds/<package>/base.apk
+                         the store build last tested on a phone serving a
+                         Corellium role, copied for the run's artifact and icon
 ```
 
 For the split-set manifest and acquisition requirements, see

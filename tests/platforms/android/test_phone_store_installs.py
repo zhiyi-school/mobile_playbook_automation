@@ -156,3 +156,44 @@ def test_matching_phone_and_vm_versions_raise_no_warning(bench, store, tmp_path)
     outcome = run(bench, tmp_path, PLAIN, ROOT)
 
     assert events(outcome.run_dir, "app_versions_differ") == []
+
+
+def test_an_app_tested_only_on_the_phone_records_the_store_build_as_its_artifact(bench, store, tmp_path):
+    from mobile_playbook.common.storage_paths import android_work_dir
+
+    outcome = run(bench, tmp_path, PLAIN)
+
+    sha = base_apk_sha256(PACKAGE, PLAY_VERSION)
+    manifest = read_manifest(outcome.run_dir)
+    assert manifest["artifacts"]["one"] == sha
+    assert manifest["artifact_versions"]["one"] == "3.3.0"
+    assert (android_work_dir() / "phone_builds/com_example_one/base.apk").is_file()
+
+
+def test_an_app_also_tested_on_a_vm_keeps_its_intake_apk_as_the_artifact(bench, store, tmp_path):
+    from mobile_playbook.artifact_store.store import artifact_digest
+
+    outcome = run(bench, tmp_path, PLAIN, ROOT)
+
+    manifest = read_manifest(outcome.run_dir)
+    assert manifest["artifacts"]["one"] == artifact_digest(bench.apk)
+    assert manifest["artifact_versions"]["one"] == "3.2.1"
+    assert phone_commands(bench, "pull") == []
+
+
+def test_a_store_build_that_cannot_be_copied_still_lets_the_run_finish(bench, store, tmp_path, caplog):
+    original = bench.adb._answer
+
+    def refuse_pull(serial, args):
+        if serial == PHONE_SERIAL and args[:1] == ["pull"]:
+            return 1, "", "adb: error: failed to copy"
+        return original(serial, args)
+
+    bench.adb._answer = refuse_pull
+
+    with caplog.at_level("WARNING"):
+        outcome = run(bench, tmp_path, PLAIN)
+
+    assert "Could not copy the store build of one from the phone" in caplog.text
+    assert read_manifest(outcome.run_dir)["status"] == "completed"
+    assert bench.risks[PLAIN].used == [PHONE_SERIAL]

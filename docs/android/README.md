@@ -262,6 +262,8 @@ version and the `versionCode` is the build number. It is read three times:
   names the version, build number and SHA-256 of the build on the device that
   ran it. A phone installing from its store records the version and the
   `base.apk` SHA-256 it reports, so the run names the store build it tested.
+  An app tested only on that phone has its store build as the run's artifact,
+  so the manifest's digest, icon and version all describe the same build.
   When the phone's store build and the VMs' intake APK differ, the run adds an
   `app_versions_differ` warning event, and the version recorded for the run is
   the intake APK's.

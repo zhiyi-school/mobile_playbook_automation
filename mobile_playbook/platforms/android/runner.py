@@ -24,7 +24,7 @@ from mobile_playbook.orchestration.platform_runner import (
 )
 from mobile_playbook.platforms.android import baseline_devices
 from mobile_playbook.platforms.android.acquisition.store import install_method_for
-from mobile_playbook.platforms.android.baseline_devices import IntendedBuild, TaggedReportWriter, claim_run_id, intended_builds, uses_baselines
+from mobile_playbook.platforms.android.baseline_devices import IntendedBuild, StoreBuild, TaggedReportWriter, claim_run_id, intended_builds, uses_baselines
 from mobile_playbook.platforms.android.device.app_version import installed_version
 from mobile_playbook.platforms.android.device.client import open_device
 from mobile_playbook.platforms.android.device.corellium import reconnect_corellium
@@ -135,11 +135,22 @@ class AndroidPlatformRunner:
             client=self.corellium_client, store=self.claim_store, policy=self.lifecycle_policy,
             phone=partial(self._connect_phone, config, run_dir),
         )
-        # The run's artifact digest then names the installed intake APK rather than an older pulled copy.
+        # The run's artifact digest then names the installed intake APK rather than an older pulled copy, or, for an
+        # app tested only on the phone's store build, that build rather than an intake APK it never ran.
         apks = {build.app_id: build for role_builds in builds.values() for build in role_builds if isinstance(build, IntendedBuild)}
         for build in apks.values():
             app = next(item for item, _ in planned if str(item.id) == build.app_id)
             app.artifact = {**(app.artifact or {}), "apk": str(build.apk)}
+        store_only = {build.app_id: (role, build) for role, role_builds in builds.items() for build in role_builds
+                      if isinstance(build, StoreBuild) and build.app_id not in apks}
+        for app_id, (role, build) in store_only.items():
+            app = next(item for item, _ in planned if str(item.id) == app_id)
+            pulled = session.pull_base_apk(role, build.package, android_work_dir() / "phone_builds" / build.package.replace(".", "_"))
+            if pulled is None:
+                logger.warning("Could not copy the store build of %s from the phone, so the run's artifact may name "
+                               "another build of it.", app_id)
+                continue
+            app.artifact = {**(app.artifact or {}), "apk": str(pulled)}
         self._sessions[id(session.pool)] = session
         return session.pool
 

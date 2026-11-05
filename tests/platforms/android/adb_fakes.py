@@ -157,10 +157,20 @@ class FakeAdbHost:
             if package not in device.packages:
                 return 1, "", "No such file or directory"
             return 0, f"{base_apk_sha256(package, device.packages[package])}  {args[2]}\n", ""
+        if args[:1] == ["pull"] and args[1].endswith("/base.apk"):
+            package = args[1].split("/")[3].removesuffix("-1")
+            if package not in device.packages:
+                return 1, "", f"adb: error: failed to stat remote object '{args[1]}'"
+            Path(args[2]).write_bytes(base_apk_bytes(package, device.packages[package]))
+            return 0, f"{args[1]}: 1 file pulled\n", ""
         if args[:4] == ["shell", "pm", "list", "packages"] and len(args) == 5:
             return 0, f"package:{args[4]}\n" if args[4] in device.packages else "", ""
         return 0, "", ""
 
 
+def base_apk_bytes(package: str, version: tuple[str, str]) -> bytes:
+    return f"{package}:{version[0]}:{version[1]}".encode()
+
+
 def base_apk_sha256(package: str, version: tuple[str, str]) -> str:
-    return hashlib.sha256(f"{package}:{version[0]}:{version[1]}".encode()).hexdigest()
+    return hashlib.sha256(base_apk_bytes(package, version)).hexdigest()
