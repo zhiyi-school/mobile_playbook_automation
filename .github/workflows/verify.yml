@@ -5,6 +5,14 @@ name: Verify
 on:
   pull_request:
   push:
+    branches: [main]
+
+# A newer run on the same branch or PR cancels the older one. Main runs get a
+# unique group because GitHub replaces a pending run in a shared group even
+# when cancel-in-progress is false.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}${{ github.ref == 'refs/heads/main' && format('-{0}', github.run_id) || '' }}
+  cancel-in-progress: true
 
 permissions:
   contents: read

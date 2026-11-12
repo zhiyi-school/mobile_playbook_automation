@@ -52,7 +52,7 @@ check warns and falls back to the files on disk. Exact intentional
 cross-repository references live in `scripts/doc-validation-allowlist.txt`; stale
 exceptions fail validation. The third runs the correctness rules selected in
 `pyproject.toml` (syntax errors and undefined or unused names and imports),
-and CI runs it on every push.
+and CI runs it in the `backend` job.
 
 The focused pytest command covers the report/evidence HTTP contract and the
 sanitized playbook parser-to-renderer boundary. A combined playbook artifact
@@ -74,11 +74,21 @@ configured type checker.
 
 ### Continuous integration
 
-The GitHub-hosted origin had no CI provider configuration before the maintenance
-workflow was added, so `.github/workflows/verify.yml` uses GitHub Actions. Its
-jobs run documentation/dependency checks, the full backend suite and compile
-check, and the focused API/playbook contract suite. Jobs use synthetic fixtures,
-need no secrets or devices, and perform no deployment or synchronization.
+CI runs on GitHub Actions from `.github/workflows/verify.yml`. It runs for every
+pull request and for pushes to `main`. A newer run on the same branch or pull
+request cancels the one in progress; runs on `main` are never cancelled.
+
+The workflow has four jobs, all on Python 3.11:
+
+| Job | Runs |
+| --- | --- |
+| `documentation-and-dependencies` | `scripts/check_requirements.py` and `scripts/check_docs.py` |
+| `backend` | `compileall`, Ruff and the full pytest suite |
+| `contracts` | The focused API and playbook contract suite listed under [Running](#running) |
+| `screen-capture-macos` | The iOS screen-capture tests on macOS with native capture required; see the native capture paragraph under [Conventions worth following](#conventions-worth-following) |
+
+Jobs use synthetic fixtures, need no secrets or devices, and perform no
+deployment or synchronization.
 
 ## What is covered
 
