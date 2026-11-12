@@ -42,7 +42,13 @@ python -m pytest -q tests/api/test_reports.py tests/api/test_report_evidence.py 
 The first command enforces dependency-declaration synchronization. The second
 checks local Markdown links and anchors, referenced repository paths, required
 documentation entry points, external URL syntax, and accidental user-specific
-paths without executing code blocks or using the network. Exact intentional
+paths without executing code blocks or using the network. Referenced paths,
+link targets and the checked Markdown files are judged against files tracked by
+git, so a local run gives the same result as a fresh CI checkout; stage a new
+file before referencing it. A gitignored local configuration path such as
+`configs/ios.yaml` counts as present when its tracked `.example` sibling
+(`configs/ios.example.yaml`) exists. When git cannot list tracked files, the
+check warns and falls back to the files on disk. Exact intentional
 cross-repository references live in `scripts/doc-validation-allowlist.txt`; stale
 exceptions fail validation. The third runs the correctness rules selected in
 `pyproject.toml` (syntax errors and undefined or unused names and imports),
