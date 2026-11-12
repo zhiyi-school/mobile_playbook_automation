@@ -10,6 +10,7 @@ from fastapi import FastAPI, HTTPException
 from mobile_playbook.api.routes import reports as api_reports
 from mobile_playbook.api.services import reports as reports_service
 from mobile_playbook.reporting.evidence import encode_ref
+from tests.asgi_helpers import request
 
 
 def _write_dashboard(root, run_id, rows):
@@ -20,41 +21,7 @@ def _write_dashboard(root, run_id, rows):
 
 
 async def _get(app: FastAPI, path: str, params: dict[str, str] | None = None):
-    sent: list[dict] = []
-    received = False
-
-    async def receive():
-        nonlocal received
-        if received:
-            return {"type": "http.disconnect"}
-        received = True
-        return {"type": "http.request", "body": b"", "more_body": False}
-
-    async def send(message):
-        sent.append(message)
-
-    await app(
-        {
-            "type": "http",
-            "asgi": {"version": "3.0"},
-            "http_version": "1.1",
-            "method": "GET",
-            "scheme": "http",
-            "path": path,
-            "raw_path": path.encode(),
-            "query_string": urlencode(params or {}).encode(),
-            "headers": [],
-            "client": ("test", 1),
-            "server": ("testserver", 80),
-            "root_path": "",
-        },
-        receive,
-        send,
-    )
-    start = next(message for message in sent if message["type"] == "http.response.start")
-    body = b"".join(message.get("body", b"") for message in sent if message["type"] == "http.response.body")
-    headers = {key.decode(): value.decode() for key, value in start["headers"]}
-    return start["status"], headers, body
+    return await request(app, "GET", path, urlencode(params or {}))
 
 
 def test_app_risk_history_reads_matching_rows(monkeypatch, tmp_path):
